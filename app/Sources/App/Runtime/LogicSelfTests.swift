@@ -19,6 +19,7 @@ enum LogicSelfTests {
         ("testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM", testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM),
         ("testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath", testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath),
         ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
+        ("testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges", testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
         ("testTmuxStartupScriptTargetsOnlyTheExactSession", testTmuxStartupScriptTargetsOnlyTheExactSession),
         ("testTmuxStartupScriptWritesNoGlobalEnvironment", testTmuxStartupScriptWritesNoGlobalEnvironment),
@@ -33,7 +34,6 @@ enum LogicSelfTests {
         ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
         ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
-        ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testShellRowsLeaveTheRepoGroupsForTheirOwnSection", testShellRowsLeaveTheRepoGroupsForTheirOwnSection),
         ("testAnAttachedShellsPanelBarFollowsItsOwnColour", testAnAttachedShellsPanelBarFollowsItsOwnColour),
         ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
@@ -136,6 +136,14 @@ enum LogicSelfTests {
         ("testOneShotServeClientsRejectIncompatibleEnvelopes", testOneShotServeClientsRejectIncompatibleEnvelopes),
         ("testServeStreamReconnectsAfterProtocolMismatch", testServeStreamReconnectsAfterProtocolMismatch),
         ("testReadLineReturnsALineSpanningManyReads", testReadLineReturnsALineSpanningManyReads),
+        ("testServeStreamJoinsLinesSplitAcrossWrites", testServeStreamJoinsLinesSplitAcrossWrites),
+        ("testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap", testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap),
+        ("testServeStreamStopsReadingAtAMidStreamProtocolMismatch", testServeStreamStopsReadingAtAMidStreamProtocolMismatch),
+        ("testServeStreamKeepsTheLastTrackerWhenTheConnectionDrops", testServeStreamKeepsTheLastTrackerWhenTheConnectionDrops),
+        ("testServeClientStopEndsAConnectedStream", testServeClientStopEndsAConnectedStream),
+        ("testServeClientStopClosesASocketThatConnectsAfterIt", testServeClientStopClosesASocketThatConnectsAfterIt),
+        ("testServeClientStopEndsTheRetryWait", testServeClientStopEndsTheRetryWait),
+        ("testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE", testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
         ("testSettingsArrangeMovesAProjectWithShiftJAndK", testSettingsArrangeMovesAProjectWithShiftJAndK),
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
@@ -1385,6 +1393,40 @@ enum LogicSelfTests {
         try expect(env["PATH"]?.split(separator: ":").first.map(String.init) == shim, "daemon shim should be first on PATH")
     }
 
+    /// A record miss (after every dropped connection) hashes the daemon binary only when it changed on disk.
+    private static func testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges() throws {
+        let fixture = try appBackendFixture()
+        let binary = fixture.root.appendingPathComponent("daemon-qm")
+        try Data("first build".utf8).write(to: binary)
+        let json = try String(data: JSONSerialization.data(withJSONObject: [
+            "running": true, "root": fixture.stateRoot.path, "identity": "canonical",
+            "socket": fixture.root.appendingPathComponent("daemon.sock").path,
+            "executable": binary.path, "shim_directory": fixture.root.appendingPathComponent("daemon-shims").path,
+            "build": "first build", "generation": 1, "accepting": true,
+        ]), encoding: .utf8) ?? ""
+        try writeExecutable("#!/bin/sh\nprintf '%s\\n' '\(json)'\n", to: fixture.qm)
+        let config = LaunchConfiguration.load(environment: fixture.environment,
+                                              workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        let previous = AppBackendEnvironment.current
+        defer { if let previous { AppBackendEnvironment.activate(previous) } }
+        AppBackendEnvironment.activate(config.backend)
+        var hashed: [String] = []
+        let connection = DaemonConnection(config: config, hashFile: { path in
+            hashed.append(path)
+            return (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        })
+
+        _ = try connection.record()
+        connection.invalidate()
+        _ = try connection.record()
+        try expect(hashed == [binary.path], "an unchanged binary should be hashed once, got \(hashed.count) hashes")
+
+        try Data("second, longer build".utf8).write(to: binary)
+        connection.invalidate()
+        _ = try connection.record()
+        try expect(hashed.count == 2, "a changed binary should be hashed again, got \(hashed.count) hashes")
+    }
+
     private static func testTmuxStartupScriptScopesAppBackendEnvironmentToSession() throws {
         let fixture = try appBackendFixture()
         let backend = LaunchConfiguration.load(
@@ -1727,12 +1769,6 @@ enum LogicSelfTests {
         )
     }
 
-    private static func testTrackerSkeletonMatchesServeStartupMessages() throws {
-        try expect(trackerShowsSkeleton(for: "connecting to backend..."), "current startup text should show skeleton")
-        try expect(trackerShowsSkeleton(for: "backend not connected - retrying"), "retry text should keep showing the skeleton")
-        try expect(trackerShowsSkeleton(for: "backend finishing a previous operation"), "handoff wait should show skeleton")
-    }
-
     private static func testDockPanePublishesModeChanges() throws {
         let model = DockPaneModel()
         let snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
@@ -1859,11 +1895,9 @@ enum LogicSelfTests {
             }, "the skeleton view should mount and start its expected motion")
             return breaths(in: view)
         }
-        func tracker(_ label: String) -> some View {
+        func tracker(_ connection: ConnectionState) -> some View {
             let store = RuntimeStore(sourceLabel: "test")
-            if !label.isEmpty {
-                store.apply(.serveUnavailable(label))
-            }
+            store.apply(RuntimeUpdate(connection: connection))
             return TrackerRootView(store: store, newSessionPresenter: NewSessionSheetPresenter(), destructiveConfirmationPresenter: DestructiveConfirmationPresenter())
         }
         let settings = SettingsSheetView(
@@ -1882,15 +1916,15 @@ enum LogicSelfTests {
         Motion.reducesMotion = { true }
         defer { Motion.reducesMotion = { false } }
         try expect(try hosted(TerminalAttachSkeleton(), shouldBreathe: false).isEmpty, "the terminal's veil holds still under Reduce Motion")
-        try expect(try hosted(tracker("connecting to backend..."), shouldBreathe: false).isEmpty, "the tracker's ghost plates hold still under Reduce Motion")
+        try expect(try hosted(tracker(.connecting), shouldBreathe: false).isEmpty, "the tracker's ghost plates hold still under Reduce Motion")
         try expect(try hosted(settings, shouldBreathe: false).isEmpty, "the Settings pickers hold still under Reduce Motion")
         Motion.reducesMotion = { false }
 
         let veil = try hosted(TerminalAttachSkeleton(), shouldBreathe: true)
         try expect(veil.count == 1 && veil[0].duration == SkeletonMotion.period, "the terminal's veil should be one breath, got \(veil.count)")
-        let ghosts = try hosted(tracker("connecting to backend..."), shouldBreathe: true)
+        let ghosts = try hosted(tracker(.connecting), shouldBreathe: true)
         try expect(ghosts.count == 1 && ghosts[0].duration == SkeletonMotion.period, "the tracker's ghost plates should be one breath, got \(ghosts.count)")
-        try expect(try hosted(tracker(""), shouldBreathe: false).isEmpty, "a tracker with a backend shows no skeleton and nothing breathes")
+        try expect(try hosted(tracker(.connected), shouldBreathe: false).isEmpty, "a tracker with a backend shows no skeleton and nothing breathes")
         let pickers = try hosted(settings, shouldBreathe: true)
         try expect(!pickers.isEmpty && pickers.allSatisfy { $0.duration == SkeletonMotion.period }, "the Settings pickers waiting for options should breathe, got \(pickers.count)")
     }
@@ -5263,8 +5297,8 @@ enum LogicSelfTests {
                 do {
                     _ = try UnixSocketMutationClient.decodeAck(line)
                     try expect(false, "incompatible \(ok ? "success" : "error") envelope was accepted")
-                } catch let error as ServeClientError {
-                    try expect(error.isProtocolVersionMismatch, "version mismatch should win over the response payload")
+                } catch ServeClientError.protocolMismatch {
+                    // Expected: the version mismatch wins over the response payload.
                 }
             }
         }
@@ -5313,6 +5347,7 @@ enum LogicSelfTests {
         }
 
         var labels: [String] = []
+        var states: [ConnectionState] = []
         let recordJSON: [String: Any] = [
             "running": true, "root": fixture.stateRoot.path, "identity": "canonical", "socket": path,
             "executable": fixture.qm.path, "shim_directory": fixture.root.appendingPathComponent("shim").path,
@@ -5322,13 +5357,19 @@ enum LogicSelfTests {
         let config = LaunchConfiguration.load(arguments: ["--no-daemon-start"], environment: fixture.environment,
                                               workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
         let client = UnixSocketServeClient(connection: DaemonConnection(config: config, record: record))
+        defer { client.stop() }
         client.start(onUpdate: { update in
-            DispatchQueue.main.async { labels.append(update.observedLabel ?? "") }
-        }, onStatus: { _ in })
+            DispatchQueue.main.async {
+                labels.append(update.observedLabel ?? "")
+                states.append(contentsOf: update.connection.map { [$0] } ?? [])
+            }
+        })
         try waitForMainQueue("protocol mismatch and recovered tracker stream", until: {
-            labels.contains(where: { $0.contains("protocol_version") }) && labels.contains("recovered")
+            states.contains(where: { $0.blockingMessage?.contains("protocol_version") == true }) && labels.contains("recovered")
         })
         try expect(!labels.contains("wrong"), "incompatible tracker data should not reach the store")
+        let afterMismatch = states.drop(while: { $0.blockingMessage == nil })
+        try expect(afterMismatch.contains(.connected), "the recovered tracker should make the connection live again, got \(states)")
     }
 
     private static func testReadLineReturnsALineSpanningManyReads() throws {
@@ -5350,6 +5391,281 @@ enum LogicSelfTests {
         // The sockets close only once the writer is done, so it never writes to a closed one.
         _ = written.wait(timeout: .now() + 5)
         try expect(read == line, "readLine should return the whole line, newline and later bytes excluded (got \(read.count) bytes)")
+    }
+
+    /// A tracker line reaches the store only once its newline arrives, however the bytes are split across writes; a
+    /// blank line is skipped and the connection stays up.
+    private static func testServeStreamJoinsLinesSplitAcrossWrites() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let one = serveTrackerLine("wire-one")
+        let two = serveTrackerLine("wire-two")
+        let three = serveTrackerLine("wire-three", padding: 100_000)
+
+        try harness.write(String(one.prefix(40)))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        try harness.write(String(one.dropFirst(40)) + "\n" + String(two.prefix(30)))
+        try waitForMainQueue("the first line", until: { harness.wireLabels == ["wire-one"] })
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        try expect(harness.wireLabels == ["wire-one"], "a line without its newline should wait, got \(harness.wireLabels)")
+
+        try harness.write(String(two.dropFirst(30)) + "\n\n")
+        let bytes = Array((three + "\n").utf8)
+        for start in stride(from: 0, to: bytes.count, by: 1_000) {
+            try UnixSocketIO.write(Data(bytes[start..<min(start + 1_000, bytes.count)]), to: harness.daemon)
+        }
+        try waitForMainQueue("every line", until: { harness.wireLabels.count == 3 })
+        try expect(harness.wireLabels == ["wire-one", "wire-two", "wire-three"], "lines should arrive whole and in order, got \(harness.wireLabels)")
+        try expect(harness.connects == 1, "a split line should not drop the connection, got \(harness.connects) connects")
+    }
+
+    /// A line as long as the pending-line cap still arrives; bytes past the cap with no newline drop the connection,
+    /// nothing of that frame reaches the store, and the client connects again.
+    private static func testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let cap = UnixSocketServeClient.maxBufferedLineBytes
+        let unpadded = serveTrackerLine("wire-at-cap")
+        let atCap = serveTrackerLine("wire-at-cap", padding: cap - unpadded.utf8.count)
+        try expect(atCap.utf8.count == cap, "the at-cap line should be exactly \(cap) bytes, got \(atCap.utf8.count)")
+        let stream = Data((serveTrackerLine("wire-before") + "\n" + atCap + "\n").utf8) + Data(repeating: 0x78, count: cap + 16_384)
+        let daemon = harness.daemon
+        let written = DispatchSemaphore(value: 0)
+        // The client hangs up partway through the oversized frame, so this write ends in an error the test expects.
+        DispatchQueue.global().async {
+            try? UnixSocketIO.write(stream, to: daemon)
+            written.signal()
+        }
+
+        try expect(readsClosed(daemon, within: 10), "the client should close a connection whose frame outgrows the cap")
+        // The daemon end closes only once the writer is done with it.
+        try expect(written.wait(timeout: .now() + 10) == .success, "the oversized write should end once the client hangs up")
+        try waitForMainQueue("a reconnect after the oversized frame", until: { harness.connects >= 2 })
+        try waitForMainQueueTurn()
+        try expect(harness.wireLabels == ["wire-before", "wire-at-cap"], "only the whole lines should arrive, got \(harness.wireLabels)")
+    }
+
+    /// A line with another protocol version ends the read: lines after it on the same connection never reach the store,
+    /// and the client connects again.
+    private static func testServeStreamStopsReadingAtAMidStreamProtocolMismatch() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let lines = [
+            serveTrackerLine("wire-before"),
+            serveTrackerLine("wire-mismatched", version: ServeContract.protocolVersion - 1),
+            serveTrackerLine("wire-after"),
+        ]
+        try harness.write(lines.joined(separator: "\n") + "\n")
+
+        try expect(readsClosed(harness.daemon, within: 10), "the client should close the connection at the mismatched line")
+        try waitForMainQueue("a reconnect after the mismatch", until: { harness.connects >= 2 })
+        try waitForMainQueueTurn()
+        try expect(harness.wireLabels == ["wire-before"], "nothing from the mismatched line on should arrive, got \(harness.wireLabels)")
+    }
+
+    /// A dropped connection (every daemon restart) keeps the last tracker in the store until a fresh one arrives,
+    /// rather than emptying it.
+    private static func testServeStreamKeepsTheLastTrackerWhenTheConnectionDrops() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let line = "{\"protocol_version\":\(ServeContract.protocolVersion),\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wire-live\",\"sessions\":[{\"id\":\"qm-1\",\"title\":\"Kept\",\"status\":\"active\",\"state\":\"idle\",\"elapsed_ms\":0,\"worker_count\":0,\"repo\":{\"identity\":\"example-app\",\"name\":\"example-app\"}}]}}\n"
+        try harness.write(line)
+        try waitForMainQueue("the live tracker", until: { harness.wireLabels == ["wire-live"] })
+
+        shutdown(harness.daemon, SHUT_RDWR)
+        try waitForMainQueue("a reconnect after the drop", until: { harness.connects >= 2 })
+        try waitForMainQueueTurn()
+        let sessions = harness.store.snapshot.tracker.repos.flatMap(\.sessions).map(\.id)
+        try expect(sessions == ["qm-1"], "the last tracker should stay after the drop, got \(sessions)")
+        try expect(harness.store.snapshot.connection == .reconnecting, "the store should know the tracker is the last one, got \(harness.store.snapshot.connection)")
+    }
+
+    /// Stop ends a healthy connection at once: it returns without waiting, the socket closes, the loop exits and the
+    /// client doesn't connect again.
+    private static func testServeClientStopEndsAConnectedStream() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        try harness.write(serveTrackerLine("wire-live") + "\n")
+        try waitForMainQueue("the live line", until: { harness.wireLabels == ["wire-live"] })
+
+        let started = Date()
+        harness.client.stop()
+        try expect(Date().timeIntervalSince(started) < 0.1, "stop should return without waiting for the loop")
+        try expect(readsClosed(harness.daemon, within: 1), "stop should close a connected socket at once")
+        try expect(serveLoopExits(harness.client, within: 1), "the loop should exit once stopped")
+        try expect(harness.connects == 1, "a stopped client should not connect again, got \(harness.connects) connects")
+    }
+
+    /// A stop that lands while a connect is under way closes the socket that connect returns, without reading it.
+    private static func testServeClientStopClosesASocketThatConnectsAfterIt() throws {
+        var fds: [Int32] = [0, 0]
+        try expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0, "could not create socket pair")
+        defer { close(fds[1]) }
+        let clientEnd = fds[0]
+        let connecting = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let client = UnixSocketServeClient(connect: {
+            connecting.signal()
+            _ = release.wait(timeout: .now() + 10)
+            return clientEnd
+        }, invalidate: {})
+        client.start(onUpdate: { _ in })
+        try expect(connecting.wait(timeout: .now() + 5) == .success, "the client should start connecting")
+
+        client.stop()
+        release.signal()
+        try expect(readsClosed(fds[1], within: 1), "a socket connected after stop should close at once")
+        try expect(serveLoopExits(client, within: 1), "the loop should exit once stopped")
+    }
+
+    /// Stop wakes the wait between failed connects instead of sleeping it out.
+    private static func testServeClientStopEndsTheRetryWait() throws {
+        let counter = ConnectCounter()
+        let client = UnixSocketServeClient(connect: {
+            _ = counter.increment()
+            throw ServeClientError.connect("no daemon in this test")
+        }, invalidate: {})
+        client.start(onUpdate: { _ in })
+        // The fourth failure starts the longest wait (one second).
+        try waitForMainQueue("four failed connects", until: { counter.value >= 4 })
+
+        client.stop()
+        try expect(serveLoopExits(client, within: 0.5), "stop should end the retry wait at once")
+    }
+
+    /// A write to a socket whose other end has gone (a daemon that hung up, or a stop's shutdown before the serve
+    /// client's requests go out) fails with an error instead of raising SIGPIPE, which the app doesn't ignore.
+    private static func testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("qm-pipe-\(UUID().uuidString.prefix(8)).sock").path
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        try expect(listener >= 0, "could not create test socket")
+        defer {
+            close(listener)
+            unlink(path)
+        }
+        let bound = try UnixSocketIO.withAddress(path) { address, length in
+            Darwin.bind(listener, address, length)
+        }
+        try expect(bound == 0 && listen(listener, 1) == 0, "could not listen on test socket")
+
+        let client = try UnixSocketIO.connect(path: path)
+        defer { close(client) }
+        let peer = Darwin.accept(listener, nil, nil)
+        try expect(peer >= 0, "could not accept the test connection")
+        close(peer)
+
+        var failed = false
+        for _ in 0..<3 where !failed {
+            do { try UnixSocketIO.write(Data("{}\n".utf8), to: client) } catch { failed = true }
+        }
+        try expect(failed, "a write to a peer that hung up should fail")
+    }
+
+    /// Whether the client's connection loop has returned within `timeout`: it runs on the client's serial queue, so a
+    /// block queued behind it runs only once it does.
+    private static func serveLoopExits(_ client: UnixSocketServeClient, within timeout: TimeInterval) -> Bool {
+        let exited = DispatchSemaphore(value: 0)
+        client.queue.async { exited.signal() }
+        return exited.wait(timeout: .now() + timeout) == .success
+    }
+
+    /// One serve tracker event line, without its newline, labelled by `observed_at` and padded by `padding` bytes.
+    private static func serveTrackerLine(_ label: String, version: Int = ServeContract.protocolVersion, padding: Int = 0) -> String {
+        let pad = String(repeating: "x", count: padding)
+        return "{\"protocol_version\":\(version),\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"\(label)\",\"sessions\":[],\"padding\":\"\(pad)\"}}"
+    }
+
+    /// Reads `fd` until its peer closes (true), or `timeout` passes first (false).
+    private static func readsClosed(_ fd: Int32, within timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            guard poll(&ready, 1, Int32(remaining * 1000)) == 1 else { return false }
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count == 0 || (count < 0 && errno == ECONNRESET) { return true }
+            if count < 0 { return false }
+        }
+    }
+
+    /// A serve client whose first connect is one end of a socket pair; the test plays the daemon on the other end
+    /// (`daemon`). Every later connect fails, so after a drop the client only retries.
+    @MainActor
+    private final class ServeStreamHarness {
+        let daemon: Int32
+        let client: UnixSocketServeClient
+        private let counter: ConnectCounter
+        /// The `observed_at` labels of the tracker updates that reached the client's callback, in order, on the main
+        /// queue. Only `wire-` labels count: the client also reports its own connection status as updates.
+        private(set) var wireLabels: [String] = []
+        /// Every update applied in order, as the app's runtime connection applies them.
+        let store = RuntimeStore(sourceLabel: "test")
+
+        var connects: Int { counter.value }
+
+        init() throws {
+            var fds: [Int32] = [0, 0]
+            guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+                throw TestFailure("could not create socket pair")
+            }
+            var on: Int32 = 1
+            for fd in fds {
+                setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            }
+            let clientEnd = fds[0]
+            let counter = ConnectCounter()
+            daemon = fds[1]
+            self.counter = counter
+            client = UnixSocketServeClient(connect: {
+                guard counter.increment() == 1 else {
+                    throw ServeClientError.connect("the test daemon accepts one connection")
+                }
+                return clientEnd
+            }, invalidate: {})
+        }
+
+        func start() {
+            client.start(onUpdate: { [weak self] update in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.store.apply(update)
+                    guard update.tracker != nil, let label = update.observedLabel, label.hasPrefix("wire-") else { return }
+                    self.wireLabels.append(label)
+                }
+            })
+        }
+
+        func write(_ text: String) throws {
+            try UnixSocketIO.write(Data(text.utf8), to: daemon)
+        }
+
+        func finish() {
+            client.stop()
+            close(daemon)
+        }
+    }
+
+    private final class ConnectCounter {
+        private let lock = NSLock()
+        private var count = 0
+
+        var value: Int {
+            lock.lock(); defer { lock.unlock() }
+            return count
+        }
+
+        func increment() -> Int {
+            lock.lock(); defer { lock.unlock() }
+            count += 1
+            return count
+        }
     }
 
     // The effort keys are the model field's own: e in its SELECT state, ⌃e in
@@ -7415,12 +7731,6 @@ enum LogicSelfTests {
             didRun = true
         }
         try waitForMainQueue("queued main-thread work", until: { didRun })
-    }
-
-    private static func trackerShowsSkeleton(for observedLabel: String) -> Bool {
-        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.apply(.serveUnavailable(observedLabel))
-        return isBackendStartingMessage(snapshot.serviceStateMessage)
     }
 
     /// A press at the dock's model, resolved as `SwiftUIDockPane` resolves it for the content shown (`in:`, the artifact

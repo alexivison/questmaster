@@ -26,9 +26,9 @@ struct RuntimeStoreTests {
         let store = RuntimeStore(sourceLabel: "label")
         var notifications = 0
         let token = store.observe { notifications += 1 }
-        store.apply(.serveUnavailable("serve down"))
+        store.apply(RuntimeUpdate(connection: .reconnecting))
         expect(notifications == 1, "apply did not notify observer")
-        expect(store.snapshot.observedLabel == "serve down", "apply did not merge update")
+        expect(store.snapshot.connection == .reconnecting, "apply did not merge update")
         expect(store.snapshot.tick == 1, "apply did not advance tick")
         token.cancel()
     }
@@ -37,7 +37,7 @@ struct RuntimeStoreTests {
         let store = RuntimeStore(sourceLabel: "label")
         var notifications = 0
         let token = store.observe { notifications += 1 }
-        let update = RuntimeUpdate.serveUnavailable("serve down")
+        let update = RuntimeUpdate(connection: .reconnecting)
         store.apply(update)
         let tick = store.snapshot.tick
         store.apply(update)
@@ -86,9 +86,9 @@ struct RuntimeStoreTests {
         let store = RuntimeStore(sourceLabel: "label")
         var notifications = 0
         let token = store.observe { notifications += 1 }
-        store.apply(.serveUnavailable("one"))
+        store.apply(RuntimeUpdate(connection: .connecting))
         token.cancel()
-        store.apply(.serveUnavailable("two"))
+        store.apply(RuntimeUpdate(connection: .reconnecting))
         expect(notifications == 1, "cancelled observer kept receiving notifications")
     }
 

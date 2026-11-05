@@ -70,6 +70,7 @@ enum RenderPreview {
         renderView(terminalEndedView(), size: CGSize(width: 520, height: 300), to: "\(outputDir)/terminal-ended.png")
         render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
+        render(trackerView(connection: .reconnecting), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-reconnecting.png")
         render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
         render(trackerListStatusView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-status.png")
         render(trackerListGapsView(), size: CGSize(width: 340, height: 820), to: "\(outputDir)/tracker-list-gaps.png")
@@ -1034,7 +1035,7 @@ enum RenderPreview {
     @MainActor
     private static func skeletonView() -> some View {
         let store = RuntimeStore(sourceLabel: "preview")
-        store.apply(.serveUnavailable("connecting to backend..."))
+        store.apply(RuntimeUpdate(connection: .connecting))
         return TrackerRootView(
             store: store,
             newSessionPresenter: NewSessionSheetPresenter(),
@@ -1044,8 +1045,9 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func trackerView(expandedMasterID: String? = nil) -> some View {
+    private static func trackerView(expandedMasterID: String? = nil, connection: ConnectionState = .connected) -> some View {
         let store = trackerPreviewStore()
+        store.apply(RuntimeUpdate(connection: connection))
         if let expandedMasterID {
             store.toggleWorkersCollapsed(for: expandedMasterID)
         }

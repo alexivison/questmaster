@@ -8,8 +8,7 @@ struct RuntimeDecoderTests {
         trackerSessionDecodesCanonicalKeysAndDurations()
         trackerSessionRoleComesFromAgentAndParent()
         serveContractRejectsProtocolVersionMismatch()
-        serveProtocolMismatchSurfacesUnavailableState()
-        serveStoppedSurfacesUnavailableState()
+        serveErrorNamingTheVersionIsNoMismatch()
         print("RuntimeDecoderTests: all tests passed")
     }
 
@@ -112,26 +111,27 @@ struct RuntimeDecoderTests {
         do {
             _ = try ServeContract.update(fromLine: Data(line.utf8))
             fail("protocol_version mismatch decoded successfully")
-        } catch let error as ServeClientError {
-            expect(error.isProtocolVersionMismatch, "mismatch should be classified as protocol-version error")
-            expect(error.localizedDescription.contains("protocol_version"), "mismatch error should name protocol_version")
+        } catch ServeClientError.protocolMismatch(let message) {
+            expect(message.contains("protocol_version"), "mismatch error should name protocol_version")
         } catch {
             fail("protocol_version mismatch threw unexpected error \(error)")
         }
     }
 
-    private static func serveProtocolMismatchSurfacesUnavailableState() {
-        let message = "incompatible backend: serve protocol incompatible: expected protocol_version 3, got 1"
-        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.apply(.serveUnavailable(message))
-        expect(snapshot.serviceStateMessage == message, "protocol mismatch should surface as a service state")
-    }
-
-    private static func serveStoppedSurfacesUnavailableState() {
-        let message = "backend not connected - retrying"
-        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.apply(.serveUnavailable(message))
-        expect(snapshot.serviceStateMessage == message, "serve stopped should surface as a service state")
+    /// The mismatch is the error's type, not its text: a backend error that only mentions protocol_version is an
+    /// ordinary protocol error.
+    private static func serveErrorNamingTheVersionIsNoMismatch() {
+        let line = """
+        {"protocol_version":\(ServeContract.protocolVersion),"type":"response","ok":false,"error":"bad protocol_version in request"}
+        """
+        do {
+            _ = try ServeContract.update(fromLine: Data(line.utf8))
+            fail("an error response decoded successfully")
+        } catch ServeClientError.protocolError(let message) {
+            expect(message == "bad protocol_version in request", "the backend's error should come through, got \(message)")
+        } catch {
+            fail("an error response naming protocol_version threw \(error), not a protocol error")
+        }
     }
 
     private static func requireUpdate(_ line: String) throws -> RuntimeUpdate {

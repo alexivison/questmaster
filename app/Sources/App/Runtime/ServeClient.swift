@@ -3,25 +3,36 @@ import Foundation
 import QuestmasterCore
 
 final class UnixSocketServeClient {
-    private let connection: DaemonConnection
-    private let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
+    private let connect: () throws -> Int32
+    private let invalidate: () -> Void
+    /// Runs the connection loop. Internal so a self-test can tell when the loop has returned.
+    let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
     private let retryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
-    private static let maxBufferedLineBytes = 1_048_576
+    static let maxBufferedLineBytes = 1_048_576
     private static let pendingCompactionThreshold = 64 * 1024
-    private var fd: Int32 = -1
+    /// `stop()` runs on its caller's thread while the loop may be blocked in a read, a connect or a retry wait, so the
+    /// stop flag and the open socket are shared under this condition, which also wakes the retry wait.
+    private let control = NSCondition()
     private var stopped = false
-    private var lastUnavailableMessage = ""
-    private var incompatibleMessage: String?
+    private var fd: Int32 = -1
+    /// The loop's own, used only on `queue`.
+    private var connection = ConnectionStateMachine()
+    private var reportedState: ConnectionState?
     private var onUpdate: ((RuntimeUpdate) -> Void)?
-    private var onStatus: ((String) -> Void)?
 
-    init(connection: DaemonConnection) {
-        self.connection = connection
+    convenience init(connection: DaemonConnection) {
+        self.init(connect: { try connection.connect() }, invalidate: { connection.invalidate() })
     }
 
-    func start(onUpdate: @escaping (RuntimeUpdate) -> Void, onStatus: @escaping (String) -> Void) {
+    /// `connect` hands over a connected socket; a self-test passes one end of a socket pair.
+    init(connect: @escaping () throws -> Int32, invalidate: @escaping () -> Void) {
+        self.connect = connect
+        self.invalidate = invalidate
+    }
+
+    /// Streams tracker updates, each carrying `.connected`, and every other connection state as an update of its own.
+    func start(onUpdate: @escaping (RuntimeUpdate) -> Void) {
         self.onUpdate = onUpdate
-        self.onStatus = onStatus
 
         queue.async { [weak self] in
             guard let self else {
@@ -31,61 +42,60 @@ final class UnixSocketServeClient {
         }
     }
 
+    /// Ends the connection at once from any thread: a read blocked on the socket returns, a retry wait wakes, and a
+    /// socket that a connect still under way returns is closed unread. The loop closes the socket itself.
     func stop() {
-        queue.async { [weak self] in
-            guard let self else {
-                return
-            }
-            self.stopped = true
-            if self.fd >= 0 {
-                shutdown(self.fd, SHUT_RDWR)
-                close(self.fd)
-                self.fd = -1
-            }
+        control.lock()
+        stopped = true
+        if fd >= 0 {
+            shutdown(fd, SHUT_RDWR)
         }
+        control.broadcast()
+        control.unlock()
+    }
+
+    private var isStopped: Bool {
+        control.lock()
+        defer { control.unlock() }
+        return stopped
     }
 
     private func connectionLoop() {
         let startedAt = Date()
         var attempt = 0
-        emitUnavailable("connecting to backend...")
+        reportConnectionState()
 
-        while !stopped {
+        while !isStopped {
             do {
-                fd = try connectSocket()
-                onStatus?("backend connected")
-                try sendInitialRequests()
+                let socket = try connect()
+                guard adopt(socket) else {
+                    return
+                }
+                try sendInitialRequests(on: socket)
 
-                let exit = readLoop()
-                if incompatibleMessage == nil {
+                let exit = readLoop(on: socket)
+                if !connection.isIncompatible {
                     attempt = 0
                 }
                 switch exit {
                 case .stopped:
                     closeCurrentSocket()
                     return
-                case .closed:
-                    connection.invalidate()
-                    onStatus?("backend socket closed; reconnecting")
-                    emitUnavailable("backend not connected - reconnecting")
-                case .failed(let message):
-                    connection.invalidate()
-                    onStatus?("backend socket read failed: \(message); reconnecting")
-                    emitUnavailable("backend not connected - reconnecting")
+                case .dropped:
+                    invalidate()
+                    connection.lost(after: Date().timeIntervalSince(startedAt))
+                    reportConnectionState()
                 case .incompatible:
                     break
                 }
             } catch {
-                if !stopped {
-                    if let failure = error as? ServeClientError, failure.isProtocolVersionMismatch {
-                        let status = "incompatible backend: \(failure.localizedDescription)"
-                        incompatibleMessage = status
-                        emitUnavailable(status)
+                if !isStopped {
+                    if case ServeClientError.protocolMismatch(let message) = error {
+                        connection.incompatible(message)
                     } else {
-                        let message = DaemonWaitingStatus.message(after: Date().timeIntervalSince(startedAt))
-                        onStatus?("\(message): \(error.localizedDescription)")
-                        emitUnavailable(message)
+                        connection.lost(after: Date().timeIntervalSince(startedAt))
                     }
+                    reportConnectionState()
                 }
             }
 
@@ -97,46 +107,62 @@ final class UnixSocketServeClient {
         closeCurrentSocket()
     }
 
-    private func emitUnavailable(_ message: String) {
-        let message = incompatibleMessage ?? message
-        guard lastUnavailableMessage != message else {
+    /// Sends the connection state when it has changed since the last one sent.
+    private func reportConnectionState() {
+        let state = connection.state
+        guard state != reportedState else {
             return
         }
-        lastUnavailableMessage = message
-        onUpdate?(.serveUnavailable(message))
+        reportedState = state
+        onUpdate?(RuntimeUpdate(connection: state))
+    }
+
+    /// Makes `socket` the one `stop()` shuts down, or closes it when a stop came first.
+    private func adopt(_ socket: Int32) -> Bool {
+        control.lock()
+        defer { control.unlock() }
+        guard !stopped else {
+            close(socket)
+            return false
+        }
+        fd = socket
+        return true
     }
 
     private func closeCurrentSocket() {
-        guard fd >= 0 else {
+        control.lock()
+        let socket = fd
+        fd = -1
+        control.unlock()
+        guard socket >= 0 else {
             return
         }
-        shutdown(fd, SHUT_RDWR)
-        close(fd)
-        fd = -1
+        shutdown(socket, SHUT_RDWR)
+        close(socket)
     }
 
     private func waitBeforeRetry(seconds: TimeInterval) {
-        guard seconds > 0 else {
-            return
-        }
-        Thread.sleep(forTimeInterval: seconds)
+        let deadline = Date(timeIntervalSinceNow: seconds)
+        control.lock()
+        defer { control.unlock() }
+        while !stopped, control.wait(until: deadline) {}
     }
 
-    private func sendInitialRequests() throws {
-        try send(["id": "1", "method": "tracker"])
-        try send(["id": "2", "method": "subscribe", "topics": ["tracker"]])
+    private func sendInitialRequests(on socket: Int32) throws {
+        try send(["id": "1", "method": "tracker"], on: socket)
+        try send(["id": "2", "method": "subscribe", "topics": ["tracker"]], on: socket)
     }
 
-    private func send(_ object: [String: Any]) throws {
+    private func send(_ object: [String: Any], on socket: Int32) throws {
         var data = try JSONSerialization.data(withJSONObject: object, options: [])
         data.append(0x0a)
-        try UnixSocketIO.write(data, to: fd)
+        try UnixSocketIO.write(data, to: socket)
     }
 
     private enum ReadLoopExit {
         case stopped
-        case closed
-        case failed(String)
+        /// The connection closed, failed, or a frame outgrew the pending-line cap.
+        case dropped
         case incompatible
     }
 
@@ -145,21 +171,16 @@ final class UnixSocketServeClient {
         case incompatible
     }
 
-    private func readLoop() -> ReadLoopExit {
+    private func readLoop(on socket: Int32) -> ReadLoopExit {
         var pending = Data()
         var parseOffset = pending.startIndex
         var buffer = [UInt8](repeating: 0, count: 8192)
 
-        while !stopped {
-            let count = Darwin.read(fd, &buffer, buffer.count)
-            if count == 0 {
-                return .closed
-            }
-            if count < 0 {
-                if stopped {
-                    return .stopped
-                }
-                return .failed(String(cString: strerror(errno)))
+        while !isStopped {
+            let count = Darwin.read(socket, &buffer, buffer.count)
+            // A stop shuts the socket down, which ends a blocked read with end-of-file.
+            if count <= 0 {
+                return isStopped ? .stopped : .dropped
             }
 
             // The bytes already buffered past `parseOffset` hold no newline, so only the new ones are searched.
@@ -178,7 +199,7 @@ final class UnixSocketServeClient {
             }
             compactPendingBuffer(&pending, parseOffset: &parseOffset)
             if pending.distance(from: parseOffset, to: pending.endIndex) > Self.maxBufferedLineBytes {
-                return .failed("backend frame exceeded \(Self.maxBufferedLineBytes) bytes")
+                return .dropped
             }
         }
         return .stopped
@@ -202,25 +223,21 @@ final class UnixSocketServeClient {
 
     private func handle(_ line: Data) -> LineHandleResult {
         do {
-            if let update = try ServeContract.update(fromLine: line) {
-                incompatibleMessage = nil
-                lastUnavailableMessage = ""
-                onUpdate?(update)
+            // A decoded line is a tracker (the only topic the stream subscribes to), so the connection is live.
+            guard var update = try ServeContract.update(fromLine: line) else {
+                return .handled
             }
-        } catch let error as ServeClientError where error.isProtocolVersionMismatch {
-            let message = error.localizedDescription
-            let status = "incompatible backend: \(message)"
-            incompatibleMessage = status
-            onStatus?("backend decode failed: \(message)")
-            emitUnavailable(status)
+            connection.receivedTracker()
+            reportedState = connection.state
+            update.connection = connection.state
+            onUpdate?(update)
+        } catch ServeClientError.protocolMismatch(let message) {
+            connection.incompatible(message)
+            reportConnectionState()
             return .incompatible
         } catch {
-            onStatus?("backend decode failed: \(error.localizedDescription)")
+            // A line that doesn't decode is skipped; the stream goes on.
         }
         return .handled
-    }
-
-    private func connectSocket() throws -> Int32 {
-        try connection.connect()
     }
 }

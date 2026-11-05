@@ -339,6 +339,10 @@ again where it was when the keys come back.
   the ghost on, `SkeletonMotion.period` (1.6s) each way on `Motion.breathingTimingFunction`, only while in a window, still
   under Reduce Motion (read through `Motion.reducesMotion`, not SwiftUI's environment, so the self-tests' override applies):
   SwiftUI never animates a skeleton, so nothing redraws while the terminal shares the main thread.
+- The tracker follows the runtime connection's typed state (`ConnectionState`, on the store's snapshot, decided in Core
+  by `ConnectionStateMachine`): its skeleton only while no tracker has come yet (`awaitsFirstTracker`); after a dropped
+  connection (every daemon restart) the last tracker stays, drawn at `Token.Opacity.dimmed`, until a fresh one arrives
+  (`showsLastTracker`); an incompatible backend empties it and shows its `StatusMessagePane` (`blockingMessage`).
 - Dock titles (Artifacts, Worker Log, Version Control, an open artifact) are title case in
   `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Version
   Control's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
