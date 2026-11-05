@@ -340,7 +340,7 @@ func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: 
     lines.append("created=0")
     lines.append("if ! \"$tmux\" has-session -t \"=$session\" 2>/dev/null; then pane=$(\(tmuxNewServerCommand())); created=1; fi")
     lines.append(contentsOf: tmuxEnvironmentSyncCommandLines(environment: environment))
-    lines.append("if [ \"$created\" = 1 ]; then \"$tmux\" respawn-pane -k -t \"$pane\" \(shellQuoted(loginShellCommand)) || true; fi")
+    lines.append("if [ \"$created\" = 1 ] && [ -n \"$pane\" ]; then \"$tmux\" respawn-pane -k -t \"$pane\" \(shellQuoted(loginShellCommand)) || true; fi")
     lines.append(tmuxEnvironmentDumpLine())
     lines.append("\"$tmux\" attach-session -t \"=$session\" || true")
     lines.append("printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")

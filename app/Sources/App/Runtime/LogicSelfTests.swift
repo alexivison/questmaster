@@ -1514,6 +1514,8 @@ enum LogicSelfTests {
                    "startup script should capture the created pane ID")
         try expect(script.contains("respawn-pane -k -t \"$pane\""),
                    "startup script should respawn the pane by its captured ID")
+        try expect(script.contains("if [ \"$created\" = 1 ] && [ -n \"$pane\" ]; then"),
+                   "startup script should not respawn without a captured pane ID")
         if let path = ProcessInfo.processInfo.environment["QUESTMASTER_TEST_STARTUP_SCRIPT_DUMP"] {
             try script.write(toFile: path, atomically: true, encoding: .utf8)
         }
