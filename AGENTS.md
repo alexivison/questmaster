@@ -511,7 +511,12 @@ every step in DEBUG builds so the recorder can sample it).
   `t.Helper()` on helpers. State uses a `t.TempDir()` store; tmux is mocked via a
   `Runner` func. Goldens live in `testdata/` dirs. Tests that resolve the state
   root must set `QUESTMASTER_STATE_ROOT` to a temporary directory; the resolver
-  rejects the live root in test binaries.
+  rejects the live root in test binaries. Tests that need real tmux use
+  `internal/tmux/tmuxtest`: every call goes to a private `-S` socket with
+  TMUX, TMUX_PANE and TMUX_TMPDIR stripped. Name them `TestIntegration…` and
+  call `tmuxtest.RequireIntegration` (they run only with
+  `QUESTMASTER_TMUX_INTEGRATION=1`, as in the `tmux-integration` CI job).
+  Production code must not import `tmuxtest`; a test enforces that.
 - **Swift:** Core-only, via a custom runner in
   `app/Tests/QuestmasterLogicTests/main.swift` (no XCTest). Add a pure-Core suite
   by appending `XxxTests.run()` there. The runner also spawns
