@@ -146,6 +146,29 @@ func TestContinueKillsTmuxSessionOnLaunchFailureButPreservesManifest(t *testing.
 	}
 }
 
+// A new-session that fails because the session already exists created nothing.
+// That session belongs to whoever created it, so Continue must not kill it.
+func TestContinueDuplicateSessionErrorDoesNotKill(t *testing.T) {
+	setTestStateRoot(t, t.TempDir())
+	svc, runner := setupService(t)
+	sessionID := "qm-duplicate"
+	createTestManifest(t, svc.Store, sessionID, "duplicate", t.TempDir(), "")
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "new-session" {
+			return "", &tmux.ExitError{Code: 1, Stderr: "duplicate session: " + sessionID}
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	if _, err := svc.Continue(t.Context(), sessionID); err == nil {
+		t.Fatal("Continue error = nil, want the duplicate-session error")
+	}
+
+	if runner.hasCall("kill-session") {
+		t.Fatalf("Continue killed a session it did not create: %v", runner.calls)
+	}
+}
+
 func TestContinueRefreshesQuestmasterPrefixInPersistedAgentPath(t *testing.T) {
 	prefix := filepath.Join(t.TempDir(), "qm-shim")
 	t.Setenv("QUESTMASTER_PATH_PREFIX", prefix)

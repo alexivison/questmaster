@@ -326,8 +326,10 @@ func TestStartRollsBackWorkerAfterTmuxCreateFails(t *testing.T) {
 	if _, err := os.Stat(state.SessionStateDir(stateRoot, sessionID)); !os.IsNotExist(err) {
 		t.Fatalf("session state dir should be removed after rollback, stat err=%v", err)
 	}
-	if !runner.hasCall("kill-session", "-t", tmux.SessionTarget(sessionID)) {
-		t.Fatalf("rollback should best-effort kill partial tmux session")
+	// The failed new-session created nothing; a session by that name belongs to
+	// someone else.
+	if runner.hasCall("kill-session") {
+		t.Fatalf("rollback killed a tmux session this Start did not create: %v", runner.calls)
 	}
 }
 

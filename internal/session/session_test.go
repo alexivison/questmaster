@@ -2252,7 +2252,7 @@ func TestClaimSessionID_Unique(t *testing.T) {
 	svc, _ := setupService(t)
 	svc.Now = func() int64 { return 42 }
 
-	id, err := svc.claimSessionID(t.Context(), state.Manifest{Title: "test", Cwd: "/tmp"})
+	id, err := claimForTest(svc, t)
 	if err != nil {
 		t.Fatalf("claimSessionID: %v", err)
 	}
@@ -2272,13 +2272,24 @@ func TestClaimSessionID_Collision(t *testing.T) {
 		t.Fatalf("create collision manifest: %v", err)
 	}
 
-	id, err := svc.claimSessionID(t.Context(), state.Manifest{Title: "test", Cwd: "/tmp"})
+	id, err := claimForTest(svc, t)
 	if err != nil {
 		t.Fatalf("claimSessionID: %v", err)
 	}
 	if id != "qm-42-99" {
 		t.Errorf("expected qm-42-99, got %s", id)
 	}
+}
+
+// claimForTest claims a session ID and returns it, launching nothing.
+func claimForTest(svc *Service, t *testing.T) (string, error) {
+	t.Helper()
+	var claimed string
+	err := svc.claimSessionID(t.Context(), state.Manifest{Title: "test", Cwd: "/tmp"}, func(_ context.Context, id string) error {
+		claimed = id
+		return nil
+	})
+	return claimed, err
 }
 
 // ---------------------------------------------------------------------------
