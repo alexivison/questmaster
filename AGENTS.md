@@ -31,7 +31,7 @@ app/                 # the macOS Swift package (Questmaster.app)
   Sources/Core/      # QuestmasterCore: pure logic (Foundation + Observation only)
   Sources/App/       # Questmaster: SwiftUI views, sockets, subprocesses
   Tests/             # QuestmasterLogicTests (Core-only, custom runner)
-scripts/, app/Scripts/   # bench-hook.sh, build-app.sh
+scripts/, app/Scripts/   # bench-hook.sh, build-app.sh, install-app.sh (+ test-install.sh)
 ```
 
 ## Build, test, run
@@ -58,9 +58,18 @@ swift run --package-path app QuestmasterLogicTests      # Core + app self-tests
 ```
 
 `build-app.sh` builds the Swift executable, fetches/embeds GhosttyKit, **builds
-the Go `qm` binary into the bundle**, ad-hoc codesigns, and installs. Because the
-app ships its own `qm`, **merging backend changes to `main` does not make them
-live in the app until the bundle is rebuilt.**
+the Go `qm` binary into the bundle**, stamps both with one `git describe`
+version, ad-hoc codesigns, and hands the bundle to `install-app.sh`. That stages
+and verifies it beside the installed app, copies its `qm` to
+`<state root>/bin/versions/<version>-<hash>/qm`, retargets the stable link
+`<state root>/bin/current/qm` (what hooks and the installed app run) by rename,
+swaps the bundle by renames and keeps the old one as `Questmaster.app.previous`
+(`install-app.sh --rollback`). Because the app ships its own `qm`, **merging
+backend changes to `main` does not make them live in the app until the bundle is
+rebuilt.** Agents never run either script against the real install: a test run
+uses a temporary `--install-path`, `HOME` and `QUESTMASTER_STATE_ROOT` with
+`--isolated` (the installer refuses a mix), and `app/Scripts/test-install.sh`
+covers the installer.
 
 State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 
