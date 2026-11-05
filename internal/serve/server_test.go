@@ -703,7 +703,7 @@ func TestSnapshotterClockLoadsTypicalWhenDoneRowFindsRunningTool(t *testing.T) {
 		t.Fatalf("seed done state: %v", err)
 	}
 	for _, sample := range []time.Duration{4, 6, 8} {
-		if err := state.RecordToolDurationAt(env.store.Root(), "codex", "Bash", "go test", sample*time.Second); err != nil {
+		if err := state.RecordToolDurationAt(t.Context(), env.store.Root(), "codex", "Bash", "go test", sample*time.Second); err != nil {
 			t.Fatalf("record duration: %v", err)
 		}
 	}
@@ -2634,7 +2634,7 @@ func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T)
 		t.Fatalf("update cast state: %v", err)
 	}
 	for _, sample := range []time.Duration{4, 6, 8} {
-		if err := state.RecordToolDurationAt(env.store.Root(), "codex", "Bash", "go test", sample*time.Second); err != nil {
+		if err := state.RecordToolDurationAt(t.Context(), env.store.Root(), "codex", "Bash", "go test", sample*time.Second); err != nil {
 			t.Fatalf("record duration: %v", err)
 		}
 	}

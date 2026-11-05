@@ -3,11 +3,13 @@
 package state
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -66,11 +68,17 @@ func StartRunningTool(pane *PaneState, tool, callID, command string, startedAt t
 			}
 		}
 	}
-	pane.RunningTools = append(pane.RunningTools, RunningTool{CallID: callID, Tool: tool, Command: command, StartedAt: startedAt.UTC()})
+	// Keep calls in start order: a hook that a newer one overtook records its
+	// older call before the newer, so the pane's tool stays the newest call.
+	at := len(pane.RunningTools)
+	for at > 0 && pane.RunningTools[at-1].StartedAt.After(startedAt) {
+		at--
+	}
+	pane.RunningTools = slices.Insert(pane.RunningTools, at, RunningTool{CallID: callID, Tool: tool, Command: command, StartedAt: startedAt.UTC()})
 	if len(pane.RunningTools) > maxRunningTools {
 		pane.RunningTools = append([]RunningTool(nil), pane.RunningTools[len(pane.RunningTools)-maxRunningTools:]...)
 	}
-	pane.Tool = tool
+	setPaneToolFromRunning(pane)
 }
 
 func EndRunningTool(pane *PaneState, tool, callID string, endedAt time.Time) (RunningTool, time.Duration, bool) {
@@ -155,7 +163,9 @@ func LoadToolTypicalDurationsAt(root string) (map[ToolDurationKey]int64, error) 
 	return typical, nil
 }
 
-func RecordToolDurationAt(root, agent, tool, command string, duration time.Duration) error {
+// RecordToolDurationAt adds one completed tool call to the typical-duration
+// samples. A deadline on ctx bounds the wait for the shared samples lock.
+func RecordToolDurationAt(ctx context.Context, root, agent, tool, command string, duration time.Duration) error {
 	if root == "" {
 		return errors.New("no state root resolved")
 	}
@@ -166,7 +176,7 @@ func RecordToolDurationAt(root, agent, tool, command string, duration time.Durat
 		command = ""
 	}
 	ms := duration.Milliseconds()
-	return withToolDurationLock(root, func() error {
+	return withToolDurationLock(ctx, root, func() error {
 		file, err := readToolDurationFile(root)
 		if errors.Is(err, errToolDurationDecode) {
 			file = toolDurationFile{}
@@ -236,11 +246,11 @@ func readToolDurationFile(root string) (toolDurationFile, error) {
 	return file, nil
 }
 
-func withToolDurationLock(root string, fn func() error) error {
+func withToolDurationLock(ctx context.Context, root string, fn func() error) error {
 	if err := EnsurePrivateStateRoot(root); err != nil {
 		return fmt.Errorf("create state root: %w", err)
 	}
-	return withFileLock(toolDurationsPath(root)+".lock", fn)
+	return withFileLockContext(ctx, toolDurationsPath(root)+".lock", fn)
 }
 
 func writeToolDurationFileLocked(root string, file toolDurationFile) error {

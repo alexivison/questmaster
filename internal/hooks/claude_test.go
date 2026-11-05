@@ -657,3 +657,79 @@ func setSyntheticManagerEnv(t *testing.T) {
 	t.Setenv("PI_HOME", filepath.Join(home, ".pi"))
 	t.Setenv("QUESTMASTER_STATE_ROOT", filepath.Join(home, ".questmaster-state"))
 }
+
+// questmasterInnerHooks returns every questmaster inner hook under event.
+func questmasterInnerHooks(t *testing.T, c *ClaudeInstaller, event string) []map[string]interface{} {
+	t.Helper()
+	hooks, _ := readSettings(t, c)["hooks"].(map[string]interface{})
+	arr, _ := hooks[event].([]interface{})
+	var out []map[string]interface{}
+	for _, raw := range arr {
+		obj, _ := raw.(map[string]interface{})
+		inner, _ := obj["hooks"].([]interface{})
+		for _, ih := range inner {
+			ihObj, _ := ih.(map[string]interface{})
+			if cmd, _ := ihObj["command"].(string); strings.Contains(cmd, claudeScriptCommandToken) {
+				out = append(out, ihObj)
+			}
+		}
+	}
+	return out
+}
+
+// An entry that still names the script but differs in timeout, async or path
+// is stale: status says so and install rewrites it to the current entry.
+func TestClaudeStaleEntryIsReportedAndRewritten(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		event  string
+		action string
+		edit   func(inner map[string]interface{})
+	}{
+		{"old timeout", "PreToolUse", "tool_start", func(inner map[string]interface{}) { inner["timeout"] = float64(10) }},
+		{"lost async", "MessageDisplay", "say", func(inner map[string]interface{}) { delete(inner, "async") }},
+		{"added async", "Stop", "done", func(inner map[string]interface{}) { inner["async"] = true }},
+		{"legacy absolute path", "UserPromptSubmit", "working", func(inner map[string]interface{}) {
+			inner["command"] = "/home/example/.claude/hooks/questmaster-state.sh working"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestClaudeInstaller(t)
+			if err := c.Install(); err != nil {
+				t.Fatalf("install: %v", err)
+			}
+			settings := readSettings(t, c)
+			hooks, _ := settings["hooks"].(map[string]interface{})
+			arr, _ := hooks[tc.event].([]interface{})
+			entry, _ := arr[0].(map[string]interface{})
+			inner, _ := entry["hooks"].([]interface{})
+			tc.edit(inner[0].(map[string]interface{}))
+			data, err := json.MarshalIndent(settings, "", "  ")
+			if err != nil {
+				t.Fatalf("encode settings: %v", err)
+			}
+			if err := os.WriteFile(c.settingsPath(), append(data, '\n'), 0o644); err != nil {
+				t.Fatalf("write stale settings: %v", err)
+			}
+
+			if got := c.Status(); got.Status != StatusOutdated {
+				t.Fatalf("status with a stale %s entry = %+v, want outdated", tc.event, got)
+			}
+			if err := c.Install(); err != nil {
+				t.Fatalf("reinstall: %v", err)
+			}
+			if got := c.Status(); got.Status != StatusCurrent {
+				t.Fatalf("status after reinstall = %+v, want current", got)
+			}
+			got := questmasterInnerHooks(t, c, tc.event)
+			want := c.buildEntry(claudeEntry{Event: tc.event, Action: tc.action, Async: tc.event == "MessageDisplay"})["hooks"].([]interface{})[0]
+			wantJSON, _ := json.Marshal(want)
+			if len(got) != 1 {
+				t.Fatalf("questmaster hooks under %s after reinstall = %+v, want one", tc.event, got)
+			}
+			if gotJSON, _ := json.Marshal(got[0]); string(gotJSON) != string(wantJSON) {
+				t.Fatalf("%s entry after reinstall = %s, want %s", tc.event, gotJSON, wantJSON)
+			}
+		})
+	}
+}
