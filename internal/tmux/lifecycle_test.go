@@ -3,6 +3,7 @@ package tmux
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -280,12 +281,33 @@ func TestNewSession_Success(t *testing.T) {
 		if flagVal(args, "-n") != "work" {
 			t.Errorf("window name: got %q", flagVal(args, "-n"))
 		}
-		return "", nil
+		if !slices.Contains(args, "-P") || flagVal(args, "-F") != "#{pane_id}" {
+			t.Errorf("new-session must print the new pane's ID: %v", args)
+		}
+		return "%7", nil
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "qm-new", "work", "/tmp"); err != nil {
+	pane, err := c.NewSession(t.Context(), "qm-new", "work", "/tmp")
+	if err != nil {
 		t.Fatalf("NewSession: %v", err)
+	}
+	if pane != "%7" {
+		t.Fatalf("NewSession pane = %q, want %%7", pane)
+	}
+}
+
+// Every later pane target is the ID new-session reports, so output that is
+// not a pane ID is an error, not a target.
+func TestNewSession_RejectsOutputThatIsNotAPaneID(t *testing.T) {
+	t.Setenv("TMUX_PANE", "")
+	for _, out := range []string{"", "qm-new:0.0", "%", "%7\n%8"} {
+		m := newMock(func(_ context.Context, args ...string) (string, error) {
+			return out, nil
+		})
+		if pane, err := NewClient(m).NewSession(t.Context(), "qm-new", "", "/tmp"); err == nil {
+			t.Fatalf("NewSession with output %q = %q, want an error", out, pane)
+		}
 	}
 }
 
@@ -299,11 +321,11 @@ func TestNewSession_OmitsBlankWindowName(t *testing.T) {
 		if got := flagVal(args, "-n"); got != "" {
 			t.Errorf("window name flag: got %q, want omitted", got)
 		}
-		return "", nil
+		return "%1", nil
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "qm-new", "", "/tmp"); err != nil {
+	if _, err := c.NewSession(t.Context(), "qm-new", "", "/tmp"); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 }
@@ -329,7 +351,7 @@ func TestNewSession_UsesTheCallersClientSize(t *testing.T) {
 			if flagVal(args, "-x") != "355" || flagVal(args, "-y") != "62" {
 				t.Fatalf("expected client size flags in %v", args)
 			}
-			return "", nil
+			return "%1", nil
 		default:
 			t.Fatalf("unexpected args: %v", args)
 			return "", nil
@@ -337,7 +359,7 @@ func TestNewSession_UsesTheCallersClientSize(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "qm-sized", "work", "/tmp"); err != nil {
+	if _, err := c.NewSession(t.Context(), "qm-sized", "work", "/tmp"); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 }
@@ -353,14 +375,14 @@ func TestNewSession_IgnoresAPaneOnAnotherServer(t *testing.T) {
 			if flagVal(args, "-x") != "" || flagVal(args, "-y") != "" {
 				t.Fatalf("sized from another server's pane: %v", args)
 			}
-			return "", nil
+			return "%1", nil
 		default:
 			t.Fatalf("unexpected args: %v", args)
 			return "", nil
 		}
 	})
 
-	if err := NewClient(m).NewSession(t.Context(), "qm-unsized", "work", "/tmp"); err != nil {
+	if _, err := NewClient(m).NewSession(t.Context(), "qm-unsized", "work", "/tmp"); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 }
@@ -373,7 +395,7 @@ func TestNewSession_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "qm-dup", "work", "/tmp"); err == nil {
+	if _, err := c.NewSession(t.Context(), "qm-dup", "work", "/tmp"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }

@@ -347,7 +347,7 @@ func renameSessionPane(ctx context.Context, store *state.Store, client *tmux.Cli
 		panes, listErr := client.ListPanes(ctx, sessionID)
 		if listErr != nil {
 			err = listErr
-		} else if len(panes) == 1 && panes[0].WindowIndex == tmux.WindowWorkspace && panes[0].PaneIndex == 0 && panes[0].Role == "" {
+		} else if len(panes) == 1 && panes[0].Role == "" {
 			pane, err = panes[0].Target(), nil
 		}
 	}

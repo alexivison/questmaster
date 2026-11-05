@@ -293,12 +293,14 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			}
 		}
 
-		if err := s.Client.NewSession(ctx, sessionID, "", cwd); err != nil {
+		pane, err := s.Client.NewSession(ctx, sessionID, "", cwd)
+		if err != nil {
 			return s.startRollbackError(ctx, sessionID, false, fmt.Errorf("create tmux session: %w", err))
 		}
 
 		if err := s.launchSession(ctx, launchConfig{
 			sessionID:   sessionID,
+			pane:        pane,
 			cwd:         cwd,
 			runtimeDir:  runtimeDir,
 			agentPath:   agentPath,

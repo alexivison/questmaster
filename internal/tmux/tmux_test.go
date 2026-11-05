@@ -1049,3 +1049,43 @@ func TestCapture_InvalidLines(t *testing.T) {
 		t.Fatal("expected error for negative lines, got nil")
 	}
 }
+
+// RolePane reads the role pane's ID and, for a dead pane (remain-on-exit),
+// how its process ended.
+func TestRolePane(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		out     string
+		want    PaneStatus
+		wantErr error
+	}{
+		"alive":      {out: "%3\t0\t\t\tagent", want: PaneStatus{ID: "%3"}},
+		"exited":     {out: "%3\t1\t17\t\tagent", want: PaneStatus{ID: "%3", Dead: true, Exit: "exit 17"}},
+		"signalled":  {out: "%3\t1\t\t9\tagent", want: PaneStatus{ID: "%3", Dead: true, Exit: "signal 9"}},
+		"unknown":    {out: "%3\t1\t\t\tagent", want: PaneStatus{ID: "%3", Dead: true, Exit: "an unknown status"}},
+		"other role": {out: "%3\t0\t\t\tshell\n%4\t1\t2\t\tagent", want: PaneStatus{ID: "%4", Dead: true, Exit: "exit 2"}},
+		"none":       {out: "%3\t0\t\t\tshell", wantErr: ErrRoleNotFound},
+		"two":        {out: "%3\t0\t\t\tagent\n%4\t0\t\t\tagent", wantErr: ErrRoleAmbiguous},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			m := newMock(func(_ context.Context, args ...string) (string, error) {
+				if args[0] != "list-panes" || flagVal(args, "-t") != "=qm-a:" || !strings.Contains(flagVal(args, "-F"), "#{pane_dead_status}") {
+					t.Errorf("unexpected args: %v", args)
+				}
+				return tt.out, nil
+			})
+			got, err := NewClient(m).RolePane(t.Context(), "qm-a", RoleAgent)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("RolePane error = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || got != tt.want {
+				t.Fatalf("RolePane = %+v, %v; want %+v", got, err, tt.want)
+			}
+		})
+	}
+}

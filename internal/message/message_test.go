@@ -1067,7 +1067,7 @@ func TestReadPlainTerminalCapturesWorkspacePaneRaw(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			t.Fatalf("plain read should capture pane 0 directly, not resolve roles")
+			t.Fatalf("plain read should capture the session's pane directly, not resolve roles")
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
 			captureTarget = flagValue(args, "-t")
@@ -1081,8 +1081,9 @@ func TestReadPlainTerminalCapturesWorkspacePaneRaw(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if captureTarget != tmux.PaneTarget(sessionID, 0, 0) {
-		t.Fatalf("capture target = %q, want workspace pane 0", captureTarget)
+	// The session's own pane, whatever the server's base indexes make it.
+	if captureTarget != tmux.SessionTarget(sessionID) {
+		t.Fatalf("capture target = %q, want the session's pane %q", captureTarget, tmux.SessionTarget(sessionID))
 	}
 	if output != "second\nthird" {
 		t.Fatalf("plain read output = %q, want trimmed tail", output)

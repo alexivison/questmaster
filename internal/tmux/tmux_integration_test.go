@@ -31,12 +31,17 @@ const (
 func TestIntegrationPrivateServerRoundTrip(t *testing.T) {
 	t.Parallel()
 	tmuxtest.RequireIntegration(t)
-	client := tmux.NewClient(tmuxtest.NewRunner(t))
+	runner := tmuxtest.NewRunner(t)
+	client := tmux.NewClient(runner)
 	ctx := t.Context()
 	const name = "qm-roundtrip"
 
-	if err := client.NewSession(ctx, name, "work", t.TempDir()); err != nil {
+	pane, err := client.NewSession(ctx, name, "work", t.TempDir())
+	if err != nil {
 		t.Fatalf("NewSession: %v", err)
+	}
+	if got, err := runner.Run(ctx, "display-message", "-t", tmux.SessionTarget(name), "-p", "#{pane_id}"); err != nil || got != pane {
+		t.Fatalf("NewSession pane = %q, session's pane = %q (%v)", pane, got, err)
 	}
 	assertHasSession(t, client, name, true)
 	if err := client.KillSession(ctx, name); err != nil {
@@ -258,7 +263,7 @@ func TestIntegrationInheritedTMUXDoesNotSteerAServer(t *testing.T) {
 	ctx := t.Context()
 
 	assertHasSession(t, client, "qm-on-inherited", false)
-	if err := client.NewSession(ctx, "qm-created", "", t.TempDir()); err != nil {
+	if _, err := client.NewSession(ctx, "qm-created", "", t.TempDir()); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 	if err := client.SetEnvironment(ctx, "qm-created", "MARK", "selected"); err != nil {
@@ -368,7 +373,7 @@ func TestIntegrationRespawnPaneSurvivesADeletedServerDirectory(t *testing.T) {
 	runner := tmuxtest.NewRunner(t)
 	client := tmux.NewClient(runner)
 	ctx := t.Context()
-	if err := client.NewSession(ctx, "qm-server-start", "", serverDir); err != nil {
+	if _, err := client.NewSession(ctx, "qm-server-start", "", serverDir); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 	t.Chdir(t.TempDir())
@@ -382,7 +387,7 @@ func TestIntegrationRespawnPaneSurvivesADeletedServerDirectory(t *testing.T) {
 	}
 	out := filepath.Join(workDir, "pwd.out")
 	const name = "qm-after-delete"
-	if err := client.NewSession(ctx, name, "", workDir); err != nil {
+	if _, err := client.NewSession(ctx, name, "", workDir); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 	if err := client.RespawnPane(ctx, "="+name+":", workDir, fmt.Sprintf("pwd -P > %q; sleep 30", out)); err != nil {

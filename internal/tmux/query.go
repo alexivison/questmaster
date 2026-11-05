@@ -154,6 +154,55 @@ func (c *Client) ResolveRole(ctx context.Context, sessionID, role string, prefer
 	return resolveRole(panes, role, preferredWindow, sessionID)
 }
 
+// PaneStatus is one pane's ID and whether the process in it has exited. A
+// pane with remain-on-exit stays, dead, after its process ends.
+type PaneStatus struct {
+	ID   string
+	Dead bool
+	// Exit says how a dead pane's process ended: "exit 17" or "signal 9".
+	Exit string
+}
+
+// RolePane returns the status of the session's one pane tagged role. It
+// returns ErrRoleNotFound when no pane has the role and ErrRoleAmbiguous when
+// more than one does.
+func (c *Client) RolePane(ctx context.Context, sessionID, role string) (PaneStatus, error) {
+	out, err := c.runner.Run(ctx, "list-panes", "-s", "-t", SessionTarget(sessionID),
+		"-F", "#{pane_id}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}\t#{"+PaneRoleOption+"}")
+	if err != nil {
+		return PaneStatus{}, fmt.Errorf("list panes for %s: %w", sessionID, err)
+	}
+	var matches []PaneStatus
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) != 5 || fields[4] != role {
+			continue
+		}
+		if !paneIDPattern.MatchString(fields[0]) {
+			return PaneStatus{}, fmt.Errorf("list panes for %s: invalid pane ID %q", sessionID, fields[0])
+		}
+		pane := PaneStatus{ID: fields[0], Dead: fields[1] == "1"}
+		switch {
+		case !pane.Dead:
+		case fields[2] != "":
+			pane.Exit = "exit " + fields[2]
+		case fields[3] != "":
+			pane.Exit = "signal " + fields[3]
+		default:
+			pane.Exit = "an unknown status"
+		}
+		matches = append(matches, pane)
+	}
+	switch len(matches) {
+	case 0:
+		return PaneStatus{}, fmt.Errorf("%w: %q in session %s", ErrRoleNotFound, role, sessionID)
+	case 1:
+		return matches[0], nil
+	default:
+		return PaneStatus{}, fmt.Errorf("%w: %q found %d times in session %s", ErrRoleAmbiguous, role, len(matches), sessionID)
+	}
+}
+
 func (c *Client) PaneIdentity(ctx context.Context, target string) (int, string, error) {
 	out, err := c.runner.Run(ctx, "display-message", "-t", target, "-p", "#{pane_pid}\t#{session_name}:#{window_id}.#{pane_id}")
 	if err != nil {

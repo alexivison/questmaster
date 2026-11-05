@@ -80,7 +80,7 @@ func TestLaunchedPaneTitleLosesToRenameCommittedMeanwhile(t *testing.T) {
 	}
 	writes.install(runner)
 
-	if err := svc.syncLaunchedPaneTitle(t.Context(), sessionID); err != nil {
+	if err := svc.syncLaunchedPaneTitle(t.Context(), sessionID, "%1"); err != nil {
 		t.Fatalf("sync launched pane title: %v", err)
 	}
 	if err := <-renamed; err != nil {
@@ -104,7 +104,7 @@ func TestLaunchedPaneTitleWriteDoesNotHoldTheManifestLock(t *testing.T) {
 	writes.install(runner)
 
 	synced := make(chan error, 1)
-	go func() { synced <- svc.syncLaunchedPaneTitle(t.Context(), sessionID) }()
+	go func() { synced <- svc.syncLaunchedPaneTitle(t.Context(), sessionID, "%1") }()
 	<-entered
 	updated := make(chan error, 1)
 	go func() { updated <- svc.Store.Update(sessionID, func(m *state.Manifest) { m.SetExtra("probe", "1") }) }()
