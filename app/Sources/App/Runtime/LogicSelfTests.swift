@@ -5,6 +5,7 @@ import Darwin
 import Foundation
 import QuestmasterCore
 import SwiftUI
+import WebKit
 
 @MainActor
 enum LogicSelfTests {
@@ -21,6 +22,8 @@ enum LogicSelfTests {
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
+        ("testArtifactViewerLoadsNothingWhenTheBlockerFailsToCompile", testArtifactViewerLoadsNothingWhenTheBlockerFailsToCompile),
+        ("testArtifactViewerLoadsThePageOnceTheBlockerCompiles", testArtifactViewerLoadsThePageOnceTheBlockerCompiles),
         ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
         ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
@@ -1485,6 +1488,81 @@ enum LogicSelfTests {
             ArtifactNavigationPolicy.decide(url: URL(string: "javascript:alert(1)"), userInitiated: true) == .block,
             "javascript URLs should be blocked"
         )
+    }
+
+    /// The page loads only behind the remote-content blocker. When the blocker doesn't compile, the viewer shows its
+    /// blocked pane and loads nothing: the page view is taken down, and the page it held never got a URL.
+    private static func testArtifactViewerLoadsNothingWhenTheBlockerFailsToCompile() throws {
+        let page = try temporaryArtifactPage()
+        defer { try? FileManager.default.removeItem(atPath: page.path) }
+        let compiler = DeferredRuleListCompiler()
+        let window = HeadlessWindow(size: artifactViewerSize)
+        let host = NSHostingView(rootView: artifactViewer(page, compiler: compiler))
+        host.frame = NSRect(origin: .zero, size: artifactViewerSize)
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+
+        // The compile is held, so the page view is in the tree while the blocker is still pending.
+        let webView = try pageView(in: host)
+        try expect(waitUntil { compiler.attempts == 1 }, "the viewer should ask for the blocker once")
+        compiler.failCompile()
+        try expect(
+            waitUntil { !subviews(of: host).contains { $0 is WKWebView } },
+            "the blocked pane should replace the page view when the blocker fails"
+        )
+        pump(0.3)
+        try expect(webView.url == nil && !webView.isLoading, "no page should load when the blocker fails, got \(String(describing: webView.url))")
+        let bitmap = try snapshot(host, size: artifactViewerSize, scale: 1)
+        try expect(
+            inkEdges(bitmap, scale: 1, columns: 0..<Int(artifactViewerSize.width), rows: 0..<Int(artifactViewerSize.height), over: AppPalette.artifactViewerBackground) != nil,
+            "the blocked pane should draw its message"
+        )
+    }
+
+    /// The control for the test above: with a blocker that compiles, the same viewer does load the page, so the page
+    /// staying unloaded there means the blocker held it.
+    private static func testArtifactViewerLoadsThePageOnceTheBlockerCompiles() throws {
+        let page = try temporaryArtifactPage()
+        defer { try? FileManager.default.removeItem(atPath: page.path) }
+        let window = HeadlessWindow(size: artifactViewerSize)
+        let host = NSHostingView(rootView: artifactViewer(page, compiler: WebKitRuleListCompiler()))
+        host.frame = NSRect(origin: .zero, size: artifactViewerSize)
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+
+        let webView = try pageView(in: host)
+        try expect(waitUntil { webView.url != nil }, "the page should load once the blocker compiles")
+    }
+
+    /// The page view the viewer builds for an HTML artifact, once SwiftUI has laid the hosted viewer out.
+    private static func pageView(in host: NSView) throws -> WKWebView {
+        guard waitUntil({ subviews(of: host).contains { $0 is WKWebView } }),
+              let view = subviews(of: host).compactMap({ $0 as? WKWebView }).first else {
+            throw TestFailure("the viewer should build the page view for an HTML artifact")
+        }
+        return view
+    }
+
+    private static let artifactViewerSize = CGSize(width: 320, height: 240)
+
+    private static func artifactViewer(_ page: ArtifactReference, compiler: any ArtifactRuleListCompiling) -> some View {
+        ArtifactViewerPane(
+            displayState: .viewing(page),
+            reloadNonce: 0,
+            onOpenExternal: { _ in },
+            ruleListCompiler: compiler
+        )
+        .frame(width: artifactViewerSize.width, height: artifactViewerSize.height)
+    }
+
+    /// A real page in the temp directory, so a load that slips past the blocker would succeed.
+    private static func temporaryArtifactPage() throws -> ArtifactReference {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("questmaster-blocker-probe-\(UUID().uuidString).html")
+        try Data("<!doctype html><meta charset=\"utf-8\"><title>Probe</title><p>Probe</p>".utf8).write(to: url)
+        return ArtifactReference(kind: "html", path: url.path, label: "Probe", sessionID: "qm-probe", addedAt: "")
     }
 
     private static func testArtifactExternalOpenRouting() throws {
@@ -7451,6 +7529,27 @@ private struct TestFailure: Error, CustomStringConvertible {
 
     init(_ description: String) {
         self.description = description
+    }
+}
+
+/// A blocker whose compile waits until the test fails it, as WebKit rejects a rule list. Holding the completion keeps
+/// the page view in the tree long enough for the test to capture it; a compile that failed at once would be gone first.
+private final class DeferredRuleListCompiler: ArtifactRuleListCompiling {
+    private(set) var attempts = 0
+    private var pendingCompletion: ((WKContentRuleList?, Error?) -> Void)?
+
+    func compileRuleList(
+        identifier: String,
+        encodedRules: String,
+        completion: @escaping (WKContentRuleList?, Error?) -> Void
+    ) {
+        attempts += 1
+        pendingCompletion = completion
+    }
+
+    func failCompile() {
+        pendingCompletion?(nil, TestFailure("injected rule list failure"))
+        pendingCompletion = nil
     }
 }
 #endif
