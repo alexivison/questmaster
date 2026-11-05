@@ -408,6 +408,7 @@ type claudePayload struct {
 	AgentID              string                 `json:"agent_id"`
 	AgentType            string                 `json:"agent_type"`
 	SessionID            string                 `json:"session_id"`
+	Source               string                 `json:"source"`
 	PromptID             string                 `json:"prompt_id"`
 	ToolName             string                 `json:"tool_name"`
 	ToolUseID            string                 `json:"tool_use_id"`
@@ -434,6 +435,16 @@ func decodeClaude(data []byte) claudePayload {
 	// last-known state.
 	_ = json.Unmarshal(data, &p)
 	return p
+}
+
+// sessionStartIsCompaction reports whether a SessionStart hook is the re-fire
+// Claude and Codex send when they compact a session. Compaction is not a
+// session start, and when the session was idle no Stop follows it, so letting
+// it set "starting" would hold PR alerts (sent only to idle and done panes)
+// indefinitely. An absent or unknown source still counts as a session start,
+// as it did before this check existed.
+func sessionStartIsCompaction(source string) bool {
+	return source == "compact"
 }
 
 // suppressSpuriousStartingRegression drops a "starting" transition when the
@@ -492,9 +503,12 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 
 	switch opts.action {
 	case "starting":
-		setState = "starting"
-		setActivity = "started"
 		lastKind = "SessionStart"
+		// A compaction keeps the pane's state and snippet.
+		if !sessionStartIsCompaction(payload.Source) {
+			setState = "starting"
+			setActivity = "started"
+		}
 	case "working":
 		// UserPromptSubmit marks the agent pane as working at turn start.
 		setState = "working"
@@ -1751,6 +1765,7 @@ type codexPayload struct {
 	Permission           string                 `json:"permission"`
 	Command              string                 `json:"command"`
 	SessionID            string                 `json:"session_id"`
+	Source               string                 `json:"source"`
 	ThreadID             string                 `json:"thread_id"`
 	ConversationID       string                 `json:"conversation_id"`
 	TranscriptPath       string                 `json:"transcript_path"`
@@ -2069,9 +2084,12 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 
 	switch opts.action {
 	case "starting":
-		setState = "starting"
-		setActivity = "started"
 		lastKind = "SessionStart"
+		// A compaction keeps the pane's state and snippet.
+		if !sessionStartIsCompaction(payload.Source) {
+			setState = "starting"
+			setActivity = "started"
+		}
 	case "working":
 		setState = "working"
 		lastKind = "UserPromptSubmit"
