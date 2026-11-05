@@ -2,6 +2,10 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -185,6 +189,34 @@ func TestVersionSubcommand_PrintsVersion(t *testing.T) {
 
 	if !bytes.Contains(out.Bytes(), []byte("questmaster")) {
 		t.Fatalf("expected version output to contain 'questmaster', got: %s", out.String())
+	}
+}
+
+// The app build stamps one version into the bundle's Info.plist and into qm; the installer
+// checks they match, so the link-time stamp must reach `version --json`.
+func TestVersionReportsLinkTimeStamp(t *testing.T) {
+	t.Parallel()
+
+	const stamp = "v9.9.9-stamp-test"
+	bin := filepath.Join(t.TempDir(), "qm")
+	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags=-X github.com/alexivison/questmaster/cmd.stampedVersion="+stamp, "-o", bin, "..")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	version := exec.Command(bin, "version", "--json")
+	version.Env = append(os.Environ(), "QUESTMASTER_STATE_ROOT="+t.TempDir())
+	out, err := version.Output()
+	if err != nil {
+		t.Fatalf("version --json: %v", err)
+	}
+	var got struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("decode %q: %v", out, err)
+	}
+	if got.Version != stamp {
+		t.Fatalf("version = %q, want %q", got.Version, stamp)
 	}
 }
 
