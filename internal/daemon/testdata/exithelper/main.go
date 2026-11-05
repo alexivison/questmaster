@@ -101,7 +101,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	root := os.Getenv("QUESTMASTER_STATE_ROOT")
-	if err := daemon.Run(ctx, daemon.Config{Root: root, Home: os.Getenv("HOME"), IdleGrace: 500 * time.Millisecond, PollInterval: 10 * time.Millisecond, Jobs: []daemon.Job{drainJob{root}}, Runtime: &serve.Server{MutationRunner: mutationRunner{root}}}, false); err != nil {
+	if err := daemon.Run(ctx, daemon.Config{Root: root, Home: os.Getenv("HOME"), IdleGrace: 500 * time.Millisecond, PollInterval: 10 * time.Millisecond, Jobs: []daemon.Job{drainJob{root}}, Runtime: &serve.Server{MutationRunner: mutationRunner{root}}}); err != nil {
 		os.Exit(1)
 	}
 }

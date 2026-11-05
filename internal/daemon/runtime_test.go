@@ -51,7 +51,7 @@ func TestPRJobQuiesceMidFetchKeepsLastStatus(t *testing.T) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	s := &server{dir: dir, jobsRequested: true, config: Config{Jobs: []Job{job}, JobDrainTimeout: time.Second}}
+	s := &server{dir: dir, config: Config{Jobs: []Job{job}, JobDrainTimeout: time.Second}}
 	s.tryJobsLock()
 	defer s.stopJobs()
 	select {

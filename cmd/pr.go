@@ -65,8 +65,12 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			}
 			config := prDaemonConfig(store.Root())
 			ensureCtx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
-			_, _ = prEnsure(ensureCtx, config)
+			_, _ = prEnsure(ensureCtx, config) // a daemon that fails to start is reported by monitoring
 			cancel()
+			monitoring, err := daemon.PRMonitoring(store.Root())
+			if err != nil {
+				return err
+			}
 			added, err := state.WatchPullRequest(store.Root(), id, ref, time.Now())
 			if err != nil {
 				return err
@@ -100,10 +104,11 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 				}
 			}
 			return writeJSON(c.OutOrStdout(), struct {
-				Key       string `json:"key"`
-				SessionID string `json:"session_id"`
-				Added     bool   `json:"added"`
-			}{ref.Key, id, added})
+				Key        string `json:"key"`
+				SessionID  string `json:"session_id"`
+				Added      bool   `json:"added"`
+				Monitoring string `json:"monitoring"`
+			}{ref.Key, id, added, monitoring})
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
@@ -249,6 +254,10 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			monitoring, err := daemon.PRMonitoring(store.Root())
+			if err != nil {
+				return err
+			}
 			statuses, err := state.LoadPullRequestStatuses(store.Root())
 			if err != nil {
 				return err
@@ -257,7 +266,8 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			return writeJSON(c.OutOrStdout(), struct {
 				PullRequests []state.PullRequest            `json:"pull_requests"`
 				Hosts        map[string]prstatus.HostResult `json:"hosts"`
-			}{prs, hosts})
+				Monitoring   string                         `json:"monitoring"`
+			}{prs, hosts, monitoring})
 		},
 	}
 	refresh.Flags().BoolVar(&refreshAll, "all", false, "refresh all watched pull requests")

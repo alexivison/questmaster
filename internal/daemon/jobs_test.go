@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -134,6 +135,32 @@ func TestOlderProtocolDoesNotTakeJobsFromANewerOwner(t *testing.T) {
 	defer stopJobsServer(current)
 	current.tryJobsLock()
 	waitForJobStart(t, jobCurrent)
+}
+
+func TestJobsOwnerRecordsItsProtocolOnEveryStart(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	clock := &fakeClock{now: time.Unix(1_800_000_000, 0)}
+	job := newFakeJob()
+	s := newJobsServer(dir, "dev-a", ProtocolVersion, clock, job)
+	s.tryJobsLock()
+	waitForJobStart(t, job)
+	defer stopJobsServer(s)
+
+	// A daemon that inherits jobs.lock through a re-exec restarts its jobs under its own protocol.
+	s.protocolVersion = ProtocolVersion + 1
+	s.quiesceJobs()
+	s.startJobs()
+	waitForJobStart(t, job)
+
+	data, err := os.ReadFile(filepath.Join(dir, "jobs.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var owner jobsLockOwner
+	if err := json.Unmarshal(data, &owner); err != nil || owner.ProtocolVersion != ProtocolVersion+1 {
+		t.Fatalf("recorded owner = %q (%v), want protocol %d", data, err, ProtocolVersion+1)
+	}
 }
 
 func TestNonCanonicalDaemonRunsJobsWhenTheLockIsFree(t *testing.T) {
