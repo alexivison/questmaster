@@ -204,23 +204,33 @@ public struct TrackerAvatarColour: Equatable, Sendable {
     }
 }
 
-/// Idle draws as layers: the legs and cloak hold still while the figure above them breathes, and the eyelids cover the eyes. An idle
-/// that loops has none of this.
-public struct TrackerAvatarIdle: Equatable, Sendable {
-    /// The bottom rows, which stay still while the figure above breathes.
-    public let legRows: Int
+/// The eyes an idle blinks: where the lids sit, and what colour they are.
+public struct TrackerAvatarEyes: Equatable, Sendable {
     /// The row the lids cover while a blink shows.
-    public let eyeRow: Int
+    public let row: Int
     /// The columns the lids cover, the first and the last included.
-    public let eyeColumns: ClosedRange<Int>
+    public let columns: ClosedRange<Int>
     /// The colour the lids draw in: the figure's own skin, so a blink reads as closed eyes.
     public let lidColour: TrackerAvatarColour
 
-    public init(legRows: Int, eyeRow: Int, eyeColumns: ClosedRange<Int>, lidColour: TrackerAvatarColour) {
-        self.legRows = legRows
-        self.eyeRow = eyeRow
-        self.eyeColumns = eyeColumns
+    public init(row: Int, columns: ClosedRange<Int>, lidColour: TrackerAvatarColour) {
+        self.row = row
+        self.columns = columns
         self.lidColour = lidColour
+    }
+}
+
+/// Idle draws as layers: the legs and cloak hold still while the figure above them breathes. A figure with eyes also blinks, its
+/// eyelids covering the eyes. An idle that loops has none of this.
+public struct TrackerAvatarIdle: Equatable, Sendable {
+    /// The bottom rows, which stay still while the figure above breathes.
+    public let legRows: Int
+    /// The eyes the lids cover. Nil for an idle with no eyes: it breathes and never blinks.
+    public let eyes: TrackerAvatarEyes?
+
+    public init(legRows: Int, eyes: TrackerAvatarEyes?) {
+        self.legRows = legRows
+        self.eyes = eyes
     }
 }
 
@@ -267,8 +277,10 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     /// A pose's blocks don't match how it plays: an enter or a finish on a pose without a loop (a one-shot, or idle), a loop on a
     /// one-shot, or a one-shot on a steady pose.
     case misplacedBlock(String)
-    /// An idle with no loop draws as layers, which needs all of `idle`'s `leg_rows`, `eye_row`, `eye_columns` and `lid_colour`.
+    /// An idle with no loop draws as layers, which needs its `leg_rows`.
     case incompleteIdle
+    /// An idle's eyes are one group: `eye_row`, `eye_columns` and `lid_colour` all or none. A group with only some of its keys is refused.
+    case incompleteEyes
     /// A pose has a bubble anchor but isn't calling out, the only pose that draws the shared bubble.
     case misplacedBubble(String)
     /// A `spells` key that names no spell: the orb (`S1-summoning-orb`), the messenger (`S2-messenger`) or the wisp (`S6-returning-wisp`).
@@ -294,7 +306,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The only `version` this build reads.
     public static let supportedVersion = 1
 
-    /// The layered idle's legs and eyes. Nil when `01-idle` has a loop, which needs none of it.
+    /// The layered idle's legs, and its eyes when it has them. Nil when `01-idle` has a loop, which needs none of it.
     public let idle: TrackerAvatarIdle?
     /// The point a release's spell leaves the caster's hand from, on the release pose's canvas.
     public let releaseHand: TrackerAvatarPixel
@@ -354,8 +366,19 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     }
 
     private static func idle(_ file: File.Idle?) throws -> TrackerAvatarIdle {
-        guard let file, let legRows = file.legRows, let eyeRow = file.eyeRow, let eyeColumns = file.eyeColumns, let lidHex = file.lidColour else {
+        guard let file, let legRows = file.legRows else {
             throw TrackerAvatarAnimationError.incompleteIdle
+        }
+        return TrackerAvatarIdle(legRows: legRows, eyes: try eyes(file))
+    }
+
+    /// The eyes, when the file gives any of their keys; then all three must be there. A file with none of them has no eyes.
+    private static func eyes(_ file: File.Idle) throws -> TrackerAvatarEyes? {
+        guard file.eyeRow != nil || file.eyeColumns != nil || file.lidColour != nil else {
+            return nil
+        }
+        guard let eyeRow = file.eyeRow, let eyeColumns = file.eyeColumns, let lidHex = file.lidColour else {
+            throw TrackerAvatarAnimationError.incompleteEyes
         }
         guard let first = eyeColumns.first, eyeColumns.count == 2, let last = eyeColumns.last, first <= last else {
             throw TrackerAvatarAnimationError.invalidEyeColumns
@@ -363,7 +386,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         guard let lidColour = TrackerAvatarColour(hex: lidHex) else {
             throw TrackerAvatarAnimationError.invalidLidColour
         }
-        return TrackerAvatarIdle(legRows: legRows, eyeRow: eyeRow, eyeColumns: first...last, lidColour: lidColour)
+        return TrackerAvatarEyes(row: eyeRow, columns: first...last, lidColour: lidColour)
     }
 
     private static func poseAnimation(_ pose: File.Pose, named name: String, kind: TrackerAvatarPose) throws -> TrackerAvatarPoseAnimation {

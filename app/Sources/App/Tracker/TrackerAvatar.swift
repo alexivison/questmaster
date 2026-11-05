@@ -379,7 +379,7 @@ protocol TrackerAvatarPoseRig: AnyObject {
     func startMotion()
     /// Stops the pose's motion.
     func stopMotion()
-    /// Shows the eyelids over the eyes. Only Idle has them.
+    /// Shows the eyelids over the eyes. Only an idle with eyes has lids; any other rig ignores it.
     func setLids(shown: Bool)
 }
 
@@ -416,11 +416,11 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
     let pose: TrackerAvatarPose
     /// The whole sprite.
     let root = CALayer()
-    /// The figure above the legs: breathes, and carries the eyelids.
+    /// The figure above the legs: breathes, and carries the eyelids when it has eyes.
     let upper = CALayer()
     let lower = CALayer()
-    /// The eyelids: one shape over the eye pixels, hidden except during a blink.
-    let lids = CAShapeLayer()
+    /// The eyelids: one shape over the eye pixels, hidden except during a blink. Nil for an idle with no eyes, which has none to blink.
+    let lids: CAShapeLayer?
     private let placement: TrackerAvatarPoseAnimation
     private let idle: TrackerAvatarIdle
     private let art: TrackerAvatarArt
@@ -430,21 +430,19 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
         self.placement = placement
         self.idle = idle
         self.art = art
+        lids = Self.makeLids(idle.eyes, upperRows: art.height - idle.legRows)
         root.addSublayer(lower)
         root.addSublayer(upper)
-        upper.addSublayer(lids)
+        if let lids {
+            upper.addSublayer(lids)
+        }
         upper.contents = art.bodyUpper
         lower.contents = art.bodyLower
-        for part in [root, upper, lower, lids] {
-            part.actions = TrackerAvatarLayerActions.immediate
-        }
         for part in [root, upper, lower] {
+            part.actions = TrackerAvatarLayerActions.immediate
             part.magnificationFilter = .nearest
             part.minificationFilter = .nearest
         }
-        lids.fillColor = idle.lidColour.cgColor
-        lids.path = eyelidPath()
-        lids.isHidden = true
     }
 
     func place(in bounds: CGRect) {
@@ -460,18 +458,30 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
         )
         lower.frame = CGRect(x: 0, y: 0, width: width, height: legHeight)
         upper.frame = CGRect(x: 0, y: legHeight, width: width, height: height - legHeight)
-        lids.frame = upper.bounds
+        lids?.frame = upper.bounds
+    }
+
+    /// The eyelids over the eyes, in the upper body's space. Nil when the idle has no eyes.
+    private static func makeLids(_ eyes: TrackerAvatarEyes?, upperRows: Int) -> CAShapeLayer? {
+        guard let eyes else {
+            return nil
+        }
+        let lids = CAShapeLayer()
+        lids.fillColor = eyes.lidColour.cgColor
+        lids.path = eyelidPath(eyes, upperRows: upperRows)
+        lids.isHidden = true
+        lids.actions = TrackerAvatarLayerActions.immediate
+        return lids
     }
 
     /// The eye pixels, in the upper body's own space (bottom-left origin), one pixel row across the eyes.
-    private func eyelidPath() -> CGPath {
+    private static func eyelidPath(_ eyes: TrackerAvatarEyes, upperRows: Int) -> CGPath {
         let pixel = Design.pixelPoints
-        let upperRows = art.height - idle.legRows
         let path = CGMutablePath()
-        for column in idle.eyeColumns {
+        for column in eyes.columns {
             path.addRect(CGRect(
                 x: CGFloat(column) * pixel,
-                y: CGFloat(upperRows - 1 - idle.eyeRow) * pixel,
+                y: CGFloat(upperRows - 1 - eyes.row) * pixel,
                 width: pixel,
                 height: pixel
             ))
@@ -496,11 +506,11 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
 
     func stopMotion() {
         upper.removeAnimation(forKey: TrackerAvatarMotionKey.breath)
-        lids.isHidden = true
+        lids?.isHidden = true
     }
 
     func setLids(shown: Bool) {
-        lids.isHidden = !shown
+        lids?.isHidden = !shown
     }
 }
 
@@ -758,10 +768,10 @@ fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
     func setLids(shown: Bool) {}
 }
 
-/// The avatar's view. A pose change snaps: the shown rig hides and the new one shows at once. Idle breathes and blinks, and while
-/// he fidgets his fidget frame replaces the layers, so the breath and the blink pause until he is back; an idle with a loop cycles
-/// its frames instead, from the first whenever it comes on screen, and neither breathes, blinks nor fidgets. Motion runs only while the
-/// view is in a window and not under Reduce Motion; a pose change still shows then. A pose's finish holds the loop still
+/// The avatar's view. A pose change snaps: the shown rig hides and the new one shows at once. Idle breathes, and blinks when it has
+/// eyes. While he fidgets his fidget frame replaces the layers, so the breath and the blink pause until he is back. An idle with a loop
+/// cycles its frames instead, from the first whenever it comes on screen, and neither breathes, blinks nor fidgets. Motion runs only
+/// while the view is in a window and not under Reduce Motion; a pose change still shows then. A pose's finish holds the loop still
 /// while it is on screen.
 final class TrackerAvatarView: NSView {
     /// A rig is a pose drawn from its own art, or the idle fidget's frame.
@@ -918,13 +928,21 @@ final class TrackerAvatarView: NSView {
         }
     }
 
-    /// The shown idle layers, the only rig that blinks. A fidget's frame has no eyelids, so the blink waits for it to end, and an idle
-    /// that loops has none.
-    private var blinkingRig: (any TrackerAvatarPoseRig)? {
-        shownKey == .pose(.idle) ? shown as? TrackerAvatarRig : nil
+    /// The shown idle layers, when they have eyes to blink. A fidget's frame has no eyelids, so the blink waits for it to end. An idle
+    /// with no eyes has none to blink, and an idle that loops has no layers at all.
+    private var blinkingRig: TrackerAvatarRig? {
+        guard shownKey == .pose(.idle), let rig = shown as? TrackerAvatarRig, rig.lids != nil else {
+            return nil
+        }
+        return rig
     }
 
-    /// Shows the eyelids over the eyes, idle only, for the render previews; a blink does the same for a moment.
+    /// Whether a blink is scheduled. The self-tests use it: an idle with no eyes schedules none.
+    var isBlinkScheduled: Bool {
+        blinkTimer != nil
+    }
+
+    /// Shows the eyelids over the eyes of an idle that has them, for the render previews; a blink does the same for a moment.
     func showEyelids(_ shown: Bool) {
         blinkingRig?.setLids(shown: shown)
     }

@@ -48,6 +48,7 @@ enum LogicSelfTests {
         ("testAReleaseMovesOnItsNamedStrikeFrame", testAReleaseMovesOnItsNamedStrikeFrame),
         ("testALoopingIdleCyclesItsFramesWithNoBreathOrBlink", testALoopingIdleCyclesItsFramesWithNoBreathOrBlink),
         ("testALoopingIdleFrameWithoutArtIsMissing", testALoopingIdleFrameWithoutArtIsMissing),
+        ("testAnIdleWithNoEyesBreathsButNeverBlinks", testAnIdleWithNoEyesBreathsButNeverBlinks),
         ("testTheStageLaunchesEachSpellFromItsPayloads", testTheStageLaunchesEachSpellFromItsPayloads),
         ("testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge", testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge),
         ("testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce", testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce),
@@ -1265,6 +1266,27 @@ enum LogicSelfTests {
                    "under Reduce Motion idle should hold f1")
     }
 
+    /// A synthetic class whose idle is layered: the wizard's file, with its idle's eye keys taken out when `eyes` is false, and an idle f1
+    /// on a canvas as tall as the wizard's figure. The rest of the class (its calling out, release and spells) is `syntheticClassFolder`'s.
+    @MainActor
+    private static func syntheticLayeredIdleFolder(eyes: Bool) throws -> URL {
+        let folder = try syntheticClassFolder()
+        let file = folder.appendingPathComponent("animation.json")
+        guard var json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any],
+              var idle = json["idle"] as? [String: Any] else {
+            throw TestFailure("the synthetic class's animation.json should read as a JSON object with an idle")
+        }
+        if !eyes {
+            for key in ["eye_row", "eye_columns", "lid_colour"] {
+                idle.removeValue(forKey: key)
+            }
+        }
+        json["idle"] = idle
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        try writeSolidFrame(0.1, width: 64, height: 170, to: folder.appendingPathComponent("01-idle-f1.png"))
+        return folder
+    }
+
     /// A frame of the idle loop with no art is missing, like any pose's, and the idle draws nothing until it lands.
     @MainActor
     private static func testALoopingIdleFrameWithoutArtIsMissing() throws {
@@ -1288,6 +1310,63 @@ enum LogicSelfTests {
         window.show()
         avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
         try expect(shownCharacter(of: avatar) == nil, "an idle loop missing a frame should draw nothing, like any pose")
+    }
+
+    /// An idle with no eyes breathes like any layered idle, but has no eyelids and schedules no blink. The same idle with its eyes keeps
+    /// its eyelids and schedules one, so the eyes are the only difference between the two.
+    @MainActor
+    private static func testAnIdleWithNoEyesBreathsButNeverBlinks() throws {
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+
+        let eyelessFolder = try syntheticLayeredIdleFolder(eyes: false)
+        defer { try? FileManager.default.removeItem(at: eyelessFolder) }
+        guard let eyeless = TrackerAvatarSprites(classID: "synthetic", folder: eyelessFolder) else {
+            throw TestFailure("the synthetic class with a still idle and no eyes should read")
+        }
+        try expect(eyeless.animation.idle == TrackerAvatarIdle(legRows: 45, eyes: nil), "an idle with no eye keys should have no eyes")
+        let eyelessWindow = HeadlessWindow(size: size)
+        let eyelessAvatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        eyelessAvatar.sprites = eyeless
+        eyelessWindow.contentView = eyelessAvatar
+        eyelessWindow.show()
+        Motion.reducesMotion = { false }
+        eyelessAvatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        let breathing = (eyelessAvatar.layer?.sublayers ?? []).filter { !$0.isHidden }
+            .flatMap { $0.sublayers ?? [] }.filter { $0.animation(forKey: TrackerAvatarMotionKey.breath) != nil }
+        try expect(breathing.count == 1, "an idle with no eyes should still breathe on its figure")
+        try expect(eyelidLayers(under: eyelessAvatar.layer).isEmpty, "an idle with no eyes should have no eyelids layer")
+        try expect(!eyelessAvatar.isBlinkScheduled, "an idle with no eyes should schedule no blink")
+        eyelessAvatar.showEyelids(true)
+        try expect(eyelidLayers(under: eyelessAvatar.layer).isEmpty, "showing eyelids should draw none on an idle with no eyes")
+        eyelessAvatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+
+        let eyedFolder = try syntheticLayeredIdleFolder(eyes: true)
+        defer { try? FileManager.default.removeItem(at: eyedFolder) }
+        guard let eyed = TrackerAvatarSprites(classID: "synthetic", folder: eyedFolder) else {
+            throw TestFailure("the synthetic class with a still idle and eyes should read")
+        }
+        let eyedWindow = HeadlessWindow(size: size)
+        let eyedAvatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        eyedAvatar.sprites = eyed
+        eyedWindow.contentView = eyedAvatar
+        eyedWindow.show()
+        eyedAvatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        let lids = eyelidLayers(under: eyedAvatar.layer)
+        try expect(lids.count == 1 && lids.first?.isHidden == true, "an idle with eyes should carry one hidden eyelids layer")
+        try expect(eyedAvatar.isBlinkScheduled, "an idle with eyes should schedule a blink")
+        eyedAvatar.showEyelids(true)
+        try expect(lids.first?.isHidden == false, "showing eyelids should uncover the idle's eyes")
+        eyedAvatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+        try expect(!eyedAvatar.isBlinkScheduled, "Reduce Motion should stop the blink")
+    }
+
+    /// The eyelid layers under `layer`: a shape layer, which only an idle with eyes has.
+    private static func eyelidLayers(under layer: CALayer?) -> [CALayer] {
+        guard let layer else {
+            return []
+        }
+        let own = layer is CAShapeLayer ? [layer] : []
+        return own + (layer.sublayers ?? []).flatMap { eyelidLayers(under: $0) }
     }
 
     /// A release whose file names its strike frame steps forward as that frame begins, not on its second step: the synthetic class's

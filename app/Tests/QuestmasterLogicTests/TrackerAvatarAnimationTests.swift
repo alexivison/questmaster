@@ -29,7 +29,8 @@ struct TrackerAvatarAnimationTests {
         aSpellNeedsAKnownNameGoodTracksAndAnAnchorOnAFlight()
         aSpellSaysWhichWayItsFlightFaces()
         aLoopingIdleNeedsNoLegsEyesOrFidgets()
-        aLayeredIdleNeedsAllItsKeys()
+        aLayeredIdleNeedsItsLegRowsAndEyesAllOrNone()
+        aStillIdleWithNoEyesDecodesWithoutThem()
         aLoopingIdleTakesNoEnterFinishOrOnce()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
@@ -427,25 +428,51 @@ struct TrackerAvatarAnimationTests {
         expect(AvatarAnimationFixture.bard().animation(for: .idle)?.loop == nil, "the bard's own idle should still be layers")
     }
 
-    /// An idle with no loop draws as layers, which needs every one of its four keys. The file may leave the fidgets out.
-    private static func aLayeredIdleNeedsAllItsKeys() {
+    /// An idle with no loop draws as layers, which needs its `leg_rows`. Its eyes are one group, `eye_row`, `eye_columns` and `lid_colour`
+    /// all or none, so a group with only some of its keys is refused. The file may leave the fidgets out.
+    private static func aLayeredIdleNeedsItsLegRowsAndEyesAllOrNone() {
         expectThrows(TrackerAvatarAnimationError.incompleteIdle, "a layered idle with no idle keys") {
             var json = bardJSON()
             json.removeValue(forKey: "idle")
             _ = try decode(json)
         }
-        for key in ["leg_rows", "eye_row", "eye_columns", "lid_colour"] {
-            expectThrows(TrackerAvatarAnimationError.incompleteIdle, "a layered idle with no \(key)") {
-                var json = bardJSON()
-                var idle = json["idle"] as? [String: Any] ?? [:]
-                idle.removeValue(forKey: key)
-                json["idle"] = idle
-                _ = try decode(json)
+        expectThrows(TrackerAvatarAnimationError.incompleteIdle, "a layered idle with no leg_rows") {
+            _ = try bardWithIdle { idle in
+                idle.removeValue(forKey: "leg_rows")
+            }
+        }
+        for key in ["eye_row", "eye_columns", "lid_colour"] {
+            expectThrows(TrackerAvatarAnimationError.incompleteEyes, "eyes with no \(key)") {
+                _ = try bardWithIdle { idle in
+                    idle.removeValue(forKey: key)
+                }
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.incompleteEyes, "eyes with only an eye row") {
+            _ = try bardWithIdle { idle in
+                idle.removeValue(forKey: "eye_columns")
+                idle.removeValue(forKey: "lid_colour")
             }
         }
         var json = bardJSON()
         json.removeValue(forKey: "fidgets")
         expect((try? decode(json))?.fidgets.isEmpty == true, "a layered idle with no fidgets key should have none")
+    }
+
+    /// A layered idle with none of the eye keys is a figure with no eyes: it decodes with its leg rows alone, and its fidgets still play.
+    private static func aStillIdleWithNoEyesDecodesWithoutThem() {
+        var json = AvatarAnimationFixture.classJSON("wizard")
+        var idle = json["idle"] as? [String: Any] ?? [:]
+        for key in ["eye_row", "eye_columns", "lid_colour"] {
+            idle.removeValue(forKey: key)
+        }
+        json["idle"] = idle
+        guard let animation = try? decode(json) else {
+            fail("a still idle with no eye keys should decode")
+        }
+        expect(animation.idle == TrackerAvatarIdle(legRows: 45, eyes: nil),
+               "a still idle with no eye keys should keep its leg rows and have no eyes, got \(String(describing: animation.idle))")
+        expect(animation.fidgets.map(\.name) == ["hood", "staff-tap"], "a still idle with no eyes should keep its fidgets")
     }
 
     /// Idle's loop is all it takes: it comes on screen with no enter and leaves with no finish of its own, and a one-shot has no place
@@ -595,7 +622,7 @@ struct TrackerAvatarAnimationTests {
         return try decode(json)
     }
 
-    /// The lids' colour is required, and reads only as `#rrggbb`.
+    /// The lids' colour is required with the eyes, and reads only as `#rrggbb`.
     private static func aLidColourIsRequiredAndReadsAsHexRGB() {
         expect(TrackerAvatarColour(hex: "#f5b47b")?.rgb == 0xf5b47b, "a #rrggbb colour should read as its RGB value")
         expect(TrackerAvatarColour(hex: "#F5B47B")?.rgb == 0xf5b47b, "upper-case hex digits should read too")
@@ -605,7 +632,9 @@ struct TrackerAvatarAnimationTests {
         expectThrows(TrackerAvatarAnimationError.invalidLidColour, "a lid colour without its # sign") {
             _ = try bardWithIdle { $0["lid_colour"] = "f5b47b" }
         }
-        expect((try? bardWithIdle { $0["lid_colour"] = nil }) == nil, "a file with no lid colour should not read")
+        expectThrows(TrackerAvatarAnimationError.incompleteEyes, "eyes with no lid colour") {
+            _ = try bardWithIdle { $0["lid_colour"] = nil }
+        }
     }
 
     private static func aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt() {
@@ -626,8 +655,8 @@ struct TrackerAvatarAnimationTests {
             fail("the wizard's file should decode")
         }
         expect(
-            animation.idle == TrackerAvatarIdle(legRows: 45, eyeRow: 16, eyeColumns: 44...45, lidColour: TrackerAvatarColour(rgb: 0x7b6c63)),
-            "idle should carry the wizard's leg rows, eye row, eye columns and lid colour"
+            animation.idle == TrackerAvatarIdle(legRows: 45, eyes: TrackerAvatarEyes(row: 16, columns: 44...45, lidColour: TrackerAvatarColour(rgb: 0x7b6c63))),
+            "idle should carry the wizard's leg rows and eyes: the eye row, eye columns and lid colour"
         )
         expect(animation.releaseHand == TrackerAvatarPixel(x: 58, y: 14), "the release hand should be the wizard's hand pixel")
         expect(animation.fidgets.map(\.name) == ["hood", "staff-tap"], "fidgets should come in name order")
@@ -642,8 +671,8 @@ struct TrackerAvatarAnimationTests {
             fail("the paladin's file should decode")
         }
         expect(
-            animation.idle == TrackerAvatarIdle(legRows: 60, eyeRow: 15, eyeColumns: 45...46, lidColour: TrackerAvatarColour(rgb: 0xf6b83f)),
-            "idle should carry the paladin's leg rows, eye row, eye columns and lid colour"
+            animation.idle == TrackerAvatarIdle(legRows: 60, eyes: TrackerAvatarEyes(row: 15, columns: 45...46, lidColour: TrackerAvatarColour(rgb: 0xf6b83f))),
+            "idle should carry the paladin's leg rows and eyes: the eye row, eye columns and lid colour"
         )
         expect(animation.releaseHand == TrackerAvatarPixel(x: 131, y: 92), "the release hand should be the paladin's hand pixel")
         expect(animation.fidgets.map(\.name) == ["watch"], "the paladin should have the watch fidget")
@@ -674,8 +703,8 @@ struct TrackerAvatarAnimationTests {
             fail("the cleric's file should decode")
         }
         expect(
-            animation.idle == TrackerAvatarIdle(legRows: 45, eyeRow: 23, eyeColumns: 27...31, lidColour: TrackerAvatarColour(rgb: 0xe2c897)),
-            "idle should carry the cleric's leg rows, eye row, eye columns and lid colour"
+            animation.idle == TrackerAvatarIdle(legRows: 45, eyes: TrackerAvatarEyes(row: 23, columns: 27...31, lidColour: TrackerAvatarColour(rgb: 0xe2c897))),
+            "idle should carry the cleric's leg rows and eyes: the eye row, eye columns and lid colour"
         )
         expect(animation.releaseHand == TrackerAvatarPixel(x: 107, y: 38), "the release hand should be the cleric's hand pixel")
         expect(animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
