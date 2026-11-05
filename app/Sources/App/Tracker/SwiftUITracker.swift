@@ -2,14 +2,6 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-func isBackendStartingMessage(_ message: String?) -> Bool {
-    let normalized = message?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    return normalized == "connecting to backend..."
-        || normalized == "backend not connected - retrying"
-        || normalized == "backend not connected - reconnecting"
-        || normalized == "backend finishing a previous operation"
-}
-
 final class TrackerKeyboardBridge {
     var handler: ((NSEvent) -> Bool)?
     var editSessionHandler: ((String) -> Bool)?
@@ -318,16 +310,17 @@ struct TrackerRootView: View {
         let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
 
         let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
-        let showsShells = !tracker.shells.isEmpty && !isBackendStartingMessage(snapshot.serviceStateMessage)
+        let connection = snapshot.connection
+        let showsShells = !tracker.shells.isEmpty && !connection.awaitsFirstTracker
         // The plates' list scrolls only to a plate: a cursor on a shell is not its row.
         let plateCursorID = TrackerShellSection.plateCursorID(selectedID, in: rows)
         let list = Group {
-            if isBackendStartingMessage(snapshot.serviceStateMessage) {
+            if connection.awaitsFirstTracker {
                 TrackerSkeletonPlaceholder()
             } else {
                 if rows.isEmpty {
                     // A backend that doesn't fit says so; otherwise there is just nothing to list.
-                    if let message = snapshot.serviceStateMessage {
+                    if let message = connection.blockingMessage {
                         StatusMessagePane(
                             message: message,
                             alignment: .center,
@@ -387,6 +380,8 @@ struct TrackerRootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The last tracker from a dropped connection stays, dimmed, until a fresh one arrives.
+        .opacity(connection.showsLastTracker ? Token.Opacity.dimmed : 1)
     }
 
     private func copySessionID(_ sessionID: String) {

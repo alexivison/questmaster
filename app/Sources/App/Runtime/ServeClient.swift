@@ -15,10 +15,10 @@ final class UnixSocketServeClient {
     private let control = NSCondition()
     private var stopped = false
     private var fd: Int32 = -1
-    private var lastUnavailableMessage = ""
-    private var incompatibleMessage: String?
+    /// The loop's own, used only on `queue`.
+    private var connection = ConnectionStateMachine()
+    private var reportedState: ConnectionState?
     private var onUpdate: ((RuntimeUpdate) -> Void)?
-    private var onStatus: ((String) -> Void)?
 
     convenience init(connection: DaemonConnection) {
         self.init(connect: { try connection.connect() }, invalidate: { connection.invalidate() })
@@ -30,9 +30,9 @@ final class UnixSocketServeClient {
         self.invalidate = invalidate
     }
 
-    func start(onUpdate: @escaping (RuntimeUpdate) -> Void, onStatus: @escaping (String) -> Void = { _ in }) {
+    /// Streams tracker updates, each carrying `.connected`, and every other connection state as an update of its own.
+    func start(onUpdate: @escaping (RuntimeUpdate) -> Void) {
         self.onUpdate = onUpdate
-        self.onStatus = onStatus
 
         queue.async { [weak self] in
             guard let self else {
@@ -63,7 +63,7 @@ final class UnixSocketServeClient {
     private func connectionLoop() {
         let startedAt = Date()
         var attempt = 0
-        emitUnavailable("connecting to backend...")
+        reportConnectionState()
 
         while !isStopped {
             do {
@@ -71,39 +71,31 @@ final class UnixSocketServeClient {
                 guard adopt(socket) else {
                     return
                 }
-                onStatus?("backend connected")
                 try sendInitialRequests(on: socket)
 
                 let exit = readLoop(on: socket)
-                if incompatibleMessage == nil {
+                if !connection.isIncompatible {
                     attempt = 0
                 }
                 switch exit {
                 case .stopped:
                     closeCurrentSocket()
                     return
-                case .closed:
+                case .dropped:
                     invalidate()
-                    onStatus?("backend socket closed; reconnecting")
-                    emitUnavailable("backend not connected - reconnecting")
-                case .failed(let message):
-                    invalidate()
-                    onStatus?("backend socket read failed: \(message); reconnecting")
-                    emitUnavailable("backend not connected - reconnecting")
+                    connection.lost(after: Date().timeIntervalSince(startedAt))
+                    reportConnectionState()
                 case .incompatible:
                     break
                 }
             } catch {
                 if !isStopped {
-                    if let failure = error as? ServeClientError, failure.isProtocolVersionMismatch {
-                        let status = "incompatible backend: \(failure.localizedDescription)"
-                        incompatibleMessage = status
-                        emitUnavailable(status)
+                    if case ServeClientError.protocolMismatch(let message) = error {
+                        connection.incompatible(message)
                     } else {
-                        let message = DaemonWaitingStatus.message(after: Date().timeIntervalSince(startedAt))
-                        onStatus?("\(message): \(error.localizedDescription)")
-                        emitUnavailable(message)
+                        connection.lost(after: Date().timeIntervalSince(startedAt))
                     }
+                    reportConnectionState()
                 }
             }
 
@@ -115,13 +107,14 @@ final class UnixSocketServeClient {
         closeCurrentSocket()
     }
 
-    private func emitUnavailable(_ message: String) {
-        let message = incompatibleMessage ?? message
-        guard lastUnavailableMessage != message else {
+    /// Sends the connection state when it has changed since the last one sent.
+    private func reportConnectionState() {
+        let state = connection.state
+        guard state != reportedState else {
             return
         }
-        lastUnavailableMessage = message
-        onUpdate?(.serveUnavailable(message))
+        reportedState = state
+        onUpdate?(RuntimeUpdate(connection: state))
     }
 
     /// Makes `socket` the one `stop()` shuts down, or closes it when a stop came first.
@@ -168,8 +161,8 @@ final class UnixSocketServeClient {
 
     private enum ReadLoopExit {
         case stopped
-        case closed
-        case failed(String)
+        /// The connection closed, failed, or a frame outgrew the pending-line cap.
+        case dropped
         case incompatible
     }
 
@@ -186,14 +179,8 @@ final class UnixSocketServeClient {
         while !isStopped {
             let count = Darwin.read(socket, &buffer, buffer.count)
             // A stop shuts the socket down, which ends a blocked read with end-of-file.
-            if count <= 0, isStopped {
-                return .stopped
-            }
-            if count == 0 {
-                return .closed
-            }
-            if count < 0 {
-                return .failed(String(cString: strerror(errno)))
+            if count <= 0 {
+                return isStopped ? .stopped : .dropped
             }
 
             // The bytes already buffered past `parseOffset` hold no newline, so only the new ones are searched.
@@ -212,7 +199,7 @@ final class UnixSocketServeClient {
             }
             compactPendingBuffer(&pending, parseOffset: &parseOffset)
             if pending.distance(from: parseOffset, to: pending.endIndex) > Self.maxBufferedLineBytes {
-                return .failed("backend frame exceeded \(Self.maxBufferedLineBytes) bytes")
+                return .dropped
             }
         }
         return .stopped
@@ -236,20 +223,20 @@ final class UnixSocketServeClient {
 
     private func handle(_ line: Data) -> LineHandleResult {
         do {
-            if let update = try ServeContract.update(fromLine: line) {
-                incompatibleMessage = nil
-                lastUnavailableMessage = ""
-                onUpdate?(update)
+            // A decoded line is a tracker (the only topic the stream subscribes to), so the connection is live.
+            guard var update = try ServeContract.update(fromLine: line) else {
+                return .handled
             }
-        } catch let error as ServeClientError where error.isProtocolVersionMismatch {
-            let message = error.localizedDescription
-            let status = "incompatible backend: \(message)"
-            incompatibleMessage = status
-            onStatus?("backend decode failed: \(message)")
-            emitUnavailable(status)
+            connection.receivedTracker()
+            reportedState = connection.state
+            update.connection = connection.state
+            onUpdate?(update)
+        } catch ServeClientError.protocolMismatch(let message) {
+            connection.incompatible(message)
+            reportConnectionState()
             return .incompatible
         } catch {
-            onStatus?("backend decode failed: \(error.localizedDescription)")
+            // A line that doesn't decode is skipped; the stream goes on.
         }
         return .handled
     }

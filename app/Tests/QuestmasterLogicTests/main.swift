@@ -19,6 +19,7 @@ timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("DockWidthPreferenceTests") { DockWidthPreferenceTests.run() }
         timed("ServeRecoveryPolicyTests") { ServeRecoveryPolicyTests.run() }
         timed("DaemonConnectionTests") { DaemonConnectionTests.run() }
+        timed("ConnectionStateTests") { ConnectionStateTests.run() }
         timed("NewSessionLogicTests") { NewSessionLogicTests.run() }
         timed("SessionClassLogicTests") { SessionClassLogicTests.run() }
         timed("ColorFieldTests") { ColorFieldTests.run() }

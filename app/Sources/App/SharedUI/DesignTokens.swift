@@ -24,7 +24,8 @@ enum Token {
     }
 
     enum Opacity {
-        /// A figure that reads dimmer than the text beside it: a pull request's diff counter (design: 70%).
+        /// A figure that reads dimmer than the text beside it: a pull request's diff counter (design: 70%), and the
+        /// tracker while it shows the last tracker from a dropped connection.
         static let dimmed: Double = 0.7
     }
 

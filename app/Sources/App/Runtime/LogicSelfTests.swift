@@ -33,7 +33,6 @@ enum LogicSelfTests {
         ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
         ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
-        ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testShellRowsLeaveTheRepoGroupsForTheirOwnSection", testShellRowsLeaveTheRepoGroupsForTheirOwnSection),
         ("testAnAttachedShellsPanelBarFollowsItsOwnColour", testAnAttachedShellsPanelBarFollowsItsOwnColour),
         ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
@@ -139,6 +138,7 @@ enum LogicSelfTests {
         ("testServeStreamJoinsLinesSplitAcrossWrites", testServeStreamJoinsLinesSplitAcrossWrites),
         ("testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap", testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap),
         ("testServeStreamStopsReadingAtAMidStreamProtocolMismatch", testServeStreamStopsReadingAtAMidStreamProtocolMismatch),
+        ("testServeStreamKeepsTheLastTrackerWhenTheConnectionDrops", testServeStreamKeepsTheLastTrackerWhenTheConnectionDrops),
         ("testServeClientStopEndsAConnectedStream", testServeClientStopEndsAConnectedStream),
         ("testServeClientStopClosesASocketThatConnectsAfterIt", testServeClientStopClosesASocketThatConnectsAfterIt),
         ("testServeClientStopEndsTheRetryWait", testServeClientStopEndsTheRetryWait),
@@ -1734,12 +1734,6 @@ enum LogicSelfTests {
         )
     }
 
-    private static func testTrackerSkeletonMatchesServeStartupMessages() throws {
-        try expect(trackerShowsSkeleton(for: "connecting to backend..."), "current startup text should show skeleton")
-        try expect(trackerShowsSkeleton(for: "backend not connected - retrying"), "retry text should keep showing the skeleton")
-        try expect(trackerShowsSkeleton(for: "backend finishing a previous operation"), "handoff wait should show skeleton")
-    }
-
     private static func testDockPanePublishesModeChanges() throws {
         let model = DockPaneModel()
         let snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
@@ -1866,11 +1860,9 @@ enum LogicSelfTests {
             }, "the skeleton view should mount and start its expected motion")
             return breaths(in: view)
         }
-        func tracker(_ label: String) -> some View {
+        func tracker(_ connection: ConnectionState) -> some View {
             let store = RuntimeStore(sourceLabel: "test")
-            if !label.isEmpty {
-                store.apply(.serveUnavailable(label))
-            }
+            store.apply(RuntimeUpdate(connection: connection))
             return TrackerRootView(store: store, newSessionPresenter: NewSessionSheetPresenter(), destructiveConfirmationPresenter: DestructiveConfirmationPresenter())
         }
         let settings = SettingsSheetView(
@@ -1889,15 +1881,15 @@ enum LogicSelfTests {
         Motion.reducesMotion = { true }
         defer { Motion.reducesMotion = { false } }
         try expect(try hosted(TerminalAttachSkeleton(), shouldBreathe: false).isEmpty, "the terminal's veil holds still under Reduce Motion")
-        try expect(try hosted(tracker("connecting to backend..."), shouldBreathe: false).isEmpty, "the tracker's ghost plates hold still under Reduce Motion")
+        try expect(try hosted(tracker(.connecting), shouldBreathe: false).isEmpty, "the tracker's ghost plates hold still under Reduce Motion")
         try expect(try hosted(settings, shouldBreathe: false).isEmpty, "the Settings pickers hold still under Reduce Motion")
         Motion.reducesMotion = { false }
 
         let veil = try hosted(TerminalAttachSkeleton(), shouldBreathe: true)
         try expect(veil.count == 1 && veil[0].duration == SkeletonMotion.period, "the terminal's veil should be one breath, got \(veil.count)")
-        let ghosts = try hosted(tracker("connecting to backend..."), shouldBreathe: true)
+        let ghosts = try hosted(tracker(.connecting), shouldBreathe: true)
         try expect(ghosts.count == 1 && ghosts[0].duration == SkeletonMotion.period, "the tracker's ghost plates should be one breath, got \(ghosts.count)")
-        try expect(try hosted(tracker(""), shouldBreathe: false).isEmpty, "a tracker with a backend shows no skeleton and nothing breathes")
+        try expect(try hosted(tracker(.connected), shouldBreathe: false).isEmpty, "a tracker with a backend shows no skeleton and nothing breathes")
         let pickers = try hosted(settings, shouldBreathe: true)
         try expect(!pickers.isEmpty && pickers.allSatisfy { $0.duration == SkeletonMotion.period }, "the Settings pickers waiting for options should breathe, got \(pickers.count)")
     }
@@ -5270,8 +5262,8 @@ enum LogicSelfTests {
                 do {
                     _ = try UnixSocketMutationClient.decodeAck(line)
                     try expect(false, "incompatible \(ok ? "success" : "error") envelope was accepted")
-                } catch let error as ServeClientError {
-                    try expect(error.isProtocolVersionMismatch, "version mismatch should win over the response payload")
+                } catch ServeClientError.protocolMismatch {
+                    // Expected: the version mismatch wins over the response payload.
                 }
             }
         }
@@ -5320,6 +5312,7 @@ enum LogicSelfTests {
         }
 
         var labels: [String] = []
+        var states: [ConnectionState] = []
         let recordJSON: [String: Any] = [
             "running": true, "root": fixture.stateRoot.path, "identity": "canonical", "socket": path,
             "executable": fixture.qm.path, "shim_directory": fixture.root.appendingPathComponent("shim").path,
@@ -5329,13 +5322,19 @@ enum LogicSelfTests {
         let config = LaunchConfiguration.load(arguments: ["--no-daemon-start"], environment: fixture.environment,
                                               workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
         let client = UnixSocketServeClient(connection: DaemonConnection(config: config, record: record))
+        defer { client.stop() }
         client.start(onUpdate: { update in
-            DispatchQueue.main.async { labels.append(update.observedLabel ?? "") }
-        }, onStatus: { _ in })
+            DispatchQueue.main.async {
+                labels.append(update.observedLabel ?? "")
+                states.append(contentsOf: update.connection.map { [$0] } ?? [])
+            }
+        })
         try waitForMainQueue("protocol mismatch and recovered tracker stream", until: {
-            labels.contains(where: { $0.contains("protocol_version") }) && labels.contains("recovered")
+            states.contains(where: { $0.blockingMessage?.contains("protocol_version") == true }) && labels.contains("recovered")
         })
         try expect(!labels.contains("wrong"), "incompatible tracker data should not reach the store")
+        let afterMismatch = states.drop(while: { $0.blockingMessage == nil })
+        try expect(afterMismatch.contains(.connected), "the recovered tracker should make the connection live again, got \(states)")
     }
 
     private static func testReadLineReturnsALineSpanningManyReads() throws {
@@ -5430,6 +5429,24 @@ enum LogicSelfTests {
         try waitForMainQueue("a reconnect after the mismatch", until: { harness.connects >= 2 })
         try waitForMainQueueTurn()
         try expect(harness.wireLabels == ["wire-before"], "nothing from the mismatched line on should arrive, got \(harness.wireLabels)")
+    }
+
+    /// A dropped connection (every daemon restart) keeps the last tracker in the store until a fresh one arrives,
+    /// rather than emptying it.
+    private static func testServeStreamKeepsTheLastTrackerWhenTheConnectionDrops() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let line = "{\"protocol_version\":\(ServeContract.protocolVersion),\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wire-live\",\"sessions\":[{\"id\":\"qm-1\",\"title\":\"Kept\",\"status\":\"active\",\"state\":\"idle\",\"elapsed_ms\":0,\"worker_count\":0,\"repo\":{\"identity\":\"example-app\",\"name\":\"example-app\"}}]}}\n"
+        try harness.write(line)
+        try waitForMainQueue("the live tracker", until: { harness.wireLabels == ["wire-live"] })
+
+        shutdown(harness.daemon, SHUT_RDWR)
+        try waitForMainQueue("a reconnect after the drop", until: { harness.connects >= 2 })
+        try waitForMainQueueTurn()
+        let sessions = harness.store.snapshot.tracker.repos.flatMap(\.sessions).map(\.id)
+        try expect(sessions == ["qm-1"], "the last tracker should stay after the drop, got \(sessions)")
+        try expect(harness.store.snapshot.connection == .reconnecting, "the store should know the tracker is the last one, got \(harness.store.snapshot.connection)")
     }
 
     /// Stop ends a healthy connection at once: it returns without waiting, the socket closes, the loop exits and the
@@ -5545,6 +5562,7 @@ enum LogicSelfTests {
 
     /// A serve client whose first connect is one end of a socket pair; the test plays the daemon on the other end
     /// (`daemon`). Every later connect fails, so after a drop the client only retries.
+    @MainActor
     private final class ServeStreamHarness {
         let daemon: Int32
         let client: UnixSocketServeClient
@@ -5552,6 +5570,8 @@ enum LogicSelfTests {
         /// The `observed_at` labels of the tracker updates that reached the client's callback, in order, on the main
         /// queue. Only `wire-` labels count: the client also reports its own connection status as updates.
         private(set) var wireLabels: [String] = []
+        /// Every update applied in order, as the app's runtime connection applies them.
+        let store = RuntimeStore(sourceLabel: "test")
 
         var connects: Int { counter.value }
 
@@ -5579,7 +5599,9 @@ enum LogicSelfTests {
         func start() {
             client.start(onUpdate: { [weak self] update in
                 DispatchQueue.main.async {
-                    guard let self, update.tracker != nil, let label = update.observedLabel, label.hasPrefix("wire-") else { return }
+                    guard let self else { return }
+                    self.store.apply(update)
+                    guard update.tracker != nil, let label = update.observedLabel, label.hasPrefix("wire-") else { return }
                     self.wireLabels.append(label)
                 }
             })
@@ -7674,12 +7696,6 @@ enum LogicSelfTests {
             didRun = true
         }
         try waitForMainQueue("queued main-thread work", until: { didRun })
-    }
-
-    private static func trackerShowsSkeleton(for observedLabel: String) -> Bool {
-        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.apply(.serveUnavailable(observedLabel))
-        return isBackendStartingMessage(snapshot.serviceStateMessage)
     }
 
     /// A press at the dock's model, resolved as `SwiftUIDockPane` resolves it for the content shown (`in:`, the artifact

@@ -43,9 +43,3 @@ public struct DaemonHandshake: Decodable {
         }
     }
 }
-
-public enum DaemonWaitingStatus {
-    public static func message(after seconds: TimeInterval) -> String {
-        seconds >= 5 ? "backend finishing a previous operation" : "connecting to backend..."
-    }
-}

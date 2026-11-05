@@ -5,7 +5,6 @@ struct DaemonConnectionTests {
     static func run() {
         recordAndUpgradeNudge()
         handshakeValidation()
-        waitingStatus()
         oldEnvelopeIsIncompatible()
         print("DaemonConnectionTests: all tests passed")
     }
@@ -35,18 +34,21 @@ struct DaemonConnectionTests {
         do {
             let value = try record()
             try handshake().validate(against: value)
-            for hello in [try handshake("/other"), try handshake("/state", "other"), try handshake("/state", "canonical", 1), try handshake("/state", "canonical", 3, false)] {
+            for hello in [try handshake("/other"), try handshake("/state", "other"), try handshake("/state", "canonical", 3, false)] {
                 do {
                     try hello.validate(against: value)
                     fail("invalid handshake was accepted")
+                } catch ServeClientError.protocolMismatch {
+                    fail("a handshake with the right version should not read as a mismatch")
                 } catch { /* Expected. */ }
             }
+            do {
+                try handshake("/state", "canonical", 1).validate(against: value)
+                fail("an old handshake was accepted")
+            } catch ServeClientError.protocolMismatch {
+                // Expected: the app reads the backend as incompatible.
+            }
         } catch { fail("handshake validation: \(error)") }
-    }
-
-    private static func waitingStatus() {
-        expect(DaemonWaitingStatus.message(after: 4.9) == "connecting to backend...", "early wait should show connection status")
-        expect(DaemonWaitingStatus.message(after: 5) == "backend finishing a previous operation", "five-second wait should explain the handoff")
     }
 
     private static func oldEnvelopeIsIncompatible() {
@@ -54,8 +56,8 @@ struct DaemonConnectionTests {
         do {
             _ = try ServeContract.update(fromLine: line)
             fail("old envelope was accepted")
-        } catch let error as ServeClientError {
-            expect(error.isProtocolVersionMismatch, "old envelope should enter incompatible state")
+        } catch ServeClientError.protocolMismatch {
+            // Expected: the old envelope enters the incompatible state.
         } catch { fail("old envelope raised unexpected error: \(error)") }
     }
 
