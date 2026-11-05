@@ -463,18 +463,31 @@ func TestPruneStaleManifestRemovesRecordedRuntimeDir(t *testing.T) {
 func TestPruneLegacyRuntimeDirectories(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv(state.StateRootEnv, root)
+	t.Setenv("HOME", t.TempDir())
 	store, err := state.NewStore(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyRoot := filepath.Join(t.TempDir(), "legacy")
-	if err := os.Mkdir(legacyRoot, 0o700); err != nil {
+	base := t.TempDir()
+	realRoot := filepath.Join(base, "real")
+	legacyRoot := filepath.Join(base, "link")
+	if err := os.Mkdir(realRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realRoot, legacyRoot); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"qm-orphan", "qm-live", "qm-manifest", "qm-stale"} {
-		if err := os.Mkdir(filepath.Join(legacyRoot, id), 0o700); err != nil {
+		if err := os.Mkdir(filepath.Join(realRoot, id), 0o700); err != nil {
 			t.Fatal(err)
 		}
+	}
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(realRoot, "qm-symlink")); err != nil {
+		t.Fatal(err)
 	}
 	writeManifestFile(t, root, "qm-manifest", map[string]any{"session_id": "qm-manifest", "cwd": "/tmp"}, 0)
 	writeManifestFile(t, root, "qm-stale", map[string]any{"session_id": "qm-stale", "cwd": "/tmp"}, 10*24*time.Hour)
@@ -512,6 +525,74 @@ func TestPruneLegacyRuntimeDirectories(t *testing.T) {
 		if _, err := os.Lstat(filepath.Join(legacyRoot, id)); err != nil {
 			t.Fatalf("protected legacy directory %s removed: %v", id, err)
 		}
+	}
+	if _, err := os.Lstat(filepath.Join(realRoot, "qm-symlink")); err != nil {
+		t.Fatalf("symlinked entry was removed: %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("symlinked entry's target was removed: %v", err)
+	}
+}
+
+func TestPruneLegacyRuntimeParentSymlinkToFile(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	t.Setenv("HOME", t.TempDir())
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, []byte("untouched"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacyRoot := filepath.Join(base, "link")
+	if err := os.Symlink(file, legacyRoot); err != nil {
+		t.Fatal(err)
+	}
+	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{}})
+	result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, false, legacyRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Pruned != 0 || len(result.Paths) != 0 {
+		t.Fatalf("prune result = %+v, want no paths", result)
+	}
+	if data, err := os.ReadFile(file); err != nil || string(data) != "untouched" {
+		t.Fatalf("symlink target changed: %q, %v", data, err)
+	}
+}
+
+func TestPruneRuntimeParentSymlinkIsSkipped(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	t.Setenv("HOME", t.TempDir())
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realRoot := filepath.Join(t.TempDir(), "real")
+	if err := os.Mkdir(realRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(realRoot, "qm-orphan")
+	if err := os.Mkdir(orphan, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realRoot, filepath.Join(root, "runtime")); err != nil {
+		t.Fatal(err)
+	}
+	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{}})
+	result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Pruned != 0 || len(result.Paths) != 0 {
+		t.Fatalf("prune result = %+v, want no paths", result)
+	}
+	if _, err := os.Stat(orphan); err != nil {
+		t.Fatalf("runtime symlink target was removed: %v", err)
 	}
 }
 
