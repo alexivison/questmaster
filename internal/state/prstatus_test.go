@@ -16,7 +16,7 @@ func TestPullRequestStatusMigratesLegacyTimestampOnUnchangedPoll(t *testing.T) {
 	if err := store.Create(Manifest{SessionID: "qm-one"}); err != nil {
 		t.Fatal(err)
 	}
-	pr, _ := ParsePullRequestRef("o/r#1", nil)
+	pr, _ := ParsePullRequestRef("o/r#1")
 	if _, err := WatchPullRequest(store.Root(), "qm-one", pr, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -48,8 +48,8 @@ func TestPullRequestStatusPersistence(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	one, _ := ParsePullRequestRef("o/r#1", nil)
-	two, _ := ParsePullRequestRef("o/r#2", nil)
+	one, _ := ParsePullRequestRef("o/r#1")
+	two, _ := ParsePullRequestRef("o/r#2")
 	for _, item := range []struct {
 		id string
 		pr PullRequest

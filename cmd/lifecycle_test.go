@@ -451,7 +451,7 @@ func TestDeleteCmd_JSON(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-del", "deleteme", t.TempDir(), "regular")
-	ref, _ := state.ParsePullRequestRef("owner/repo#1", nil)
+	ref, _ := state.ParsePullRequestRef("owner/repo#1")
 	if _, err := state.WatchPullRequest(store.Root(), "qm-del", ref, time.Now()); err != nil {
 		t.Fatal(err)
 	}

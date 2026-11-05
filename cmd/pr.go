@@ -63,8 +63,11 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if len(m.Agents) == 0 {
 				return fmt.Errorf("session %s has no agent (plain terminal session)", id)
 			}
-			ref, err := state.ParsePullRequestRef(args[0], prLoggedInHosts)
+			ref, err := state.ParsePullRequestRef(args[0])
 			if err != nil {
+				return err
+			}
+			if err := state.AcceptPullRequestHost(ref.Host, prLoggedInHosts); err != nil {
 				return err
 			}
 			config := prDaemonConfig(store.Root())
@@ -117,7 +120,7 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ref, err := state.ParsePullRequestRef(args[0], prLoggedInHosts)
+			ref, err := state.ParsePullRequestRef(args[0])
 			if err != nil {
 				return err
 			}
@@ -168,7 +171,7 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ref, err := state.ParsePullRequestRef(args[0], prLoggedInHosts)
+			ref, err := state.ParsePullRequestRef(args[0])
 			if err != nil {
 				return err
 			}
@@ -225,7 +228,7 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 				return err
 			}
 			if len(args) > 0 {
-				ref, err := state.ParsePullRequestRef(args[0], prLoggedInHosts)
+				ref, err := state.ParsePullRequestRef(args[0])
 				if err != nil {
 					return err
 				}

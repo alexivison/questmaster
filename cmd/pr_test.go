@@ -191,7 +191,7 @@ func TestPRWatchHostAllowlist(t *testing.T) {
 	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
-	existing, _ := state.ParsePullRequestRef("owner/repo#7", nil)
+	existing, _ := state.ParsePullRequestRef("owner/repo#7")
 	if _, err := state.WatchPullRequest(store.Root(), "qm-pr", existing, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestPREventsPreviewAndFull(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ref, _ := state.ParsePullRequestRef("owner/repo#7", nil)
+	ref, _ := state.ParsePullRequestRef("owner/repo#7")
 	if _, err := state.WatchPullRequest(store.Root(), "qm-watcher", ref, time.Now().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +417,7 @@ func TestPRSessionRequiresManifest(t *testing.T) {
 func TestPruneDropsOrphanWatchesAndDryRunPreservesRegistry(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	ref, _ := state.ParsePullRequestRef("owner/repo#1", nil)
+	ref, _ := state.ParsePullRequestRef("owner/repo#1")
 	if err := store.Create(state.Manifest{SessionID: "qm-orphan"}); err != nil {
 		t.Fatal(err)
 	}
@@ -455,5 +455,43 @@ func TestPruneDropsOrphanWatchesAndDryRunPreservesRegistry(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(store.Root(), "qm-orphan.json")); !os.IsNotExist(err) {
 		t.Fatalf("unexpected manifest: %v", err)
+	}
+}
+
+func TestPRExistingWatchOnUnlistedHostStillWorks(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupStore(t)
+	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := state.ParsePullRequestRef("https://ghe.example/owner/repo/pull/2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.WatchPullRequest(store.Root(), "qm-pr", ref, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	oldHosts := prLoggedInHosts
+	t.Cleanup(func() { prLoggedInHosts = oldHosts })
+	prLoggedInHosts = func() ([]string, error) {
+		t.Error("unwatch, events and refresh must not check gh's hosts")
+		return []string{"github.com"}, nil
+	}
+	const watchRef = "https://ghe.example/owner/repo/pull/2"
+	var events []json.RawMessage
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "events", watchRef, "--session", "qm-pr")), &events); err != nil {
+		t.Fatalf("events on existing unlisted-host watch: %v", err)
+	}
+	var refreshed struct {
+		PullRequests []state.PullRequest `json:"pull_requests"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "refresh", watchRef, "--session", "qm-pr")), &refreshed); err != nil || len(refreshed.PullRequests) != 1 || refreshed.PullRequests[0].Key != ref.Key {
+		t.Fatalf("refresh on existing unlisted-host watch = %#v, %v", refreshed, err)
+	}
+	var result struct {
+		Removed bool `json:"removed"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "unwatch", watchRef, "--session", "qm-pr")), &result); err != nil || !result.Removed {
+		t.Fatalf("unwatch on existing unlisted-host watch = %#v, %v", result, err)
 	}
 }

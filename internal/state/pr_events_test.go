@@ -18,7 +18,7 @@ func TestPullRequestEventsDedupeBaselineAndCursors(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ref, _ := ParsePullRequestRef("owner/repo#12", nil)
+	ref, _ := ParsePullRequestRef("owner/repo#12")
 	baseline := time.Date(2026, 10, 27, 1, 0, 0, 0, time.UTC)
 	if _, err := WatchPullRequest(store.Root(), "qm-one", ref, baseline); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestPullRequestUnreadHistoryIsNeverEvicted(t *testing.T) {
 	if err := store.Create(Manifest{SessionID: "qm-one"}); err != nil {
 		t.Fatal(err)
 	}
-	ref, _ := ParsePullRequestRef("owner/repo#12", nil)
+	ref, _ := ParsePullRequestRef("owner/repo#12")
 	baseline := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
 	if _, err := WatchPullRequest(store.Root(), "qm-one", ref, baseline); err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestPullRequestEventsAreReadableWithoutAWatch(t *testing.T) {
 	if err := store.Create(Manifest{SessionID: "qm-watcher"}); err != nil {
 		t.Fatal(err)
 	}
-	ref, _ := ParsePullRequestRef("owner/repo#12", nil)
+	ref, _ := ParsePullRequestRef("owner/repo#12")
 	baseline := time.Date(2026, 10, 27, 1, 0, 0, 0, time.UTC)
 	if _, err := WatchPullRequest(store.Root(), "qm-watcher", ref, baseline); err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func runPullRequestReadSteps(t *testing.T, baseline time.Time, watchers []string
 			t.Fatal(err)
 		}
 	}
-	ref, _ := ParsePullRequestRef("owner/repo#12", nil)
+	ref, _ := ParsePullRequestRef("owner/repo#12")
 	want := map[string]bool{}
 	watch := func(id string) {
 		t.Helper()

@@ -56,8 +56,8 @@ const githubHost = "github.com"
 // HostLister reports the GitHub hosts gh is logged in to. A nil HostLister accepts github.com only.
 type HostLister func() ([]string, error)
 
-// ParsePullRequestRef accepts owner/repo#number on github.com, or a PR URL on github.com or a host in loggedInHosts.
-func ParsePullRequestRef(raw string, loggedInHosts HostLister) (PullRequest, error) {
+// ParsePullRequestRef accepts a GitHub-style URL on any host or owner/repo#number.
+func ParsePullRequestRef(raw string) (PullRequest, error) {
 	var host, owner, repo, number string
 	if match := shortPullRequestRef.FindStringSubmatch(raw); match != nil {
 		host, owner, repo, number = "github.com", match[1], match[2], match[3]
@@ -77,14 +77,12 @@ func ParsePullRequestRef(raw string, loggedInHosts HostLister) (PullRequest, err
 		return PullRequest{}, fmt.Errorf("invalid PR ref %q: expected a positive PR number and owner/repo", raw)
 	}
 	host = strings.ToLower(host)
-	if err := acceptPullRequestHost(host, loggedInHosts); err != nil {
-		return PullRequest{}, err
-	}
 	return PullRequest{Key: fmt.Sprintf("%s/%s/%s#%d", host, strings.ToLower(owner), strings.ToLower(repo), n), Host: host, Owner: owner, Repo: repo, Number: n}, nil
 }
 
-// acceptPullRequestHost asks gh only for hosts other than github.com, so the common case stays offline.
-func acceptPullRequestHost(host string, loggedInHosts HostLister) error {
+// AcceptPullRequestHost checks a host for a new watch: github.com, or a host in loggedInHosts.
+// The host must be the lowercase host from ParsePullRequestRef.
+func AcceptPullRequestHost(host string, loggedInHosts HostLister) error {
 	if host == githubHost {
 		return nil
 	}
