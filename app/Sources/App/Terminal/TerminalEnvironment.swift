@@ -326,20 +326,21 @@ private func tmuxServerPathLines(environment: [String: String]) -> [String] {
 
 private func tmuxNewServerCommand() -> String {
     let unsetArguments = questmasterKeysOmittedFromNewServer.map { "-u \($0)" }.joined(separator: " ")
-    return "/usr/bin/env \(unsetArguments) PATH=\"$server_path\" \"$tmux\" new-session -d -s \"$session\" sleep 2147483647"
+    return "/usr/bin/env \(unsetArguments) PATH=\"$server_path\" \"$tmux\" new-session -d -P -F '#{pane_id}' -s \"$session\" sleep 2147483647"
 }
 
 // tmux matches a bare session name by prefix, so "qm-123" reaches "qm-123-456" when
-// no session has the exact name. Every session target below is "=$session" to match exactly.
+// no session has the exact name. Session targets below use "=$session"; the
+// created pane is targeted by the ID returned from new-session.
 func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
     var lines = tmuxEnvironmentPrologueLines(tmuxPath: tmuxPath, session: session, environment: environment)
     let loginShellCommand = "\(shellQuoted(nonEmpty(environment["SHELL"]) ?? "/bin/zsh")) -l"
     lines.append("if [ -n \"$dump_base\" ]; then mkdir -p \"$(dirname \"$dump_base\")\"; env | sort > \"$dump_base.surface\"; fi")
     lines.append(contentsOf: tmuxServerPathLines(environment: environment))
     lines.append("created=0")
-    lines.append("if ! \"$tmux\" has-session -t \"=$session\" 2>/dev/null; then \(tmuxNewServerCommand()); created=1; fi")
+    lines.append("if ! \"$tmux\" has-session -t \"=$session\" 2>/dev/null; then pane=$(\(tmuxNewServerCommand())); created=1; fi")
     lines.append(contentsOf: tmuxEnvironmentSyncCommandLines(environment: environment))
-    lines.append("if [ \"$created\" = 1 ]; then \"$tmux\" respawn-pane -k -t \"=$session\":0.0 \(shellQuoted(loginShellCommand)) || true; fi")
+    lines.append("if [ \"$created\" = 1 ]; then \"$tmux\" respawn-pane -k -t \"$pane\" \(shellQuoted(loginShellCommand)) || true; fi")
     lines.append(tmuxEnvironmentDumpLine())
     lines.append("\"$tmux\" attach-session -t \"=$session\" || true")
     lines.append("printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")
