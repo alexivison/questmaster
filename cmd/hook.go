@@ -92,7 +92,7 @@ type hookTmuxEnvironmentSetter interface {
 
 // defaultHookRunner wires HookRunner to the real internal/state package.
 func defaultHookRunner() *HookRunner {
-	return newHookRunner(state.OpenStore(state.StateRoot()), tmux.NewExecClient())
+	return newHookRunner(state.OpenStore(state.StateRoot()), tmux.NewClient(tmux.DefaultServer()))
 }
 
 func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *HookRunner {

@@ -46,7 +46,7 @@ func messagingRunner(live ...string) *mockRunner {
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
-			if liveSet[target] {
+			if liveSet[exactSession(target)] {
 				return "", nil
 			}
 			return "", &tmux.ExitError{Code: 1}
@@ -83,7 +83,7 @@ func newSendCaptureRunner(live ...string) *sendCaptureRunner {
 func (r *sendCaptureRunner) Run(_ context.Context, args ...string) (string, error) {
 	if len(args) >= 1 && args[0] == "has-session" {
 		target := args[len(args)-1]
-		if r.live[target] {
+		if r.live[exactSession(target)] {
 			return "", nil
 		}
 		return "", &tmux.ExitError{Code: 1}

@@ -50,10 +50,10 @@ func TestStartShellSession(t *testing.T) {
 	}
 
 	envIdx := callIndex(runner, func(args []string) bool {
-		return len(args) >= 5 && args[0] == "set-environment" && flagVal(args, "-t") == result.SessionID && args[len(args)-2] == state.SessionEnv
+		return len(args) >= 5 && args[0] == "set-environment" && flagVal(args, "-t") == tmux.SessionTarget(result.SessionID) && args[len(args)-2] == state.SessionEnv
 	})
 	respawnIdx := callIndex(runner, func(args []string) bool {
-		return len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == result.SessionID+":0.0"
+		return len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == tmux.PaneTarget(result.SessionID, 0, 0)
 	})
 	if envIdx < 0 || respawnIdx < 0 {
 		t.Fatalf("expected session env and shell respawn, calls=%v", runner.calls)
@@ -326,7 +326,7 @@ func TestStartRollsBackWorkerAfterTmuxCreateFails(t *testing.T) {
 	if _, err := os.Stat(state.SessionStateDir(stateRoot, sessionID)); !os.IsNotExist(err) {
 		t.Fatalf("session state dir should be removed after rollback, stat err=%v", err)
 	}
-	if !runner.hasCall("kill-session", "-t", sessionID) {
+	if !runner.hasCall("kill-session", "-t", tmux.SessionTarget(sessionID)) {
 		t.Fatalf("rollback should best-effort kill partial tmux session")
 	}
 }

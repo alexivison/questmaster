@@ -109,7 +109,7 @@ func (c *Client) ListSessionDetails(ctx context.Context) ([]SessionInfo, error) 
 // ListPanes returns all panes in a session across all windows with their role metadata.
 func (c *Client) ListPanes(ctx context.Context, sessionID string) ([]Pane, error) {
 	out, err := c.runner.Run(ctx,
-		"list-panes", "-s", "-t", sessionID,
+		"list-panes", "-s", "-t", SessionTarget(sessionID),
 		"-F", "#{window_index} #{pane_index} #{"+PaneRoleOption+"}",
 	)
 	if err != nil {

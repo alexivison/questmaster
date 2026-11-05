@@ -135,7 +135,7 @@ func TestContinueKillsTmuxSessionOnLaunchFailureButPreservesManifest(t *testing.
 		t.Fatal("Continue error = nil, want launch failure")
 	}
 
-	if !runner.hasCall("kill-session", "-t", sessionID) {
+	if !runner.hasCall("kill-session", "-t", tmux.SessionTarget(sessionID)) {
 		t.Fatal("Continue should best-effort kill the partial tmux session on launch failure")
 	}
 	if runner.sessions[sessionID] {
@@ -199,7 +199,7 @@ func TestContinueAliveRefreshesAppOwnedEnvironment(t *testing.T) {
 			t.Fatalf("tmux env %s = %q, want %q", key, got, want)
 		}
 	}
-	if !runner.hasCall("set-environment", "-t", sessionID, "-u", "QUESTMASTER_HOME") {
+	if !runner.hasCall("set-environment", "-t", tmux.SessionTarget(sessionID), "-u", "QUESTMASTER_HOME") {
 		t.Fatal("legacy QUESTMASTER_HOME must be cleared")
 	}
 	if got := runner.envVars[sessionID+":PATH"]; filepath.SplitList(got)[0] != prefix {
@@ -250,7 +250,7 @@ func TestCascadeWorkers_MissingVsCorruptManifest(t *testing.T) {
 	runner := &testRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if args[0] == "has-session" {
 			for i, a := range args {
-				if a == "-t" && i+1 < len(args) && args[i+1] == "qm-alive" {
+				if a == "-t" && i+1 < len(args) && args[i+1] == "=qm-alive:" {
 					return "", nil // alive session exists
 				}
 			}

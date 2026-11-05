@@ -38,7 +38,7 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 		store = state.OpenStore(state.StateRoot())
 	}
 	if tmuxClient == nil {
-		tmuxClient = tmux.NewExecClient()
+		tmuxClient = tmux.NewClient(tmux.DefaultServer())
 	}
 	tmuxClient.CacheListSessions(time.Second)
 	if now == nil {

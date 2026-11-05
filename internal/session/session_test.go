@@ -89,7 +89,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 	}
 	switch args[0] {
 	case "has-session":
-		session := flagVal(args, "-t")
+		session := targetKey(flagVal(args, "-t"))
 		if m.sessions[session] {
 			return "", nil
 		}
@@ -101,19 +101,19 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 
 	case "kill-session":
-		session := flagVal(args, "-t")
+		session := targetKey(flagVal(args, "-t"))
 		delete(m.sessions, session)
 		return "", nil
 
 	case "rename-window":
-		target := flagVal(args, "-t")
+		target := targetKey(flagVal(args, "-t"))
 		if len(args) > 0 {
 			m.windowNames[target] = args[len(args)-1]
 		}
 		return "", nil
 
 	case "kill-window":
-		target := flagVal(args, "-t")
+		target := targetKey(flagVal(args, "-t"))
 		// Remove paneRoles whose target starts with this window prefix.
 		for k := range m.paneRoles {
 			if len(k) > len(target) && k[:len(target)] == target && k[len(target)] == '.' {
@@ -133,7 +133,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return strings.Join(names, "\n"), nil
 
 	case "set-option":
-		target := flagVal(args, "-t")
+		target := targetKey(flagVal(args, "-t"))
 		// Find key and value after flags
 		key, val := extractSetOption(args)
 		if key == "@party_role" {
@@ -142,7 +142,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 
 	case "set-environment":
-		target := flagVal(args, "-t")
+		target := targetKey(flagVal(args, "-t"))
 		if len(args) >= 4 {
 			key := args[len(args)-2]
 			val := args[len(args)-1]
@@ -158,7 +158,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 
 	case "show-environment":
-		target := flagVal(args, "-t")
+		target := targetKey(flagVal(args, "-t"))
 		key := args[len(args)-1]
 		val, ok := m.envVars[target+":"+key]
 		if !ok {
@@ -173,7 +173,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 
 	case "select-pane":
-		target := flagVal(args, "-t")
+		target := targetKey(flagVal(args, "-t"))
 		for i, arg := range args {
 			if arg == "-T" && i+1 < len(args) {
 				m.paneTitles[target] = args[i+1]
@@ -183,7 +183,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 
 	case "list-panes":
-		session := flagVal(args, "-t")
+		session := targetKey(flagVal(args, "-t"))
 		var lines []string
 		for target, role := range m.paneRoles {
 			if strings.HasPrefix(target, session+":") {
@@ -204,6 +204,17 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		// All other commands succeed silently
 		return "", nil
 	}
+}
+
+// targetKey maps an exact tmux target to the mock's key: "=qm-x:" is session
+// "qm-x" and "=qm-x:0.0" pane "qm-x:0.0". A bare name would match by prefix in
+// real tmux, so it maps to no key the mock holds.
+func targetKey(target string) string {
+	name, ok := strings.CutPrefix(target, "=")
+	if !ok {
+		return "bare:" + target
+	}
+	return strings.TrimSuffix(name, ":")
 }
 
 // flagVal extracts the value following a flag.
@@ -982,7 +993,7 @@ func TestStart_FromAppFlagUsesAgentOnlyLayout(t *testing.T) {
 	assertAgentOnlyLayout(t, runner, result.SessionID)
 	agentLaunched := false
 	for _, call := range runner.calls {
-		if len(call.args) > 0 && call.args[0] == "respawn-pane" && flagVal(call.args, "-t") == result.SessionID+":0.0" {
+		if len(call.args) > 0 && call.args[0] == "respawn-pane" && flagVal(call.args, "-t") == tmux.PaneTarget(result.SessionID, 0, 0) {
 			agentLaunched = true
 			break
 		}
@@ -1022,7 +1033,7 @@ func TestStart_TitledSessionDoesNotSetTmuxWindowName(t *testing.T) {
 	if got := runner.paneTitles[result.SessionID+":0.0"]; got != "Add GLM 5.2" {
 		t.Fatalf("pane title = %q, want session title", got)
 	}
-	if !runner.hasCall("set-option", "-p", "-t", result.SessionID+":0.0", "@questmaster_title", "Add GLM 5.2") {
+	if !runner.hasCall("set-option", "-p", "-t", tmux.PaneTarget(result.SessionID, 0, 0), "@questmaster_title", "Add GLM 5.2") {
 		t.Fatalf("managed pane title option missing: %+v", runner.calls)
 	}
 
@@ -1072,10 +1083,10 @@ func assertAgentOnlyLayout(t *testing.T, runner *mockRunner, sessionID string) {
 	if runner.hasCall("resize-pane") {
 		t.Fatalf("launch should not resize panes, calls=%v", runner.calls)
 	}
-	if runner.hasCall("set-hook", "-t", sessionID, "client-attached") {
+	if runner.hasCall("set-hook", "-t", tmux.SessionTarget(sessionID), "client-attached") {
 		t.Fatalf("launch should not install client-attached resize hook, calls=%v", runner.calls)
 	}
-	if runner.hasCall("set-hook", "-t", sessionID, "client-resized") {
+	if runner.hasCall("set-hook", "-t", tmux.SessionTarget(sessionID), "client-resized") {
 		t.Fatalf("launch should not install client-resized resize hook, calls=%v", runner.calls)
 	}
 }
@@ -1261,7 +1272,7 @@ func TestLaunchSessionPropagatesAppOwnedEnvironment(t *testing.T) {
 			t.Fatalf("tmux env %s = %q, want %q", key, got, want)
 		}
 	}
-	if !runner.hasCall("set-environment", "-t", result.SessionID, "-u", "QUESTMASTER_HOME") {
+	if !runner.hasCall("set-environment", "-t", tmux.SessionTarget(result.SessionID), "-u", "QUESTMASTER_HOME") {
 		t.Fatal("legacy QUESTMASTER_HOME must be cleared")
 	}
 }
@@ -3326,11 +3337,11 @@ func TestLaunchWorkspace_AgentStartsAfterRoleAssignment(t *testing.T) {
 		}
 		switch call.args[0] {
 		case "set-option":
-			if flagVal(call.args, "-t") == "qm-lw3:0.0" && call.args[len(call.args)-2] == tmux.PaneRoleOption {
+			if flagVal(call.args, "-t") == "=qm-lw3:0.0" && call.args[len(call.args)-2] == tmux.PaneRoleOption {
 				roleOptionIdx = i
 			}
 		case "respawn-pane":
-			if flagVal(call.args, "-t") == "qm-lw3:0.0" {
+			if flagVal(call.args, "-t") == "=qm-lw3:0.0" {
 				agentRespawnIdx = i
 				if !strings.Contains(strings.Join(call.args, " "), agentCmd) {
 					t.Fatalf("expected agent command launched via respawn-pane: %v", call.args)
@@ -3585,7 +3596,7 @@ func TestLaunchWorkspace_ErrorOnAgentRespawn(t *testing.T) {
 	svc, runner := setupService(t)
 
 	runner.fn = func(ctx context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "qm-wresp:0.0" {
+		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "=qm-wresp:0.0" {
 			return "", &tmux.ExitError{Code: 1}
 		}
 		return runner.defaultHandler(ctx, args...)

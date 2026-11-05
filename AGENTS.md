@@ -97,6 +97,12 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 
 Invariants that aren't obvious from the code:
 
+- **Every tmux call names its server and its session exactly.** Production
+  clients are `tmux.NewClient(tmux.DefaultServer())`: each command passes
+  `-L default` and runs without TMUX, TMUX_PANE and TMUX_TMPDIR, which describe
+  the caller's own server. Session targets are `tmux.SessionTarget` (`=name:`),
+  never a bare name, which tmux matches by prefix. The caller's own pane counts
+  only when TMUX names this server (`callerSession`).
 - The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
   not any single Go type — version it deliberately.
 - **No model or reasoning-effort list is hardcoded.** Each harness declares its

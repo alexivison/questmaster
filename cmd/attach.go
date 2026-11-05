@@ -3,17 +3,17 @@ package cmd
 import (
 	"context"
 	"os"
-	"os/exec"
 
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
-// attachSession switches to the named tmux session.
+// attachSession shows the named session: inside tmux it switches the caller's
+// client, outside it attaches this terminal.
 func attachSession(ctx context.Context, client *tmux.Client, sessionID string) error {
 	if os.Getenv("TMUX") != "" {
-		return client.SwitchClientWithFallback(ctx, sessionID)
+		return client.SwitchClient(ctx, sessionID)
 	}
-	cmd := exec.Command("tmux", "attach-session", "-t", sessionID)
+	cmd := tmux.DefaultServer().Command(ctx, "attach-session", "-t", tmux.SessionTarget(sessionID))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
