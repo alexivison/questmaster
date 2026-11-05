@@ -8,7 +8,6 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/hooks"
 	"github.com/alexivison/questmaster/internal/state"
-	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 const openCodeConfigDirEnv = "OPENCODE_CONFIG_DIR"
@@ -17,7 +16,9 @@ const openCodeConfigDirEnv = "OPENCODE_CONFIG_DIR"
 // Both Start and Continue build this from their respective inputs, then
 // delegate to launchSession for the shared setup sequence.
 type launchConfig struct {
-	sessionID   string
+	sessionID string
+	// pane is the ID of the session's one pane, as new-session reported it.
+	pane        string
 	cwd         string
 	runtimeDir  string
 	agentPath   string
@@ -74,7 +75,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	}
 
 	if lc.shell {
-		if err := s.launchShellWorkspace(ctx, lc.sessionID, lc.cwd); err != nil {
+		if err := s.launchShellWorkspace(ctx, lc.pane, lc.cwd); err != nil {
 			return err
 		}
 		return s.setCleanupHook(ctx, lc.sessionID, lc.runtimeDir)
@@ -90,10 +91,10 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
-	if err := s.launchAppWorkspace(ctx, lc.sessionID, lc.cwd, lc.master, lc.worker, lc.agentCmds); err != nil {
+	if err := s.launchAppWorkspace(ctx, lc.pane, lc.cwd, lc.master, lc.worker, lc.agentCmds); err != nil {
 		return err
 	}
-	if err := s.syncLaunchedPaneTitle(ctx, lc.sessionID); err != nil {
+	if err := s.syncLaunchedPaneTitle(ctx, lc.sessionID, lc.pane); err != nil {
 		return err
 	}
 
@@ -108,7 +109,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 // rename may have committed after Continue read its launch snapshot but
 // before the pane existed, so the title is read now, and
 // WriteCommittedPaneTitle follows a rename that commits during the write.
-func (s *Service) syncLaunchedPaneTitle(ctx context.Context, sessionID string) error {
+func (s *Service) syncLaunchedPaneTitle(ctx context.Context, sessionID, pane string) error {
 	m, err := s.Store.Read(sessionID)
 	if err != nil {
 		return fmt.Errorf("sync launched pane title: %w", err)
@@ -116,7 +117,6 @@ func (s *Service) syncLaunchedPaneTitle(ctx context.Context, sessionID string) e
 	if m.Title == "" {
 		return nil
 	}
-	pane := tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0)
 	if err := state.WriteCommittedPaneTitle(ctx, s.Store, s.Client, sessionID, pane, m.Title); err != nil {
 		return fmt.Errorf("sync launched pane title: %w", err)
 	}

@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	// WindowWorkspace is the single tmux window that hosts the agent pane
-	// (and any additional panes, e.g. an adopted shell) for every session type.
+	// WindowWorkspace is the window index recorded for a session's agent and
+	// searched first by role lookups. It is a preference, never a target: a
+	// server with base-index 1 numbers that window 1, role lookups then search
+	// every window, and launch targets the pane ID new-session reports.
 	WindowWorkspace = 0
 
 	// DefaultSendTimeout bounds one whole Send, lock wait to Enter.
@@ -39,11 +41,6 @@ const (
 // pane, such as set-option, set-hook and respawn-pane.
 func SessionTarget(sessionID string) string {
 	return "=" + sessionID + ":"
-}
-
-// WindowTarget returns the exact tmux target "=session:window".
-func WindowTarget(sessionID string, windowIdx int) string {
-	return fmt.Sprintf("=%s:%d", sessionID, windowIdx)
 }
 
 // PaneTarget returns the exact tmux target "=session:window.pane".

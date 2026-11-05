@@ -21,6 +21,9 @@ func newTitleTestService(t *testing.T) *Service {
 		if len(args) > 0 && args[0] == "has-session" {
 			return "", &tmux.ExitError{Code: 1} // no existing tmux session
 		}
+		if len(args) > 0 && args[0] == "new-session" {
+			return "%1", nil
+		}
 		return "", nil
 	}}
 	registry, err := agent.NewRegistry(&agent.Config{

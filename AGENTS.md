@@ -110,8 +110,10 @@ Invariants that aren't obvious from the code:
   clients are `tmux.NewClient(tmux.DefaultServer())`: each command passes
   `-L default` and runs without TMUX, TMUX_PANE and TMUX_TMPDIR, which describe
   the caller's own server. Session targets are `tmux.SessionTarget` (`=name:`),
-  never a bare name, which tmux matches by prefix. The caller's own pane counts
-  only when TMUX names this server (`callerSession`).
+  never a bare name, which tmux matches by prefix. A session's pane is targeted
+  by the ID `NewSession` reports, never by index: nothing assumes window or pane
+  index 0, since a server may set base-index or pane-base-index. The caller's
+  own pane counts only when TMUX names this server (`callerSession`).
 - **A session's runtime files live in its manifest's `runtime_dir`**, an
   owner-only `<state root>/runtime/<id>` (`state.NewRuntimeDir`,
   `state.EnsureRuntimeDir`, files through `state.WriteRuntimeFile`). The tmux

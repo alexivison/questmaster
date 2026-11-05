@@ -2431,28 +2431,35 @@ func TestRenameMutationTargetsAdoptedAgentPane(t *testing.T) {
 	t.Fatalf("agent pane title was not set on 0.1: %v", runner.calls)
 }
 
+// The one untagged pane is the new agent pane whatever its indexes: a server
+// with base-index and pane-base-index 1 numbers it 1.1.
 func TestRenameMutationDuringContinueBeforeRoleTag(t *testing.T) {
-	env := seedServeFixture(t)
-	runner := &untaggedPaneTmuxRunner{}
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
-	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Renamed during continue"}); err != nil {
-		t.Fatalf("rename while the new pane has no role tag: %v", err)
-	}
-	for _, args := range runner.calls {
-		if slices.Equal(args, []string{"set-option", "-p", "-t", "=qm-demo:0.0", "@questmaster_title", "Renamed during continue"}) {
-			return
+	for _, pane := range []string{"0 0", "1 1"} {
+		env := seedServeFixture(t)
+		runner := &untaggedPaneTmuxRunner{pane: pane}
+		srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+		if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Renamed during continue"}); err != nil {
+			t.Fatalf("rename while pane %s has no role tag: %v", pane, err)
+		}
+		want := "=qm-demo:" + strings.ReplaceAll(pane, " ", ".")
+		if !slices.ContainsFunc(runner.calls, func(args []string) bool {
+			return slices.Equal(args, []string{"set-option", "-p", "-t", want, "@questmaster_title", "Renamed during continue"})
+		}) {
+			t.Fatalf("new agent pane %s title was not set: %v", want, runner.calls)
 		}
 	}
-	t.Fatalf("new agent pane title was not set: %v", runner.calls)
 }
 
-type untaggedPaneTmuxRunner struct{ calls [][]string }
+type untaggedPaneTmuxRunner struct {
+	pane  string
+	calls [][]string
+}
 
 func (r *untaggedPaneTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
 	r.calls = append(r.calls, append([]string(nil), args...))
 	switch args[0] {
 	case "list-panes":
-		return "0 0", nil
+		return r.pane, nil
 	case "display-message":
 		return "#{pane_title}", nil
 	}

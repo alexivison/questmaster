@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/config"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -18,6 +19,11 @@ type ContinueResult struct {
 	Master         bool     `json:"master"`
 	RevivedWorkers []string `json:"revived_workers,omitempty"` // worker IDs auto-continued on master cascade
 	FailedWorkers  []string `json:"failed_workers,omitempty"`  // worker IDs that failed to auto-continue
+	// Respawned is true when a running session's agent had exited and
+	// Continue started it again in its pane, resuming its conversation.
+	Respawned bool `json:"respawned,omitempty"`
+	// AgentExit is how that agent ended: "exit 17" or "signal 9".
+	AgentExit string `json:"agent_exit,omitempty"`
 }
 
 // Continue resumes a stopped session or reattaches to a running one. It holds
@@ -47,27 +53,14 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 }
 
 // continueLocked runs under Continue's lifecycle locks, so the liveness check
-// below cannot go stale before new-session runs.
+// below cannot go stale before new-session or a respawn runs.
 func (s *Service) continueLocked(ctx context.Context, sessionID string) (ContinueResult, error) {
-	// Fast path: session still running — just reattach
 	alive, err := s.Client.HasSession(ctx, sessionID)
 	if err != nil {
 		return ContinueResult{}, fmt.Errorf("check session: %w", err)
 	}
 	if alive {
-		// Reattach must stay manifest-tolerant; Pi resume capture is best-effort.
-		_, _ = s.persistPiResumeFromActivity(sessionID)
-		m, err := s.Store.Read(sessionID)
-		if err == nil {
-			if err := s.reuseRuntimeDir(ctx, m); err != nil {
-				return ContinueResult{}, err
-			}
-		}
-		if err := s.refreshContinueSessionEnvironment(ctx, sessionID); err != nil {
-			return ContinueResult{}, err
-		}
-		master := err == nil && roleForManifest(m) == roleMaster
-		return ContinueResult{SessionID: sessionID, Reattach: true, Master: master}, nil
+		return s.reattach(ctx, sessionID)
 	}
 
 	// Slow path: reconstruct session from manifest
@@ -83,93 +76,13 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		return ContinueResult{}, fmt.Errorf("read updated manifest for %s: %w", sessionID, err)
 	}
 
-	cwd := m.Cwd
-	if cwd == "" {
-		cwd, _ = os.Getwd()
+	cwd, err := savedCwd(m)
+	if err != nil {
+		return ContinueResult{}, err
 	}
-	if _, err := os.Stat(cwd); err != nil {
-		cwd, _ = os.Getwd()
-	}
-
-	role := roleForManifest(m)
-	agentRole := agentSessionRole(role)
-
-	shell := len(m.Agents) == 0
-	agentPath := mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), m.AgentPath, defaultAgentPath())
-	agentCmds := map[agent.Role]string{}
-	launchAgents := map[agent.Role]agent.Agent{}
-	agentResume := map[agent.Role]resumeInfo{}
-	var manifestAgents []state.AgentManifest
-
-	if !shell {
-		manifestSpecs, err := orderedManifestAgents(m)
-		if err != nil {
-			return ContinueResult{}, err
-		}
-
-		agentCmds = make(map[agent.Role]string, len(manifestSpecs))
-		launchAgents = make(map[agent.Role]agent.Agent, len(manifestSpecs))
-		agentResume = make(map[agent.Role]resumeInfo, len(manifestSpecs))
-		manifestAgents = make([]state.AgentManifest, 0, len(manifestSpecs))
-
-		for _, agentState := range manifestSpecs {
-			role := agent.Role(agentState.Role)
-			provider, err := agent.Resolve(agentState.Name, s.Registry)
-			if err != nil {
-				return ContinueResult{}, fmt.Errorf("resolve provider %q: %w", agentState.Name, err)
-			}
-
-			cli, resolvedPath, resolved := resolveAgentBinaryForLaunch(provider, agentState.CLI, agentPath)
-			if !resolved {
-				return ContinueResult{}, agentBinaryNotFoundError(provider)
-			}
-			agentPath = resolvedPath
-
-			resumeID := agentState.ResumeID
-			if resumeID == "" {
-				resumeID = m.ExtraString(provider.ResumeKey())
-			}
-
-			launchAgents[role] = provider
-			brief := ""
-			if role == agent.RoleAgent && agentRole == agent.RoleWorker {
-				brief = workerParentBrief(m.ExtraString("parent_session"), "")
-			}
-			agentCmds[role] = provider.BuildCmd(agent.CmdOpts{
-				Binary:          cli,
-				AgentPath:       agentPath,
-				ResumeID:        resumeID,
-				Title:           m.Title,
-				Role:            agentRole,
-				SystemBrief:     brief,
-				Continuing:      true,
-				Model:           agentState.Model,
-				ReasoningEffort: agentState.ReasoningEffort,
-			})
-			if resumeID != "" {
-				agentResume[role] = resumeInfo{
-					provider: provider,
-					resumeID: resumeID,
-				}
-			}
-
-			manifestAgents = append(manifestAgents, state.AgentManifest{
-				Name:     provider.Name(),
-				Role:     string(role),
-				CLI:      cli,
-				ResumeID: resumeID,
-				Window:   agentState.Window,
-				// A resumed session keeps the harness's own conversation
-				// model, but the model it was first launched with stays
-				// recorded so it survives in the recents list.
-				Model:           agentState.Model,
-				ReasoningEffort: agentState.ReasoningEffort,
-			})
-		}
-
-		for i := range manifestAgents {
-			manifestAgents[i].Window = tmux.WindowWorkspace
-		}
+	launch, err := s.continueLaunchFor(m)
+	if err != nil {
+		return ContinueResult{}, err
 	}
 
 	rtDir, err := m.RuntimeDirOrLegacy()
@@ -182,7 +95,7 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		// every reader finds it.
 		rtDir = state.NewRuntimeDir(s.Store.Root(), sessionID)
 	}
-	if err := prepareRuntimeDir(rtDir, sessionID, launchAgents); err != nil {
+	if err := prepareRuntimeDir(rtDir, sessionID, launch.agents); err != nil {
 		return ContinueResult{}, err
 	}
 	if m.RuntimeDir != rtDir {
@@ -191,41 +104,31 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		}
 	}
 
-	if err := s.Client.NewSession(ctx, sessionID, "", cwd); err != nil {
+	pane, err := s.Client.NewSession(ctx, sessionID, "", cwd)
+	if err != nil {
 		return ContinueResult{}, s.continueRollback(ctx, sessionID, false, fmt.Errorf("create tmux session: %w", err))
 	}
 
-	isMaster := role == roleMaster
+	isMaster := roleForManifest(m) == roleMaster
 
 	if err := s.launchSession(ctx, launchConfig{
 		sessionID:   sessionID,
+		pane:        pane,
 		cwd:         cwd,
 		runtimeDir:  rtDir,
-		agentPath:   agentPath,
+		agentPath:   launch.agentPath,
 		master:      isMaster,
 		worker:      m.ExtraString("parent_session") != "",
-		shell:       shell,
-		agentCmds:   agentCmds,
-		agents:      launchAgents,
-		agentResume: agentResume,
+		shell:       launch.shell,
+		agentCmds:   launch.agentCmds,
+		agents:      launch.agents,
+		agentResume: launch.agentResume,
 	}); err != nil {
 		return ContinueResult{}, s.continueRollback(ctx, sessionID, true, err)
 	}
 
-	// Update manifest timestamps
-	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) {
-		if !shell {
-			m2.Agents = manifestAgents
-		}
-		m2.AgentPath = agentPath
-		for _, info := range agentResume {
-			if info.provider != nil {
-				m2.SetExtra(info.provider.ResumeKey(), info.resumeID)
-			}
-		}
-		m2.SetExtra("last_resumed_at", state.NowUTC())
-	}); err != nil {
-		return ContinueResult{}, fmt.Errorf("update manifest: %w", err)
+	if err := s.recordResume(sessionID, launch, ""); err != nil {
+		return ContinueResult{}, err
 	}
 
 	// Re-register with parent master if this is a child worker
@@ -235,6 +138,203 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 	}
 
 	return ContinueResult{SessionID: sessionID, Master: isMaster}, nil
+}
+
+// reattach continues a running session. It stays manifest-tolerant: a session
+// with no readable manifest is reattached as it is. An agent whose process has
+// exited, leaving its pane dead (remain-on-exit), is started again in that
+// pane.
+func (s *Service) reattach(ctx context.Context, sessionID string) (ContinueResult, error) {
+	// Pi resume capture is best-effort.
+	_, _ = s.persistPiResumeFromActivity(sessionID)
+	m, readErr := s.Store.Read(sessionID)
+	if readErr == nil {
+		if err := s.reuseRuntimeDir(ctx, m); err != nil {
+			return ContinueResult{}, err
+		}
+	}
+	if err := s.refreshContinueSessionEnvironment(ctx, sessionID); err != nil {
+		return ContinueResult{}, err
+	}
+	result := ContinueResult{SessionID: sessionID, Reattach: true}
+	if readErr != nil {
+		return result, nil
+	}
+	result.Master = roleForManifest(m) == roleMaster
+	if len(m.Agents) == 0 {
+		return result, nil
+	}
+	pane, err := s.Client.RolePane(ctx, sessionID, tmux.RoleAgent)
+	if errors.Is(err, tmux.ErrRoleNotFound) || errors.Is(err, tmux.ErrRoleAmbiguous) {
+		return result, nil
+	}
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	if !pane.Dead {
+		return result, nil
+	}
+	if err := s.respawnDeadAgent(ctx, m, pane); err != nil {
+		return ContinueResult{}, err
+	}
+	result.Respawned, result.AgentExit = true, pane.Exit
+	return result, nil
+}
+
+// respawnDeadAgent starts a running session's exited agent again in its pane,
+// resuming its conversation by the saved resume ID, and records how the agent
+// ended. Without a saved ID the harness would start a new conversation in
+// place of the one that ended, so it refuses and names the recovery.
+func (s *Service) respawnDeadAgent(ctx context.Context, m state.Manifest, pane tmux.PaneStatus) error {
+	launch, err := s.continueLaunchFor(m)
+	if err != nil {
+		return err
+	}
+	if _, ok := launch.agentResume[agent.RoleAgent]; !ok {
+		name := agent.SpecOf(launch.agents[agent.RoleAgent].Name()).DisplayName
+		return fmt.Errorf("the agent in session %s exited (%s) and there is no saved %s resume ID, so Continue cannot resume its conversation; delete the session (questmaster delete %s) and start a new one", m.SessionID, pane.Exit, name, m.SessionID)
+	}
+	cwd, err := savedCwd(m)
+	if err != nil {
+		return err
+	}
+	// A legacy session's directory may be gone and is never recreated; the
+	// manifest and the session environment carry the resume ID either way.
+	if m.RuntimeDir != "" {
+		if err := s.persistResumeIDs(m.RuntimeDir, launch.agentResume); err != nil {
+			return err
+		}
+	}
+	if err := s.setResumeEnv(ctx, m.SessionID, launch.agentResume); err != nil {
+		return err
+	}
+	if err := s.Client.RespawnPane(ctx, pane.ID, cwd, launch.agentCmds[agent.RoleAgent]); err != nil {
+		return fmt.Errorf("respawn agent in %s: %w", m.SessionID, err)
+	}
+	return s.recordResume(m.SessionID, launch, pane.Exit)
+}
+
+// savedCwd returns the directory a session is relaunched in. It is never
+// swapped for another: a session whose directory is gone stays stopped until
+// the directory is back or the session is deleted.
+func savedCwd(m state.Manifest) (string, error) {
+	if m.Cwd == "" {
+		return "", fmt.Errorf("session %s has no saved working directory; delete it (questmaster delete %s) and start a new session", m.SessionID, m.SessionID)
+	}
+	if info, err := os.Stat(m.Cwd); err != nil || !info.IsDir() {
+		return "", fmt.Errorf("session %s's working directory %s is gone; recreate it (mkdir -p %s) or delete the session (questmaster delete %s)", m.SessionID, m.Cwd, config.ShellQuote(m.Cwd), m.SessionID)
+	}
+	return m.Cwd, nil
+}
+
+// continueLaunch is what Continue relaunches for a session's manifest.
+type continueLaunch struct {
+	shell          bool
+	agentPath      string
+	agentCmds      map[agent.Role]string
+	agents         map[agent.Role]agent.Agent
+	agentResume    map[agent.Role]resumeInfo
+	manifestAgents []state.AgentManifest
+}
+
+// continueLaunchFor builds the agent commands that resume a session's
+// conversation from its manifest.
+func (s *Service) continueLaunchFor(m state.Manifest) (continueLaunch, error) {
+	l := continueLaunch{
+		shell:       len(m.Agents) == 0,
+		agentPath:   mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), m.AgentPath, defaultAgentPath()),
+		agentCmds:   map[agent.Role]string{},
+		agents:      map[agent.Role]agent.Agent{},
+		agentResume: map[agent.Role]resumeInfo{},
+	}
+	if l.shell {
+		return l, nil
+	}
+	agentRole := agentSessionRole(roleForManifest(m))
+	manifestSpecs, err := orderedManifestAgents(m)
+	if err != nil {
+		return continueLaunch{}, err
+	}
+	l.manifestAgents = make([]state.AgentManifest, 0, len(manifestSpecs))
+
+	for _, agentState := range manifestSpecs {
+		role := agent.Role(agentState.Role)
+		provider, err := agent.Resolve(agentState.Name, s.Registry)
+		if err != nil {
+			return continueLaunch{}, fmt.Errorf("resolve provider %q: %w", agentState.Name, err)
+		}
+
+		cli, resolvedPath, resolved := resolveAgentBinaryForLaunch(provider, agentState.CLI, l.agentPath)
+		if !resolved {
+			return continueLaunch{}, agentBinaryNotFoundError(provider)
+		}
+		l.agentPath = resolvedPath
+
+		resumeID := agentState.ResumeID
+		if resumeID == "" {
+			resumeID = m.ExtraString(provider.ResumeKey())
+		}
+
+		l.agents[role] = provider
+		brief := ""
+		if role == agent.RoleAgent && agentRole == agent.RoleWorker {
+			brief = workerParentBrief(m.ExtraString("parent_session"), "")
+		}
+		l.agentCmds[role] = provider.BuildCmd(agent.CmdOpts{
+			Binary:          cli,
+			AgentPath:       l.agentPath,
+			ResumeID:        resumeID,
+			Title:           m.Title,
+			Role:            agentRole,
+			SystemBrief:     brief,
+			Continuing:      true,
+			Model:           agentState.Model,
+			ReasoningEffort: agentState.ReasoningEffort,
+		})
+		if resumeID != "" {
+			l.agentResume[role] = resumeInfo{
+				provider: provider,
+				resumeID: resumeID,
+			}
+		}
+
+		l.manifestAgents = append(l.manifestAgents, state.AgentManifest{
+			Name:     provider.Name(),
+			Role:     string(role),
+			CLI:      cli,
+			ResumeID: resumeID,
+			Window:   tmux.WindowWorkspace,
+			// A resumed session keeps the harness's own conversation
+			// model, but the model it was first launched with stays
+			// recorded so it survives in the recents list.
+			Model:           agentState.Model,
+			ReasoningEffort: agentState.ReasoningEffort,
+		})
+	}
+	return l, nil
+}
+
+// recordResume stores what a relaunch used (the agents, their path and resume
+// IDs) and when, and how the agent it replaced ended when there was one.
+func (s *Service) recordResume(sessionID string, l continueLaunch, agentExit string) error {
+	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) {
+		if !l.shell {
+			m2.Agents = l.manifestAgents
+		}
+		m2.AgentPath = l.agentPath
+		for _, info := range l.agentResume {
+			if info.provider != nil {
+				m2.SetExtra(info.provider.ResumeKey(), info.resumeID)
+			}
+		}
+		m2.SetExtra("last_resumed_at", state.NowUTC())
+		if agentExit != "" {
+			m2.SetExtra("last_agent_exit", agentExit)
+		}
+	}); err != nil {
+		return fmt.Errorf("update manifest: %w", err)
+	}
+	return nil
 }
 
 // reuseRuntimeDir hands a live session the runtime directory its manifest

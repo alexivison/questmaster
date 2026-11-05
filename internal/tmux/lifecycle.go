@@ -56,9 +56,11 @@ func (c *Client) KillSession(ctx context.Context, sessionID string) error {
 }
 
 // NewSession creates a detached tmux session, sized like the caller's own
-// client when the caller runs in a pane on this server.
-func (c *Client) NewSession(ctx context.Context, name, windowName, cwd string) error {
-	args := []string{"new-session", "-d", "-s", name}
+// client when the caller runs in a pane on this server, and returns the ID of
+// its one pane. Callers target that ID: the window and pane indexes depend on
+// the server's base-index and pane-base-index.
+func (c *Client) NewSession(ctx context.Context, name, windowName, cwd string) (string, error) {
+	args := []string{"new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name}
 	if windowName != "" {
 		args = append(args, "-n", windowName)
 	}
@@ -66,10 +68,15 @@ func (c *Client) NewSession(ctx context.Context, name, windowName, cwd string) e
 		args = append(args, "-x", strconv.Itoa(client.width), "-y", strconv.Itoa(client.height))
 	}
 	args = append(args, "-c", cwd)
-	if _, err := c.runner.Run(ctx, args...); err != nil {
-		return fmt.Errorf("new-session %s: %w", name, err)
+	out, err := c.runner.Run(ctx, args...)
+	if err != nil {
+		return "", fmt.Errorf("new-session %s: %w", name, err)
 	}
-	return nil
+	pane := strings.TrimSpace(out)
+	if !paneIDPattern.MatchString(pane) {
+		return "", fmt.Errorf("new-session %s: reported pane %q, not a pane ID", name, pane)
+	}
+	return pane, nil
 }
 
 // tmuxClient is one attached tmux client.

@@ -269,8 +269,8 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 		return "", fmt.Errorf("read manifest: %w", err)
 	}
 	if len(m.Agents) == 0 {
-		target := tmux.PaneTarget(workerID, tmux.WindowWorkspace, 0)
-		raw, err := s.client.Capture(ctx, target, lines)
+		// A plain terminal has one pane; =id: names it whatever its indexes.
+		raw, err := s.client.Capture(ctx, tmux.SessionTarget(workerID), lines)
 		if err != nil {
 			return "", err
 		}

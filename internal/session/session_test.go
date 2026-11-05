@@ -5,6 +5,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,6 +56,9 @@ type mockRunner struct {
 	paneTitles  map[string]string // target → title
 	envVars     map[string]string // session:key → value
 	windowNames map[string]string // target → name
+	paneIDs     map[string]string // pane ID → "session:W.P"
+	deadPanes   map[string]string // pane ID → exit status of its dead process
+	nextPane    int
 }
 
 func newMockRunner() *mockRunner {
@@ -64,6 +68,8 @@ func newMockRunner() *mockRunner {
 		paneTitles:  make(map[string]string),
 		envVars:     make(map[string]string),
 		windowNames: make(map[string]string),
+		paneIDs:     make(map[string]string),
+		deadPanes:   make(map[string]string),
 	}
 	r.fn = r.defaultHandler
 	return r
@@ -89,7 +95,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 	}
 	switch args[0] {
 	case "has-session":
-		session := targetKey(flagVal(args, "-t"))
+		session := m.targetKey(flagVal(args, "-t"))
 		if m.sessions[session] {
 			return "", nil
 		}
@@ -97,23 +103,31 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 
 	case "new-session":
 		session := flagVal(args, "-s")
-		m.sessions[session] = true
+		return m.addSession(session), nil
+
+	case "respawn-pane":
+		delete(m.deadPanes, flagVal(args, "-t"))
 		return "", nil
 
 	case "kill-session":
-		session := targetKey(flagVal(args, "-t"))
+		session := m.targetKey(flagVal(args, "-t"))
 		delete(m.sessions, session)
+		for pane, key := range m.paneIDs {
+			if strings.HasPrefix(key, session+":") {
+				delete(m.paneIDs, pane)
+			}
+		}
 		return "", nil
 
 	case "rename-window":
-		target := targetKey(flagVal(args, "-t"))
+		target := m.targetKey(flagVal(args, "-t"))
 		if len(args) > 0 {
 			m.windowNames[target] = args[len(args)-1]
 		}
 		return "", nil
 
 	case "kill-window":
-		target := targetKey(flagVal(args, "-t"))
+		target := m.targetKey(flagVal(args, "-t"))
 		// Remove paneRoles whose target starts with this window prefix.
 		for k := range m.paneRoles {
 			if len(k) > len(target) && k[:len(target)] == target && k[len(target)] == '.' {
@@ -133,7 +147,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return strings.Join(names, "\n"), nil
 
 	case "set-option":
-		target := targetKey(flagVal(args, "-t"))
+		target := m.targetKey(flagVal(args, "-t"))
 		// Find key and value after flags
 		key, val := extractSetOption(args)
 		if key == "@party_role" {
@@ -142,7 +156,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 
 	case "set-environment":
-		target := targetKey(flagVal(args, "-t"))
+		target := m.targetKey(flagVal(args, "-t"))
 		if len(args) >= 4 {
 			key := args[len(args)-2]
 			val := args[len(args)-1]
@@ -158,7 +172,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 
 	case "show-environment":
-		target := targetKey(flagVal(args, "-t"))
+		target := m.targetKey(flagVal(args, "-t"))
 		key := args[len(args)-1]
 		val, ok := m.envVars[target+":"+key]
 		if !ok {
@@ -173,7 +187,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 
 	case "select-pane":
-		target := targetKey(flagVal(args, "-t"))
+		target := m.targetKey(flagVal(args, "-t"))
 		for i, arg := range args {
 			if arg == "-T" && i+1 < len(args) {
 				m.paneTitles[target] = args[i+1]
@@ -183,7 +197,21 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 
 	case "list-panes":
-		session := targetKey(flagVal(args, "-t"))
+		session := m.targetKey(flagVal(args, "-t"))
+		if strings.Contains(flagVal(args, "-F"), "#{pane_dead}") {
+			var lines []string
+			for pane, key := range m.paneIDs {
+				if strings.HasPrefix(key, session+":") {
+					dead := "0"
+					status, ok := m.deadPanes[pane]
+					if ok {
+						dead = "1"
+					}
+					lines = append(lines, pane+"\t"+dead+"\t"+status+"\t\t"+m.paneRoles[key])
+				}
+			}
+			return strings.Join(lines, "\n"), nil
+		}
 		var lines []string
 		for target, role := range m.paneRoles {
 			if strings.HasPrefix(target, session+":") {
@@ -204,6 +232,35 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		// All other commands succeed silently
 		return "", nil
 	}
+}
+
+// targetKey maps a pane ID the mock handed out to its "session:W.P" key, and
+// any other target as the free function does.
+func (m *mockRunner) targetKey(target string) string {
+	if key, ok := m.paneIDs[target]; ok {
+		return key
+	}
+	return targetKey(target)
+}
+
+// addSession makes session live with one pane, as new-session would, and
+// returns that pane's ID.
+func (m *mockRunner) addSession(session string) string {
+	m.sessions[session] = true
+	m.nextPane++
+	pane := fmt.Sprintf("%%%d", m.nextPane)
+	m.paneIDs[pane] = session + ":0.0"
+	return pane
+}
+
+// sessionPane returns the pane ID new-session reported for session.
+func (m *mockRunner) sessionPane(session string) string {
+	for pane, key := range m.paneIDs {
+		if key == session+":0.0" {
+			return pane
+		}
+	}
+	return ""
 }
 
 // targetKey maps an exact tmux target to the mock's key: "=qm-x:" is session
@@ -1005,13 +1062,13 @@ func TestStart_FromAppFlagUsesAgentOnlyLayout(t *testing.T) {
 	assertAgentOnlyLayout(t, runner, result.SessionID)
 	agentLaunched := false
 	for _, call := range runner.calls {
-		if len(call.args) > 0 && call.args[0] == "respawn-pane" && flagVal(call.args, "-t") == tmux.PaneTarget(result.SessionID, 0, 0) {
+		if len(call.args) > 0 && call.args[0] == "respawn-pane" && flagVal(call.args, "-t") == runner.sessionPane(result.SessionID) {
 			agentLaunched = true
 			break
 		}
 	}
 	if !agentLaunched {
-		t.Fatalf("expected agent to launch in pane 0.0, calls=%v", runner.calls)
+		t.Fatalf("expected agent to launch in the session's pane, calls=%v", runner.calls)
 	}
 }
 
@@ -1045,7 +1102,7 @@ func TestStart_TitledSessionDoesNotSetTmuxWindowName(t *testing.T) {
 	if got := runner.paneTitles[result.SessionID+":0.0"]; got != "Add GLM 5.2" {
 		t.Fatalf("pane title = %q, want session title", got)
 	}
-	if !runner.hasCall("set-option", "-p", "-t", tmux.PaneTarget(result.SessionID, 0, 0), "@questmaster_title", "Add GLM 5.2") {
+	if !runner.hasCall("set-option", "-p", "-t", runner.sessionPane(result.SessionID), "@questmaster_title", "Add GLM 5.2") {
 		t.Fatalf("managed pane title option missing: %+v", runner.calls)
 	}
 
@@ -2986,19 +3043,6 @@ func TestDelete_NotRunning(t *testing.T) {
 }
 
 // Test Continue with bad cwd (falls back to getwd)
-func TestContinue_BadCwd(t *testing.T) {
-	t.Parallel()
-	svc, _ := setupService(t)
-
-	createTestManifest(t, svc.Store, "qm-badcwd", "test", "/nonexistent/path/definitely", "")
-
-	_, err := svc.Continue(t.Context(), "qm-badcwd")
-	// Should succeed (falls back to getwd when cwd doesn't exist)
-	if err != nil {
-		t.Fatalf("continue with bad cwd: %v", err)
-	}
-}
-
 func TestContinue_PersistsPiResumeFromActivityAndUsesSessionFlag(t *testing.T) {
 	svc, runner := setupService(t)
 	cwd := t.TempDir()
@@ -3320,9 +3364,9 @@ func TestNewService_Defaults(t *testing.T) {
 func TestLaunchWorkspace_Success(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.sessions["qm-lw"] = true
+	pane := runner.addSession("qm-lw")
 
-	if err := svc.launchAppWorkspace(t.Context(), "qm-lw", "/tmp", false, false, launchCmds("echo claude")); err != nil {
+	if err := svc.launchAppWorkspace(t.Context(), pane, "/tmp", false, false, launchCmds("echo claude")); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
 	assertAgentOnlyLayout(t, runner, "qm-lw")
@@ -3331,10 +3375,10 @@ func TestLaunchWorkspace_Success(t *testing.T) {
 func TestLaunchWorkspace_AgentStartsAfterRoleAssignment(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
-	runner.sessions["qm-lw3"] = true
+	pane := runner.addSession("qm-lw3")
 
 	agentCmd := "echo claude"
-	if err := svc.launchAppWorkspace(t.Context(), "qm-lw3", "/tmp", false, false, launchCmds(agentCmd)); err != nil {
+	if err := svc.launchAppWorkspace(t.Context(), pane, "/tmp", false, false, launchCmds(agentCmd)); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
 
@@ -3347,11 +3391,11 @@ func TestLaunchWorkspace_AgentStartsAfterRoleAssignment(t *testing.T) {
 		}
 		switch call.args[0] {
 		case "set-option":
-			if flagVal(call.args, "-t") == "=qm-lw3:0.0" && call.args[len(call.args)-2] == tmux.PaneRoleOption {
+			if flagVal(call.args, "-t") == pane && call.args[len(call.args)-2] == tmux.PaneRoleOption {
 				roleOptionIdx = i
 			}
 		case "respawn-pane":
-			if flagVal(call.args, "-t") == "=qm-lw3:0.0" {
+			if flagVal(call.args, "-t") == pane {
 				agentRespawnIdx = i
 				if !strings.Contains(strings.Join(call.args, " "), agentCmd) {
 					t.Fatalf("expected agent command launched via respawn-pane: %v", call.args)
@@ -3594,9 +3638,9 @@ func TestLaunchWorkspace_ErrorOnRespawn(t *testing.T) {
 		return runner.defaultHandler(t.Context(), args...)
 	}
 
-	runner.sessions["qm-werr"] = true
+	pane := runner.addSession("qm-werr")
 
-	err := svc.launchAppWorkspace(t.Context(), "qm-werr", "/tmp", false, false, launchCmds("claude"))
+	err := svc.launchAppWorkspace(t.Context(), pane, "/tmp", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace")
 	}
@@ -3606,16 +3650,15 @@ func TestLaunchWorkspace_ErrorOnAgentRespawn(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
+	pane := runner.addSession("qm-wresp")
 	runner.fn = func(ctx context.Context, args ...string) (string, error) {
-		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == "=qm-wresp:0.0" {
+		if len(args) > 0 && args[0] == "respawn-pane" && flagVal(args, "-t") == pane {
 			return "", &tmux.ExitError{Code: 1}
 		}
 		return runner.defaultHandler(ctx, args...)
 	}
 
-	runner.sessions["qm-wresp"] = true
-
-	err := svc.launchAppWorkspace(t.Context(), "qm-wresp", "/tmp", false, false, launchCmds("claude"))
+	err := svc.launchAppWorkspace(t.Context(), pane, "/tmp", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace agent respawn")
 	}

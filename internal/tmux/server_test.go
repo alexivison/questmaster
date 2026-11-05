@@ -77,7 +77,7 @@ func TestServerRunsEveryCommandOnItsSelection(t *testing.T) {
 			ctx := t.Context()
 
 			_, _ = c.HasSession(ctx, "qm-a")
-			_ = c.NewSession(ctx, "qm-a", "work", "/tmp")
+			_, _ = c.NewSession(ctx, "qm-a", "work", "/tmp")
 			_ = c.KillSession(ctx, "qm-a")
 			_ = c.SetEnvironment(ctx, "qm-a", "K", "V")
 			_ = c.UnsetEnvironment(ctx, "qm-a", "K")
