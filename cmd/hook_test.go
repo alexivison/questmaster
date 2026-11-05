@@ -1466,11 +1466,11 @@ func TestReadStdinNonBlockingAcceptsPayloadsOver64KiB(t *testing.T) {
 
 func TestHookFastPathLogsOversizedStdin(t *testing.T) {
 	var stderr bytes.Buffer
-	handled, err := executeHookFastPath([]string{"pi", "batch"}, strings.NewReader(strings.Repeat("x", (1<<20)+1)), &stderr)
+	handled, err := executeHookFastPath([]string{"pi", "batch"}, io.LimitReader(repeatedHookByte{value: 'x'}, (64<<20)+1), &stderr)
 	if err != nil || !handled {
 		t.Fatalf("executeHookFastPath = %t, %v", handled, err)
 	}
-	if !strings.Contains(stderr.String(), "stdin exceeds 1048576-byte limit") {
+	if !strings.Contains(stderr.String(), "stdin exceeds 67108864-byte limit") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

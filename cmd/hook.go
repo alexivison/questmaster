@@ -441,27 +441,6 @@ var stdinLooksInteractive = func(r io.Reader) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// readStdinNonBlocking reads up to 1 MiB from stdin when stdin is piped or
-// otherwise non-interactive. A real TTY must not be read: ReadAll would wait
-// for a line/EOF and hook invocations from an interactive shell would hang.
-func readStdinNonBlocking(r io.Reader) ([]byte, error) {
-	if r == nil {
-		return nil, nil
-	}
-	if stdinLooksInteractive(r) {
-		return nil, nil
-	}
-	const maxBytes = 1 << 20
-	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxBytes {
-		return nil, fmt.Errorf("stdin exceeds %d-byte limit", maxBytes)
-	}
-	return data, nil
-}
-
 // ---------------------------------------------------------------------
 // Claude
 // ---------------------------------------------------------------------

@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -12,6 +15,132 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
+
+type repeatedHookByte struct{ value byte }
+
+func (r repeatedHookByte) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = r.value
+	}
+	return len(p), nil
+}
+
+func codexToolEndWithResponse(size int64) io.Reader {
+	return io.MultiReader(
+		strings.NewReader(`{"hook_event_name":"PostToolUse","tool_response":"`),
+		io.LimitReader(repeatedHookByte{value: 'x'}, size),
+		strings.NewReader(`","tool_name":"Edit","tool_use_id":"call-1"}`),
+	)
+}
+
+func TestHookCodexLargeToolEndClosesToolWithoutRetainingResponse(t *testing.T) {
+	root := setTestStateRoot(t)
+	const sessionID = "qm-large-hook"
+	t.Setenv("QUESTMASTER_SESSION", "")
+	t.Setenv("CODEX_THREAD_ID", "")
+	var stderr bytes.Buffer
+	if handled, err := executeHookFastPath([]string{"--session", sessionID, "codex", "tool_start"}, strings.NewReader(`{"tool_name":"Edit","tool_use_id":"call-1"}`), &stderr); err != nil || !handled || stderr.Len() != 0 {
+		t.Fatalf("tool_start: handled=%t err=%v stderr=%q", handled, err, stderr.String())
+	}
+	before, err := state.LoadSessionState(sessionID)
+	if err != nil || len(before.Panes["agent"].RunningTools) != 1 {
+		t.Fatalf("running tool before tool_end: state=%+v err=%v", before, err)
+	}
+	// Let the recorded duration exceed the store's one-millisecond floor.
+	time.Sleep(2 * time.Millisecond)
+	runtime.GC()
+	var start, end runtime.MemStats
+	runtime.ReadMemStats(&start)
+	if handled, err := executeHookFastPath([]string{"--session", sessionID, "codex", "tool_end"}, codexToolEndWithResponse(50<<20), &stderr); err != nil || !handled {
+		t.Fatalf("tool_end: handled=%t err=%v", handled, err)
+	}
+	runtime.ReadMemStats(&end)
+	if stderr.Len() != 0 {
+		t.Fatalf("tool_end stderr: %s", stderr.String())
+	}
+	after, err := state.LoadSessionState(sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pane := after.Panes["agent"]
+	if pane.Tool != "" || len(pane.RunningTools) != 0 || pane.LastKind != "PostToolUse" {
+		t.Fatalf("tool_end did not close running tool: %+v", pane)
+	}
+	if _, err := os.Stat(filepath.Join(root, sessionID, "hook-errors.log")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected hook-errors.log: %v", err)
+	}
+	durations, err := os.ReadFile(filepath.Join(root, "tool-durations.json"))
+	if err != nil || !bytes.Contains(durations, []byte(`"tool":"Edit"`)) {
+		t.Fatalf("duration was not recorded: %s, %v", durations, err)
+	}
+	if allocated := end.TotalAlloc - start.TotalAlloc; allocated > 8<<20 {
+		t.Fatalf("50 MiB response allocated %d bytes; want at most 8 MiB", allocated)
+	}
+}
+
+func TestHookBeyondHardBoundIsDroppedAndLogged(t *testing.T) {
+	root := setTestStateRoot(t)
+	const sessionID = "qm-too-large-hook"
+	t.Setenv("QUESTMASTER_SESSION", "")
+	var stderr bytes.Buffer
+	_, err := executeHookFastPath([]string{"--session", sessionID, "codex", "tool_end"}, codexToolEndWithResponse(64<<20), &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := hookErrorLog(t, root, sessionID)
+	if !strings.Contains(log, "codex/tool_end") || !strings.Contains(log, "67108864-byte limit") || !strings.Contains(log, "67108865 bytes") {
+		t.Fatalf("bound error lacks event and size: %s", log)
+	}
+	if _, err := os.Stat(filepath.Join(root, sessionID, "state.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("oversized event was recorded: %v", err)
+	}
+}
+
+func TestHookBridgesAcceptLargeDiscardedResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name, agent, action, prefix, suffix string
+	}{
+		{"claude", "claude", "tool_end", `{"tool_response":{"data":"`, `"},"tool_name":"Edit"}`},
+		{"pi batch", "pi", "batch", `{"events":[{"action":"tool_execution_end","payload":{"tool_response":{"data":"`, `"},"toolName":"bash"}}]}`},
+		{"opencode", "opencode", "event", `{"event":{"type":"session.created","properties":{"tool_response":{"data":"`, `"},"info":{"id":"ses_example"}}}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := setTestStateRoot(t)
+			const sessionID = "qm-large-bridge"
+			t.Setenv("QUESTMASTER_SESSION", "")
+			if tc.agent == "opencode" {
+				manifest := state.Manifest{SessionID: sessionID, Agents: []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", ResumeID: "ses_example"}}}
+				manifest.SetExtra("opencode_session_id", "ses_example")
+				if err := state.OpenStore(root).Create(manifest); err != nil {
+					t.Fatal(err)
+				}
+			}
+			payload := io.MultiReader(strings.NewReader(tc.prefix), io.LimitReader(repeatedHookByte{value: 'x'}, 2<<20), strings.NewReader(tc.suffix))
+			var stderr bytes.Buffer
+			if handled, err := executeHookFastPath([]string{"--session", sessionID, tc.agent, tc.action}, payload, &stderr); err != nil || !handled || stderr.Len() != 0 {
+				t.Fatalf("hook: handled=%t err=%v stderr=%q", handled, err, stderr.String())
+			}
+			if events := stateEventLines(t, root, sessionID); len(events) != 1 {
+				t.Fatalf("events = %+v", events)
+			}
+			if _, err := os.Stat(filepath.Join(root, sessionID, "hook-errors.log")); !os.IsNotExist(err) {
+				t.Fatalf("unexpected hook-errors.log: %v", err)
+			}
+		})
+	}
+}
+
+func TestHookSmallMalformedPayloadStillReachesTolerantHandler(t *testing.T) {
+	root := setTestStateRoot(t)
+	t.Setenv("QUESTMASTER_SESSION", "")
+	var stderr bytes.Buffer
+	if handled, err := executeHookFastPath([]string{"--session", "qm-small-malformed", "claude", "tool_end"}, strings.NewReader(`{"tool_name":`), &stderr); err != nil || !handled || stderr.Len() != 0 {
+		t.Fatalf("hook: handled=%t err=%v stderr=%q", handled, err, stderr.String())
+	}
+	if events := stateEventLines(t, root, "qm-small-malformed"); len(events) != 1 || events[0].Action != "tool_end" {
+		t.Fatalf("events = %+v", events)
+	}
+}
 
 // hookBudget is what these tests allow a bounded hook: the 800 ms deadline
 // plus room for a loaded test machine. The unbounded hooks they replace
