@@ -4,6 +4,7 @@ package state
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -205,6 +206,11 @@ func SessionArtifactsPath(root, id string) string {
 	return filepath.Join(SessionStateDir(root, id), "artifacts.json")
 }
 
+// SessionHookErrorLogPath returns the hook-errors.log path for the session.
+func SessionHookErrorLogPath(root, id string) string {
+	return filepath.Join(SessionStateDir(root, id), "hook-errors.log")
+}
+
 // SessionStateLockPath returns the flock path. We lock a sibling file
 // rather than state.json itself so the atomic rename of state.json never
 // races a still-held lock fd.
@@ -313,22 +319,42 @@ func UpdateSessionState(id string, mutate func(*SessionState) bool) error {
 		return errors.New("no state root resolved")
 	}
 	return withStateLock(root, id, func() error {
-		ss, err := loadSessionStateAt(root, id)
+		ss, err := loadOrResetSessionStateLocked(root, id)
 		if err != nil {
 			return err
-		}
-		if ss == nil {
-			ss = &SessionState{
-				SessionID: id,
-				Version:   SchemaVersion,
-				Panes:     map[string]PaneState{},
-			}
 		}
 		if !mutate(ss) {
 			return nil
 		}
 		return writeSessionStateLocked(root, id, ss)
 	})
+}
+
+// loadOrResetSessionStateLocked loads state.json for a writer that holds the
+// state lock, or returns empty state when there is none. state.json is
+// ephemeral: hooks rebuild it from the next event. So a file that no longer
+// decodes is renamed to state.json.corrupt-<unix> and the writer starts from
+// empty state, instead of every later hook failing on it. The rename is noted
+// in hook-errors.log.
+func loadOrResetSessionStateLocked(root, id string) (*SessionState, error) {
+	path := SessionStatePath(root, id)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	ss, decodeErr := decodeSessionState(data)
+	if decodeErr == nil {
+		return ss, nil
+	}
+	aside := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+	if err := os.Rename(path, aside); err != nil {
+		return nil, errors.Join(decodeErr, fmt.Errorf("move corrupt state aside: %w", err))
+	}
+	_ = AppendHookErrorAt(root, id, fmt.Sprintf("state.json did not decode (%v); moved it to %s and started from empty state", decodeErr, filepath.Base(aside)))
+	return &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}, nil
 }
 
 // UpdateAndLog folds the JSONL event append and the state.json
@@ -348,18 +374,19 @@ func UpdateAndLog(id string, ev *StateEvent, mutate func(*SessionState) bool) er
 
 // UpdateAndLogAt is UpdateAndLog with the state root supplied by the caller.
 func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) bool) error {
-	return UpdateAndLogWithEventsAt(root, id, ev, mutate, nil)
+	return UpdateAndLogWithEventsAt(context.Background(), root, id, ev, mutate, nil)
 }
 
 // UpdateAndLogWithEvents appends events produced from the agent event and
-// applies their state mutation under one lock.
-func UpdateAndLogWithEvents(id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
-	return UpdateAndLogWithEventsAt(StateRoot(), id, ev, mutate, extraEvents)
+// applies their state mutation under one lock. A deadline on ctx bounds the
+// wait for the lock; past it nothing is written and the lock error returns.
+func UpdateAndLogWithEvents(ctx context.Context, id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
+	return UpdateAndLogWithEventsAt(ctx, StateRoot(), id, ev, mutate, extraEvents)
 }
 
 // UpdateAndLogWithEventsAt is UpdateAndLogWithEvents with the state root
 // supplied by the caller.
-func UpdateAndLogWithEventsAt(root, id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
+func UpdateAndLogWithEventsAt(ctx context.Context, root, id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
@@ -375,13 +402,10 @@ func UpdateAndLogWithEventsAt(root, id string, ev *StateEvent, mutate func(*Sess
 	if ev.Ts.IsZero() {
 		ev.Ts = time.Now().UTC()
 	}
-	return withStateLock(root, id, func() error {
-		ss, err := loadSessionStateAt(root, id)
+	return withStateLockContext(ctx, root, id, func() error {
+		ss, err := loadOrResetSessionStateLocked(root, id)
 		if err != nil {
 			return errors.Join(appendRotatingJSONL(SessionStateLogPath(root, id), *ev), err)
-		}
-		if ss == nil {
-			ss = &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}
 		}
 		changed := mutate(ss)
 		var extras []*StateEvent
@@ -404,14 +428,15 @@ func UpdateAndLogWithEventsAt(root, id string, ev *StateEvent, mutate func(*Sess
 }
 
 // UpdateAndLogBatch applies a related group of hook events under one state
-// lock. Complete log lines remain visible if writing state.json fails.
-func UpdateAndLogBatch(id string, events []*StateEvent, mutate func(*SessionState) bool) error {
-	return updateAndLogBatchAt(StateRoot(), id, events, mutate, func(w io.Writer, data []byte) (int, error) {
+// lock. Complete log lines remain visible if writing state.json fails. A
+// deadline on ctx bounds the wait for the lock, as in UpdateAndLogWithEvents.
+func UpdateAndLogBatch(ctx context.Context, id string, events []*StateEvent, mutate func(*SessionState) bool) error {
+	return updateAndLogBatchAt(ctx, StateRoot(), id, events, mutate, func(w io.Writer, data []byte) (int, error) {
 		return w.Write(data)
 	})
 }
 
-func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*SessionState) bool, writeEvents func(io.Writer, []byte) (int, error)) error {
+func updateAndLogBatchAt(ctx context.Context, root, id string, events []*StateEvent, mutate func(*SessionState) bool, writeEvents func(io.Writer, []byte) (int, error)) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
@@ -429,13 +454,10 @@ func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*Ses
 			ev.Ts = time.Now().UTC()
 		}
 	}
-	return withStateLock(root, id, func() error {
-		ss, err := loadSessionStateAt(root, id)
+	return withStateLockContext(ctx, root, id, func() error {
+		ss, err := loadOrResetSessionStateLocked(root, id)
 		if err != nil {
 			return err
-		}
-		if ss == nil {
-			ss = &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}
 		}
 		changed := mutate(ss)
 		var eventData bytes.Buffer
@@ -449,7 +471,7 @@ func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*Ses
 		var log *os.File
 		var oldSize int64
 		if eventData.Len() > 0 {
-			log, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			log, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 			if err != nil {
 				return fmt.Errorf("open state log: %w", err)
 			}
@@ -1311,7 +1333,7 @@ func writeSessionStateLocked(root, id string, ss *SessionState) error {
 	data = append(data, '\n')
 	path := SessionStatePath(root, id)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("write tmp state: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -1410,8 +1432,37 @@ func appendRotatingJSONL(path string, ev StateEvent) error {
 	if err != nil {
 		return fmt.Errorf("encode state event: %w", err)
 	}
-	data = append(data, '\n')
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	return appendRotatingLine(path, append(data, '\n'))
+}
+
+// AppendHookError appends one timestamped line to the session's
+// hook-errors.log. Agents discard a hook's stderr, so this file is where a
+// failed hook leaves its trace. It takes no state lock, so a hook that timed
+// out waiting for that lock can still log, and it rotates like state.jsonl.
+func AppendHookError(id, text string) error {
+	return AppendHookErrorAt(StateRoot(), id, text)
+}
+
+// AppendHookErrorAt is AppendHookError with the state root supplied by the
+// caller.
+func AppendHookErrorAt(root, id, text string) error {
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
+	}
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	if err := ensureSessionStateDir(root, id); err != nil {
+		return err
+	}
+	line := time.Now().UTC().Format(time.RFC3339Nano) + " " + strings.TrimRight(text, "\n") + "\n"
+	return appendRotatingLine(SessionHookErrorLogPath(root, id), []byte(line))
+}
+
+// appendRotatingLine appends data to path and rotates the file to path.1 once
+// it reaches StateJSONLMaxSize, keeping one rolled file.
+func appendRotatingLine(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open state log: %w", err)
 	}
@@ -1423,7 +1474,7 @@ func appendRotatingJSONL(path string, ev StateEvent) error {
 		f.Close()
 		_ = os.Remove(path + ".1")
 		_ = os.Rename(path, path+".1")
-		f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
 			return fmt.Errorf("open state log: %w", err)
 		}
@@ -1436,33 +1487,74 @@ func appendRotatingJSONL(path string, ev StateEvent) error {
 }
 
 func withFileLock(lockPath string, fn func() error) error {
+	return withFileLockContext(context.Background(), lockPath, fn)
+}
+
+// withFileLockContext is withFileLock with the wait bounded by ctx's
+// deadline, as lockExclusive describes.
+func withFileLockContext(ctx context.Context, lockPath string, fn func() error) error {
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return fmt.Errorf("open lock %s: %w", filepath.Base(lockPath), err)
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockExclusive(ctx, f); err != nil {
 		return fmt.Errorf("acquire lock %s: %w", filepath.Base(lockPath), err)
 	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
 	return fn()
 }
 
-// withStateLock acquires an exclusive flock on the per-session lockfile
-// and runs fn while holding it. The lockfile is created on first use.
+// stateLockPollInterval is how often a deadline-bound writer retries a held
+// lock: short against a hook's deadline, so a released lock is taken within
+// a few milliseconds.
+const stateLockPollInterval = 2 * time.Millisecond
+
+// lockExclusive takes an exclusive flock on f.
 //
-// We use plain blocking flock (LOCK_EX) rather than a LOCK_NB + sleep
-// poll loop. On macOS the kernel can take tens of ms to release a
-// dropped flock after the holding process exits; polling with LOCK_NB
-// pays back-to-back scheduler pauses that show up as ~200ms p99 tail
-// outliers. Blocking LOCK_EX is kernel-driven and adds <1ms in the
-// uncontended case.
+// Without a deadline on ctx it blocks in the kernel. That is what every
+// writer did before hooks had a deadline: on macOS the kernel can take tens
+// of ms to release a dropped flock after the holding process exits, a coarse
+// LOCK_NB poll loop showed ~200ms p99 tail outliers, and a blocking LOCK_EX
+// adds <1ms uncontended.
 //
-// There is no userspace timeout: deadlock is impossible (no recursive
-// locking; defer-unlock on every path). If the kernel were to hang the
-// lock, the agent's own hook timeout (Claude: 5s by default) is the
-// outer cap.
+// With a deadline it tries LOCK_NB at once, which costs the same as LOCK_EX
+// when nobody holds the lock, then retries every stateLockPollInterval until
+// the deadline and returns ctx's error. A hook passes its deadline, so a
+// stuck holder costs it at most that deadline instead of the agent's own hook
+// timeout.
+func lockExclusive(ctx context.Context, f *os.File) error {
+	fd := int(f.Fd())
+	if _, bounded := ctx.Deadline(); !bounded {
+		return syscall.Flock(fd, syscall.LOCK_EX)
+	}
+	for {
+		err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			return err
+		}
+		retry := time.NewTimer(stateLockPollInterval)
+		select {
+		case <-ctx.Done():
+			retry.Stop()
+			return ctx.Err()
+		case <-retry.C:
+		}
+	}
+}
+
+// withStateLock runs fn holding the per-session state lock, however long the
+// wait. Hooks use withStateLockContext with their deadline.
 func withStateLock(root, id string, fn func() error) error {
+	return withStateLockContext(context.Background(), root, id, fn)
+}
+
+// withStateLockContext acquires an exclusive flock on the per-session
+// lockfile and runs fn while holding it. The lockfile is created on first
+// use. A deadline on ctx bounds the wait (lockExclusive); there is no
+// deadlock to guard against otherwise (no recursive locking; defer-unlock on
+// every path).
+func withStateLockContext(ctx context.Context, root, id string, fn func() error) error {
 	if err := ensureSessionStateDir(root, id); err != nil {
 		return err
 	}
@@ -1472,7 +1564,7 @@ func withStateLock(root, id string, fn func() error) error {
 		return fmt.Errorf("open state lock: %w", err)
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockExclusive(ctx, f); err != nil {
 		return fmt.Errorf("acquire state lock for %s: %w", id, err)
 	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck

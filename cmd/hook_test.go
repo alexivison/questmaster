@@ -787,8 +787,8 @@ func newClaudeChatFeedRunner(t *testing.T, store *state.Store, start time.Time, 
 	var now = start
 	r, _ := newTestRunner(t)
 	r.Now = func() time.Time { return now }
-	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
-		return state.UpdateAndLogWithEventsAt(root, sessionID, event, mutate, extraEvents)
+	r.UpdateAndLog = func(ctx context.Context, sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogWithEventsAt(ctx, root, sessionID, event, mutate, extraEvents)
 	}
 	seed := state.StateEvent{Ts: start, Agent: "claude", Action: "test_seed"}
 	if err := state.UpdateAndLogAt(root, "qm-w1", &seed, func(ss *state.SessionState) bool {
@@ -805,8 +805,8 @@ func newClaudeChatFeedRunner(t *testing.T, store *state.Store, start time.Time, 
 func TestHookClaudeOutOfOrderDisplayDeltasKeepStateBounded(t *testing.T) {
 	root := t.TempDir()
 	r, _ := newTestRunner(t)
-	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
-		return state.UpdateAndLogWithEventsAt(root, sessionID, event, mutate, extraEvents)
+	r.UpdateAndLog = func(ctx context.Context, sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogWithEventsAt(ctx, root, sessionID, event, mutate, extraEvents)
 	}
 	for index := 1; index <= 2; index++ {
 		runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
@@ -835,8 +835,8 @@ func TestHookCodexLargeChatEventsStayWithinReaderWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, _ := newTestRunner(t)
-	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
-		return state.UpdateAndLogWithEventsAt(root, sessionID, event, mutate, extraEvents)
+	r.UpdateAndLog = func(ctx context.Context, sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogWithEventsAt(ctx, root, sessionID, event, mutate, extraEvents)
 	}
 	runHookWithStdin(r, "codex", "tool_start", "qm-chat", map[string]interface{}{"transcript_path": path})
 	data, err := os.ReadFile(state.SessionStateLogPath(root, "qm-chat"))
@@ -4056,7 +4056,7 @@ func TestHookPiBatchedEntriesKeepOccurrenceOrderBeforeReport(t *testing.T) {
 	}
 	r, _ := newTestRunner(t)
 	r.Now = func() time.Time { return processedAt }
-	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+	r.UpdateAndLog = func(ctx context.Context, sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
 		return state.UpdateAndLogAt(root, sessionID, event, mutate)
 	}
 	r.UpdateAndLogEvents = state.UpdateAndLogBatch

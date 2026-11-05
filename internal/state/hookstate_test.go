@@ -304,7 +304,7 @@ func TestUpdateAndLogBatchWritesEventsAndAppliesMutationOnce(t *testing.T) {
 		{Action: "tool_execution_start", Agent: "pi", Tool: "bash"},
 	}
 	mutateCalls := 0
-	err := UpdateAndLogBatch(id, events, func(ss *SessionState) bool {
+	err := UpdateAndLogBatch(t.Context(), id, events, func(ss *SessionState) bool {
 		mutateCalls++
 		ss.Panes["agent"] = PaneState{Role: "agent", Agent: "pi", State: "working", Tool: "bash"}
 		return true
@@ -348,7 +348,7 @@ func TestUpdateAndLogWithEventsKeepsExpansionAtomic(t *testing.T) {
 	releaseExpansion := make(chan struct{})
 	firstDone := make(chan error, 1)
 	go func() {
-		firstDone <- UpdateAndLogWithEventsAt(root, id, &StateEvent{Action: "commentary"}, func(ss *SessionState) bool {
+		firstDone <- UpdateAndLogWithEventsAt(t.Context(), root, id, &StateEvent{Action: "commentary"}, func(ss *SessionState) bool {
 			ss.Panes["agent"] = PaneState{Role: "agent", LastChatAt: time.Unix(1, 0)}
 			return true
 		}, func(*StateEvent) []*StateEvent {
@@ -435,7 +435,7 @@ func TestUpdateAndLogBatchPartialWriteKeepsCompleteRecords(t *testing.T) {
 	}
 	var writtenBatch []byte
 	var firstRecordEnd int
-	err = updateAndLogBatchAt(root, id, []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}, func(ss *SessionState) bool {
+	err = updateAndLogBatchAt(t.Context(), root, id, []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}, func(ss *SessionState) bool {
 		ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 		return true
 	}, func(w io.Writer, data []byte) (int, error) {
@@ -474,7 +474,7 @@ func TestUpdateAndLogBatchConcurrentReaderCursorSurvivesStateFailure(t *testing.
 	var readerData []byte
 	var readerErr error
 	events := []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}
-	err := updateAndLogBatchAt(root, id, events, func(ss *SessionState) bool {
+	err := updateAndLogBatchAt(t.Context(), root, id, events, func(ss *SessionState) bool {
 		ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 		return true
 	}, func(w io.Writer, data []byte) (int, error) {
@@ -511,7 +511,7 @@ func TestUpdateAndLogBatchConcurrentReaderCursorSurvivesStateFailure(t *testing.
 	if err := os.Remove(statePath + ".tmp"); err != nil {
 		t.Fatalf("remove state write blocker: %v", err)
 	}
-	if err := UpdateAndLogBatch(id, []*StateEvent{{Action: "later"}}, func(ss *SessionState) bool {
+	if err := UpdateAndLogBatch(t.Context(), id, []*StateEvent{{Action: "later"}}, func(ss *SessionState) bool {
 		ss.Panes["agent"] = PaneState{Role: "agent", State: "done"}
 		return true
 	}); err != nil {
@@ -566,7 +566,7 @@ func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
 		if err := os.Mkdir(statePath+".tmp", 0o700); err != nil {
 			t.Fatalf("make state write fail: %v", err)
 		}
-		err := UpdateAndLogBatch(id, []*StateEvent{event}, func(ss *SessionState) bool {
+		err := UpdateAndLogBatch(t.Context(), id, []*StateEvent{event}, func(ss *SessionState) bool {
 			ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 			return true
 		})
@@ -590,7 +590,7 @@ func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
 	t.Run("success rotates complete batch", func(t *testing.T) {
 		root := setStateRoot(t)
 		current, _ := seed(t, root)
-		if err := UpdateAndLogBatch(id, []*StateEvent{event}, func(ss *SessionState) bool {
+		if err := UpdateAndLogBatch(t.Context(), id, []*StateEvent{event}, func(ss *SessionState) bool {
 			ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 			return true
 		}); err != nil {
@@ -1302,4 +1302,57 @@ func TestStateRootRejectsLiveRootDuringTests(t *testing.T) {
 		}
 	}()
 	_ = StateRoot()
+}
+
+// Every locked state.json writer moves an undecodable file aside once and
+// starts from empty state, so one corrupt write cannot fail later hooks.
+func TestStateWritersMoveCorruptStateAside(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		write func(id string, mutate func(*SessionState) bool) error
+	}{
+		{"update", func(id string, mutate func(*SessionState) bool) error {
+			return UpdateSessionState(id, mutate)
+		}},
+		{"update and log", func(id string, mutate func(*SessionState) bool) error {
+			return UpdateAndLogWithEvents(t.Context(), id, &StateEvent{Action: "working", Agent: "claude"}, mutate, nil)
+		}},
+		{"batch", func(id string, mutate func(*SessionState) bool) error {
+			return UpdateAndLogBatch(t.Context(), id, []*StateEvent{{Action: "agent_start", Agent: "pi"}}, mutate)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := setStateRoot(t)
+			id := "qm-corrupt-" + strings.ReplaceAll(tc.name, " ", "-")
+			dir := SessionStateDir(root, id)
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			if err := os.WriteFile(SessionStatePath(root, id), []byte("not json"), 0o600); err != nil {
+				t.Fatalf("write corrupt state: %v", err)
+			}
+			setWorking := func(ss *SessionState) bool {
+				if len(ss.Panes) != 0 {
+					t.Fatalf("writer did not start from empty state: %+v", ss.Panes)
+				}
+				ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
+				return true
+			}
+			if err := tc.write(id, setWorking); err != nil {
+				t.Fatalf("write over corrupt state: %v", err)
+			}
+			ss, err := LoadSessionStateAt(root, id)
+			if err != nil || ss == nil || ss.Panes["agent"].State != "working" {
+				t.Fatalf("state after recovery = %+v (err %v)", ss, err)
+			}
+			aside, _ := filepath.Glob(SessionStatePath(root, id) + ".corrupt-*")
+			if len(aside) != 1 {
+				t.Fatalf("corrupt copies = %v, want one", aside)
+			}
+			log, err := os.ReadFile(filepath.Join(dir, "hook-errors.log"))
+			if err != nil || !strings.Contains(string(log), filepath.Base(aside[0])) {
+				t.Fatalf("hook-errors.log = %q (err %v), want the moved file named", log, err)
+			}
+		})
+	}
 }

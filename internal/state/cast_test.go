@@ -101,7 +101,7 @@ func TestToolDurationMedianNeedsThreeSamplesAndKeepsLastTwenty(t *testing.T) {
 	root := t.TempDir()
 
 	for _, sample := range []time.Duration{10, 100} {
-		if err := RecordToolDurationAt(root, "claude", "Bash", "", sample*time.Millisecond); err != nil {
+		if err := RecordToolDurationAt(t.Context(), root, "claude", "Bash", "", sample*time.Millisecond); err != nil {
 			t.Fatalf("record sample: %v", err)
 		}
 	}
@@ -112,7 +112,7 @@ func TestToolDurationMedianNeedsThreeSamplesAndKeepsLastTwenty(t *testing.T) {
 	if _, ok := medians[ToolDurationKey{Agent: "claude", Tool: "Bash"}]; ok {
 		t.Fatalf("median available before third sample: %#v", medians)
 	}
-	if err := RecordToolDurationAt(root, "claude", "Bash", "", 30*time.Millisecond); err != nil {
+	if err := RecordToolDurationAt(t.Context(), root, "claude", "Bash", "", 30*time.Millisecond); err != nil {
 		t.Fatalf("record third sample: %v", err)
 	}
 	medians, err = LoadToolTypicalDurationsAt(root)
@@ -125,7 +125,7 @@ func TestToolDurationMedianNeedsThreeSamplesAndKeepsLastTwenty(t *testing.T) {
 	}
 
 	for i := 1; i <= 20; i++ {
-		if err := RecordToolDurationAt(root, "claude", "Bash", "", time.Duration(i)*time.Millisecond); err != nil {
+		if err := RecordToolDurationAt(t.Context(), root, "claude", "Bash", "", time.Duration(i)*time.Millisecond); err != nil {
 			t.Fatalf("record bounded sample %d: %v", i, err)
 		}
 	}
@@ -160,7 +160,7 @@ func TestToolDurationConcurrentRecordsStayBounded(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- RecordToolDurationAt(root, "pi", "bash", "", 250*time.Millisecond)
+			errs <- RecordToolDurationAt(t.Context(), root, "pi", "bash", "", 250*time.Millisecond)
 		}()
 	}
 	wg.Wait()
@@ -194,7 +194,7 @@ func TestToolDurationWriteRecoversFromCorruptFile(t *testing.T) {
 			if err := os.WriteFile(toolDurationsPath(root), data.file, 0o600); err != nil {
 				t.Fatalf("write corrupt file: %v", err)
 			}
-			if err := RecordToolDurationAt(root, "claude", "Bash", "go test", 42*time.Millisecond); err != nil {
+			if err := RecordToolDurationAt(t.Context(), root, "claude", "Bash", "go test", 42*time.Millisecond); err != nil {
 				t.Fatalf("record after corrupt file: %v", err)
 			}
 			medians, err := LoadToolTypicalDurationsAt(root)
@@ -219,7 +219,7 @@ func TestToolDurationRecordsCommandAndToolMedians(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	for _, sample := range []time.Duration{100, 200, 300} {
-		if err := RecordToolDurationAt(root, "claude", "Bash", "go test", sample*time.Millisecond); err != nil {
+		if err := RecordToolDurationAt(t.Context(), root, "claude", "Bash", "go test", sample*time.Millisecond); err != nil {
 			t.Fatalf("record sample: %v", err)
 		}
 	}
@@ -262,7 +262,7 @@ func TestToolDurationEvictsLeastRecentlyUpdatedPair(t *testing.T) {
 	if err := os.WriteFile(toolDurationsPath(root), data, 0o600); err != nil {
 		t.Fatalf("write seeded entries: %v", err)
 	}
-	if err := RecordToolDurationAt(root, "new-agent", "bash", "sleep", 500*time.Millisecond); err != nil {
+	if err := RecordToolDurationAt(t.Context(), root, "new-agent", "bash", "sleep", 500*time.Millisecond); err != nil {
 		t.Fatalf("record new command: %v", err)
 	}
 	samples, err := loadToolDurationSamplesAt(root)
@@ -311,7 +311,7 @@ func TestToolDurationEvictionKeepsToolPairBeingUpdated(t *testing.T) {
 	if err := os.WriteFile(toolDurationsPath(root), data, 0o600); err != nil {
 		t.Fatalf("write seeded entries: %v", err)
 	}
-	if err := RecordToolDurationAt(root, "claude", "Bash", "sleep", 500*time.Millisecond); err != nil {
+	if err := RecordToolDurationAt(t.Context(), root, "claude", "Bash", "sleep", 500*time.Millisecond); err != nil {
 		t.Fatalf("record command sample: %v", err)
 	}
 	samples, err := loadToolDurationSamplesAt(root)

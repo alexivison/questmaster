@@ -67,10 +67,11 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 		return
 	}
 	now := r.Now().UTC()
-	if handleOpenCodeSubagentEvent(r, sessionID, payload, now, stderr) {
+	if handleOpenCodeSubagentEvent(opts.ctx, r, sessionID, payload, now, stderr) {
 		return
 	}
 	patch := openCodePatchForEvent(payload)
+	patch.activity = redactCredentials(patch.activity)
 	patch.occurredAt = now
 	if !payload.CapturedAt.IsZero() {
 		patch.occurredAt = payload.CapturedAt.UTC()
@@ -106,7 +107,7 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 	}
 	ev.Fields = fields
 
-	accepted, completed, appendErr, updateErr := updateOpenCodePane(r, sessionID, now, patch, &ev)
+	accepted, completed, appendErr, updateErr := updateOpenCodePane(opts.ctx, r, sessionID, now, patch, &ev)
 	if appendErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook opencode: append event: %v\n", appendErr)
 	}
@@ -114,13 +115,13 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 		fmt.Fprintf(stderr, "questmaster hook opencode: update state: %v\n", updateErr)
 		return
 	}
-	r.recordToolDuration("opencode", completed, stderr)
+	r.recordToolDuration(opts.ctx, "opencode", completed, stderr)
 	if accepted && patch.sessionID != "" {
 		captureOpenCodeSessionID(opts.ctx, r, stderr, sessionID, patch.sessionID)
 	}
 }
 
-func handleOpenCodeSubagentEvent(r *HookRunner, sessionID string, payload openCodeHookPayload, now time.Time, stderr io.Writer) bool {
+func handleOpenCodeSubagentEvent(ctx context.Context, r *HookRunner, sessionID string, payload openCodeHookPayload, now time.Time, stderr io.Writer) bool {
 	event := payload.Event
 	info, _ := event.Properties["info"].(map[string]interface{})
 	id := openCodeSessionID(event)
@@ -138,7 +139,7 @@ func handleOpenCodeSubagentEvent(r *HookRunner, sessionID string, payload openCo
 		id, _ = info["id"].(string)
 		id = state.SanitizeResumeID(strings.TrimSpace(id))
 		if rootID != "" && strings.TrimSpace(parentID) == rootID {
-			recordOpenCodeSubagentChat(r, sessionID, now, rootID, id, familiar, "subagent_start", event.ID, stderr)
+			recordOpenCodeSubagentChat(ctx, r, sessionID, now, rootID, id, familiar, "subagent_start", event.ID, stderr)
 		}
 		return true
 	}
@@ -150,7 +151,7 @@ func handleOpenCodeSubagentEvent(r *HookRunner, sessionID string, payload openCo
 		return false
 	}
 	if event.Type == "session.deleted" {
-		recordOpenCodeSubagentChat(r, sessionID, now, rootID, id, "", "subagent_stop", event.ID, stderr)
+		recordOpenCodeSubagentChat(ctx, r, sessionID, now, rootID, id, "", "subagent_stop", event.ID, stderr)
 	}
 	if event.Type == "session.idle" || event.Type == "session.deleted" {
 		return true
@@ -164,7 +165,7 @@ func handleOpenCodeSubagentEvent(r *HookRunner, sessionID string, payload openCo
 	return true
 }
 
-func recordOpenCodeSubagentChat(r *HookRunner, sessionID string, now time.Time, parentID, childID, familiar, action, eventID string, stderr io.Writer) {
+func recordOpenCodeSubagentChat(ctx context.Context, r *HookRunner, sessionID string, now time.Time, parentID, childID, familiar, action, eventID string, stderr io.Writer) {
 	ev := state.StateEvent{
 		Ts: now, Agent: "opencode", AgentID: childID, AgentType: familiar,
 		Role: "agent", Action: action, Kind: action,
@@ -173,7 +174,7 @@ func recordOpenCodeSubagentChat(r *HookRunner, sessionID string, now time.Time, 
 	if eventID != "" {
 		ev.Fields["event_id"] = eventID
 	}
-	_, updateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
+	_, updateErr := r.updateAndLog(ctx, sessionID, &ev, func(ss *state.SessionState) bool {
 		pane, exists := ss.Panes["agent"]
 		if !exists || pane.OpenCodeSessionID != parentID || parentID == "" {
 			return false
@@ -329,10 +330,11 @@ func (p openCodePatch) mutatesState() bool {
 		p.sessionID != "" || p.partMsgID != "" || p.assistantMsgID != "" || p.failedToolCallID != ""
 }
 
-func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev *state.StateEvent) (bool, *completedTool, error, error) {
+func updateOpenCodePane(ctx context.Context, r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev *state.StateEvent) (bool, *completedTool, error, error) {
 	accepted := false
 	var completed *completedTool
-	appendErr, updateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
+	turnBoundary := patch.clearTool && patch.kind != "tool.execute.after" && patch.kind != "message.part.updated"
+	appendErr, updateErr := r.updateAndLog(ctx, sessionID, ev, func(ss *state.SessionState) bool {
 		if !patch.mutatesState() {
 			return false
 		}
@@ -365,6 +367,13 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID, pane.PendingPartMsgID, pane.PendingPartText, pane.PendingFinalMessage, pane.LastChatStatus, pane.LastChatAt}
 		prevRunningTools := slices.Clone(pane.RunningTools)
 		prevNarration := pane.Narration
+		isOvertaken := overtaken(now, prev.LastEvent)
+		if isOvertaken {
+			markOvertaken(ev)
+			if turnBoundary {
+				return false
+			}
+		}
 		if patch.finishedSubagentID != "" && patch.sessionID == pane.OpenCodeSessionID {
 			updateSubagentChat(&pane, ev, "subagent_stop", patch.finishedSubagentID, "")
 		}
@@ -388,13 +397,17 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		if patch.kind == "permission.replied" && pane.State != "blocked" {
 			setState = ""
 		}
+		if isOvertaken {
+			setState, setActivity, setTool, lastKind = "", "", "", ""
+			clearTool = false
+		}
 		preserveDoneFromIdleStatus := pane.State == "done" && patch.kind == "session.status" && patch.statusType == "idle"
 		if preserveDoneFromIdleStatus {
 			setState = ""
 			clearTool = false
 			lastKind = pane.LastKind
 		}
-		if patch.clearTool && patch.kind != "tool.execute.after" {
+		if patch.clearTool && patch.kind != "tool.execute.after" && !isOvertaken {
 			if patch.kind == "message.part.updated" {
 				pane.Tool = ""
 				if len(pane.RunningTools) > 0 {
@@ -446,7 +459,7 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			pane.PendingPartText = patch.partText
 		}
 		if patch.assistantMsgID != "" && patch.assistantMsgID == pane.PendingPartMsgID {
-			pane.Activity = truncatePromptLine(pane.PendingPartText)
+			pane.Activity = redactCredentials(truncatePromptLine(pane.PendingPartText))
 			pane.Recent = cleanPiRecent(strings.Split(pane.PendingPartText, "\n"))
 			pane.PendingFinalMessage = workerfeed.CapText(pane.PendingPartText)
 			pane.PendingPartMsgID = ""
@@ -458,8 +471,10 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		if lastKind != "" {
 			pane.LastKind = lastKind
 		}
-		pane.LastEvent = now
-		pane.Seq = now.UnixNano()
+		if !isOvertaken {
+			pane.LastEvent = now
+			pane.Seq = now.UnixNano()
+		}
 		pane.Agent = "opencode"
 		pane.Role = role
 		if !preservePermissionBlock {

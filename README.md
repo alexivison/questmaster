@@ -100,6 +100,12 @@ Claude and Codex use shell-script hooks merged into their native config. Pi's
 Questmaster extension handles inbound messages and activity; `questmaster hooks
 install pi` writes its version marker and extension under `$PI_HOME` or `~/.pi`.
 
+A hook never fails the agent and gives up after 800 ms, the wait for the
+session's state lock and its tmux calls included. Its errors, a missing or
+failing binary included, go to `<state root>/<session>/hook-errors.log`, which
+rotates at 1 MiB. `hooks status` compares the installed script and entries
+with the current ones; run `hooks install` after an upgrade.
+
 `send` takes a session ID for a direct message, `master` to report to the
 current worker's parent, or `all` to broadcast from the current master.
 `--message-file <path>` and `--message-file -` supply file or stdin input.

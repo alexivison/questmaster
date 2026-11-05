@@ -199,12 +199,7 @@ func executeHookFastPath(args []string, in io.Reader, stderr io.Writer) (bool, e
 	}
 
 	opts := hookOptions{agent: positionals[0], action: positionals[1], session: session}
-	data, err := readStdinNonBlocking(in)
-	if err != nil {
-		fmt.Fprintf(stderr, "questmaster hook: read stdin: %v\n", err)
-		return true, nil
-	}
-	opts.stdin = data
+	opts.stdin, opts.stdinErr = readStdinNonBlocking(in)
 	runHook(defaultHookRunner(), opts, stderr)
 	return true, nil
 }

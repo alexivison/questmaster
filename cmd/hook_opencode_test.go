@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -775,7 +776,7 @@ func TestHookOpenCodeErrorPartEndsCallWithoutLearningDuration(t *testing.T) {
 	const sessionID = "qm-opencode-error-call"
 	const ocSession = "ses_error"
 	var durations []toolDurationCall
-	r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+	r.RecordToolDuration = func(_ context.Context, agent, tool, command string, duration time.Duration) error {
 		durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
 		return nil
 	}
