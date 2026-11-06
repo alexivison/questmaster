@@ -4,9 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/alexivison/questmaster/internal/tmux/tmuxtest"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
 )
 
@@ -67,7 +70,7 @@ func TestEnsureUserFilesRefusesSymlinkAndForeignType(t *testing.T) {
 
 func TestRenderQuotesPaths(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "it's a space")
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)
@@ -85,6 +88,7 @@ func TestRenderQuotesPaths(t *testing.T) {
 
 func TestWriteEnforcedAtomicOwnerOnly(t *testing.T) {
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "questmaster")
+	tmuxtest.StubQuestmaster(t)
 	root := filepath.Join(t.TempDir(), "root", "..", "root")
 	if err := tmuxconfig.WriteEnforced(root); err != nil {
 		t.Fatal(err)
@@ -125,7 +129,7 @@ func TestWriteEnforcedAtomicOwnerOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
+	if len(entries) != 2 || entries[0].Name() != "enforced.questmaster.conf" || entries[1].Name() != "reload.questmaster.conf" {
 		t.Fatalf("left temporary files: %v", entries)
 	}
 }
@@ -135,6 +139,7 @@ func TestOwnershipMarkerRefusesForeignRootPerLabel(t *testing.T) {
 	other := t.TempDir()
 	marker := tmuxconfig.RootMarker(root, "dev_1")
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_1")
+	tmuxtest.StubQuestmaster(t)
 	if err := tmuxconfig.WriteEnforced(root); err != nil {
 		t.Fatal(err)
 	}
@@ -153,6 +158,14 @@ func TestOwnershipMarkerRefusesForeignRootPerLabel(t *testing.T) {
 	}
 	if !strings.HasPrefix(marker, "dev_1:") || len(marker) != len("dev_1:")+64 {
 		t.Fatalf("marker = %q", marker)
+	}
+}
+
+func TestWriteEnforcedRefusesGoTestBinaryAsHook(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	err := tmuxconfig.WriteEnforced(t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "set a questmaster stub on PATH in this test") {
+		t.Fatalf("WriteEnforced without a hook stub: %v", err)
 	}
 }
 
@@ -185,4 +198,53 @@ func TestCheckUsesPrivateSocketOnly(t *testing.T) {
 	if !strings.Contains(string(data), "-f /dev/null") || !strings.Contains(string(data), "source-file -n "+file) || !strings.Contains(string(data), "kill-server") {
 		t.Fatalf("missing check commands: %s", data)
 	}
+}
+
+func TestCheckReturnsDiagnosticsWithoutWaitingForDetachedChild(t *testing.T) {
+	bin := t.TempDir()
+	childPID := filepath.Join(t.TempDir(), "child.pid")
+	t.Setenv("QM_TEST_CHILD_PID", childPID)
+	t.Cleanup(func() { stopFakeTmuxChild(t, childPID) })
+	script := "#!/bin/sh\ncase \"$*\" in *'source-file -n'*) printf 'example.conf:2: syntax error\\n' >&2; sleep 30 & echo $! > \"$QM_TEST_CHILD_PID\"; exit 1;; esac\n"
+	if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	file := filepath.Join(t.TempDir(), "example.conf")
+	if err := os.WriteFile(file, []byte("set -g mouse on\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	errors, err := tmuxconfig.Check(ctx, file)
+	if err != nil || len(errors) != 1 || !strings.Contains(errors[0], "syntax error") || time.Since(started) > 10*time.Second {
+		t.Fatalf("Check waited or lost diagnostics: errors=%q error=%v elapsed=%s", errors, err, time.Since(started))
+	}
+}
+
+func stopFakeTmuxChild(t *testing.T, pidFile string) {
+	t.Helper()
+	data, err := os.ReadFile(pidFile)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		t.Errorf("read fake tmux child PID: %v", err)
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Errorf("parse fake tmux child PID: %v", err)
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		t.Errorf("find fake tmux child: %v", err)
+		return
+	}
+	if err := process.Kill(); err != nil && !os.IsNotExist(err) {
+		t.Errorf("kill fake tmux child: %v", err)
+	}
+	_ = process.Release()
 }

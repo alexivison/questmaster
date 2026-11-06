@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/alexivison/questmaster/internal/tmux/tmuxtest"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
 )
 
 func TestTmuxConfigCommandsAreReadOnly(t *testing.T) {
@@ -25,13 +26,14 @@ func TestTmuxConfigCommandsAreReadOnly(t *testing.T) {
 	var paths struct {
 		Config         string `json:"config"`
 		Enforced       string `json:"enforced"`
+		Reload         string `json:"reload"`
 		StatusScript   string `json:"status_script"`
 		EffectiveLabel string `json:"effective_label"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &paths); err != nil {
 		t.Fatal(err)
 	}
-	if paths.Config != filepath.Join(root, "tmux", "questmaster.conf") || paths.Enforced != filepath.Join(root, "tmux", "enforced.conf") || paths.EffectiveLabel != "questmaster" {
+	if paths.Config != filepath.Join(root, "tmux", "questmaster.conf") || paths.Enforced != filepath.Join(root, "tmux", "enforced.questmaster.conf") || paths.Reload != filepath.Join(root, "tmux", "reload.questmaster.conf") || paths.EffectiveLabel != "questmaster" {
 		t.Fatalf("paths = %+v", paths)
 	}
 	if _, err := os.Stat(filepath.Join(root, "tmux")); !os.IsNotExist(err) {
@@ -81,6 +83,76 @@ func TestIntegrationTmuxConfigCheckReportsParseErrors(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "tmux")); !os.IsNotExist(err) {
 		t.Fatalf("check command wrote files: %v", err)
+	}
+}
+
+func TestIntegrationTmuxConfigCheckUsesEffectiveLabelFiles(t *testing.T) {
+	tmuxtest.RequireIntegration(t)
+	root := t.TempDir()
+	t.Setenv("QUESTMASTER_STATE_ROOT", root)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_check")
+	prependStubQuestmasterToPath(t)
+	if err := tmuxconfig.Prepare(root); err != nil {
+		t.Fatal(err)
+	}
+	paths := tmuxconfig.Paths(root)
+	if err := os.WriteFile(paths.Enforced, []byte("invalid-tmux-command\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	command := NewRootCmd()
+	command.SetOut(&out)
+	command.SetArgs([]string{"tmux", "config", "check"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		OK             bool     `json:"ok"`
+		Errors         []string `json:"errors"`
+		EffectiveLabel string   `json:"effective_label"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.OK || result.EffectiveLabel != "dev_check" || len(result.Errors) == 0 || !strings.Contains(strings.Join(result.Errors, "\n"), paths.Enforced) {
+		t.Fatalf("check did not validate label-specific enforcement: %+v", result)
+	}
+}
+
+func TestIntegrationTmuxConfigCheckCreatesMissingLabelFiles(t *testing.T) {
+	tmuxtest.RequireIntegration(t)
+	root := t.TempDir()
+	t.Setenv("QUESTMASTER_STATE_ROOT", root)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_check")
+	prependStubQuestmasterToPath(t)
+	if err := tmuxconfig.Prepare(root); err != nil {
+		t.Fatal(err)
+	}
+	paths := tmuxconfig.Paths(root)
+	for _, path := range []string{paths.Enforced, paths.Reload} {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	command := NewRootCmd()
+	command.SetOut(&out)
+	command.SetArgs([]string{"tmux", "config", "check"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil || !result.OK {
+		t.Fatalf("check after upgrade: %+v, %v", result, err)
+	}
+	for _, path := range []string{paths.Enforced, paths.Reload} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("missing generated file %s: %v", path, err)
+		}
 	}
 }
 

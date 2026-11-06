@@ -1,13 +1,60 @@
 package tmux
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestServerRunDoesNotWaitForDetachedChildOutput(t *testing.T) {
+	bin := t.TempDir()
+	childPID := filepath.Join(t.TempDir(), "child.pid")
+	t.Setenv("QM_TEST_CHILD_PID", childPID)
+	t.Cleanup(func() { stopFakeTmuxChild(t, childPID) })
+	script := "#!/bin/sh\nprintf 'ready\\n'\nsleep 30 & echo $! > \"$QM_TEST_CHILD_PID\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	started := time.Now()
+	out, err := SocketServer("/tmp/qm-private/tmux.sock").Run(ctx, "list-sessions")
+	if err != nil || out != "ready" || time.Since(started) > 10*time.Second {
+		t.Fatalf("Run waited for a detached child: output=%q error=%v elapsed=%s", out, err, time.Since(started))
+	}
+}
+
+func stopFakeTmuxChild(t *testing.T, pidFile string) {
+	t.Helper()
+	data, err := os.ReadFile(pidFile)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		t.Errorf("read fake tmux child PID: %v", err)
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Errorf("parse fake tmux child PID: %v", err)
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		t.Errorf("find fake tmux child: %v", err)
+		return
+	}
+	if err := process.Kill(); err != nil && !os.IsNotExist(err) {
+		t.Errorf("kill fake tmux child: %v", err)
+	}
+	_ = process.Release()
+}
 
 // fakeTmuxScript stands in for tmux on PATH. Each run writes one file: the
 // routing variables it inherited, then its arguments, one per line. It starts
