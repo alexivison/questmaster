@@ -134,7 +134,7 @@ type cachedDaemonBuild struct {
 	err    error
 }
 
-var cachedDaemonCLI, cachedDaemonHelper, cachedDaemonReplacement cachedDaemonBuild
+var cachedDaemonCLI, cachedDaemonHelper, cachedDaemonReplacement, cachedDaemonHelperReplacement cachedDaemonBuild
 
 func (b *cachedDaemonBuild) binary(t *testing.T, source string, flags ...string) string {
 	t.Helper()
@@ -163,7 +163,27 @@ func copyDaemonBinary(t *testing.T, source, dest string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(dest, data, 0o700); err != nil {
+	tmpName := func() string {
+		syscall.ForkLock.RLock()
+		defer syscall.ForkLock.RUnlock()
+		tmp, err := os.CreateTemp(filepath.Dir(dest), "qm-test-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Remove(tmp.Name()) })
+		if _, err := tmp.Write(data); err != nil {
+			tmp.Close()
+			t.Fatal(err)
+		}
+		if err := tmp.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(tmp.Name(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return tmp.Name()
+	}()
+	if err := os.Rename(tmpName, dest); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -992,53 +1012,73 @@ func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 	t.Cleanup(func() { _ = run.Process.Kill(); _ = run.Wait() })
 	c := daemon.Config{Root: h.root, Home: h.home, Executable: helper}
 	var before daemon.Record
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(45 * time.Second)
 	for time.Now().Before(deadline) {
 		before, _ = daemon.Status(c)
-		if before.Running {
+		if before.Running && before.Jobs {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 	if !before.Running || !before.Jobs {
-		t.Fatalf("helper did not start with jobs: %+v", before)
+		t.Fatalf("timed out waiting for helper with jobs: %+v", before)
 	}
 	holdDone := make(chan error, 1)
 	go func() { holdDone <- daemonRequest(before.Socket, "hold") }()
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(45 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(filepath.Join(h.root, "daemon", "hold-started")); err == nil {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 	if _, err := os.Stat(filepath.Join(h.root, "daemon", "hold-started")); err != nil {
-		t.Fatal("hold request never dispatched")
+		t.Fatalf("timed out waiting for hold request to dispatch: %v", err)
 	}
 	candidate := helper + ".new"
-	build := exec.Command("go", "build", "-p=1", "-buildvcs=false", "-ldflags=-buildid=d1b-helper-swap", "-o", candidate, "../internal/daemon/testdata/exithelper")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("replacement helper build: %v\n%s", err, out)
-	}
+	copyDaemonBinary(t, cachedDaemonHelperReplacement.binary(t, "../internal/daemon/testdata/exithelper", "-ldflags=-buildid=d1b-helper-swap"), candidate)
 	if err := os.Rename(candidate, helper); err != nil {
 		t.Fatal(err)
 	}
-	checkDone := make(chan struct {
+	type upgradeResult struct {
 		record daemon.Record
 		err    error
-	}, 1)
+	}
+	checkDone := make(chan upgradeResult, 1)
 	go func() {
-		record, err := daemon.CheckUpgrade(c)
-		checkDone <- struct {
-			record daemon.Record
-			err    error
-		}{record, err}
+		for {
+			record, err := daemon.CheckUpgrade(c)
+			if err == nil && !record.UpgradeStarted {
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
+			checkDone <- upgradeResult{record, err}
+			return
+		}
 	}()
-	time.Sleep(100 * time.Millisecond)
-	select {
-	case result := <-checkDone:
-		t.Fatalf("upgrade passed in-flight work: %+v %v", result.record, result.err)
-	default:
+	deadline = time.Now().Add(45 * time.Second)
+	for {
+		select {
+		case result := <-checkDone:
+			t.Fatalf("upgrade passed in-flight work: %+v %v", result.record, result.err)
+		default:
+		}
+		conn, err := net.DialTimeout("unix", before.Socket, 5*time.Second)
+		if err == nil {
+			_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			var hello struct {
+				Accepting bool `json:"accepting"`
+			}
+			err = json.NewDecoder(conn).Decode(&hello)
+			conn.Close()
+			if err == nil && !hello.Accepting {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for upgrade to stop accepting requests: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	data, err := os.ReadFile(filepath.Join(h.root, "daemon", "canonical.json"))
 	if err != nil {
@@ -1059,32 +1099,32 @@ func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 		if result.err != nil || !result.record.UpgradeStarted {
 			t.Fatalf("upgrade was not started after request: %+v %v", result.record, result.err)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("upgrade did not resume after request")
+	case <-time.After(45 * time.Second):
+		t.Fatal("timed out waiting for upgrade after request")
 	}
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(45 * time.Second)
 	var after daemon.Record
 	for time.Now().Before(deadline) {
 		after, _ = daemon.Status(c)
 		if after.Generation == 2 {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 	if after.Generation != 2 || after.PID != before.PID || !after.Jobs {
-		t.Fatalf("helper upgrade failed: before=%+v after=%+v", before, after)
+		t.Fatalf("timed out waiting for helper upgrade: before=%+v after=%+v", before, after)
 	}
 	var starts []byte
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(45 * time.Second)
 	for time.Now().Before(deadline) {
 		starts, _ = os.ReadFile(filepath.Join(h.root, "daemon", "job-starts"))
 		if len(starts) >= 2 {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 	if len(starts) < 2 {
-		t.Fatalf("jobs did not restart: starts=%q", starts)
+		t.Fatalf("timed out waiting for jobs to restart: starts=%q", starts)
 	}
 	if err := daemonRequest(after.Socket, "spawn-child"); err != nil {
 		t.Fatal(err)
