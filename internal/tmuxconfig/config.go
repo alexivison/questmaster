@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -314,6 +315,9 @@ func Check(ctx context.Context, file string, enforced ...string) ([]string, erro
 
 func runSource(ctx context.Context, server tmux.Server, args ...string) (string, error) {
 	out, err := server.Command(ctx, args...).CombinedOutput()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
 	return strings.TrimSpace(string(out)), err
 }
 

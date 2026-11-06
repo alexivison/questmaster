@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +9,22 @@ import (
 	"testing"
 	"time"
 )
+
+func TestServerRunDoesNotWaitForDetachedChildOutput(t *testing.T) {
+	bin := t.TempDir()
+	script := "#!/bin/sh\nprintf 'ready\\n'\nsleep 30 &\n"
+	if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	started := time.Now()
+	out, err := SocketServer("/tmp/qm-private/tmux.sock").Run(ctx, "list-sessions")
+	if err != nil || out != "ready" || time.Since(started) > 10*time.Second {
+		t.Fatalf("Run waited for a detached child: output=%q error=%v elapsed=%s", out, err, time.Since(started))
+	}
+}
 
 // fakeTmuxScript stands in for tmux on PATH. Each run writes one file: the
 // routing variables it inherited, then its arguments, one per line. It starts

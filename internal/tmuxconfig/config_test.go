@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
 )
@@ -184,5 +185,25 @@ func TestCheckUsesPrivateSocketOnly(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "-f /dev/null") || !strings.Contains(string(data), "source-file -n "+file) || !strings.Contains(string(data), "kill-server") {
 		t.Fatalf("missing check commands: %s", data)
+	}
+}
+
+func TestCheckReturnsDiagnosticsWithoutWaitingForDetachedChild(t *testing.T) {
+	bin := t.TempDir()
+	script := "#!/bin/sh\ncase \"$*\" in *'source-file -n'*) printf 'example.conf:2: syntax error\\n' >&2; sleep 30 & exit 1;; esac\n"
+	if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	file := filepath.Join(t.TempDir(), "example.conf")
+	if err := os.WriteFile(file, []byte("set -g mouse on\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	errors, err := tmuxconfig.Check(ctx, file)
+	if err != nil || len(errors) != 1 || !strings.Contains(errors[0], "syntax error") || time.Since(started) > 10*time.Second {
+		t.Fatalf("Check waited or lost diagnostics: errors=%q error=%v elapsed=%s", errors, err, time.Since(started))
 	}
 }
