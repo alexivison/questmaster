@@ -15,6 +15,7 @@ import (
 	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
@@ -252,6 +253,11 @@ func serveContractFixtures() []contractFixture {
 			},
 		}},
 		{name: "pr_refresh_request.json", value: Request{ID: json.RawMessage(`"pr-refresh-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","keys":["github.com/owner/repo#42"]}`), ProtocolVersion: ServeProtocolVersion}},
+		{name: "tmux_routes_request.json", value: Request{ID: json.RawMessage(`"tmux-routes-request"`), Method: "tmux.routes", Data: json.RawMessage(`{"session_ids":["qm-example"],"live":true}`), ProtocolVersion: ServeProtocolVersion}},
+		{name: "tmux_routes_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion, Type: "response", ID: json.RawMessage(`"tmux-routes-request"`), OK: boolPtr(true), Topic: "tmux.routes",
+			Data: []tmuxroute.RouteRecord{{SessionID: "qm-example", Server: "default", ConfigFiles: []string{}, Live: true, CreatedUnix: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Unix()}},
+		}},
 		// What the app sends for r in the Version Control dock: the whole session, and a reply once it has refreshed.
 		{name: "pr_refresh_session_request.json", value: Request{ID: json.RawMessage(`"pr-refresh-session-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","wait":true}`), ProtocolVersion: ServeProtocolVersion}},
 		{name: "pr_refresh_wake_request.json", value: Request{ID: json.RawMessage(`"pr-wake-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"keys":["github.com/owner/repo#42"],"wait":false}`), ProtocolVersion: ServeProtocolVersion}},

@@ -37,6 +37,7 @@ func SanitizeResumeID(v string) string {
 // Extra holds unknown fields to preserve fields this version does not interpret.
 type Manifest struct {
 	SessionID   string           `json:"session_id"`
+	TmuxServer  TmuxServer       `json:"tmux_server,omitempty"`
 	CreatedAt   string           `json:"created_at,omitempty"`
 	UpdatedAt   string           `json:"updated_at,omitempty"`
 	Title       string           `json:"title,omitempty"`
@@ -56,6 +57,10 @@ type Manifest struct {
 	// (e.g. parent_session, initial_prompt).
 	Extra map[string]json.RawMessage `json:"-"`
 }
+
+// TmuxServer records the tmux socket label used when the session was created.
+// An empty value identifies a legacy session on the default server.
+type TmuxServer string
 
 // AgentManifest stores per-agent runtime state in the manifest.
 type AgentManifest struct {
@@ -78,7 +83,7 @@ type AgentManifest struct {
 // Every other key in a manifest object is preserved verbatim in Extra. Kept in
 // sync with the struct tags above.
 var knownManifestKeys = map[string]struct{}{
-	"session_id": {}, "created_at": {}, "updated_at": {}, "title": {},
+	"session_id": {}, "tmux_server": {}, "created_at": {}, "updated_at": {}, "title": {},
 	"cwd": {}, "window_name": {}, "agents": {}, "agent_path": {},
 	"session_type": {}, "workers": {}, "display": {}, "runtime_dir": {},
 }
@@ -215,6 +220,11 @@ func (m Manifest) marshalFields() (map[string]json.RawMessage, error) {
 
 	if err := marshalField(fields, "session_id", m.SessionID); err != nil {
 		return nil, err
+	}
+	if m.TmuxServer != "" {
+		if err := marshalField(fields, "tmux_server", m.TmuxServer); err != nil {
+			return nil, err
+		}
 	}
 	if m.CreatedAt != "" {
 		if err := marshalField(fields, "created_at", m.CreatedAt); err != nil {

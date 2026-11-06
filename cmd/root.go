@@ -12,6 +12,7 @@ import (
 	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
@@ -51,6 +52,7 @@ type Option func(*rootOpts)
 type rootOpts struct {
 	store    *state.Store
 	client   *tmux.Client
+	router   *tmuxroute.Router
 	repoRoot string
 }
 
@@ -60,6 +62,11 @@ func WithDeps(store *state.Store, client *tmux.Client) Option {
 		o.store = store
 		o.client = client
 	}
+}
+
+// WithTmuxRouter injects private-socket routes for CLI tests.
+func WithTmuxRouter(router *tmuxroute.Router) Option {
+	return func(o *rootOpts) { o.router = router }
 }
 
 // NewRootCmd creates the root cobra command.
@@ -80,6 +87,10 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 	}
 	if o.repoRoot == "" {
 		o.repoRoot = os.Getenv("PARTY_REPO_ROOT")
+	}
+	router, routerErr := o.router, error(nil)
+	if router == nil {
+		router, routerErr = tmuxroute.NewProduction(o.store, o.client)
 	}
 
 	root := &cobra.Command{
@@ -118,8 +129,8 @@ When invoked with no subcommand, it shows help.`,
 	root.AddCommand(newQuestCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newRepoCmd(o.store))
-	root.AddCommand(newDaemonCmd(o.store))
-	root.AddCommand(newTmuxCmd(o.store))
+	root.AddCommand(newDaemonCmd(o.store, router, routerErr))
+	root.AddCommand(newTmuxCmd(o.store, router, routerErr))
 
 	return root
 }

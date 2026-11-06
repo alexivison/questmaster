@@ -89,6 +89,9 @@ type Server struct {
 	configFiles []string
 }
 
+// Label returns the selected -L name, or the private socket path for -S tests.
+func (s Server) Label() string { return s.name }
+
 var _ Runner = Server{}
 
 // DefaultServer is the server Questmaster's sessions run on. It is the one
@@ -96,6 +99,12 @@ var _ Runner = Server{}
 // to when no flag, TMUX or TMUX_TMPDIR selects another, /tmp/tmux-<uid>/default,
 // which is also the socket the app's own tmux calls reach.
 func DefaultServer() Server {
+	return LegacyServer()
+}
+
+// LegacyServer selects the user's default socket independently of the
+// creation selector. Recorded legacy sessions always route here.
+func LegacyServer() Server {
 	return Server{flag: "-L", name: defaultServerLabel}
 }
 
@@ -106,16 +115,25 @@ func EffectiveLabel() (string, error) {
 	if !set {
 		return "questmaster", nil
 	}
+	if err := ValidateNamedLabel(label); err != nil {
+		return "", fmt.Errorf("invalid QUESTMASTER_TMUX_LABEL %q: %w", label, err)
+	}
+	return label, nil
+}
+
+// ValidateNamedLabel accepts an explicit dedicated-server label. Routing a
+// recorded session must never consult QUESTMASTER_TMUX_LABEL.
+func ValidateNamedLabel(label string) error {
 	if label == "default" || len(label) == 0 || len(label) > 32 {
-		return "", fmt.Errorf("invalid QUESTMASTER_TMUX_LABEL %q", label)
+		return fmt.Errorf("invalid named tmux label %q", label)
 	}
 	for i := 0; i < len(label); i++ {
 		c := label[i]
 		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
-			return "", fmt.Errorf("invalid QUESTMASTER_TMUX_LABEL %q", label)
+			return fmt.Errorf("invalid named tmux label %q", label)
 		}
 	}
-	return label, nil
+	return nil
 }
 
 // NamedServer selects Questmaster's dedicated server with the user config
@@ -123,6 +141,15 @@ func EffectiveLabel() (string, error) {
 func NamedServer(config, enforced string) (Server, error) {
 	label, err := EffectiveLabel()
 	if err != nil {
+		return Server{}, err
+	}
+	return NamedServerLabel(label, config, enforced)
+}
+
+// NamedServerLabel addresses a recorded label, independently of the current
+// development override. It is used only by the routing provider.
+func NamedServerLabel(label, config, enforced string) (Server, error) {
+	if err := ValidateNamedLabel(label); err != nil {
 		return Server{}, err
 	}
 	return Server{flag: "-L", name: label, configFiles: []string{config, enforced}}, nil

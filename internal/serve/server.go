@@ -12,6 +12,7 @@ import (
 	"github.com/alexivison/questmaster/internal/dirsuggest"
 	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 const (
@@ -58,6 +59,7 @@ type Server struct {
 	// for CLI-owned session lifecycle mutations.
 	MutationRunner MutationCommandRunner
 	TmuxClient     *tmux.Client
+	TmuxRouter     *tmuxroute.Router
 	DirQuerier     dirsuggest.DirQuerier
 	// ReasoningEfforts overrides harness discovery in tests and embedded use.
 	// Nil uses modelsuggest's process-wide cached resolver.
@@ -91,6 +93,8 @@ func (s *Server) HandleRequest(ctx context.Context, req Request) Envelope {
 		data, err = s.pullRequests(req)
 	case "pr.refresh":
 		data, err = s.refreshPullRequests(ctx, req)
+	case "tmux.routes":
+		data, err = s.tmuxRoutes(ctx, req)
 	default:
 		data, err = s.snapshot(ctx, req.Method)
 	}

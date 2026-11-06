@@ -194,6 +194,22 @@ func TestNamedServerLabelOverride(t *testing.T) {
 	}
 }
 
+func TestNamedServerLabelIgnoresEnvironment(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_current")
+	server, err := NamedServerLabel("dev_recorded", "/tmp/user.conf", "/tmp/enforced.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := server.Label(); got != "dev_recorded" {
+		t.Fatalf("label = %q", got)
+	}
+	for _, invalid := range []string{"", "default", "Bad", "with space", "123456789012345678901234567890123"} {
+		if _, err := NamedServerLabel(invalid, "/tmp/user.conf", "/tmp/enforced.conf"); err == nil {
+			t.Fatalf("accepted %q", invalid)
+		}
+	}
+}
+
 func TestNamedServerRejectsInvalidLabel(t *testing.T) {
 	for _, label := range []string{"", "default", "Upper", strings.Repeat("a", 33), "a/b", "has space"} {
 		t.Run(label, func(t *testing.T) {
