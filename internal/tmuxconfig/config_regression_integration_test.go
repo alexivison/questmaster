@@ -17,7 +17,7 @@ func TestIntegrationSharedRootReloadKeepsOwnLabel(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_a")
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)
@@ -29,7 +29,7 @@ func TestIntegrationSharedRootReloadKeepsOwnLabel(t *testing.T) {
 	mustTmux(t, a, "new-session", "-d", "-s", "test", "sleep 60")
 	original := mustTmux(t, a, "show-options", "-gqv", "@questmaster_root")
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_b")
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	pathsB := tmuxconfig.Paths(root)
@@ -84,14 +84,14 @@ func TestIntegrationForeignRootReloadDoesNotAdoptServer(t *testing.T) {
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_owned")
 	rootA, rootB := t.TempDir(), t.TempDir()
 	t.Setenv("QUESTMASTER_STATE_ROOT", rootA)
-	if err := tmuxconfig.Prepare(rootA); err != nil {
+	if err := prepareConfig(t, rootA); err != nil {
 		t.Fatal(err)
 	}
 	pathsA := tmuxconfig.Paths(rootA)
 	a := tmuxtest.NewRunnerWithConfig(t, pathsA.Config, pathsA.Enforced)
 	mustTmux(t, a, "new-session", "-d", "-s", "test", "sleep 60")
 	t.Setenv("QUESTMASTER_STATE_ROOT", rootB)
-	if err := tmuxconfig.Prepare(rootB); err != nil {
+	if err := prepareConfig(t, rootB); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(tmuxconfig.Paths(rootB).Config, []byte("set -g mouse off\n"), 0o600); err != nil {
@@ -137,7 +137,7 @@ func TestIntegrationConfigMutationsRejectUnmarkedServer(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_unmarked")
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	r := tmuxtest.NewRunner(t)
@@ -162,7 +162,7 @@ func TestIntegrationForeignRootCannotRestartEmptyServer(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", rootA)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_owned")
-	if err := tmuxconfig.Prepare(rootA); err != nil {
+	if err := prepareConfig(t, rootA); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(rootA)
@@ -186,7 +186,7 @@ func TestIntegrationPrepareAndRestartKeepDetachedSessions(t *testing.T) {
 	if err := os.WriteFile(tmuxconfig.Paths(root).Config, []byte("set -s exit-empty on\nset -s exit-unattached on\nset -g destroy-unattached on\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustTmux(t, r, "list-sessions", "-F", "#{session_name}"); got != "first" {

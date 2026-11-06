@@ -15,7 +15,7 @@ func TestIntegrationTemplateLoadsCleanly(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "questmaster")
 	root := t.TempDir()
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)
@@ -48,7 +48,7 @@ func TestIntegrationTemplateLoadsCleanly(t *testing.T) {
 func TestIntegrationRenderQuotesPaths(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	root := filepath.Join(t.TempDir(), "it's a space")
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)
@@ -61,7 +61,7 @@ func TestIntegrationRenderQuotesPaths(t *testing.T) {
 func TestIntegrationEnforcedWinsOverEdits(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	root := t.TempDir()
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)
@@ -88,7 +88,7 @@ func TestIntegrationParseErrorKeepsEnforced(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			if err := tmuxconfig.Prepare(root); err != nil {
+			if err := prepareConfig(t, root); err != nil {
 				t.Fatal(err)
 			}
 			paths := tmuxconfig.Paths(root)
@@ -118,7 +118,7 @@ func TestIntegrationParseErrorKeepsEnforced(t *testing.T) {
 func TestIntegrationConfigReadOnlyAtStart(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	root := t.TempDir()
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)

@@ -16,7 +16,7 @@ func configServer(t *testing.T) (*tmuxtest.Runner, *tmux.Client, string) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "testconfig")
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)

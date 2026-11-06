@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -190,7 +191,10 @@ func TestCheckUsesPrivateSocketOnly(t *testing.T) {
 
 func TestCheckReturnsDiagnosticsWithoutWaitingForDetachedChild(t *testing.T) {
 	bin := t.TempDir()
-	script := "#!/bin/sh\ncase \"$*\" in *'source-file -n'*) printf 'example.conf:2: syntax error\\n' >&2; sleep 30 & exit 1;; esac\n"
+	childPID := filepath.Join(t.TempDir(), "child.pid")
+	t.Setenv("QM_TEST_CHILD_PID", childPID)
+	t.Cleanup(func() { stopFakeTmuxChild(t, childPID) })
+	script := "#!/bin/sh\ncase \"$*\" in *'source-file -n'*) printf 'example.conf:2: syntax error\\n' >&2; sleep 30 & echo $! > \"$QM_TEST_CHILD_PID\"; exit 1;; esac\n"
 	if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -206,4 +210,30 @@ func TestCheckReturnsDiagnosticsWithoutWaitingForDetachedChild(t *testing.T) {
 	if err != nil || len(errors) != 1 || !strings.Contains(errors[0], "syntax error") || time.Since(started) > 10*time.Second {
 		t.Fatalf("Check waited or lost diagnostics: errors=%q error=%v elapsed=%s", errors, err, time.Since(started))
 	}
+}
+
+func stopFakeTmuxChild(t *testing.T, pidFile string) {
+	t.Helper()
+	data, err := os.ReadFile(pidFile)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		t.Errorf("read fake tmux child PID: %v", err)
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Errorf("parse fake tmux child PID: %v", err)
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		t.Errorf("find fake tmux child: %v", err)
+		return
+	}
+	if err := process.Kill(); err != nil && !os.IsNotExist(err) {
+		t.Errorf("kill fake tmux child: %v", err)
+	}
+	_ = process.Release()
 }
