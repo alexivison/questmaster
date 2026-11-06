@@ -26,6 +26,7 @@ enum EmbeddedTmuxClientResolver {
 enum TerminalTmuxClientProcess {
     static let clientListFormat = "#{client_name}\t#{client_session}\t#{client_created}\t#{client_pid}"
     private static var didLogListClientsFailure = false
+    private static let logLock = NSLock()
 
     static func listClients(tmuxPath: String, environment: [String: String]? = nil) -> [TerminalTmuxClient] {
         do {
@@ -178,37 +179,32 @@ enum TerminalTmuxClientProcess {
         arguments: [String],
         environment: [String: String]? = nil
     ) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.environment = environment ?? appChildProcessEnvironment()
-
-        let output = Pipe()
-        let error = Pipe()
-        process.standardOutput = output
-        process.standardError = error
-        try process.run()
-        let outputDrain = PipeDrain(output.fileHandleForReading)
-        let errorDrain = PipeDrain(error.fileHandleForReading)
-        outputDrain.start()
-        errorDrain.start()
-        process.waitUntilExit()
-        let outputData = outputDrain.finish()
-        let errorData = errorDrain.finish()
-        let stdout = String(decoding: outputData, as: UTF8.self)
-        let stderr = String(decoding: errorData, as: UTF8.self)
-        guard process.terminationStatus == 0 else {
-            throw TerminalTmuxCommandError(
-                executable: executable,
-                arguments: arguments,
-                status: process.terminationStatus,
-                stderr: stderr
-            )
+        var processEnvironment = environment ?? appChildProcessEnvironment()
+        for key in ["TMUX", "TMUX_PANE", "TMUX_TMPDIR"] {
+            processEnvironment.removeValue(forKey: key)
         }
-        return stdout
+        let result = try BoundedProcess.run(
+            executable: executable,
+            arguments: arguments,
+            environment: processEnvironment
+        )
+        let stdout = String(decoding: result.stdout, as: UTF8.self)
+        let stderr = String(decoding: result.stderr, as: UTF8.self)
+        switch result.outcome {
+        case .exit(0):
+            return stdout
+        case .exit(let status):
+            throw TerminalTmuxCommandError(executable: executable, arguments: arguments, status: status, stderr: stderr)
+        case .timeout:
+            throw TerminalTmuxCommandError(executable: executable, arguments: arguments, status: -1, stderr: "timed out")
+        case .capped:
+            throw TerminalTmuxCommandError(executable: executable, arguments: arguments, status: -1, stderr: "output exceeded 1 MiB")
+        }
     }
 
     private static func logListClientsFailure(tmuxPath: String, error: Error) {
+        logLock.lock()
+        defer { logLock.unlock() }
         guard !didLogListClientsFailure else {
             return
         }
@@ -236,29 +232,6 @@ enum TerminalTmuxClientProcess {
             return nil
         }
         return String(cString: value)
-    }
-}
-
-private final class PipeDrain: @unchecked Sendable {
-    private let handle: FileHandle
-    private let group = DispatchGroup()
-    private var data = Data()
-
-    init(_ handle: FileHandle) {
-        self.handle = handle
-    }
-
-    func start() {
-        group.enter()
-        DispatchQueue.global(qos: .utility).async { [self] in
-            defer { group.leave() }
-            data = handle.readDataToEndOfFile()
-        }
-    }
-
-    func finish() -> Data {
-        group.wait()
-        return data
     }
 }
 

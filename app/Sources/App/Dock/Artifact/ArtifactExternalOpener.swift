@@ -36,6 +36,10 @@ enum ArtifactExternalOpenError: LocalizedError {
 }
 
 enum ArtifactExternalOpener {
+    static func dispatchEditorWindow(run: @escaping () -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async(execute: run)
+    }
+
     static func open(
         artifact: ArtifactReference,
         attachedSessionID: String?,

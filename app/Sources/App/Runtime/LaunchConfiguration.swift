@@ -63,28 +63,12 @@ struct LaunchConfiguration {
             return []
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tmuxPath)
-        process.arguments = ["list-sessions", "-F", "#{session_created} #{session_name}"]
-        process.environment = appChildProcessEnvironment()
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return []
-        }
-
-        guard process.terminationStatus == 0 else {
-            return []
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
+        guard let result = try? BoundedProcess.run(
+            executable: tmuxPath,
+            arguments: ["list-sessions", "-F", "#{session_created} #{session_name}"],
+            environment: appChildProcessEnvironment()
+        ), result.outcome == .exit(0),
+        let output = String(data: result.stdout, encoding: .utf8) else {
             return []
         }
 
