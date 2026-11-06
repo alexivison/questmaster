@@ -36,6 +36,7 @@ func newTmuxCmd(store *state.Store) *cobra.Command {
 	var file string
 	checkCmd := &cobra.Command{
 		Use: "check", Short: "Validate a config on a private tmux socket", Args: cobra.NoArgs,
+		Long: "Parse and execute a config on a throwaway private tmux server. Load-time run-shell and if-shell commands really run.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			label, err := tmux.EffectiveLabel()
 			if err != nil {

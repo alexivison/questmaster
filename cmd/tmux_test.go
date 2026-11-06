@@ -113,3 +113,17 @@ func TestTmuxConfigPathReportsOverrideAndRejectsInvalidLabel(t *testing.T) {
 		t.Fatal("accepted invalid label")
 	}
 }
+
+func TestTmuxConfigCheckHelpWarnsOfLoadTimeCommands(t *testing.T) {
+	t.Setenv("QUESTMASTER_STATE_ROOT", t.TempDir())
+	var out bytes.Buffer
+	command := NewRootCmd()
+	command.SetOut(&out)
+	command.SetArgs([]string{"tmux", "config", "check", "--help"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "run-shell") || !strings.Contains(out.String(), "if-shell") {
+		t.Fatalf("help omits load-time execution: %s", out.String())
+	}
+}

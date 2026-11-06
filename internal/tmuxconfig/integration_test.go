@@ -75,27 +75,39 @@ func TestIntegrationEnforcedWinsOverEdits(t *testing.T) {
 
 func TestIntegrationParseErrorKeepsEnforced(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
-	root := t.TempDir()
-	if err := tmuxconfig.Prepare(root); err != nil {
-		t.Fatal(err)
-	}
-	paths := tmuxconfig.Paths(root)
-	// tmux 3.8 applies valid lines before the error, so enforced.conf must
-	// override the user's earlier exit-empty setting.
-	if err := os.WriteFile(paths.Config, []byte("set -s exit-empty on\ninvalid-tmux-command\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r := tmuxtest.NewRunnerWithConfig(t, paths.Config, paths.Enforced)
-	mustTmux(t, r, "new-session", "-d", "-s", "test", "sleep 60")
-	if got := mustTmux(t, r, "show-options", "-gv", "exit-empty"); got != "off" {
-		t.Errorf("exit-empty = %q", got)
-	}
-	errors, err := tmuxconfig.Check(t.Context(), paths.Config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(errors) == 0 || !strings.Contains(strings.Join(errors, "\n"), fmt.Sprintf("%s:2", paths.Config)) {
-		t.Fatalf("parse errors = %q", errors)
+	// On tmux 3.8, an unterminated quote can leave earlier lines applied;
+	// an unknown command or unclosed brace can discard them. Enforced settings
+	// must load after either kind of error.
+	for _, tc := range []struct{ name, config, diagnostic string }{
+		{"unknown command", "set -s exit-empty on\ninvalid-tmux-command\n", "unknown command"},
+		{"unterminated quote", "set -s exit-empty on\nset -g status-left \"unterminated\\", "syntax error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := tmuxconfig.Prepare(root); err != nil {
+				t.Fatal(err)
+			}
+			paths := tmuxconfig.Paths(root)
+			if err := os.WriteFile(paths.Config, []byte(tc.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			r := tmuxtest.NewRunnerWithConfig(t, paths.Config, paths.Enforced)
+			mustTmux(t, r, "new-session", "-d", "-s", "test", "sleep 60")
+			if got := mustTmux(t, r, "show-options", "-gv", "@questmaster_enforced"); got != "1" {
+				t.Errorf("enforced marker = %q", got)
+			}
+			if got := mustTmux(t, r, "show-options", "-gv", "exit-empty"); got != "off" {
+				t.Errorf("exit-empty = %q", got)
+			}
+			errors, err := tmuxconfig.Check(t.Context(), paths.Config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			diagnostic := strings.Join(errors, "\n")
+			if !strings.Contains(diagnostic, fmt.Sprintf("%s:2", paths.Config)) || !strings.Contains(strings.ToLower(diagnostic), tc.diagnostic) {
+				t.Fatalf("parse errors = %q", errors)
+			}
+		})
 	}
 }
 
