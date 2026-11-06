@@ -13,6 +13,8 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // StartOpts configures a new session launch.
@@ -52,6 +54,11 @@ type StartResult struct {
 
 // Start creates and launches a new questmaster session.
 func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error) {
+	handle, err := s.router().Creation()
+	if err != nil {
+		return StartResult{}, err
+	}
+	s = s.onHandle(handle)
 	role := roleMaster
 	if opts.MasterID != "" {
 		role = roleWorker
@@ -293,12 +300,19 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			}
 		}
 
+		if err := s.prepareCreation(ctx, handle); err != nil {
+			return s.startRollbackError(ctx, sessionID, false, err)
+		}
 		pane, err := s.Client.NewSession(ctx, sessionID, "", cwd)
 		if err != nil {
 			return s.startRollbackError(ctx, sessionID, false, fmt.Errorf("create tmux session: %w", err))
 		}
+		if err := s.Store.Update(sessionID, func(m *state.Manifest) { m.TmuxServer = state.TmuxServer(handle.Label()) }); err != nil {
+			return s.startRollbackError(ctx, sessionID, true, fmt.Errorf("record tmux server: %w", err))
+		}
 
 		if err := s.launchSession(ctx, launchConfig{
+			serverLabel: handle.Label(),
 			sessionID:   sessionID,
 			pane:        pane,
 			cwd:         cwd,
@@ -455,18 +469,22 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, l
 				return fmt.Errorf("create manifest: %w", err)
 			}
 
-			// Guard against orphan tmux sessions that have no manifest.
-			// Propagate real transport errors; benign "no server" returns (false, nil).
-			exists, hsErr := s.Client.HasSession(ctx, id)
+			// An orphan can occupy the ID on either server.
+			handles, hsErr := s.router().RecordedHandles()
 			if hsErr != nil {
-				if delErr := s.Store.Delete(id); delErr != nil && !isManifestNotFound(delErr) {
-					return fmt.Errorf("check tmux session %s: %w (rollback failed: %v)", id, hsErr, delErr)
-				}
+				_ = s.Store.Delete(id)
 				return fmt.Errorf("check tmux session %s: %w", id, hsErr)
 			}
-			if exists {
-				_ = s.Store.Delete(id) // best-effort; retries use different IDs
-				return errSessionIDTaken
+			for _, h := range handles {
+				exists, err := h.Client().HasSession(ctx, id)
+				if err != nil {
+					_ = s.Store.Delete(id)
+					return err
+				}
+				if exists {
+					_ = s.Store.Delete(id)
+					return errSessionIDTaken
+				}
 			}
 			return launch(ctx, id)
 		})
@@ -476,6 +494,30 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, l
 		return err
 	}
 	return fmt.Errorf("failed to generate unique session ID after %d attempts", maxAttempts)
+}
+
+func (s *Service) prepareCreation(ctx context.Context, handle tmuxroute.Handle) error {
+	if handle.Label() == "default" {
+		return nil
+	}
+	if err := tmuxconfig.Prepare(s.Store.Root()); err != nil {
+		return fmt.Errorf("prepare named tmux server: %w", err)
+	}
+	_, present, err := handle.Client().ListSessionsStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect named tmux server: %w", err)
+	}
+	if !present {
+		return nil
+	}
+	marker, err := handle.Client().RunBatch(ctx, []string{"show-options", "-gqv", "@questmaster_root"})
+	if err != nil {
+		return fmt.Errorf("read named tmux server ownership: %w", err)
+	}
+	if !tmuxconfig.OwnsRoot(strings.TrimSpace(marker), s.Store.Root(), handle.Label()) {
+		return fmt.Errorf("tmux server %q is unmarked or belongs to another state root; use a different QUESTMASTER_TMUX_LABEL", handle.Label())
+	}
+	return nil
 }
 
 // persistResumeIDs writes resume IDs to the runtime directory.

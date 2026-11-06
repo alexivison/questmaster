@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/config"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
@@ -90,9 +91,22 @@ func WriteEnforced(root string) error {
 	if err := validateExisting(paths.Enforced); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	block, _, _ := strings.Cut(enforcedBlock, "set-hook -g session-closed")
+	block := enforcedBlock
 	hash := RootMarker(root, label)
 	block = strings.Replace(block, "<sha256 of the absolute state root>", hash, 1)
+	qm, err := config.ResolveQuestmasterCmd("")
+	if err != nil {
+		// A standalone/test build may have no questmaster shim on PATH.
+		// The running executable can still handle the hook for that build.
+		exe, exeErr := os.Executable()
+		if exeErr != nil {
+			return fmt.Errorf("resolve cleanup command: %w", err)
+		}
+		qm = config.ShellQuote(exe)
+	}
+	shellCommand := qm + " tmux session-closed --server " + config.ShellQuote(label) + " -- #{q:hook_session_name}"
+	hook := `run-shell -b "` + tmuxQuoted(shellCommand) + `"`
+	block += "set-hook -g session-closed \"" + tmuxQuoted(hook) + "\"\n"
 	f, err := os.CreateTemp(dir, ".enforced-*")
 	if err != nil {
 		return fmt.Errorf("create enforced temp file: %w", err)
@@ -117,6 +131,10 @@ func WriteEnforced(root string) error {
 		return fmt.Errorf("replace enforced config: %w", err)
 	}
 	return nil
+}
+
+func tmuxQuoted(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`).Replace(s)
 }
 
 // RootMarker binds a state root to one dedicated tmux label. The value carries

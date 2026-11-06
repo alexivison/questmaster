@@ -3,7 +3,9 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
+	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
@@ -40,6 +42,25 @@ func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *
 	}}
 	routesCmd.Flags().BoolVar(&live, "live", false, "include only live sessions")
 	tmuxCmd.AddCommand(routesCmd)
+	var closedServer string
+	closed := &cobra.Command{Use: "session-closed --server <label> -- <session-id>", Hidden: true, Args: cobra.ArbitraryArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) != 1 {
+			fmt.Fprintln(os.Stderr, "questmaster: session-closed: expected one session ID")
+			return nil
+		}
+		if routerErr != nil {
+			fmt.Fprintln(os.Stderr, "questmaster: session-closed:", routerErr)
+			return nil
+		}
+		svc := session.NewService(store, nil, "")
+		svc.Router = router
+		if err := svc.SessionClosed(cmd.Context(), closedServer, args[0]); err != nil {
+			fmt.Fprintln(os.Stderr, "questmaster: session-closed:", err)
+		}
+		return nil
+	}}
+	closed.Flags().StringVar(&closedServer, "server", "", "recorded tmux server label")
+	tmuxCmd.AddCommand(closed)
 	tmuxCmd.AddCommand(&cobra.Command{Use: "audit", Short: "Audit both tmux servers without changing them", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if routerErr != nil {
 			return routerErr

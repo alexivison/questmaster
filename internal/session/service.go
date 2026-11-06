@@ -26,12 +26,14 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // Service provides session lifecycle operations backed by state and tmux.
 type Service struct {
 	Store    *state.Store
 	Client   *tmux.Client
+	Router   *tmuxroute.Router
 	RepoRoot string
 	Registry *agent.Registry
 	// ReasoningEfforts resolves model-specific levels before launch using the
@@ -101,6 +103,19 @@ func NewService(store *state.Store, client *tmux.Client, repoRoot string, regist
 		svc.Registry = registry[0]
 	}
 	return svc
+}
+
+func (s *Service) router() *tmuxroute.Router {
+	if s.Router != nil {
+		return s.Router
+	}
+	return tmuxroute.New(s.Store, map[string]*tmux.Client{"default": s.Client}, func() string { return "default" }, nil)
+}
+
+func (s *Service) onHandle(h tmuxroute.Handle) *Service {
+	copy := *s
+	copy.Client = h.Client()
+	return &copy
 }
 
 // ensureRuntimeDir makes a session's private runtime directory at dir and

@@ -9,10 +9,15 @@ import (
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
-func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
+func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string, routers ...*tmuxroute.Router) *cobra.Command {
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
+	}
 	var opts struct {
 		title           string
 		cwd             string
@@ -62,6 +67,9 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 				}
 			}
 			svc := session.NewService(store, client, repoRoot, registry)
+			if router != nil {
+				svc.Router = router
+			}
 			svc.ReasoningEfforts = modelsuggest.ResolveReasoningEfforts
 			result, err := svc.Start(cmd.Context(), session.StartOpts{
 				Title:           opts.title,
@@ -110,7 +118,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 			}
 
 			if opts.attach {
-				return attachSession(cmd.Context(), client, result.SessionID)
+				return attachSession(cmd.Context(), store, router, result.SessionID)
 			}
 			return nil
 		},

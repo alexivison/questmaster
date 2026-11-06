@@ -7,10 +7,15 @@ import (
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
-func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
+func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string, routers ...*tmuxroute.Router) *cobra.Command {
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
+	}
 	var opts struct {
 		cwd             string
 		agentFlags      sessionAgentFlags
@@ -67,6 +72,9 @@ it is a master session. A worker title is required and may contain at most
 				return err
 			}
 			svc := session.NewService(store, client, repoRoot, registry)
+			if router != nil {
+				svc.Router = router
+			}
 			svc.ReasoningEfforts = modelsuggest.ResolveReasoningEfforts
 			result, err := svc.Spawn(cmd.Context(), masterID, session.SpawnOpts{
 				Title:           title,

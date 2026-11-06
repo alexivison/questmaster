@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/config"
@@ -55,6 +56,14 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 // continueLocked runs under Continue's lifecycle locks, so the liveness check
 // below cannot go stale before new-session or a respawn runs.
 func (s *Service) continueLocked(ctx context.Context, sessionID string) (ContinueResult, error) {
+	m, manifestErr := s.Store.Read(sessionID)
+	if manifestErr == nil {
+		handle, err := s.router().Route(m)
+		if err != nil {
+			return ContinueResult{}, err
+		}
+		s = s.onHandle(handle)
+	}
 	alive, err := s.Client.HasSession(ctx, sessionID)
 	if err != nil {
 		return ContinueResult{}, fmt.Errorf("check session: %w", err)
@@ -64,9 +73,8 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 	}
 
 	// Slow path: reconstruct session from manifest
-	m, err := s.Store.Read(sessionID)
-	if err != nil {
-		return ContinueResult{}, fmt.Errorf("read manifest for %s: %w", sessionID, err)
+	if manifestErr != nil {
+		return ContinueResult{}, fmt.Errorf("read manifest for %s: %w", sessionID, manifestErr)
 	}
 	if _, err := s.persistPiResumeFromActivity(sessionID); err != nil {
 		return ContinueResult{}, fmt.Errorf("persist Pi resume ID: %w", err)
@@ -84,6 +92,17 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 	if err != nil {
 		return ContinueResult{}, err
 	}
+	previousServer := m.TmuxServer
+	creation, err := s.router().Creation()
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	if creation.Label() != "default" && !launch.shell {
+		if _, ok := launch.agentResume[agent.RoleAgent]; !ok {
+			return ContinueResult{}, fmt.Errorf("session %s has no saved agent resume ID; Continue cannot start a new conversation", sessionID)
+		}
+	}
+	s = s.onHandle(creation)
 
 	rtDir, err := m.RuntimeDirOrLegacy()
 	if err != nil {
@@ -104,14 +123,21 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		}
 	}
 
+	if err := s.prepareCreation(ctx, creation); err != nil {
+		return ContinueResult{}, err
+	}
 	pane, err := s.Client.NewSession(ctx, sessionID, "", cwd)
 	if err != nil {
 		return ContinueResult{}, s.continueRollback(ctx, sessionID, false, fmt.Errorf("create tmux session: %w", err))
+	}
+	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) { m2.TmuxServer = state.TmuxServer(creation.Label()) }); err != nil {
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, true, err)
 	}
 
 	isMaster := roleForManifest(m) == roleMaster
 
 	if err := s.launchSession(ctx, launchConfig{
+		serverLabel: creation.Label(),
 		sessionID:   sessionID,
 		pane:        pane,
 		cwd:         cwd,
@@ -124,10 +150,14 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		agents:      launch.agents,
 		agentResume: launch.agentResume,
 	}); err != nil {
-		return ContinueResult{}, s.continueRollback(ctx, sessionID, true, err)
+		err = s.continueRollback(ctx, sessionID, true, err)
+		_ = s.Store.Update(sessionID, func(m2 *state.Manifest) { m2.TmuxServer = previousServer })
+		return ContinueResult{}, err
 	}
 
 	if err := s.recordResume(sessionID, launch, ""); err != nil {
+		err = s.continueRollback(ctx, sessionID, true, err)
+		_ = s.Store.Update(sessionID, func(m2 *state.Manifest) { m2.TmuxServer = previousServer })
 		return ContinueResult{}, err
 	}
 
@@ -174,11 +204,61 @@ func (s *Service) reattach(ctx context.Context, sessionID string) (ContinueResul
 	if !pane.Dead {
 		return result, nil
 	}
+	if m.TmuxServer == "" || m.TmuxServer == "default" {
+		creation, err := s.router().Creation()
+		if err != nil {
+			return ContinueResult{}, err
+		}
+		if creation.Label() != "default" {
+			allDead, err := s.Client.AllPanesDead(ctx, sessionID)
+			if err != nil {
+				return ContinueResult{}, err
+			}
+			if allDead {
+				if err := s.retireDeadLegacy(ctx, m); err != nil {
+					return ContinueResult{}, err
+				}
+				return s.continueLocked(ctx, sessionID)
+			}
+		}
+	}
 	if err := s.respawnDeadAgent(ctx, m, pane); err != nil {
 		return ContinueResult{}, err
 	}
 	result.Respawned, result.AgentExit = true, pane.Exit
 	return result, nil
+}
+
+func (s *Service) retireDeadLegacy(ctx context.Context, m state.Manifest) error {
+	// Validate the conversation before killing its old container.
+	launch, err := s.continueLaunchFor(m)
+	if err != nil {
+		return err
+	}
+	if _, ok := launch.agentResume[agent.RoleAgent]; !ok {
+		return fmt.Errorf("session %s has no saved agent resume ID; Continue cannot retire it; run qm delete %s and start a new session", m.SessionID, m.SessionID)
+	}
+	if _, err := savedCwd(m); err != nil {
+		return err
+	}
+	dir, err := m.RuntimeDirOrLegacy()
+	if err != nil {
+		return err
+	}
+	script := filepath.Join(dir, "cleanup.sh")
+	renamed := false
+	if err := os.Rename(script, script+".retired"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("retire legacy cleanup: %w", err)
+	} else if err == nil {
+		renamed = true
+	}
+	if err := s.Client.KillSession(ctx, m.SessionID); err != nil {
+		if renamed {
+			_ = os.Rename(script+".retired", script)
+		}
+		return err
+	}
+	return nil
 }
 
 // respawnDeadAgent starts a running session's exited agent again in its pane,
@@ -357,6 +437,13 @@ func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, session
 	if err := s.Client.SetEnvironment(ctx, sessionID, state.SessionEnv, sessionID); err != nil {
 		return err
 	}
+	label := "default"
+	if m, err := s.Store.Read(sessionID); err == nil && m.TmuxServer != "" {
+		label = string(m.TmuxServer)
+	}
+	if err := s.Client.SetEnvironment(ctx, sessionID, "QUESTMASTER_TMUX_SERVER", label); err != nil {
+		return err
+	}
 	agentPath := defaultAgentPath()
 	if m, err := s.Store.Read(sessionID); err == nil {
 		agentPath = mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), m.AgentPath, agentPath)
@@ -396,17 +483,22 @@ func (s *Service) cascadeWorkers(ctx context.Context, masterID string) (revived,
 	}
 
 	for _, wid := range workerIDs {
-		alive, err := s.Client.HasSession(ctx, wid)
+		m, readErr := s.Store.Read(wid)
+		if readErr != nil {
+			if errors.Is(readErr, os.ErrNotExist) {
+				continue
+			}
+			failed = append(failed, wid)
+			continue
+		}
+		handle, err := s.router().Route(m)
+		if err != nil {
+			failed = append(failed, wid)
+			continue
+		}
+		alive, err := handle.Client().HasSession(ctx, wid)
 		if err == nil && alive {
 			continue // already running
-		}
-
-		if _, err := s.Store.Read(wid); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue // no manifest — intentionally stopped, skip
-			}
-			failed = append(failed, wid) // corrupt/unreadable manifest
-			continue
 		}
 
 		if _, err := s.Continue(ctx, wid); err != nil {

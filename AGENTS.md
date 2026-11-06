@@ -106,10 +106,12 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 
 Invariants that aren't obvious from the code:
 
-- **Every tmux call names its server and its session exactly.** Production
-  clients are `tmux.NewClient(tmux.DefaultServer())`: each command passes
-  `-L default` and runs without TMUX, TMUX_PANE and TMUX_TMPDIR, which describe
-  the caller's own server. Session targets are `tmux.SessionTarget` (`=name:`),
+- **Every tmux call names its server and its session exactly.** New sessions
+  still use `tmux.DefaultServer()` (`-L default`); existing sessions use the
+  `tmux_server` recorded in their manifests through `tmuxroute.Router` (an absent
+  value means the legacy default server). Commands run without TMUX, TMUX_PANE
+  and TMUX_TMPDIR, which describe the caller's own server. Session targets are
+  `tmux.SessionTarget` (`=name:`),
   never a bare name, which tmux matches by prefix. A session's pane is targeted
   by the ID `NewSession` reports, never by index: nothing assumes window or pane
   index 0, since a server may set base-index or pane-base-index. The caller's
@@ -118,9 +120,11 @@ Invariants that aren't obvious from the code:
   owner-only `<state root>/runtime/<id>` (`state.NewRuntimeDir`,
   `state.EnsureRuntimeDir`, files through `state.WriteRuntimeFile`). The tmux
   session carries it as `QUESTMASTER_RUNTIME_DIR` for the Pi extension; readers
-  take the path from one of the two, never from the ID. The session-closed hook
-  relies on the `<state root>/runtime/<id>` shape: tmux may run another live
-  session's hook, which finds the closed session's script by name. A manifest
+  take the path from one of the two, never from the ID. Legacy per-session
+  cleanup relies on the `<state root>/runtime/<id>` shape: tmux may run another
+  live session's hook, which finds the closed session's script by name. Named
+  servers use a global hook whose Go handler holds the lifecycle lock and skips
+  a recreated or moved session. A manifest
   without the field predates it and keeps its old path until the session stops
   (`Manifest.RuntimeDirOrLegacy`, the one legacy branch).
 - The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
