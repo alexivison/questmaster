@@ -2133,7 +2133,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("bard", 157), ("cleric", 155), ("druid", 153), ("paladin", 171), ("wizard", 150)] {
+        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("paladin", 171), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }
