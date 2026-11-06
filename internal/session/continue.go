@@ -444,6 +444,9 @@ func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, session
 	if err := s.Client.SetEnvironment(ctx, sessionID, "QUESTMASTER_TMUX_SERVER", label); err != nil {
 		return err
 	}
+	if err := s.setPaneCreationLabel(ctx, sessionID, label); err != nil {
+		return err
+	}
 	agentPath := defaultAgentPath()
 	if m, err := s.Store.Read(sessionID); err == nil {
 		agentPath = mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), m.AgentPath, agentPath)

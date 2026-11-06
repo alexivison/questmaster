@@ -3,6 +3,8 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,7 +109,7 @@ func waitForCapture(t *testing.T, client *tmux.Client, id, marker string) {
 
 func TestIntegrationMixedRollout(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
-	f := newRolloutFixture(t, func() string { return tmux.DefaultServer().Label() })
+	f := newRolloutFixture(t, func() string { return "test_named" })
 	f.startRecorded(t, f.legacy, "qm-old-master", "", "master", "")
 	if _, err := f.legacy.Run(t.Context(), "new-session", "-d", "-s", "qm-sentinel", "sleep 60"); err != nil {
 		t.Fatal(err)
@@ -121,7 +123,7 @@ func TestIntegrationMixedRollout(t *testing.T) {
 		t.Fatalf("worker route = %q, %v", m.TmuxServer, err)
 	}
 	childEnv, err := f.named.Run(t.Context(), "show-environment", "-t", tmux.SessionTarget(worker.SessionID))
-	if err != nil || !strings.Contains(childEnv, "QUESTMASTER_TMUX_SERVER=test_named") || strings.Contains(childEnv, "QUESTMASTER_TMUX_LABEL=") {
+	if err != nil || !strings.Contains(childEnv, "QUESTMASTER_TMUX_SERVER=test_named") || !strings.Contains(childEnv, "QUESTMASTER_TMUX_LABEL=test_named") {
 		t.Fatalf("worker environment = %q, %v", childEnv, err)
 	}
 	msg := message.NewServiceWithRouter(f.store, f.router)
@@ -169,6 +171,71 @@ func TestIntegrationMixedRollout(t *testing.T) {
 	}
 	if alive, err := f.old.HasSession(t.Context(), "qm-sentinel"); err != nil || !alive {
 		t.Fatalf("legacy sentinel = %v, %v", alive, err)
+	}
+}
+
+func TestIntegrationDevPaneCLISpawnKeepsOverride(t *testing.T) {
+	tmuxtest.RequireIntegration(t)
+	f := newRolloutFixture(t, func() string {
+		paths := tmuxconfig.Paths(os.Getenv(state.StateRootEnv))
+		return tmux.DefaultServer(paths.Config, paths.Enforced).Label()
+	})
+	f.svc.Now = func() int64 { return time.Now().Add(-time.Minute).Unix() }
+	master, err := f.svc.Start(t.Context(), session.StartOpts{Title: "Master", Cwd: f.store.Root()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paneEnv, err := f.named.Run(t.Context(), "show-environment", "-t", tmux.SessionTarget(master.SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	label := "QUESTMASTER_TMUX_LABEL=test_named"
+	if !strings.Contains(paneEnv, label) {
+		t.Fatalf("master pane has no dev creation label: %q", paneEnv)
+	}
+	t.Setenv("QUESTMASTER_TMUX_LABEL", strings.TrimPrefix(label, "QUESTMASTER_TMUX_LABEL="))
+	if !strings.Contains(paneEnv, "QUESTMASTER_SESSION="+master.SessionID) {
+		t.Fatalf("master pane has no session identity: %q", paneEnv)
+	}
+	t.Setenv("QUESTMASTER_SESSION", master.SessionID)
+	cmd := NewRootCmd(WithDeps(f.store, f.old), WithTmuxRouter(f.router))
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"spawn", "Worker"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var created struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	worker, err := f.store.Read(created.SessionID)
+	if err != nil || worker.TmuxServer != "test_named" {
+		t.Fatalf("CLI worker route = %+v, %v", worker, err)
+	}
+	if alive, err := f.new.HasSession(t.Context(), created.SessionID); err != nil || !alive {
+		t.Fatalf("CLI worker on override socket = %v, %v", alive, err)
+	}
+}
+
+func TestIntegrationProductionPaneHasNoDevOverride(t *testing.T) {
+	tmuxtest.RequireIntegration(t)
+	f := newRolloutFixture(t, func() string { return "questmaster" })
+	if err := os.Unsetenv("QUESTMASTER_TMUX_LABEL"); err != nil {
+		t.Fatal(err)
+	}
+	paths := tmuxconfig.Paths(f.store.Root())
+	f.router = tmuxroute.New(f.store, map[string]*tmux.Client{"default": f.old, "questmaster": f.new}, func() string { return "questmaster" }, []string{paths.Config, paths.Enforced})
+	f.svc.Router = f.router
+	started, err := f.svc.Start(t.Context(), session.StartOpts{Title: "Production", Cwd: f.store.Root()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paneEnv, err := f.named.Run(t.Context(), "show-environment", "-t", tmux.SessionTarget(started.SessionID))
+	if err != nil || strings.Contains(paneEnv, "QUESTMASTER_TMUX_LABEL=") || !strings.Contains(paneEnv, "QUESTMASTER_TMUX_SERVER=questmaster") {
+		t.Fatalf("production pane environment = %q, %v", paneEnv, err)
 	}
 }
 

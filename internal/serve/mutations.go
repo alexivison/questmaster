@@ -19,6 +19,7 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
@@ -315,14 +316,15 @@ func (s *Server) mutateRename(ctx context.Context, payload mutationPayload) (any
 	if err != nil {
 		return nil, err
 	}
+	store := s.mutationStore()
 	client := s.TmuxClient
 	if client == nil && s.Snapshotter != nil {
 		client = s.Snapshotter.tmuxClient
 	}
 	if client == nil {
-		client = tmux.NewClient(tmux.DefaultServer())
+		paths := tmuxconfig.Paths(store.Root())
+		client = tmux.NewClient(tmux.DefaultServer(paths.Config, paths.Enforced))
 	}
-	store := s.mutationStore()
 	manifest, err := store.Read(sessionID)
 	if err != nil {
 		return nil, err

@@ -19,6 +19,7 @@ import (
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 	"github.com/spf13/cobra"
@@ -103,7 +104,8 @@ type hookTmuxEnvironmentSetter interface {
 // defaultHookRunner wires HookRunner to the real internal/state package.
 func defaultHookRunner() *HookRunner {
 	store := state.OpenStore(state.StateRoot())
-	client := tmux.NewClient(tmux.DefaultServer())
+	paths := tmuxconfig.Paths(store.Root())
+	client := tmux.NewClient(tmux.DefaultServer(paths.Config, paths.Enforced))
 	runner := newHookRunner(store, client)
 	runner.initialTmuxClient = client
 	runner.TmuxRouter, runner.TmuxRouteErr = tmuxroute.NewProduction(store, client)

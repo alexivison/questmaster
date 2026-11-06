@@ -8,6 +8,7 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/hooks"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 const openCodeConfigDirEnv = "OPENCODE_CONFIG_DIR"
@@ -64,6 +65,9 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	if err := s.Client.SetEnvironment(ctx, lc.sessionID, "QUESTMASTER_TMUX_SERVER", lc.serverLabel); err != nil {
 		return err
 	}
+	if err := s.setPaneCreationLabel(ctx, lc.sessionID, lc.serverLabel); err != nil {
+		return err
+	}
 	if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.RuntimeDirEnv, lc.runtimeDir); err != nil {
 		return err
 	}
@@ -115,6 +119,23 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	}
 
 	return nil
+}
+
+// Dev sessions carry their creation label into pane CLIs, including workers.
+// A legacy pane without an override still creates on the production server.
+func (s *Service) setPaneCreationLabel(ctx context.Context, sessionID, recorded string) error {
+	label := recorded
+	if label == "default" || label == "questmaster" {
+		var set bool
+		label, set = os.LookupEnv("QUESTMASTER_TMUX_LABEL")
+		if !set {
+			return nil
+		}
+	}
+	if err := tmux.ValidateNamedLabel(label); err != nil {
+		return fmt.Errorf("invalid QUESTMASTER_TMUX_LABEL %q: %w", label, err)
+	}
+	return s.Client.SetEnvironment(ctx, sessionID, "QUESTMASTER_TMUX_LABEL", label)
 }
 
 // syncLaunchedPaneTitle puts the manifest's current title on the new pane. A

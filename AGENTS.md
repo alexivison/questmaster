@@ -78,7 +78,8 @@ from a `feat/tmux-server` worktree. `--state-root` or `QUESTMASTER_STATE_ROOT`
 can isolate its state. The non-bundle app starts a worktree-built daemon with its
 own identity, socket and shims; it does not replace the installed build. The
 label override is validated at daemon start, carried into the daemon's
-environment and identity, and never passed to session panes. A build that
+environment and identity, and passed to managed dev panes so CLI spawns stay
+on the same label. A build that
 predates two-server routing must not run `prune` while named sessions exist.
 
 ## Go backend architecture
@@ -120,8 +121,8 @@ Invariants that aren't obvious from the code:
   through `tmuxroute.Router`. An absent field means the legacy default server,
   regardless of the creation selector or current override. Commands run without
   TMUX, TMUX_PANE and TMUX_TMPDIR, which describe the caller's own server.
-  Session panes receive their recorded label as `QUESTMASTER_TMUX_SERVER`, never
-  `QUESTMASTER_TMUX_LABEL`. Session targets are
+  Session panes receive their recorded label as `QUESTMASTER_TMUX_SERVER`; dev
+  panes also receive `QUESTMASTER_TMUX_LABEL` for new CLI creations. Session targets are
   `tmux.SessionTarget` (`=name:`),
   never a bare name, which tmux matches by prefix. A session's pane is targeted
   by the ID `NewSession` reports, never by index: nothing assumes window or pane

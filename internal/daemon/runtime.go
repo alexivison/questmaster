@@ -22,6 +22,7 @@ import (
 	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
@@ -101,7 +102,8 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	}
 	if s.runtime.Snapshotter == nil {
 		if s.runtime.TmuxRouter == nil {
-			router, err := tmuxroute.NewProduction(state.OpenStore(config.Root), tmux.NewClient(tmux.DefaultServer()))
+			paths := tmuxconfig.Paths(config.Root)
+			router, err := tmuxroute.NewProduction(state.OpenStore(config.Root), tmux.NewClient(tmux.DefaultServer(paths.Config, paths.Enforced)))
 			if err != nil {
 				return fmt.Errorf("daemon tmux router: %w", err)
 			}

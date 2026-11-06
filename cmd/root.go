@@ -12,6 +12,7 @@ import (
 	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
@@ -40,8 +41,9 @@ func appVersion() string {
 const cliSendTimeout = 5 * time.Second
 
 // newCLITmuxClient is the tmux client CLI commands use.
-func newCLITmuxClient() *tmux.Client {
-	client := tmux.NewClient(tmux.DefaultServer())
+func newCLITmuxClient(root string) *tmux.Client {
+	paths := tmuxconfig.Paths(root)
+	client := tmux.NewClient(tmux.DefaultServer(paths.Config, paths.Enforced))
 	client.SendTimeout = cliSendTimeout
 	return client
 }
@@ -83,7 +85,7 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 		o.store = state.OpenStore(state.StateRoot())
 	}
 	if o.client == nil {
-		o.client = newCLITmuxClient()
+		o.client = newCLITmuxClient(o.store.Root())
 	}
 	if o.repoRoot == "" {
 		o.repoRoot = os.Getenv("PARTY_REPO_ROOT")
