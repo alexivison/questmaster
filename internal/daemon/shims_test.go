@@ -7,20 +7,43 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
 // writeEchoBinary writes a shell executable that prints label:<first argument>.
 func writeEchoBinary(t *testing.T, path, label string) string {
 	t.Helper()
+	script := "#!/bin/sh\nprintf '" + label + ":%s' \"$1\"\n"
+	writeTestExecutable(t, path, []byte(script))
+	return path
+}
+
+func writeTestExecutable(t *testing.T, path string, data []byte) {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\nprintf '" + label + ":%s' \"$1\"\n"
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+	syscall.ForkLock.Lock()
+	defer syscall.ForkLock.Unlock()
+	tmp, err := os.CreateTemp(filepath.Dir(path), "qm-test-*")
+	if err != nil {
 		t.Fatal(err)
 	}
-	return path
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		t.Fatal(err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(tmp.Name(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func runShim(t *testing.T, shim string) string {
@@ -161,12 +184,7 @@ func TestPreChangeSessionShimStillRunsAndNoBinaryIsRemoved(t *testing.T) {
 	oldBinary := writeEchoBinary(t, filepath.Join(root, "old", "qm"), "old")
 	// The shim a session started before this change keeps in QUESTMASTER_BIN.
 	shim := filepath.Join(root, "daemon", "bin", "dev-old", "qm")
-	if err := os.MkdirAll(filepath.Dir(shim), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(shim, []byte("#!/bin/sh\nexec '"+oldBinary+"' \"$@\"\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	writeTestExecutable(t, shim, []byte("#!/bin/sh\nexec '"+oldBinary+"' \"$@\"\n"))
 	if got := runShim(t, shim); got != "old:hello" {
 		t.Fatalf("pre-change shim before restart = %q", got)
 	}

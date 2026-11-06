@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // StableExecutable is the path shims and QUESTMASTER_BIN point at. It is a symlink to the
@@ -109,6 +110,10 @@ func writeShims(root, id, executable string) error {
 		target = StableExecutable(root)
 	}
 	script := []byte("#!/bin/sh\nexec '" + strings.ReplaceAll(target, "'", "'\\''") + "' \"$@\"\n")
+	// Keep concurrent forks from inheriting a writable shim descriptor just before
+	// the rename makes that inode executable by its public path.
+	syscall.ForkLock.Lock()
+	defer syscall.ForkLock.Unlock()
 	for _, name := range []string{"qm", "questmaster"} {
 		file, err := os.CreateTemp(dir, name+"-")
 		if err != nil {
@@ -119,12 +124,11 @@ func writeShims(root, id, executable string) error {
 			os.Remove(file.Name())
 			return err
 		}
-		if err := file.Chmod(0o700); err != nil {
-			file.Close()
+		if err := file.Close(); err != nil {
 			os.Remove(file.Name())
 			return err
 		}
-		if err := file.Close(); err != nil {
+		if err := os.Chmod(file.Name(), 0o700); err != nil {
 			os.Remove(file.Name())
 			return err
 		}
