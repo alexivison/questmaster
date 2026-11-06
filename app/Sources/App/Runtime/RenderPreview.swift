@@ -220,6 +220,7 @@ enum RenderPreview {
         render(ToastBanner(message: "Copied qm-1783901769").background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         render(settingsView(loading: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-skeleton.png")
+        render(tmuxSettingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-tmux.png")
         render(projectsSettingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects.png")
         render(projectsSettingsView(arranging: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects-arrange.png")
         render(projectsSettingsView(folders: settingsUnlistedFolders), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects-folders.png")
@@ -2049,6 +2050,26 @@ enum RenderPreview {
             ),
             dismiss: {}
         )
+    }
+
+    @MainActor
+    private static func tmuxSettingsView() -> some View {
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: SettingsPreviewMutationClient(),
+                modelClient: nil,
+                effortClient: nil,
+                runtime: RuntimeStore(sourceLabel: "preview")
+            ),
+            dismiss: {}
+        )
+        model.tmux.details = TmuxSettingsModel(status: TmuxConfigStatus(
+            config: "/tmp/example/tmux/questmaster.conf", enforced: "/tmp/example/tmux/enforced.conf",
+            effectiveLabel: "questmaster", running: true, startedUnix: 1_793_872_800, sessions: 1,
+            editedSinceStart: true, enforcedPending: true, templateVersion: 1, builtinTemplateVersion: 2
+        ))
+        model.selectSection(.tmux)
+        return SettingsSheetView(model: model)
     }
 
     /// settings-projects-mock.png's projects, with their colours; the paths sit under this machine's home directory, so

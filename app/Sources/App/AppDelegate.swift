@@ -936,7 +936,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             mutationClient: mutationClient,
             modelClient: modelSuggestionClient,
             effortClient: reasoningEffortSuggestionClient,
-            runtime: runtimeStore
+            runtime: runtimeStore,
+            openTmuxConfig: { [weak self] path, completion in
+                guard let self else {
+                    completion(.failure(ArtifactExternalOpenError.missingSession))
+                    return
+                }
+                let route = self.terminalSessionController.attachedRoute
+                let tmuxPath = resolveExecutable("tmux")
+                let environment = appChildProcessEnvironment()
+                ArtifactExternalOpener.dispatchEditorWindow {
+                    do {
+                        try ArtifactExternalOpener.openEditor(path: path, attachedRoute: route, tmuxPath: tmuxPath, environment: environment)
+                        completion(.success(()))
+                    } catch {
+                        completion(.failure(error))
+                    }
+                }
+            }
         )
     }
 

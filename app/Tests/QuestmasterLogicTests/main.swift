@@ -50,6 +50,7 @@ timed("ProjectOrderTests") { ProjectOrderTests.run() }
         timed("GhosttyConfigParserTests") { GhosttyConfigParserTests.run() }
         timed("TerminalDetachSignalTests") { TerminalDetachSignalTests.run() }
         try timed("TmuxRouteTests") { try TmuxRouteTests.run() }
+        try timed("TmuxSettingsModelTests") { try TmuxSettingsModelTests.run() }
         timed("WorkerChatTests") { WorkerChatTests.run() }
         timed("WorkerChatScrollTests") { WorkerChatScrollTests.run() }
         timed("WorkerLogFilterTests") { WorkerLogFilterTests.run() }

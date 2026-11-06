@@ -165,6 +165,7 @@ enum LogicSelfTests {
         ("testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE", testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
         ("testSettingsArrangeMovesAProjectWithShiftJAndK", testSettingsArrangeMovesAProjectWithShiftJAndK),
+        ("testTmuxSettingsRendersAtSheetSize", testTmuxSettingsRendersAtSheetSize),
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
@@ -6117,6 +6118,20 @@ enum LogicSelfTests {
     // Guards the live-apply contract: cycling a value sends its
     // role_default.set the moment it changes, with no confirm/done step.
     /// R arranges, j moves the highlight, and J / K move the highlighted project, through the sheet's own key handling.
+    private static func testTmuxSettingsRendersAtSheetSize() throws {
+        let status = TmuxConfigStatus(
+            config: "/tmp/example/tmux/questmaster.conf", enforced: "/tmp/example/tmux/enforced.conf",
+            effectiveLabel: "questmaster", running: true, startedUnix: 100, sessions: 1,
+            editedSinceStart: true, enforcedPending: true, templateVersion: 1, builtinTemplateVersion: 2
+        )
+        let settings = settingsSheetModel(mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: nil))))
+        settings.tmux.details = TmuxSettingsModel(status: status)
+        settings.selectSection(.tmux)
+        let size = try fittingSize(of: SettingsSheetView(model: settings))
+        try expect(size.width <= SettingsSheetModel.sheetSize.width && size.height <= SettingsSheetModel.sheetSize.height,
+                   "tmux section should fit inside Settings, got \(size)")
+    }
+
     private static func testSettingsArrangeMovesAProjectWithShiftJAndK() throws {
         let runtime = RuntimeStore(sourceLabel: "test")
         let projects = ["alpha", "beta", "gamma"].map { TrackerProject(id: "/p/\($0)", name: $0, path: "/p/\($0)") }
