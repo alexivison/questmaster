@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
@@ -215,7 +216,8 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 }
 
 func newService(store *state.Store, runner tmux.Runner) *Service {
-	return NewService(store, tmux.NewClient(runner))
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(runner)}, func() string { return "default" }, nil)
+	return NewServiceWithRouter(store, router)
 }
 
 func flagValue(args []string, flag string) string {

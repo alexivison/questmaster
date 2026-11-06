@@ -119,6 +119,16 @@ func TestSessionName_ReadsTheCallersPane(t *testing.T) {
 	}
 }
 
+func TestSessionNameNormalizesPrivateTmpAlias(t *testing.T) {
+	setCaller(t, "/tmp/qm-test/sock", "%77")
+	client := NewClient(newMock(func(context.Context, ...string) (string, error) {
+		return "/private/tmp/qm-test/sock\t%77\tqm-worker", nil
+	}))
+	if name, err := client.SessionName(t.Context()); err != nil || name != "qm-worker" {
+		t.Fatalf("SessionName = %q, %v", name, err)
+	}
+}
+
 // TMUX_PANE names a pane on the caller's own server. On another server the
 // same ID is someone else's pane, so SessionName must not answer with it.
 func TestSessionName_RejectsTheCallersPaneWhenOnAnotherServer(t *testing.T) {

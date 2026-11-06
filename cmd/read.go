@@ -6,10 +6,11 @@ import (
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
-func newReadCmd(store *state.Store, client *tmux.Client) *cobra.Command {
+func newReadCmd(store *state.Store, client *tmux.Client, routes ...*tmuxroute.Router) *cobra.Command {
 	var lines int
 	var textOut bool
 
@@ -18,7 +19,11 @@ func newReadCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		Short: "Read output from a worker's agent pane",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc := message.NewService(store, client)
+			router, err := commandRouter(store, client, routes)
+			if err != nil {
+				return err
+			}
+			svc := message.NewServiceWithRouter(store, router)
 			output, err := svc.Read(cmd.Context(), args[0], lines)
 			if err != nil {
 				return err

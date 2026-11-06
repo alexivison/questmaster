@@ -148,6 +148,44 @@ func (r *Router) Route(m state.Manifest) (Handle, error) {
 
 func (r *Router) Creation() (Handle, error) { return r.handle(r.creation()) }
 
+// KnownHandles returns clients already registered with the router. Caller
+// discovery probes these only, without scanning the growing manifest set.
+func (r *Router) KnownHandles() ([]Handle, error) {
+	r.mu.Lock()
+	labels := make([]string, 0, len(r.clients))
+	for label := range r.clients {
+		labels = append(labels, label)
+	}
+	r.mu.Unlock()
+	sort.Strings(labels)
+	handles := make([]Handle, 0, len(labels))
+	for _, label := range labels {
+		handle, err := r.handle(label)
+		if err != nil {
+			return nil, err
+		}
+		handles = append(handles, handle)
+	}
+	return handles, nil
+}
+
+// RecordedHandles adds every manifest's server before checking a ghost worker.
+// An absent manifest cannot prove a worker is gone on a previously used label.
+func (r *Router) RecordedHandles() ([]Handle, error) {
+	if r.store != nil {
+		manifests, err := r.store.DiscoverSessions()
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range manifests {
+			if _, err := r.Route(m); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return r.KnownHandles()
+}
+
 // Inventory asks each configured or recorded server once per second. Each
 // call is individually bounded, and a missing socket is an absent outcome.
 func (r *Router) Inventory(ctx context.Context) Inventory {
