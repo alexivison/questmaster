@@ -102,6 +102,32 @@ func TestOpenCodeBuildCmd_RoleSpecificAgentNames(t *testing.T) {
 	}
 }
 
+func TestOpenCodeBuildCmd_SelectsClassMasterAgentFiles(t *testing.T) {
+	t.Parallel()
+
+	o := NewOpenCode(AgentConfig{})
+	classes := []string{"barbarian", "paladin", "wizard", "cleric", "druid", "rogue", "bard"}
+	for _, class := range classes {
+		t.Run(class, func(t *testing.T) {
+			t.Parallel()
+			got := o.BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleMaster, Class: class})
+			want := " --agent " + configShellQuote(OpenCodeMasterClassAgentName(class))
+			if !strings.Contains(got, want) {
+				t.Fatalf("master command missing class agent %q: %q", want, got)
+			}
+		})
+	}
+
+	classlessMaster := o.BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleMaster})
+	if want := " --agent " + configShellQuote(OpenCodeMasterAgentName); !strings.Contains(classlessMaster, want) {
+		t.Fatalf("classless master command missing default agent %q: %q", want, classlessMaster)
+	}
+	worker := o.BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleWorker, Class: "barbarian"})
+	if want := " --agent " + configShellQuote(OpenCodeWorkerAgentName); !strings.Contains(worker, want) {
+		t.Fatalf("worker command missing worker agent %q: %q", want, worker)
+	}
+}
+
 func TestOpenCodeBuildCmd_ResumeStillPassesAgent(t *testing.T) {
 	t.Parallel()
 

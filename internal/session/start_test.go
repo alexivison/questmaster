@@ -120,7 +120,7 @@ func TestStartAssignsOrPersistsSessionClass(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			svc, _ := setupService(t)
+			svc, runner := setupService(t)
 			svc.RandClassIndex = func(n int) int {
 				if n != 7 {
 					t.Fatalf("random class choices = %d, want 7", n)
@@ -137,6 +137,10 @@ func TestStartAssignsOrPersistsSessionClass(t *testing.T) {
 			}
 			if got := manifest.DisplayClass(); got != tt.want {
 				t.Fatalf("DisplayClass() = %q, want %q", got, tt.want)
+			}
+			name := strings.ToUpper(tt.want[:1]) + tt.want[1:]
+			if launch := findLaunchArgContaining(runner, "exec '/bin/sh'"); !strings.Contains(launch, "Your session class is the "+name+". Let its temperament") {
+				t.Fatalf("master launch command missing %s class voice: %q", name, launch)
 			}
 		})
 	}

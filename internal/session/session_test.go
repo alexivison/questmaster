@@ -2470,6 +2470,7 @@ func TestStart_OpenCodeAgentPersistsResumeMetadata(t *testing.T) {
 	for _, file := range []string{
 		filepath.Join(wantConfigDir, "plugins", "questmaster-opencode.js"),
 		filepath.Join(wantConfigDir, "agents", agent.OpenCodeMasterAgentName+".md"),
+		filepath.Join(wantConfigDir, "agents", agent.OpenCodeMasterClassAgentName(m.DisplayClass())+".md"),
 	} {
 		if _, err := os.Stat(file); err != nil {
 			t.Fatalf("OpenCode launch did not install %s: %v", file, err)
@@ -2479,7 +2480,7 @@ func TestStart_OpenCodeAgentPersistsResumeMetadata(t *testing.T) {
 	launch := findLaunchArgContaining(runner, opencodeCLI)
 	for _, want := range []string{
 		" --model 'provider/model'",
-		" --agent 'questmaster-master'",
+		" --agent '" + agent.OpenCodeMasterClassAgentName(m.DisplayClass()) + "'",
 		" --session '" + resumeID + "'",
 		" --prompt 'inspect state'",
 	} {
@@ -2552,11 +2553,15 @@ func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start(OpenCode, reasoning effort): %v", err)
 	}
+	manifest, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
 	launch := findLaunchArgContaining(runner, opencodeCLI)
 	for _, want := range []string{
 		"run --interactive",
 		" --model 'openai/gpt-5.6-terra'",
-		" --agent 'questmaster-master'",
+		" --agent '" + agent.OpenCodeMasterClassAgentName(manifest.DisplayClass()) + "'",
 		" --variant 'high'",
 		" 'inspect state'",
 	} {
@@ -2568,7 +2573,7 @@ func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	if got := runner.envVars[result.SessionID+":"+openCodeConfigDirEnv]; got != configDir {
 		t.Fatalf("OPENCODE_CONFIG_DIR: got %q, want %q", got, configDir)
 	}
-	data, err := os.ReadFile(filepath.Join(configDir, "agents", agent.OpenCodeMasterAgentName+".md"))
+	data, err := os.ReadFile(filepath.Join(configDir, "agents", agent.OpenCodeMasterClassAgentName(manifest.DisplayClass())+".md"))
 	if err != nil {
 		t.Fatalf("read role agent: %v", err)
 	}

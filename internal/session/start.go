@@ -157,6 +157,20 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			resolvedAgentCLIs[binding.Role] = cli
 		}
 
+		// The class voice is part of the launch command, so the class is
+		// chosen after the binaries resolve and before the commands build.
+		if role == roleMaster && opts.Class == "" {
+			activeClasses, err := s.activeMasterClasses(ctx)
+			if err != nil {
+				return StartResult{}, err
+			}
+			randClassIndex := s.RandClassIndex
+			if randClassIndex == nil {
+				randClassIndex = rand.IntN
+			}
+			opts.Class = state.ChooseSessionClass(activeClasses, randClassIndex)
+		}
+
 		agentCmds = make(map[agent.Role]string, len(bindings))
 		launchAgents = make(map[agent.Role]agent.Agent, len(bindings))
 		agentResume = make(map[agent.Role]resumeInfo, len(bindings))
@@ -185,6 +199,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 				SystemBrief:     brief,
 				Title:           opts.Title,
 				Role:            agentRole,
+				Class:           opts.Class,
 				Model:           model,
 				ReasoningEffort: reasoningEffort,
 			})
@@ -208,18 +223,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			manifestAgents[i].Window = tmux.WindowWorkspace
 		}
 	}
-	if role == roleMaster && opts.Class == "" {
-		activeClasses, err := s.activeMasterClasses(ctx)
-		if err != nil {
-			return StartResult{}, err
-		}
-		randClassIndex := s.RandClassIndex
-		if randClassIndex == nil {
-			randClassIndex = rand.IntN
-		}
-		opts.Class = state.ChooseSessionClass(activeClasses, randClassIndex)
-	}
-
 	// Atomic create-or-retry: claim an ID via Store.Create (flock-protected).
 	// This eliminates the TOCTOU race between HasSession and NewSession.
 	m := state.Manifest{

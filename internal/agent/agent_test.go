@@ -128,6 +128,72 @@ func TestClaudeBuildCmd(t *testing.T) {
 	}
 }
 
+func TestClassVoiceHarnessPromptRoutes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		build        func(class string, role SessionRole) string
+		masterPrompt func() string
+		workerPrompt func() string
+		wantRoute    func(prompt string) string
+	}{
+		{
+			name: "claude",
+			build: func(class string, role SessionRole) string {
+				return NewClaude(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/claude", AgentPath: "/p", Role: role, Class: class})
+			},
+			masterPrompt: func() string { return NewClaude(AgentConfig{}).MasterPrompt() },
+			workerPrompt: func() string { return NewClaude(AgentConfig{}).WorkerPrompt() },
+			wantRoute:    func(prompt string) string { return "--append-system-prompt " + configShellQuote(prompt) },
+		},
+		{
+			name: "codex",
+			build: func(class string, role SessionRole) string {
+				return NewCodex(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/codex", AgentPath: "/p", Role: role, Class: class})
+			},
+			masterPrompt: func() string { return NewCodex(AgentConfig{}).MasterPrompt() },
+			workerPrompt: func() string { return NewCodex(AgentConfig{}).WorkerPrompt() },
+			wantRoute: func(prompt string) string {
+				return "-c " + configShellQuote("developer_instructions="+strconv.Quote(prompt))
+			},
+		},
+		{
+			name: "pi",
+			build: func(class string, role SessionRole) string {
+				return NewPi(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/pi", AgentPath: "/p", Role: role, Class: class})
+			},
+			masterPrompt: func() string { return NewPi(AgentConfig{}).MasterPrompt() },
+			workerPrompt: func() string { return NewPi(AgentConfig{}).WorkerPrompt() },
+			wantRoute:    func(prompt string) string { return "--append-system-prompt " + configShellQuote(prompt) },
+		},
+	}
+	for _, harness := range tests {
+		t.Run(harness.name, func(t *testing.T) {
+			t.Parallel()
+			for _, class := range []string{"barbarian", "paladin", "wizard", "cleric", "druid", "rogue", "bard"} {
+				t.Run(class, func(t *testing.T) {
+					t.Parallel()
+					voice := ClassVoice(class)
+					prompt := harness.masterPrompt() + "\n\n" + voice
+					command := harness.build(class, RoleMaster)
+					if want := harness.wantRoute(prompt); !strings.Contains(command, want) {
+						t.Fatalf("master command missing prompt route %q: %q", want, command)
+					}
+				})
+			}
+			voice := ClassVoice("barbarian")
+			workerCommand := harness.build("barbarian", RoleWorker)
+			if strings.Contains(workerCommand, voice) {
+				t.Fatalf("worker command includes master class voice: %q", workerCommand)
+			}
+			if want := harness.wantRoute(harness.workerPrompt()); !strings.Contains(workerCommand, want) {
+				t.Fatalf("worker command missing worker prompt route %q: %q", want, workerCommand)
+			}
+		})
+	}
+}
+
 // TestClaudeBuildCmd_ModelOverride guards the two things that matter now that
 // there is no hardcoded per-role default: no --model flag at all when nothing
 // is configured, for any role, and an explicit override always winning.

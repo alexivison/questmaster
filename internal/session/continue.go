@@ -117,6 +117,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 				ResumeID:        resumeID,
 				Title:           m.Title,
 				Role:            agentRole,
+				Class:           m.DisplayClass(),
 				SystemBrief:     brief,
 				Continuing:      true,
 				Model:           agentState.Model,

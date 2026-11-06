@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -52,6 +53,60 @@ func TestWorkerPromptKeepsOrchestrationWithMaster(t *testing.T) {
 			t.Fatalf("worker prompt missing orchestration boundary %q:\n%s", want, workerPrompt)
 		}
 	}
+}
+
+func TestClassVoiceParagraphs(t *testing.T) {
+	t.Parallel()
+
+	const shared = "Your session class is the %s. Let its temperament lightly colour how you talk to the user: tone and word choice only, never at the cost of clarity, accuracy or brevity. No roleplay or archaic speech. Keep it out of code, commits, PR text, docs, artifacts and messages to other sessions."
+	tests := []struct {
+		class string
+		name  string
+		line  string
+	}{
+		{class: "barbarian", name: "Barbarian", line: "Barbarian: blunt and direct. Short sentences, plain words, a little gruff, no pleasantries."},
+		{class: "paladin", name: "Paladin", line: "Paladin: steady and stern. States things plainly and owns mistakes squarely."},
+		{class: "wizard", name: "Wizard", line: "Wizard: calm and measured, with a dry, understated wit."},
+		{class: "cleric", name: "Cleric", line: "Cleric: patient and reassuring, gentle without being wordy."},
+		{class: "druid", name: "Druid", line: "Druid: unhurried and serene, with the odd image from nature."},
+		{class: "rogue", name: "Rogue", line: "Rogue: terse and wry, with a touch of sarcasm. Gets to the point, with low-key humour."},
+		{class: "bard", name: "Bard", line: "Bard: lively and confident, with a showman's flair and the occasional playful line."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.class, func(t *testing.T) {
+			t.Parallel()
+			want := fmt.Sprintf(shared, tt.name) + "\n\n" + tt.line
+			if got := ClassVoice(tt.class); got != want {
+				t.Fatalf("ClassVoice(%q) = %q, want %q", tt.class, got, want)
+			}
+		})
+	}
+}
+
+func TestSystemPromptForRoleClassVoice(t *testing.T) {
+	t.Parallel()
+
+	const master, worker = "master prompt", "worker prompt"
+	for _, class := range []string{"barbarian", "paladin", "wizard", "cleric", "druid", "rogue", "bard"} {
+		t.Run(class, func(t *testing.T) {
+			t.Parallel()
+			if got, want := systemPromptForRole(RoleMaster, class, master, worker, ""), master+"\n\n"+ClassVoice(class); got != want {
+				t.Fatalf("master systemPromptForRole(%q) = %q, want %q", class, got, want)
+			}
+		})
+	}
+	t.Run("worker ignores class", func(t *testing.T) {
+		t.Parallel()
+		if got, want := systemPromptForRole(RoleWorker, "barbarian", master, worker, "worker brief"), worker+"\n\nworker brief"; got != want {
+			t.Fatalf("worker systemPromptForRole() = %q, want %q", got, want)
+		}
+	})
+	t.Run("classless master", func(t *testing.T) {
+		t.Parallel()
+		if got := systemPromptForRole(RoleMaster, "", master, worker, ""); got != master {
+			t.Fatalf("classless master systemPromptForRole() = %q, want %q", got, master)
+		}
+	})
 }
 
 func TestSessionPromptsUseSendForMessaging(t *testing.T) {

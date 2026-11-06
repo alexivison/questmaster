@@ -142,6 +142,47 @@ func TestOpenCodeInstallPopulatesRoleAgents(t *testing.T) {
 	}
 }
 
+func TestOpenCodeInstallPopulatesClassMasterAgents(t *testing.T) {
+	o := newTestOpenCodeInstaller(t)
+	if err := o.Install(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	masterPrompt := qmagent.NewOpenCode(qmagent.AgentConfig{}).MasterPrompt()
+	for _, class := range qmagent.VoiceClasses() {
+		t.Run(class, func(t *testing.T) {
+			t.Parallel()
+			path := o.agentPath(qmagent.OpenCodeMasterClassAgentName(class))
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read class master agent %s: %v", class, err)
+			}
+			body := string(data)
+			for _, want := range []string{masterPrompt, qmagent.ClassVoice(class)} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("class master agent %s missing prompt text %q", class, want)
+				}
+			}
+		})
+	}
+
+	masterData, err := os.ReadFile(o.agentPath(qmagent.OpenCodeMasterAgentName))
+	if err != nil {
+		t.Fatalf("read classless master agent: %v", err)
+	}
+	if strings.Contains(string(masterData), "Your session class is the") {
+		t.Fatal("OpenCode classless master agent contains class voice")
+	}
+
+	workerData, err := os.ReadFile(o.agentPath(qmagent.OpenCodeWorkerAgentName))
+	if err != nil {
+		t.Fatalf("read worker agent: %v", err)
+	}
+	if strings.Contains(string(workerData), "Your session class is the") {
+		t.Fatal("OpenCode worker agent contains master class voice")
+	}
+}
+
 func TestOpenCodeDryRunDoesNotWriteFiles(t *testing.T) {
 	o := newTestOpenCodeInstaller(t)
 	var log strings.Builder

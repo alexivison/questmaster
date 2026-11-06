@@ -51,6 +51,9 @@ type CmdOpts struct {
 	SystemBrief string
 	Title       string
 	Role        SessionRole
+	// Class is the session's class. Master launches add its class voice to the
+	// system prompt; workers and classless masters get none.
+	Class string
 	// Continuing reopens an existing Questmaster session. Providers leave model
 	// selection to the native conversation unless Model explicitly overrides it.
 	Continuing bool
@@ -73,11 +76,11 @@ func joinSystemPrompt(base, brief string) string {
 	return base + "\n\n" + brief
 }
 
-func systemPromptForRole(role SessionRole, master, worker, brief string) string {
+func systemPromptForRole(role SessionRole, class, master, worker, brief string) string {
 	switch role {
 	case RoleWorker:
 		return joinSystemPrompt(worker, brief)
 	default:
-		return master
+		return joinSystemPrompt(master, ClassVoice(class))
 	}
 }

@@ -527,6 +527,12 @@ The scan reads lines, so a duration passed through a helper's parameter isn't se
   and CLI behavior. Delegation thresholds, reviewer cadence, model preferences,
   and general writing or repository practices belong to the user or applicable
   project instructions, not the injected session prompt.
+- Master launches include the class voice from `internal/agent/prompts/class_voice.md`
+  and the matching `class_voice/<class>.md`; workers do not receive it. Claude
+  and Pi use their appended system prompt, Codex uses `developer_instructions`,
+  and OpenCode selects a managed per-class master agent file. The voice is fixed
+  at launch; reclassing takes effect on the next launch, including continuing a
+  stopped session or restarting it.
 - Branch from `main`. App work and backend work both ship as PRs **direct to
   `main`** (there is no long-lived integration branch). Open **draft** PRs by
   default. Prefer separate PRs for backend vs app when the change is separable.
