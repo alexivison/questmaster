@@ -67,6 +67,13 @@ public struct TmuxRoute: Decodable, Equatable, Sendable {
         return live.max { $0.createdUnix < $1.createdUnix }
     }
 
+    public static func replacement(for failed: TmuxRoute, in refreshed: [TmuxRoute]) -> TmuxRoute? {
+        guard let current = refreshed.first(where: { $0.sessionID == failed.sessionID }), current != failed else {
+            return nil
+        }
+        return current
+    }
+
     public static func decodeResponse(_ data: Data) throws -> [TmuxRoute] {
         let envelope = try JSONDecoder().decode(Response.self, from: data)
         try ServeContract.requireProtocolVersion(envelope.protocolVersion)

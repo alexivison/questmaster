@@ -6,6 +6,15 @@ private struct PendingTerminalAttachment {
     let completion: ((Bool) -> Void)?
 }
 
+private struct CachedAttachRefresh {
+    let request: UInt64
+    let route: TmuxRoute
+    let completion: ((Bool) -> Void)?
+    var refreshedRoutes: [TmuxRoute]?
+    var refreshFinished = false
+    var attachError: Error?
+}
+
 @MainActor
 final class TerminalSessionController {
     private let config: LaunchConfiguration
@@ -27,6 +36,7 @@ final class TerminalSessionController {
     private var inFlightCompletion: ((Bool) -> Void)?
     private var reappearedSessionIDs: Set<String> = []
     private var routeCache = TmuxRouteCache()
+    private var cachedAttachRefresh: CachedAttachRefresh?
     private(set) var terminalHost: TerminalPaneHosting?
     private(set) var activeTmuxSession: String?
     private(set) var attachedRoute: TmuxRoute?
@@ -78,10 +88,12 @@ final class TerminalSessionController {
 
     func markSessionReappeared(_ sessionID: String) {
         reappearedSessionIDs.insert(sessionID)
+        routeCache.invalidate(sessionID)
     }
 
     func installTerminalHost() {
         attachGeneration.stop()
+        cachedAttachRefresh = nil
         hasPendingAttach = false
         hasConnectedSurface = false
         cancelInFlightCompletion()
@@ -148,6 +160,7 @@ final class TerminalSessionController {
 
     func stop() {
         attachGeneration.stop()
+        cachedAttachRefresh = nil
         hasPendingAttach = false
         cancelInFlightCompletion()
         let pending = pendingTerminalAttachments
@@ -205,13 +218,15 @@ final class TerminalSessionController {
         }
 
         cancelInFlightCompletion()
+        cachedAttachRefresh = nil
         inFlightCompletion = completion
         let request = attachGeneration.request()
         hasPendingAttach = true
-        if case .cached(let route) = routeCache.lookup(sessionID) {
+        if !reappearedSessionIDs.contains(sessionID), case .cached(let route) = routeCache.lookup(sessionID) {
             // A daemon re-exec must not hold up an attach to a known server.
+            cachedAttachRefresh = CachedAttachRefresh(request: request, route: route, completion: completion)
             connect(terminalHost, to: route, request: request, completion: completion)
-            refreshCachedRoute(sessionID)
+            refreshCachedRoute(sessionID, request: request)
             return
         }
         guard let routeClient else {
@@ -222,9 +237,11 @@ final class TerminalSessionController {
         // in the terminal host verifies whether this session is present now.
         routeClient.fetchTmuxRoutes(sessionIDs: [sessionID], live: false) { [weak self] routeResult in
             DispatchQueue.main.async {
-                guard let self else { return }
-                let resolved = self.routeCache.resolve(for: sessionID, result: routeResult)
-                guard self.attachGeneration.accepts(request) else { return }
+                guard let self, self.attachGeneration.accepts(request) else { return }
+                let resolved = self.routeCache.resolve(
+                    for: sessionID, result: routeResult,
+                    useCachedRouteOnFailure: !self.reappearedSessionIDs.contains(sessionID)
+                )
                 switch resolved {
                 case .success(let route):
                     self.connect(terminalHost, to: route, request: request, completion: completion)
@@ -235,12 +252,38 @@ final class TerminalSessionController {
         }
     }
 
-    private func refreshCachedRoute(_ sessionID: String) {
-        routeClient?.fetchTmuxRoutes(sessionIDs: [sessionID], live: false) { [weak self] result in
+    private func refreshCachedRoute(_ sessionID: String, request: UInt64) {
+        guard let routeClient else {
+            if var refresh = cachedAttachRefresh, refresh.request == request {
+                refresh.refreshFinished = true
+                cachedAttachRefresh = refresh
+                if refresh.attachError != nil { finishCachedAttachFailure(refresh) }
+            }
+            return
+        }
+        routeClient.fetchTmuxRoutes(sessionIDs: [sessionID], live: false) { [weak self] result in
             DispatchQueue.main.async {
-                _ = self?.routeCache.resolve(for: sessionID, result: result)
+                guard let self, self.attachGeneration.accepts(request) else { return }
+                _ = self.routeCache.resolve(for: sessionID, result: result)
+                guard var refresh = self.cachedAttachRefresh, refresh.request == request else { return }
+                refresh.refreshFinished = true
+                if case .success(let routes) = result { refresh.refreshedRoutes = routes }
+                self.cachedAttachRefresh = refresh
+                if refresh.attachError != nil { self.finishCachedAttachFailure(refresh) }
             }
         }
+    }
+
+    private func finishCachedAttachFailure(_ refresh: CachedAttachRefresh) {
+        guard attachGeneration.accepts(refresh.request), let error = refresh.attachError else { return }
+        cachedAttachRefresh = nil
+        if let replacement = TmuxRoute.replacement(for: refresh.route, in: refresh.refreshedRoutes ?? []),
+           let terminalHost {
+            connect(terminalHost, to: replacement, request: refresh.request, completion: refresh.completion)
+            return
+        }
+        routeCache.invalidate(refresh.route.sessionID)
+        finishAttachFailure("switch \(refresh.route.sessionID)", error: error, completion: refresh.completion)
     }
 
     private func connect(_ terminalHost: TerminalPaneHosting, to route: TmuxRoute, request: UInt64, completion: ((Bool) -> Void)?) {
@@ -283,6 +326,15 @@ final class TerminalSessionController {
 
     private func finishAttach(_ result: Result<String?, Error>, route: TmuxRoute, sessionID: String, request: UInt64, completion: ((Bool) -> Void)?) {
         guard attachGeneration.accepts(request) else { return }
+        if case .failure(let error) = result,
+           var refresh = cachedAttachRefresh,
+           refresh.request == request, refresh.route == route {
+            refresh.attachError = error
+            cachedAttachRefresh = refresh
+            if refresh.refreshFinished { finishCachedAttachFailure(refresh) }
+            return
+        }
+        cachedAttachRefresh = nil
         hasPendingAttach = false
         inFlightCompletion = nil
         switch result {
@@ -321,6 +373,7 @@ final class TerminalSessionController {
 
     private func handleEmbeddedDetach() {
         attachGeneration.detach()
+        cachedAttachRefresh = nil
         hasPendingAttach = false
         cancelInFlightCompletion()
         activeTmuxSession = nil

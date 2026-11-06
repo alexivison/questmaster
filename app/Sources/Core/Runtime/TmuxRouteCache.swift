@@ -27,7 +27,16 @@ public struct TmuxRouteCache {
         }
     }
 
-    public mutating func resolve(for sessionID: String, result: Result<[TmuxRoute], Error>) -> Result<TmuxRoute, Error> {
+    public mutating func invalidate(_ sessionID: String) {
+        routes.removeValue(forKey: sessionID)
+        order.removeAll { $0 == sessionID }
+    }
+
+    public mutating func resolve(
+        for sessionID: String,
+        result: Result<[TmuxRoute], Error>,
+        useCachedRouteOnFailure: Bool = true
+    ) -> Result<TmuxRoute, Error> {
         switch result {
         case .success(let fetched):
             remember(fetched)
@@ -36,7 +45,7 @@ public struct TmuxRouteCache {
             }
             return .success(route)
         case .failure(let error):
-            if let route = routes[sessionID] { return .success(route) }
+            if useCachedRouteOnFailure, let route = routes[sessionID] { return .success(route) }
             return .failure(error)
         }
     }

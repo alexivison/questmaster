@@ -34,6 +34,9 @@ enum LogicSelfTests {
         ("testSameServerSwitchReusesClient", testSameServerSwitchReusesClient),
         ("testUnknownMethodFailsAttach", testUnknownMethodFailsAttach),
         ("testCachedRouteAttachesBeforeRefresh", testCachedRouteAttachesBeforeRefresh),
+        ("testFailedCachedAttachRetriesRefreshedRoute", testFailedCachedAttachRetriesRefreshedRoute),
+        ("testFailedCachedAttachRetriesRouteRefreshedFirst", testFailedCachedAttachRetriesRouteRefreshedFirst),
+        ("testContinuedSessionFetchesMovedRouteBeforeAttach", testContinuedSessionFetchesMovedRouteBeforeAttach),
         ("testStartupChoiceAcrossServers", testStartupChoiceAcrossServers),
         ("testEditorWindowUsesAttachedRoute", testEditorWindowUsesAttachedRoute),
         ("testNavigationTogglesKeepFocusAndHideToTerminal", testNavigationTogglesKeepFocusAndHideToTerminal),
@@ -1665,6 +1668,114 @@ enum LogicSelfTests {
         pump(0.02)
         controller.switchTerminal(to: named.sessionID)
         try expect(host.labels == ["default", "default", "questmaster"], "route refresh should replace the cached label")
+    }
+
+    private static func testContinuedSessionFetchesMovedRouteBeforeAttach() throws {
+        let legacy = try TmuxRoute(sessionID: "qm-example", label: "default", configFiles: [], live: false, createdUnix: 1)
+        let named = try TmuxRoute(sessionID: legacy.sessionID, label: "questmaster", configFiles: ["/tmp/example/config.conf"], live: true, createdUnix: 1)
+        let routes = RouteTestClient()
+        routes.reply = .success([named])
+        let host = RouteTestHost()
+        let controller = makeRouteTestController(routes: routes, host: host)
+        controller.rememberRoutes([legacy])
+        controller.markSessionReappeared(legacy.sessionID)
+
+        var completed: Bool?
+        controller.switchTerminal(to: legacy.sessionID) { completed = $0 }
+        try expect(waitUntil { completed != nil }, "continued session attach should complete")
+        try expect(host.labels == ["questmaster"] && completed == true && controller.activeTmuxSession == legacy.sessionID,
+                   "Continue should attach only to the daemon's current route")
+    }
+
+    private static func testFailedCachedAttachRetriesRefreshedRoute() throws {
+        let legacy = try TmuxRoute(sessionID: "qm-example", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let named = try TmuxRoute(sessionID: legacy.sessionID, label: "questmaster", configFiles: ["/tmp/example/config.conf"], live: true, createdUnix: 1)
+        let routes = RouteTestClient()
+        let host = RouteTestHost()
+        let controller = makeRouteTestController(routes: routes, host: host)
+        controller.rememberRoutes([legacy])
+
+        var completed: Bool?
+        controller.switchTerminal(to: legacy.sessionID) { completed = $0 }
+        try expect(host.labels.first == "default" && routes.pending.count == 1,
+                   "cached route should start while refresh is pending")
+        try expect(completed == nil && host.labels == ["default"],
+                   "a failed cached attach should wait for its route refresh")
+        routes.pending[0](.success([named]))
+        try expect(waitUntil { completed != nil }, "refreshed route should finish the attach")
+        try expect(host.labels == ["default", "questmaster"] && completed == true && controller.attachedRoute == named,
+                   "a failed cached attach should retry once on the daemon's changed route")
+    }
+
+    private static func testFailedCachedAttachRetriesRouteRefreshedFirst() throws {
+        let legacy = try TmuxRoute(sessionID: "qm-example", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let named = try TmuxRoute(sessionID: legacy.sessionID, label: "questmaster", configFiles: ["/tmp/example/config.conf"], live: true, createdUnix: 1)
+        let routes = RouteTestClient()
+        let host = RouteTestHost()
+        host.deferDefaultFailure = true
+        let controller = makeRouteTestController(routes: routes, host: host)
+        controller.rememberRoutes([legacy])
+
+        var completed: Bool?
+        controller.switchTerminal(to: legacy.sessionID) { completed = $0 }
+        try expect(routes.pending.count == 1, "cached route should refresh during attach")
+        routes.pending[0](.success([named]))
+        pump(0.02)
+        try expect(completed == nil && host.labels == ["default"], "a refreshed route should wait for the first attach result")
+        host.finishDefaultFailure?()
+        try expect(host.labels == ["default", "questmaster"] && completed == true && controller.attachedRoute == named,
+                   "the changed daemon route should also be used when refresh completes before attach failure")
+    }
+
+    private final class RouteTestClient: ServeTmuxRouting {
+        var reply: Result<[TmuxRoute], Error>?
+        var pending: [(Result<[TmuxRoute], Error>) -> Void] = []
+
+        func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+            if let reply { completion(reply) } else { pending.append(completion) }
+        }
+    }
+
+    private final class RouteTestHost: TerminalPaneHosting {
+        let view = NSView()
+        var tmuxSessionID: String? { nil }
+        var onFocusRequested: (() -> Void)?
+        var onDetach: (() -> Void)?
+        var cellMetrics: TerminalCellMetrics { .unavailable }
+        var onCellMetricsChanged: (() -> Void)?
+        var labels: [String] = []
+        var deferDefaultFailure = false
+        var finishDefaultFailure: (() -> Void)?
+
+        func start() {}
+        func stop() {}
+        func focus(in window: NSWindow?) {}
+        func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+            labels.append(config.route?.label ?? "local")
+            if config.route?.label == "default" {
+                let fail = { completion(.failure(TmuxRouteError.missingSession(config.tmuxSession ?? ""))) }
+                if deferDefaultFailure { finishDefaultFailure = fail } else { fail() }
+            } else {
+                completion(.success(config.tmuxSession))
+            }
+        }
+    }
+
+    private static func makeRouteTestController(routes: ServeTmuxRouting, host: TerminalPaneHosting) -> TerminalSessionController {
+        let config = LaunchConfiguration(
+            daemonSocketOverride: nil, startDaemon: false, tmuxSession: nil,
+            disableTmux: false, workingDirectory: "/tmp",
+            backend: AppBackend(stateRoot: "/tmp/example-state", executablePath: "", source: .unresolved,
+                                workingDirectory: "/tmp", devWorktree: nil)
+        )
+        let controller = TerminalSessionController(
+            config: config, runtimeStore: RuntimeStore(sourceLabel: "test"), routeClient: routes,
+            terminalShell: { nil }, updateWindowTitle: { _ in }, focusTerminal: {}, render: {},
+            showMutationFailure: { _, _ in }, showMutationError: { _, _ in },
+            showTerminalEngineFailure: { _ in }, onFocusRequested: {}
+        )
+        controller.installPlaceholder(host)
+        return controller
     }
 
     private static func testStartupChoiceAcrossServers() throws {
