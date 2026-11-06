@@ -210,6 +210,88 @@ func TestDeleteKillsOnOwnServerOnly(t *testing.T) {
 	}
 }
 
+func TestDeleteOrphanMasterOnDefault(t *testing.T) {
+	svc, legacy, named := routedService(t)
+	id := "qm-orphan-default"
+	legacy.sessions[id] = true
+	if _, err := svc.Delete(t.Context(), id); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.sessions[id] || !legacy.hasCall("kill-session", "-t", tmux.SessionTarget(id)) {
+		t.Fatal("default orphan survived")
+	}
+	if named.hasCall("kill-session", "-t", tmux.SessionTarget(id)) {
+		t.Fatal("named server was killed")
+	}
+}
+
+func TestDeleteOrphanMasterOnNamed(t *testing.T) {
+	svc, legacy, named := routedService(t)
+	id := "qm-orphan-named"
+	named.sessions[id] = true
+	if _, err := svc.Delete(t.Context(), id); err != nil {
+		t.Fatal(err)
+	}
+	if named.sessions[id] || !named.hasCall("kill-session", "-t", tmux.SessionTarget(id)) {
+		t.Fatal("named orphan survived")
+	}
+	if legacy.hasCall("kill-session", "-t", tmux.SessionTarget(id)) {
+		t.Fatal("default server was killed")
+	}
+}
+
+func TestDeleteManifestlessWorkerInCascade(t *testing.T) {
+	svc, legacy, named := routedService(t)
+	master, worker := "qm-master-with-orphan", "qm-worker-without-manifest"
+	createTestManifest(t, svc.Store, master, "master", t.TempDir(), "master")
+	if err := svc.Store.AddWorker(master, worker); err != nil {
+		t.Fatal(err)
+	}
+	legacy.sessions[master], named.sessions[worker] = true, true
+	if _, err := svc.Delete(t.Context(), master); err != nil {
+		t.Fatal(err)
+	}
+	if named.sessions[worker] || !named.hasCall("kill-session", "-t", tmux.SessionTarget(worker)) {
+		t.Fatal("manifest-less worker survived cascade")
+	}
+	if legacy.hasCall("kill-session", "-t", tmux.SessionTarget(worker)) {
+		t.Fatal("worker killed on wrong server")
+	}
+}
+
+func TestDeleteOrphanChecksEveryServerBeforeKilling(t *testing.T) {
+	svc, legacy, named := routedService(t)
+	id := "qm-orphan-unavailable"
+	legacy.sessions[id] = true
+	named.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "list-sessions" {
+			return "", &tmux.ExitError{Code: 1, Stderr: "permission denied"}
+		}
+		return named.defaultHandler(ctx, args...)
+	}
+	if _, err := svc.Delete(t.Context(), id); err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("Delete error = %v", err)
+	}
+	if !legacy.sessions[id] || legacy.hasCall("kill-session", "-t", tmux.SessionTarget(id)) {
+		t.Fatal("deleted orphan with an unavailable server")
+	}
+}
+
+func TestDeleteDuplicateOrphanOnBothServers(t *testing.T) {
+	svc, legacy, named := routedService(t)
+	id := "qm-orphan-duplicate"
+	legacy.sessions[id], named.sessions[id] = true, true
+	if _, err := svc.Delete(t.Context(), id); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.sessions[id] || named.sessions[id] {
+		t.Fatal("duplicate orphan survived")
+	}
+	if !legacy.hasCall("kill-session", "-t", tmux.SessionTarget(id)) || !named.hasCall("kill-session", "-t", tmux.SessionTarget(id)) {
+		t.Fatal("duplicate orphan kill missing")
+	}
+}
+
 func TestSpawnWorkerUsesCreationServerUnderLegacyMaster(t *testing.T) {
 	svc, legacy, named := routedService(t)
 	master := "qm-spawn-legacy-master"
@@ -288,6 +370,22 @@ func TestContinueDeadLegacyContainerRetires(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(state.NewRuntimeDir(svc.Store.Root(), id), "cleanup.sh.retired")); err != nil {
 		t.Fatal("legacy cleanup not fenced", err)
+	}
+}
+
+func TestContinueDeadLegacyMissingResumeIDExplainsRecovery(t *testing.T) {
+	svc, legacy, named := routedService(t)
+	id := "qm-dead-no-resume"
+	legacyDeadAgent(t, svc, legacy, id)
+	if err := svc.Store.Update(id, func(m *state.Manifest) { m.Agents[0].ResumeID = "" }); err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.Continue(t.Context(), id)
+	if err == nil || !strings.Contains(err.Error(), "qm delete "+id) || !strings.Contains(err.Error(), "start a new session") {
+		t.Fatalf("Continue error = %v", err)
+	}
+	if !legacy.sessions[id] || len(callsAfter(named, 0, "new-session")) != 0 {
+		t.Fatal("dead container changed without a resume ID")
 	}
 }
 

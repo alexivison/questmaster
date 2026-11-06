@@ -236,7 +236,7 @@ func (s *Service) retireDeadLegacy(ctx context.Context, m state.Manifest) error 
 		return err
 	}
 	if _, ok := launch.agentResume[agent.RoleAgent]; !ok {
-		return fmt.Errorf("session %s has no saved agent resume ID; Continue cannot retire it", m.SessionID)
+		return fmt.Errorf("session %s has no saved agent resume ID; Continue cannot retire it; run qm delete %s and start a new session", m.SessionID, m.SessionID)
 	}
 	if _, err := savedCwd(m); err != nil {
 		return err
