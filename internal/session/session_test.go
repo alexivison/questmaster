@@ -142,7 +142,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 			names = append(names, s)
 		}
 		if len(names) == 0 {
-			return "", &tmux.ExitError{Code: 1}
+			return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 		}
 		return strings.Join(names, "\n"), nil
 

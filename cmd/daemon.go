@@ -5,6 +5,7 @@ package cmd
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -75,8 +76,7 @@ func newDaemonCmd(store *state.Store, router *tmuxroute.Router, routerErr error)
 		}
 		c.IdleGrace = idleGrace
 		prTmux := newDaemonTmuxClient()
-		prTmux.CacheListSessions(time.Second)
-		c.Jobs = append(c.Jobs, prstatus.NewJob(store.Root(), prTmux, prstatus.GH))
+		c.Jobs = append(c.Jobs, prstatus.NewJob(store.Root(), prTmux, prstatus.GH, router))
 		if clockInterval > 0 {
 			c.ClockInterval = clockInterval
 		}
@@ -178,13 +178,16 @@ func newDaemonConfig(store *state.Store, tmuxClient *tmux.Client) (daemon.Config
 }
 
 func newDaemonConfigWithRouter(store *state.Store, tmuxClient *tmux.Client, router *tmuxroute.Router) (daemon.Config, error) {
+	if router == nil {
+		return daemon.Config{}, fmt.Errorf("tmux router is required for daemon")
+	}
 	root, err := filepath.Abs(store.Root())
 	if err != nil {
 		return daemon.Config{}, err
 	}
 	return daemon.Config{
 		Root:    root,
-		Jobs:    []daemon.Job{session.NewClassBackfillJob(state.OpenStore(root), tmuxClient)},
+		Jobs:    []daemon.Job{session.NewClassBackfillJob(state.OpenStore(root), tmuxClient, router)},
 		Runtime: &serve.Server{TmuxRouter: router},
 	}, nil
 }

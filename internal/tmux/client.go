@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -175,6 +176,9 @@ func (s Server) Command(ctx context.Context, args ...string) *exec.Cmd {
 		argv = append(argv, "-f", file)
 	}
 	cmd := exec.CommandContext(ctx, "tmux", append(argv, args...)...)
+	if testing.Testing() && s.flag == "-L" {
+		cmd.Path = "/questmaster-test-binary-refuses-named-tmux-server"
+	}
 	cmd.Dir = "/"
 	cmd.Env = serverEnv(os.Environ())
 	return cmd
@@ -184,6 +188,9 @@ func (s Server) Command(ctx context.Context, args ...string) *exec.Cmd {
 // Wraps non-zero exits as *ExitError (with stderr) so callers can distinguish
 // "session not found" from transport errors.
 func (s Server) Run(ctx context.Context, args ...string) (string, error) {
+	if testing.Testing() && s.flag == "-L" {
+		return "", fmt.Errorf("tmux -L %s is forbidden in a test binary; use tmuxtest private -S sockets or an injected runner", s.name)
+	}
 	out, err := s.Command(ctx, args...).Output()
 	if err != nil {
 		var exitErr *exec.ExitError

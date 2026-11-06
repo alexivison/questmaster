@@ -14,6 +14,7 @@ import (
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 type jobTmux func(context.Context, ...string) (string, error)
@@ -43,7 +44,8 @@ func jobFixture(t *testing.T) (*Job, *state.Store, *time.Time, *map[string]bool)
 		return strings.Join(names, "\n"), nil
 	}))
 	now := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
-	j := NewJob(root, client, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	j := NewJob(root, client, nil, router)
 	j.Now = func() time.Time { return now }
 	return j, store, &now, &live
 }
@@ -316,6 +318,7 @@ func TestStoppedPendingAlertWaitsForLiveWatcher(t *testing.T) {
 		t.Fatal(err)
 	}
 	(*live)["qm-live"] = false
+	j.TmuxRouter.Invalidate()
 	if j.HasWork() {
 		t.Fatal("stopped watcher kept daemon work alive")
 	}
@@ -328,7 +331,8 @@ func TestStoppedPendingAlertWaitsForLiveWatcher(t *testing.T) {
 		t.Fatalf("stopped delivery: calls=%d err=%v", called, err)
 	}
 	(*live)["qm-live"] = true
-	resumed := NewJob(store.Root(), j.Tmux, nil) // a daemon started after the session resumes
+	j.TmuxRouter.Invalidate()
+	resumed := NewJob(store.Root(), j.Tmux, nil, j.TmuxRouter) // a daemon started after the session resumes
 	resumed.Now, resumed.SendAlert = j.Now, j.SendAlert
 	if !resumed.HasWork() {
 		t.Fatal("resumed watcher lost pending work")
@@ -462,10 +466,12 @@ func TestJobCadenceLivenessAndMerged(t *testing.T) {
 		t.Fatal("closed PR lost work")
 	}
 	(*live)["qm-live"] = false
+	j.TmuxRouter.Invalidate()
 	if j.HasWork() {
 		t.Fatal("dead watcher counted")
 	}
 	(*live)["qm-live"] = true
+	j.TmuxRouter.Invalidate()
 	statuses[cold] = state.PullRequestStatus{State: "merged"}
 	if err := state.SavePullRequestStatuses(store.Root(), statuses, nil); err != nil {
 		t.Fatal(err)
@@ -482,6 +488,7 @@ func TestJobNoTmuxServerHasNoWork(t *testing.T) {
 	j.Tmux = tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) {
 		return "", &tmux.ExitError{Code: 1, Stderr: "no server running on /tmp/tmux-test/default"}
 	}))
+	j.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"default": j.Tmux}, func() string { return "default" }, nil)
 	if j.HasWork() {
 		t.Fatal("absent tmux server kept job alive")
 	}
@@ -493,6 +500,7 @@ func TestJobNoTmuxServerHasNoWork(t *testing.T) {
 		t.Fatalf("absent tmux server treated as job error: %v", err)
 	}
 	j.Tmux = tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) { return "", syscall.EAGAIN }))
+	j.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"default": j.Tmux}, func() string { return "default" }, nil)
 	if !j.HasWork() {
 		t.Fatal("temporary process-spawn failure dropped watched work")
 	}

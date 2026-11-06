@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 const classBackfillRescanInterval = 10 * time.Minute
@@ -20,16 +21,22 @@ const classBackfillRescanInterval = 10 * time.Minute
 type ClassBackfillJob struct {
 	store          *state.Store
 	tmuxClient     *tmux.Client
+	router         *tmuxroute.Router
 	randomIndex    func(int) int
 	rescanInterval time.Duration
 	hasWork        atomic.Bool
 }
 
 // NewClassBackfillJob creates the daemon job with production random selection.
-func NewClassBackfillJob(store *state.Store, tmuxClient *tmux.Client) *ClassBackfillJob {
+func NewClassBackfillJob(store *state.Store, tmuxClient *tmux.Client, routers ...*tmuxroute.Router) *ClassBackfillJob {
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
+	}
 	job := &ClassBackfillJob{
 		store:          store,
 		tmuxClient:     tmuxClient,
+		router:         router,
 		randomIndex:    rand.IntN,
 		rescanInterval: classBackfillRescanInterval,
 	}
@@ -65,6 +72,9 @@ func (j *ClassBackfillJob) Run(ctx context.Context) error {
 }
 
 func (j *ClassBackfillJob) runPass(ctx context.Context) error {
+	if j.router == nil {
+		return fmt.Errorf("tmux router is required for class backfill")
+	}
 	manifests, err := j.store.DiscoverSessions()
 	if err != nil {
 		return fmt.Errorf("discover sessions for class backfill: %w", err)
@@ -80,7 +90,7 @@ func (j *ClassBackfillJob) runPass(ctx context.Context) error {
 		return nil
 	}
 	j.hasWork.Store(true)
-	liveSessions, activeClasses, err := liveMasterClasses(ctx, j.store, j.tmuxClient)
+	liveSessions, activeClasses, err := routedLiveMasterClasses(ctx, j.store, j.router)
 	if err != nil {
 		return fmt.Errorf("list live sessions for class backfill: %w", err)
 	}
@@ -109,26 +119,49 @@ func (j *ClassBackfillJob) runPass(ctx context.Context) error {
 	return nil
 }
 
+// liveMasterClasses is the explicit creation-server-only class-balancing path.
+// It does not delete state or decide whether any existing session is stopped.
 func liveMasterClasses(ctx context.Context, store *state.Store, tmuxClient *tmux.Client) (map[string]struct{}, []string, error) {
-	if store == nil {
-		return nil, nil, fmt.Errorf("state store is required")
-	}
 	if tmuxClient == nil {
 		return nil, nil, fmt.Errorf("tmux client is required")
 	}
-	liveSessionIDs, err := tmuxClient.ListSessions(ctx)
-	if err != nil {
-		return nil, nil, err
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmuxClient}, func() string { return "default" }, nil)
+	return routedLiveMasterClasses(ctx, store, router)
+}
+
+func routedLiveMasterClasses(ctx context.Context, store *state.Store, router *tmuxroute.Router) (map[string]struct{}, []string, error) {
+	if store == nil {
+		return nil, nil, fmt.Errorf("state store is required")
 	}
-	liveSessions := make(map[string]struct{}, len(liveSessionIDs))
-	activeClasses := make([]string, 0, len(liveSessionIDs))
-	for _, sessionID := range liveSessionIDs {
+	if router == nil {
+		return nil, nil, fmt.Errorf("tmux router is required for class backfill")
+	}
+	inv := router.Inventory(ctx)
+	for _, server := range inv.Servers {
+		if server.Outcome == tmuxroute.Unavailable {
+			return nil, nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+		}
+	}
+	liveSessions := make(map[string]struct{}, len(inv.Rows))
+	activeClasses := make([]string, 0, len(inv.Rows))
+	for _, row := range inv.Rows {
+		sessionID := row.ID
 		if !state.IsValidSessionID(sessionID) {
 			continue
 		}
-		liveSessions[sessionID] = struct{}{}
 		manifest, err := store.Read(sessionID)
-		if err != nil || manifest.AgentSessionType() != "master" {
+		if err != nil {
+			continue
+		}
+		handle, err := router.Route(manifest)
+		if err != nil {
+			return nil, nil, err
+		}
+		if handle.Label() != row.Label {
+			continue
+		}
+		liveSessions[sessionID] = struct{}{}
+		if manifest.AgentSessionType() != "master" {
 			continue
 		}
 		if class := manifest.DisplayClass(); class != "" {

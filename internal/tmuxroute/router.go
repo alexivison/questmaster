@@ -221,6 +221,31 @@ func (r *Router) Inventory(ctx context.Context) Inventory {
 	return result
 }
 
+// Invalidate discards every server's cached observation after a lifecycle change.
+func (r *Router) Invalidate() {
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+	r.mu.Lock()
+	clear(r.cache)
+	r.mu.Unlock()
+}
+
+// LiveIDs returns the union of observed session names only when every server
+// answered. Destructive callers must never treat unavailable as empty.
+func (r *Router) LiveIDs(ctx context.Context) (map[string]bool, error) {
+	inv := r.Inventory(ctx)
+	for _, server := range inv.Servers {
+		if server.Outcome == Unavailable {
+			return nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+		}
+	}
+	live := make(map[string]bool, len(inv.Rows))
+	for _, row := range inv.Rows {
+		live[row.ID] = true
+	}
+	return live, nil
+}
+
 func (r *Router) inventoryServer(ctx context.Context, label string) (ServerInventory, []Row) {
 	r.mu.Lock()
 	if entry, ok := r.cache[label]; ok && time.Since(entry.at) < time.Second {

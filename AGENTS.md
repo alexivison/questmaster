@@ -552,6 +552,8 @@ every step in DEBUG builds so the recorder can sample it).
   call `tmuxtest.RequireIntegration` (they run only with
   `QUESTMASTER_TMUX_INTEGRATION=1`, as in the `tmux-integration` CI job).
   Production code must not import `tmuxtest`; a test enforces that.
+  `tmux.Server` rejects named `-L` selections in test binaries; inject a fake
+  runner or use a private `tmuxtest` `-S` socket.
 - **Swift:** Core-only, via a custom runner in
   `app/Tests/QuestmasterLogicTests/main.swift` (no XCTest). Add a pure-Core suite
   by appending `XxxTests.run()` there. The runner also spawns

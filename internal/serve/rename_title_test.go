@@ -63,7 +63,7 @@ func TestRenameRoutesToRecordedServer(t *testing.T) {
 	}
 	legacy, named := &paneTitleRunner{}, &paneTitleRunner{}
 	router := tmuxroute.New(env.store, map[string]*tmux.Client{"default": tmux.NewClient(legacy), "questmaster": tmux.NewClient(named)}, func() string { return "default" }, nil)
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(legacy), nil), TmuxRouter: router}
+	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(legacy), nil), TmuxRouter: router}
 	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Routed title"}); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestRenameRoutesToRecordedServer(t *testing.T) {
 func TestRenamePaneWriteLosesToRenameCommittedMeanwhile(t *testing.T) {
 	env := seedServeFixture(t)
 	runner := &paneTitleRunner{}
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
 	renamed := make(chan error, 1)
 	runner.onFirstWrite = func() {
 		go func() {
@@ -117,7 +117,7 @@ func TestRenamePaneWriteDoesNotHoldTheManifestLock(t *testing.T) {
 		close(entered)
 		<-release
 	}}
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
 
 	renamed := make(chan error, 1)
 	go func() {

@@ -19,6 +19,7 @@ import (
 	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 func TestPRJobQuiesceMidFetchKeepsLastStatus(t *testing.T) {
@@ -42,11 +43,13 @@ func TestPRJobQuiesceMidFetchKeepsLastStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := make(chan struct{})
-	job := prstatus.NewJob(root, tmux.NewClient(runtimeTmuxRunner{}), func(ctx context.Context, _, _ string) ([]byte, []byte, error) {
+	client := tmux.NewClient(runtimeTmuxRunner{})
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	job := prstatus.NewJob(root, client, func(ctx context.Context, _, _ string) ([]byte, []byte, error) {
 		close(started)
 		<-ctx.Done()
 		return []byte(`{"data":{"p0":{"pullRequest":{"title":"partial","state":"OPEN"}}}}`), nil, nil
-	})
+	}, router)
 	dir := filepath.Join(root, "daemon")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)

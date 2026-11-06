@@ -64,7 +64,6 @@ func TestServerRunsEveryCommandOnItsSelection(t *testing.T) {
 		server Server
 		prefix []string
 	}{
-		{name: "default", server: DefaultServer(), prefix: []string{"-L", "default"}},
 		{name: "socket", server: SocketServer("/tmp/qm-private/tmux.sock"), prefix: []string{"-S", "/tmp/qm-private/tmux.sock"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

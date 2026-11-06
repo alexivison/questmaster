@@ -11,6 +11,7 @@ import (
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // Job is the single polling owner under the daemon's jobs.lock.
@@ -22,6 +23,7 @@ type refreshWaiter struct {
 type Job struct {
 	Root             string
 	Tmux             *tmux.Client
+	TmuxRouter       *tmuxroute.Router
 	RunGH            Runner
 	RunREST          Runner
 	SendAlert        func(context.Context, string, string) (message.Delivery, error)
@@ -41,8 +43,48 @@ type Job struct {
 	alertErrorLogged map[string]time.Time
 }
 
-func NewJob(root string, client *tmux.Client, run Runner) *Job {
-	return &Job{Root: root, Tmux: client, RunGH: run, RunREST: GHREST, Now: time.Now, forced: map[string]bool{}, waiters: map[string][]refreshWaiter{}, signal: make(chan struct{}, 1), next: map[string]time.Time{}, blocked: map[string]time.Time{}, last: map[string]HostResult{}, failures: map[string]int{}, done: map[string]time.Time{}, seen: map[string]bool{}, alertErrorLogged: map[string]time.Time{}}
+func NewJob(root string, client *tmux.Client, run Runner, routers ...*tmuxroute.Router) *Job {
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
+	}
+	return &Job{Root: root, Tmux: client, TmuxRouter: router, RunGH: run, RunREST: GHREST, Now: time.Now, forced: map[string]bool{}, waiters: map[string][]refreshWaiter{}, signal: make(chan struct{}, 1), next: map[string]time.Time{}, blocked: map[string]time.Time{}, last: map[string]HostResult{}, failures: map[string]int{}, done: map[string]time.Time{}, seen: map[string]bool{}, alertErrorLogged: map[string]time.Time{}}
+}
+func (j *Job) liveIDs(ctx context.Context, ids []string) (map[string]bool, error) {
+	if j.TmuxRouter == nil {
+		return nil, fmt.Errorf("tmux router is required for PR polling")
+	}
+	inv := j.TmuxRouter.Inventory(ctx)
+	for _, server := range inv.Servers {
+		if server.Outcome == tmuxroute.Unavailable {
+			return nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+		}
+	}
+	observed := make(map[string]bool, len(inv.Rows))
+	for _, row := range inv.Rows {
+		observed[row.Label+"\x00"+row.ID] = true
+	}
+	store := state.OpenStore(j.Root)
+	live := make(map[string]bool, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		manifest, err := store.Read(id)
+		if err != nil {
+			continue
+		}
+		handle, err := j.TmuxRouter.Route(manifest)
+		if err != nil {
+			return nil, err
+		}
+		if observed[handle.Label()+"\x00"+manifest.SessionID] {
+			live[manifest.SessionID] = true
+		}
+	}
+	return live, nil
 }
 func (*Job) Name() string { return "pr-status" }
 
@@ -58,13 +100,13 @@ func (j *Job) HasWork() bool {
 	if len(alerts) == 0 {
 		return false
 	}
-	sessions, err := j.Tmux.ListSessions(context.Background())
+	ids := make([]string, 0, len(alerts))
+	for _, alert := range alerts {
+		ids = append(ids, alert.SessionID)
+	}
+	live, err := j.liveIDs(context.Background(), ids)
 	if err != nil {
 		return true
-	}
-	live := make(map[string]bool, len(sessions))
-	for _, id := range sessions {
-		live[id] = true
 	}
 	for _, alert := range alerts {
 		if live[alert.SessionID] {
@@ -82,13 +124,15 @@ func (j *Job) live(ctx context.Context) ([]state.PullRequest, map[string]state.P
 	if len(prs) == 0 {
 		return nil, nil, nil
 	}
-	sessions, err := j.Tmux.ListSessions(ctx)
+	ids := []string{}
+	for _, pr := range prs {
+		for _, watcher := range pr.Watchers {
+			ids = append(ids, watcher.SessionID)
+		}
+	}
+	live, err := j.liveIDs(ctx, ids)
 	if err != nil {
 		return nil, nil, err
-	}
-	live := make(map[string]bool, len(sessions))
-	for _, id := range sessions {
-		live[id] = true
 	}
 	statuses, err := state.LoadPullRequestStatuses(j.Root)
 	if err != nil {
@@ -440,17 +484,17 @@ func (j *Job) deliverPending(ctx context.Context) error {
 		clear(j.alertErrorLogged)
 		return nil
 	}
-	sessions, err := j.Tmux.ListSessions(ctx)
+	ids := make([]string, 0, len(alerts))
+	for _, alert := range alerts {
+		ids = append(ids, alert.SessionID)
+	}
+	live, err := j.liveIDs(ctx, ids)
 	if err != nil {
 		return err
 	}
-	live := make(map[string]bool, len(sessions))
-	for _, id := range sessions {
-		live[id] = true
-	}
 	send := j.SendAlert
 	if send == nil {
-		send = message.NewService(state.OpenStore(j.Root), j.Tmux).Notify
+		send = message.NewServiceWithRouter(state.OpenStore(j.Root), j.TmuxRouter).Notify
 	}
 	active := make(map[string]bool, len(alerts))
 	var statuses map[string]state.PullRequestStatus

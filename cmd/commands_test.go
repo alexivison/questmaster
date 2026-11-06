@@ -16,6 +16,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // ---------------------------------------------------------------------------
@@ -90,6 +91,7 @@ func runCmdInput(t *testing.T, store *state.Store, runner tmux.Runner, in io.Rea
 	client := tmux.NewClient(runner)
 	root := NewRootCmd(
 		WithDeps(store, client),
+		WithTmuxRouter(tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)),
 	)
 	var out bytes.Buffer
 	if in != nil {
@@ -114,6 +116,7 @@ func runCmdInputErr(t *testing.T, store *state.Store, runner tmux.Runner, in io.
 	client := tmux.NewClient(runner)
 	root := NewRootCmd(
 		WithDeps(store, client),
+		WithTmuxRouter(tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)),
 	)
 	var out bytes.Buffer
 	if in != nil {
@@ -135,7 +138,7 @@ func sessionsRunner(live ...string) *mockRunner {
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "list-sessions" {
 			if len(live) == 0 {
-				return "", &tmux.ExitError{Code: 1}
+				return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 			}
 			return strings.Join(live, "\n"), nil
 		}
