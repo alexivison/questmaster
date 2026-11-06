@@ -233,7 +233,12 @@ func TestIntegrationProductionPaneHasNoDevOverride(t *testing.T) {
 	if err := os.Unsetenv("QUESTMASTER_TMUX_LABEL"); err != nil {
 		t.Fatal(err)
 	}
+	if err := tmuxconfig.Prepare(f.store.Root()); err != nil {
+		t.Fatal(err)
+	}
 	paths := tmuxconfig.Paths(f.store.Root())
+	f.named = tmuxtest.NewRunnerWithConfig(t, paths.Config, paths.Enforced)
+	f.new = tmux.NewClient(f.named)
 	f.router = tmuxroute.New(f.store, map[string]*tmux.Client{"default": f.old, "questmaster": f.new}, func() string { return "questmaster" }, []string{paths.Config, paths.Enforced})
 	f.svc.Router = f.router
 	started, err := f.svc.Start(t.Context(), session.StartOpts{Title: "Production", Cwd: f.store.Root()})
