@@ -1,0 +1,12 @@
+{
+  "protocol_version": 3,
+  "type": "response",
+  "id": "tmux-config-check-request",
+  "ok": true,
+  "topic": "tmux.config.check",
+  "data": {
+    "ok": true,
+    "errors": [],
+    "effective_label": "questmaster"
+  }
+}

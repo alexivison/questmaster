@@ -13,6 +13,20 @@ import (
 
 func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *cobra.Command {
 	tmuxCmd := &cobra.Command{Use: "tmux", Short: "Inspect Questmaster tmux configuration"}
+	namedClient := func() (*tmux.Client, error) {
+		if routerErr != nil {
+			return nil, routerErr
+		}
+		label, err := tmux.EffectiveLabel()
+		if err != nil {
+			return nil, err
+		}
+		handle, err := router.Route(state.Manifest{TmuxServer: state.TmuxServer(label)})
+		if err != nil {
+			return nil, err
+		}
+		return handle.Client(), nil
+	}
 	var live bool
 	routesCmd := &cobra.Command{Use: "routes [session-id...]", Short: "Report recorded tmux routes", RunE: func(cmd *cobra.Command, ids []string) error {
 		if routerErr != nil {
@@ -37,6 +51,28 @@ func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(audit)
 	}})
 	configCmd := &cobra.Command{Use: "config", Short: "Inspect Questmaster tmux config files"}
+	configCmd.AddCommand(&cobra.Command{Use: "status", Short: "Report dedicated server and config status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		client, err := namedClient()
+		if err != nil {
+			return err
+		}
+		status, err := tmuxconfig.Status(cmd.Context(), client, store.Root())
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(status)
+	}})
+	configCmd.AddCommand(&cobra.Command{Use: "reload", Short: "Source both config files in the running server", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		client, err := namedClient()
+		if err != nil {
+			return err
+		}
+		result, err := tmuxconfig.Reload(cmd.Context(), client, store.Root())
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+	}})
 	configCmd.AddCommand(&cobra.Command{
 		Use: "path", Short: "Print config file paths", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -73,15 +109,22 @@ func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *
 			if err != nil {
 				return err
 			}
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
-				OK             bool     `json:"ok"`
-				Errors         []string `json:"errors"`
-				EffectiveLabel string   `json:"effective_label"`
-			}{OK: len(errors) == 0, Errors: errors, EffectiveLabel: label})
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(tmuxconfig.CheckResult{OK: len(errors) == 0, Errors: errors, EffectiveLabel: label})
 		},
 	}
 	checkCmd.Flags().StringVar(&file, "file", "", "config file to validate")
 	configCmd.AddCommand(checkCmd)
 	tmuxCmd.AddCommand(configCmd)
+	tmuxCmd.AddCommand(&cobra.Command{Use: "restart", Short: "Restart the dedicated server only while empty", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		client, err := namedClient()
+		if err != nil {
+			return err
+		}
+		result, err := tmuxconfig.RestartIfEmpty(cmd.Context(), client)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+	}})
 	return tmuxCmd
 }

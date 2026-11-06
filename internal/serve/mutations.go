@@ -97,6 +97,15 @@ type mutationHandler func(*Server, context.Context, Request, mutationPayload) (a
 // 2. re-execed qm commands for session lifecycle.
 // New methods should pick one model explicitly instead of crossing layers.
 var mutationRegistry = map[string]mutationHandler{
+	"tmux.config.check": func(s *Server, ctx context.Context, _ Request, _ mutationPayload) (any, error) {
+		return s.tmuxConfigCheck(ctx)
+	},
+	"tmux.config.reload": func(s *Server, ctx context.Context, _ Request, _ mutationPayload) (any, error) {
+		return s.tmuxConfigReload(ctx)
+	},
+	"tmux.server.restart": func(s *Server, ctx context.Context, _ Request, _ mutationPayload) (any, error) {
+		return s.tmuxServerRestart(ctx)
+	},
 	"delete":   mutateDelete,
 	"continue": mutateContinue,
 	"spawn": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
