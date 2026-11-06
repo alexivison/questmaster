@@ -1601,11 +1601,11 @@ enum LogicSelfTests {
     }
 
     /// Every bundled class's still flights lead with their heads on their paths. Only the returning wisp flies left; the orb and the
-    /// messenger fly right. How each still is drawn is read from the art: the bard's and the paladin's wisps face left already, and every
+    /// messenger fly right. How each still is drawn is read from the art: the bard's, the druid's and the paladin's wisps face left already, and every
     /// other still faces right, so a wisp that faces right needs its file to say so (`faces`) to be mirrored on its way back.
     @MainActor
     private static func testEveryBundledStillLeadsWithItsHeadOnItsPath() throws {
-        let drawnLeft: Set<String> = ["bard S6-returning-wisp", "paladin S6-returning-wisp"]
+        let drawnLeft: Set<String> = ["bard S6-returning-wisp", "druid S6-returning-wisp", "paladin S6-returning-wisp"]
         for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
             for spell in TrackerSpellFlight.Spell.allCases {
                 guard let art = sprites.flight(for: spell) else {
@@ -1821,7 +1821,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("bard", 157), ("cleric", 155), ("paladin", 171), ("wizard", 150)] {
+        for (classID, figure) in [("bard", 157), ("cleric", 155), ("druid", 153), ("paladin", 171), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }
