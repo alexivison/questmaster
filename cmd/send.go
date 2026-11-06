@@ -4,10 +4,11 @@ import (
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
-func newSendCmd(store *state.Store, client *tmux.Client) *cobra.Command {
+func newSendCmd(store *state.Store, client *tmux.Client, routes ...*tmuxroute.Router) *cobra.Command {
 	var messageFile string
 	cmd := &cobra.Command{
 		Use:   "send <recipient|master|all> [message]",
@@ -27,11 +28,15 @@ Use --message-file <path> or --message-file - for file or stdin input.`,
 			}
 			ctx := cmd.Context()
 			recipient := args[0]
-			svc := message.NewService(store, client)
+			router, err := commandRouter(store, client, routes)
+			if err != nil {
+				return err
+			}
+			svc := message.NewServiceWithRouter(store, router)
 			var delivery message.Delivery
 			switch recipient {
 			case "master":
-				sender, err := discoverSession(ctx, client)
+				sender, err := discoverSessionRouted(ctx, store, router)
 				if err != nil {
 					return err
 				}
@@ -39,7 +44,7 @@ Use --message-file <path> or --message-file - for file or stdin input.`,
 					return err
 				}
 			case "all":
-				master, err := discoverMasterSession(ctx, store, client)
+				master, err := discoverMasterSessionRouted(ctx, store, router)
 				if err != nil {
 					return err
 				}
@@ -54,7 +59,7 @@ Use --message-file <path> or --message-file - for file or stdin input.`,
 					Submitted  int    `json:"submitted"`
 				}{recipient, result.Registered, result.Accepted, result.Submitted})
 			default:
-				sender, err := discoverSession(ctx, client)
+				sender, err := discoverSessionRouted(ctx, store, router)
 				if err != nil {
 					delivery, err = svc.Relay(ctx, recipient, text)
 				} else if source, readErr := store.Read(sender); readErr == nil && source.ExtraString("parent_session") == recipient {

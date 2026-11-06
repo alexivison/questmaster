@@ -19,6 +19,7 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // MutationCommandRunner runs a qm command for serve mutations that belong to
@@ -322,17 +323,31 @@ func (s *Server) mutateRename(ctx context.Context, payload mutationPayload) (any
 		client = tmux.NewClient(tmux.DefaultServer())
 	}
 	store := s.mutationStore()
-	agentSession := false
+	manifest, err := store.Read(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	router := s.TmuxRouter
+	if router == nil {
+		router, err = tmuxroute.NewProduction(store, client)
+		if err != nil {
+			return nil, err
+		}
+	}
+	handle, err := router.Route(manifest)
+	if err != nil {
+		return nil, err
+	}
+	agentSession := len(manifest.Agents) > 0
 	if err := store.Update(sessionID, func(m *state.Manifest) {
 		m.Title = title
 		m.SetExtra("title_locked", "1")
 		delete(m.Extra, "title_provisional")
-		agentSession = len(m.Agents) > 0
 	}); err != nil {
 		return nil, err
 	}
 	if agentSession {
-		if err := renameSessionPane(ctx, store, client, sessionID, title); err != nil {
+		if err := renameSessionPane(ctx, store, handle.Client(), sessionID, title); err != nil {
 			return nil, fmt.Errorf("rename session pane: %w", err)
 		}
 	}

@@ -105,10 +105,20 @@ func (c *Client) callerSession(ctx context.Context) (string, bool, error) {
 	}
 	// display-message prints empty pane fields for a pane it cannot find.
 	fields := strings.Split(out, "\t")
-	if len(fields) != 3 || fields[0] != socket || fields[1] != pane || fields[2] == "" {
+	if len(fields) != 3 || canonicalTmuxSocket(fields[0]) != canonicalTmuxSocket(socket) || fields[1] != pane || fields[2] == "" {
 		return "", false, nil
 	}
 	return fields[2], true, nil
+}
+
+func canonicalTmuxSocket(path string) string {
+	if path == "/private/tmp" {
+		return "/tmp"
+	}
+	if strings.HasPrefix(path, "/private/tmp/") {
+		return "/tmp/" + strings.TrimPrefix(path, "/private/tmp/")
+	}
+	return path
 }
 
 // callerClient returns the client tmux treats as the caller's: the most

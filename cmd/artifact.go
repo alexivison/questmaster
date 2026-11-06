@@ -192,6 +192,12 @@ func resolveArtifactSession(ctx context.Context, client *tmux.Client, sessionFla
 		}
 		return sessionFlag, nil
 	}
+	if name := state.SessionIDFromEnv(); name != "" {
+		if !state.IsValidSessionID(name) {
+			return "", fmt.Errorf("invalid session id %q (expected qm-*)", name)
+		}
+		return name, nil
+	}
 	return discoverSession(ctx, client)
 }
 
