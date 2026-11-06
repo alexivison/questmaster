@@ -204,9 +204,9 @@ public enum WorkerChatLineBuilder {
         case .instructions:
             return itemSegments(verb: "Received item", item: "Scroll of Orders", rarity: .epic)
         case .summon:
-            return itemSegments(verb: "Summoned", item: text, rarity: .epic)
+            return itemSegments(verb: "Summoned", item: text, rarity: .common)
         case .dismiss:
-            return itemSegments(verb: "Dismissed", item: text, rarity: .epic)
+            return itemSegments(verb: "Dismissed", item: text, rarity: .common)
         case .say, .message, .action:
             return [WorkerChatSegment(" " + text, .normal)]
         }
