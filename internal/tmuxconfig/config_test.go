@@ -105,8 +105,8 @@ func TestWriteEnforcedAtomicOwnerOnly(t *testing.T) {
 	if !strings.Contains(string(data), "@questmaster_root \""+hash+"\"") || !strings.Contains(string(data), "@questmaster_enforced 1") {
 		t.Fatalf("enforced content: %s", data)
 	}
-	if strings.Contains(string(data), "session-closed") {
-		t.Fatal("P6 hook present")
+	if !strings.Contains(string(data), "set-hook -g session-closed") {
+		t.Fatal("global session-closed hook missing")
 	}
 	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
 		t.Fatal(err)

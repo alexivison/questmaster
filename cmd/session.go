@@ -8,16 +8,21 @@ import (
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
-func newSessionCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
+func newSessionCmd(store *state.Store, client *tmux.Client, repoRoot string, routers ...*tmuxroute.Router) *cobra.Command {
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
+	}
 	cmd := &cobra.Command{
 		Use:   "session",
 		Short: "Create sessions and manage session metadata",
 	}
 	cmd.AddCommand(
-		newSessionNewCmd(store, client, repoRoot),
+		newSessionNewCmd(store, client, repoRoot, router),
 		newSessionColorCmd(store),
 		newSessionReclassCmd(store),
 	)
@@ -68,7 +73,7 @@ func newSessionColorCmd(store *state.Store) *cobra.Command {
 	}
 }
 
-func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
+func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string, router *tmuxroute.Router) *cobra.Command {
 	var opts struct {
 		cwd        string
 		shell      bool
@@ -112,6 +117,9 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 			}
 
 			svc := session.NewService(store, client, repoRoot, registry)
+			if router != nil {
+				svc.Router = router
+			}
 			svc.ReasoningEfforts = modelsuggest.ResolveReasoningEfforts
 			result, err := svc.Start(cmd.Context(), session.StartOpts{
 				Title:     opts.title,
@@ -152,7 +160,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 			}
 
 			if opts.attach {
-				return attachSession(cmd.Context(), client, result.SessionID)
+				return attachSession(cmd.Context(), store, router, result.SessionID)
 			}
 			return nil
 		},

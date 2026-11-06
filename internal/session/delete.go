@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -20,7 +21,18 @@ func (s *Service) Delete(ctx context.Context, sessionID string) (int, error) {
 		if m, err := s.Store.Read(sessionID); err == nil && m.AgentSessionType() == "master" {
 			for _, workerID := range m.Workers {
 				if err := s.locked(ctx, []string{workerID}, func(ctx context.Context) error {
-					if err := s.Client.KillSession(ctx, workerID); err != nil {
+					worker, err := s.Store.Read(workerID)
+					if err != nil {
+						if !errors.Is(err, os.ErrNotExist) {
+							return fmt.Errorf("read worker %s: %w", workerID, err)
+						}
+						return nil // no recorded server, so there is nothing safe to kill
+					}
+					handle, err := s.router().Route(worker)
+					if err != nil {
+						return err
+					}
+					if err := handle.Client().KillSession(ctx, workerID); err != nil {
 						return fmt.Errorf("kill worker %s: %w", workerID, err)
 					}
 					count, err := s.cleanupStartedSession(workerID)
@@ -34,7 +46,15 @@ func (s *Service) Delete(ctx context.Context, sessionID string) (int, error) {
 				}
 			}
 		}
-		if err := s.Client.KillSession(ctx, sessionID); err != nil {
+		m, err := s.Store.Read(sessionID)
+		if err != nil {
+			return err
+		}
+		handle, err := s.router().Route(m)
+		if err != nil {
+			return err
+		}
+		if err := handle.Client().KillSession(ctx, sessionID); err != nil {
 			return err
 		}
 		count, err := s.cleanupStartedSession(sessionID)

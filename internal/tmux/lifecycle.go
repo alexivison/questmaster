@@ -378,6 +378,12 @@ func (c *Client) SwitchClient(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// CallerOnServer proves the caller's pane belongs to this client's socket.
+func (c *Client) CallerOnServer(ctx context.Context) (bool, error) {
+	_, ok, err := c.callerSession(ctx)
+	return ok, err
+}
+
 // SessionName returns the session of the pane this process runs in. It fails
 // outside tmux and inside a pane on another server.
 func (c *Client) SessionName(ctx context.Context) (string, error) {

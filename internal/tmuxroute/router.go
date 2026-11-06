@@ -5,6 +5,7 @@ package tmuxroute
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -27,6 +28,20 @@ func (h Handle) Label() string             { return h.label }
 func (h Handle) Client() *tmux.Client      { return h.client }
 func (h Handle) SendLockNamespace() string { return h.label }
 func (h Handle) ConfigFiles() []string     { return append([]string{}, h.configFiles...) }
+
+func (h Handle) Command(ctx context.Context, args ...string) (*exec.Cmd, error) {
+	if h.label == "default" {
+		return tmux.LegacyServer().Command(ctx, args...), nil
+	}
+	if len(h.configFiles) != 2 {
+		return nil, fmt.Errorf("tmux server %q has no config files", h.label)
+	}
+	server, err := tmux.NamedServerLabel(h.label, h.configFiles[0], h.configFiles[1])
+	if err != nil {
+		return nil, err
+	}
+	return server.Command(ctx, args...), nil
+}
 
 type Outcome string
 

@@ -6,10 +6,15 @@ import (
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
-func newContinueCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
+func newContinueCmd(store *state.Store, client *tmux.Client, repoRoot string, routers ...*tmuxroute.Router) *cobra.Command {
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
+	}
 	var attach bool
 
 	cmd := &cobra.Command{
@@ -22,6 +27,9 @@ func newContinueCmd(store *state.Store, client *tmux.Client, repoRoot string) *c
 				return err
 			}
 			svc := session.NewService(store, client, repoRoot)
+			if router != nil {
+				svc.Router = router
+			}
 			result, err := svc.Continue(cmd.Context(), sessionID)
 			if err != nil {
 				return err
@@ -52,7 +60,7 @@ func newContinueCmd(store *state.Store, client *tmux.Client, repoRoot string) *c
 			}
 
 			if attach {
-				return attachSession(cmd.Context(), client, result.SessionID)
+				return attachSession(cmd.Context(), store, router, result.SessionID)
 			}
 			return nil
 		},

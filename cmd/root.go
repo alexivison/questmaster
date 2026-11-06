@@ -105,16 +105,25 @@ When invoked with no subcommand, it shows help.`,
 			return cmd.Help()
 		},
 	}
+	if routerErr != nil {
+		root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+			if cmd.Name() == "session-closed" && cmd.Parent() != nil && cmd.Parent().Name() == "tmux" {
+				return nil
+			}
+			return routerErr
+		}
+	}
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newListCmd(o.store, o.client, router, routerErr))
 	root.AddCommand(newSessionsCmd(o.store, o.client, router, routerErr))
 	root.AddCommand(newStatusCmd(o.store, o.client, router))
 	root.AddCommand(newPruneCmd(o.store, o.client, router, routerErr))
-	root.AddCommand(newStartCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newContinueCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newDeleteCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newSpawnCmd(o.store, o.client, o.repoRoot))
+	root.AddCommand(newStartCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(newContinueCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(newDeleteCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(newSpawnCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(newAttachCmd(o.store, router, routerErr))
 	root.AddCommand(newSendCmd(o.store, o.client, router))
 	root.AddCommand(newReadCmd(o.store, o.client, router))
 	root.AddCommand(newChatCmd(o.store, o.client))
@@ -126,8 +135,8 @@ When invoked with no subcommand, it shows help.`,
 	root.AddCommand(newStateCmd(o.store))
 	root.AddCommand(newArtifactCmd(o.store, o.client))
 	root.AddCommand(newPRCmd(o.store, o.client))
-	root.AddCommand(newQuestCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot))
+	root.AddCommand(newQuestCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot, router))
 	root.AddCommand(newRepoCmd(o.store))
 	root.AddCommand(newDaemonCmd(o.store, router, routerErr))
 	root.AddCommand(newTmuxCmd(o.store, router, routerErr))

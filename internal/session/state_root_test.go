@@ -8,6 +8,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv("QM_TEST_CLEANUP_HELPER") == "1" {
+		os.Exit(m.Run())
+	}
 	root, err := os.MkdirTemp("", "qm-session-state-*")
 	if err != nil {
 		panic(err)

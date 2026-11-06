@@ -199,6 +199,19 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 	case "list-panes":
 		session := m.targetKey(flagVal(args, "-t"))
 		if strings.Contains(flagVal(args, "-F"), "#{pane_dead}") {
+			if flagVal(args, "-F") == "#{pane_dead}" {
+				var dead []string
+				for pane, key := range m.paneIDs {
+					if strings.HasPrefix(key, session+":") {
+						if _, ok := m.deadPanes[pane]; ok {
+							dead = append(dead, "1")
+						} else {
+							dead = append(dead, "0")
+						}
+					}
+				}
+				return strings.Join(dead, "\n"), nil
+			}
 			var lines []string
 			for pane, key := range m.paneIDs {
 				if strings.HasPrefix(key, session+":") {
