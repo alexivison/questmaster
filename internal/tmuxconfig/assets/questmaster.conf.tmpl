@@ -1,4 +1,4 @@
-# Questmaster tmux config (template v2).
+# Questmaster tmux config (template v3).
 # Written once by Questmaster from its built-in template, migrated from a personal
 # ~/.tmux.conf on 2026-11-06. It is yours: Questmaster never rewrites this file.
 # Delete it to get the current template back at the next server start.
@@ -53,7 +53,8 @@ set-option -g mouse on
 set-option -sa terminal-overrides ",xterm*:Tc,xterm*:Ss=\\E[%p1%d q:Se=\\E[2 q"
 set-option -g xterm-keys on
 set -g extended-keys on
-set -g extended-keys-format csi-u
+# tmux 3.4 does not have extended-keys-format; -q ignores unknown options.
+set -gq extended-keys-format csi-u
 set-option -s terminal-features[3] "xterm*:extkeys"
 set-option -s terminal-features[4] "screen*:extkeys"
 set-option -s terminal-features[5] "tmux*:extkeys"

@@ -6122,7 +6122,7 @@ enum LogicSelfTests {
         let status = TmuxConfigStatus(
             config: "/tmp/example/tmux/questmaster.conf", enforced: "/tmp/example/tmux/enforced.questmaster.conf",
             effectiveLabel: "questmaster", running: true, startedUnix: 100, sessions: 1,
-            editedSinceStart: true, enforcedPending: true, templateVersion: 1, builtinTemplateVersion: 2
+            editedSinceStart: true, enforcedPending: true, templateVersion: 1, builtinTemplateVersion: 3
         )
         let settings = settingsSheetModel(mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: nil))))
         settings.tmux.details = TmuxSettingsModel(status: status)

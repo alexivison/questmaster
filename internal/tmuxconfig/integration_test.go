@@ -25,11 +25,14 @@ func TestIntegrationTemplateLoadsCleanly(t *testing.T) {
 		t.Fatalf("parse output = %q", got)
 	}
 	for opt, want := range map[string]string{
-		"prefix": "C-s", "status-position": "top", "extended-keys-format": "csi-u", "history-limit": "50000", "mouse": "on", "mode-keys": "vi", "exit-empty": "off", "destroy-unattached": "off", "detach-on-destroy": "on",
+		"prefix": "C-s", "status-position": "top", "history-limit": "50000", "mouse": "on", "mode-keys": "vi", "exit-empty": "off", "destroy-unattached": "off", "detach-on-destroy": "on",
 	} {
 		if got := mustTmux(t, r, "show-options", "-gv", opt); got != want {
 			t.Errorf("%s = %q, want %q", opt, got, want)
 		}
+	}
+	if got := mustTmux(t, r, "show-options", "-gqv", "extended-keys-format"); got != "" && got != "csi-u" {
+		t.Errorf("extended-keys-format = %q, want csi-u where supported", got)
 	}
 	if got := mustTmux(t, r, "show-options", "-gv", "@questmaster_root"); got != tmuxconfig.RootMarker(root, "questmaster") {
 		t.Errorf("root hash = %q", got)

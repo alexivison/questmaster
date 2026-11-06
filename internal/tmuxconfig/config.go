@@ -266,6 +266,8 @@ func ownedByCurrentUser(info os.FileInfo) bool {
 // the file, then sources it to expose runtime errors. Reported config errors
 // are returned as strings; setup failures are returned as errors.
 func Check(ctx context.Context, file string, enforced ...string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	absoluteFile, err := filepath.Abs(file)
 	if err != nil {
 		return nil, err

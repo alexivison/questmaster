@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -29,6 +30,7 @@ const (
 	sunPathSize = 104
 	// maxSocketPathBytes is the longest socket path the harness accepts.
 	maxSocketPathBytes = sunPathSize - 1
+	commandTimeout     = 10 * time.Second
 )
 
 // errNoSocket reports a tmux call that is not addressed to a private socket.
@@ -105,10 +107,15 @@ func runTmux(ctx context.Context, socket string, argv []string) (string, error) 
 	if len(argv) < 2 || argv[0] != "-S" || argv[1] != socket {
 		return "", fmt.Errorf("%w: %q", errNoSocket, argv)
 	}
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "tmux", argv...)
 	cmd.Env = childEnv(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("tmux %q timed out: %w", argv[2:], ctx.Err())
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return "", &tmux.ExitError{
@@ -143,7 +150,9 @@ func isNoServer(err error) bool {
 
 // tmuxVersion runs `tmux -V`. It names no server and never connects to one.
 func tmuxVersion() (string, error) {
-	cmd := exec.Command("tmux", "-V")
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "tmux", "-V")
 	cmd.Env = childEnv(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {
