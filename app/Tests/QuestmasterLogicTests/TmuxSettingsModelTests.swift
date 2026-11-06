@@ -5,6 +5,7 @@ struct TmuxSettingsModelTests {
     static func run() throws {
         let status = try TmuxConfigStatus.decodeResponse(fixture("tmux_config_response_envelope.json"))
         try expect(status.config == "/tmp/example/tmux/questmaster.conf", "config path should come from the daemon")
+        try expect(status.enforced == "/tmp/example/tmux/enforced.questmaster.conf", "enforced path should match the label")
         try expect(status.effectiveLabel == "questmaster", "effective label should come from the daemon")
         var model = TmuxSettingsModel(status: status)
         try expect(model.canReload, "a running server can reload")
@@ -19,7 +20,7 @@ struct TmuxSettingsModelTests {
         var empty = status
         empty.sessions = 0
         empty.enforcedPending = true
-        empty.builtinTemplateVersion = 2
+        empty.builtinTemplateVersion = empty.templateVersion + 1
         model = TmuxSettingsModel(status: empty)
         try expect(model.canRestart, "a running empty server can restart")
         try expect(model.showsEnforcedPending, "pending flag should follow status")

@@ -43,6 +43,7 @@ func newRolloutFixture(t *testing.T, creation func() string) rolloutFixture {
 	t.Setenv("HOME", home)
 	t.Setenv("SHELL", "/bin/sh")
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "test_named")
+	prependStubQuestmasterToPath(t)
 	if err := tmuxconfig.Prepare(root); err != nil {
 		t.Fatal(err)
 	}

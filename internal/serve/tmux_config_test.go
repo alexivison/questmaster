@@ -19,6 +19,7 @@ func TestServeTmuxConfigGoldens(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_1")
+	tmuxtest.StubQuestmaster(t)
 	if err := tmuxconfig.Prepare(root); err != nil {
 		t.Fatal(err)
 	}
@@ -28,6 +29,9 @@ func TestServeTmuxConfigGoldens(t *testing.T) {
 		case "display-message":
 			return "100|1", nil
 		case "show-options":
+			if args[len(args)-1] == "@questmaster_root" {
+				return tmuxconfig.RootMarker(root, "dev_1"), nil
+			}
 			return "1", nil
 		case "if-shell":
 			return "1", nil
@@ -50,11 +54,11 @@ func TestServeTmuxConfigGoldens(t *testing.T) {
 			t.Fatalf("%s response: %+v", tc.method, response)
 		}
 		if status, ok := response.Data.(tmuxconfig.StatusResult); ok {
-			if status.Config != filepath.Join(root, "tmux", "questmaster.conf") || status.EffectiveLabel != "dev_1" {
+			if status.Config != filepath.Join(root, "tmux", "questmaster.conf") || status.Enforced != filepath.Join(root, "tmux", "enforced.dev_1.conf") || status.EffectiveLabel != "dev_1" {
 				t.Fatalf("wrong config route: %+v", status)
 			}
 			status.Config = "/tmp/example/tmux/questmaster.conf"
-			status.Enforced = "/tmp/example/tmux/enforced.conf"
+			status.Enforced = "/tmp/example/tmux/enforced.questmaster.conf"
 			status.EffectiveLabel = "questmaster"
 			response.Data = status
 		}
@@ -87,6 +91,7 @@ func TestIntegrationServeTmuxConfigCheck(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_1")
+	tmuxtest.StubQuestmaster(t)
 	if err := tmuxconfig.Prepare(root); err != nil {
 		t.Fatal(err)
 	}

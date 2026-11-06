@@ -21,6 +21,9 @@ const (
 
 	// DefaultSendTimeout bounds one whole Send, lock wait to Enter.
 	DefaultSendTimeout = 2 * time.Second
+	// commandPipeWait bounds waits for output pipes inherited by a detached
+	// tmux server or pane process after the tmux client has exited.
+	commandPipeWait = 500 * time.Millisecond
 
 	// PaneRoleOption is the tmux user-option key storing a pane's questmaster role.
 	PaneRoleOption = "@party_role"
@@ -213,6 +216,7 @@ func (s Server) Command(ctx context.Context, args ...string) *exec.Cmd {
 	}
 	cmd.Dir = "/"
 	cmd.Env = serverEnv(os.Environ())
+	cmd.WaitDelay = commandPipeWait
 	return cmd
 }
 
@@ -227,6 +231,9 @@ func (s Server) Run(ctx context.Context, args ...string) (string, error) {
 		return "", fmt.Errorf("tmux -L %s is forbidden in a test binary; use tmuxtest private -S sockets or an injected runner", s.name)
 	}
 	out, err := s.Command(ctx, args...).Output()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil // the tmux client exited successfully; a child kept the pipe open
+	}
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {

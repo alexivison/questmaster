@@ -8,6 +8,7 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmux/tmuxtest"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
 )
 
 type runnerFunc func(context.Context, ...string) (string, error)
@@ -55,7 +56,8 @@ func TestRouteNamedConfigFilesAreCopied(t *testing.T) {
 func TestProductionRouteUsesRecordedLabel(t *testing.T) {
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_current")
 	defaultClient := tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) { return "", nil }))
-	r, err := NewProduction(state.OpenStore(t.TempDir()), defaultClient)
+	root := t.TempDir()
+	r, err := NewProduction(state.OpenStore(root), defaultClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +65,8 @@ func TestProductionRouteUsesRecordedLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h.Label() != "dev_recorded" || len(h.ConfigFiles()) != 2 {
+	recordedPaths := tmuxconfig.PathsForLabel(root, "dev_recorded")
+	if h.Label() != "dev_recorded" || len(h.ConfigFiles()) != 2 || h.ConfigFiles()[0] != recordedPaths.Config || h.ConfigFiles()[1] != recordedPaths.Enforced {
 		t.Fatalf("route = %+v", h)
 	}
 	creation, err := r.Creation()
@@ -72,6 +75,9 @@ func TestProductionRouteUsesRecordedLabel(t *testing.T) {
 	}
 	if creation.Label() != "dev_current" {
 		t.Fatalf("creation label = %q", creation.Label())
+	}
+	if creation.ConfigFiles()[1] == h.ConfigFiles()[1] {
+		t.Fatal("recorded and creation labels share an enforced config")
 	}
 	legacy, err := r.Route(state.Manifest{})
 	if err != nil || legacy.Label() != "default" {

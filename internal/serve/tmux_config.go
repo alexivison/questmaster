@@ -44,7 +44,11 @@ func (s *Server) tmuxConfigCheck(ctx context.Context) (tmuxconfig.CheckResult, e
 	if err != nil {
 		return tmuxconfig.CheckResult{}, err
 	}
-	errors, err := tmuxconfig.Check(ctx, tmuxconfig.Paths(s.tmuxConfigRoot()).Config)
+	paths := tmuxconfig.PathsForLabel(s.tmuxConfigRoot(), label)
+	if err := tmuxconfig.EnsureGenerated(s.tmuxConfigRoot()); err != nil {
+		return tmuxconfig.CheckResult{}, err
+	}
+	errors, err := tmuxconfig.Check(ctx, paths.Config, paths.Enforced)
 	if err != nil {
 		return tmuxconfig.CheckResult{}, err
 	}
@@ -64,5 +68,5 @@ func (s *Server) tmuxServerRestart(ctx context.Context) (tmuxconfig.RestartResul
 	if err != nil {
 		return tmuxconfig.RestartResult{}, err
 	}
-	return tmuxconfig.RestartIfEmpty(ctx, client)
+	return tmuxconfig.RestartIfEmpty(ctx, client, s.tmuxConfigRoot())
 }

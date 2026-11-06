@@ -32,7 +32,7 @@ func TestTmuxConfigAPICommandsUseNamedRoute(t *testing.T) {
 		switch args[0] {
 		case "display-message":
 			return "", &tmux.ExitError{Code: 1, Stderr: "no server running on private socket"}
-		case "if-shell":
+		case "show-options", "if-shell":
 			return "", &tmux.ExitError{Code: 1, Stderr: "no server running on private socket"}
 		default:
 			t.Fatalf("unexpected command: %v", args)
@@ -56,7 +56,7 @@ func TestTmuxConfigAPICommandsUseNamedRoute(t *testing.T) {
 			t.Fatalf("%v: empty result", args)
 		}
 	}
-	if len(calls) != 3 || !strings.HasPrefix(calls[2], "if-shell -F #{==:#{server_sessions},0} kill-server ") {
+	if len(calls) != 3 || !strings.HasPrefix(calls[1], "show-options -gqv @questmaster_root") || !strings.HasPrefix(calls[2], "show-options -gqv @questmaster_root") {
 		t.Fatalf("tmux calls: %v", calls)
 	}
 	if _, err := os.Stat(filepath.Join(root, "tmux")); !os.IsNotExist(err) {

@@ -15,7 +15,7 @@ func TestIntegrationTemplateLoadsCleanly(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "questmaster")
 	root := t.TempDir()
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)
@@ -25,11 +25,14 @@ func TestIntegrationTemplateLoadsCleanly(t *testing.T) {
 		t.Fatalf("parse output = %q", got)
 	}
 	for opt, want := range map[string]string{
-		"prefix": "C-s", "status-position": "top", "extended-keys-format": "csi-u", "history-limit": "50000", "mouse": "on", "mode-keys": "vi", "exit-empty": "off", "destroy-unattached": "off", "detach-on-destroy": "on",
+		"prefix": "C-s", "status-position": "top", "history-limit": "50000", "mouse": "on", "mode-keys": "vi", "exit-empty": "off", "destroy-unattached": "off", "detach-on-destroy": "on",
 	} {
 		if got := mustTmux(t, r, "show-options", "-gv", opt); got != want {
 			t.Errorf("%s = %q, want %q", opt, got, want)
 		}
+	}
+	if got := mustTmux(t, r, "show-options", "-gqv", "extended-keys-format"); got != "" && got != "csi-u" {
+		t.Errorf("extended-keys-format = %q, want csi-u where supported", got)
 	}
 	if got := mustTmux(t, r, "show-options", "-gv", "@questmaster_root"); got != tmuxconfig.RootMarker(root, "questmaster") {
 		t.Errorf("root hash = %q", got)
@@ -45,10 +48,11 @@ func TestIntegrationTemplateLoadsCleanly(t *testing.T) {
 func TestIntegrationRenderQuotesPaths(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	root := filepath.Join(t.TempDir(), "it's a space")
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
-	errors, err := tmuxconfig.Check(t.Context(), tmuxconfig.Paths(root).Config)
+	paths := tmuxconfig.Paths(root)
+	errors, err := tmuxconfig.Check(t.Context(), paths.Config, paths.Enforced)
 	if err != nil || len(errors) != 0 {
 		t.Fatalf("Check: errors %q, err %v", errors, err)
 	}
@@ -57,16 +61,16 @@ func TestIntegrationRenderQuotesPaths(t *testing.T) {
 func TestIntegrationEnforcedWinsOverEdits(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	root := t.TempDir()
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)
-	if err := os.WriteFile(paths.Config, []byte("set -s exit-empty on\nset -g destroy-unattached on\n"), 0o600); err != nil {
+	if err := os.WriteFile(paths.Config, []byte("set -s exit-empty on\nset -s exit-unattached on\nset -g destroy-unattached on\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r := tmuxtest.NewRunnerWithConfig(t, paths.Config, paths.Enforced)
 	mustTmux(t, r, "new-session", "-d", "-s", "test", "sleep 60")
-	for opt := range map[string]bool{"exit-empty": true, "destroy-unattached": true} {
+	for opt := range map[string]bool{"exit-empty": true, "exit-unattached": true, "destroy-unattached": true} {
 		if got := mustTmux(t, r, "show-options", "-gv", opt); got != "off" {
 			t.Errorf("%s = %q", opt, got)
 		}
@@ -84,7 +88,7 @@ func TestIntegrationParseErrorKeepsEnforced(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			if err := tmuxconfig.Prepare(root); err != nil {
+			if err := prepareConfig(t, root); err != nil {
 				t.Fatal(err)
 			}
 			paths := tmuxconfig.Paths(root)
@@ -114,7 +118,7 @@ func TestIntegrationParseErrorKeepsEnforced(t *testing.T) {
 func TestIntegrationConfigReadOnlyAtStart(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	root := t.TempDir()
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)

@@ -136,10 +136,12 @@ Invariants that aren't obvious from the code:
   cleanup relies on the `<state root>/runtime/<id>` shape: tmux may run another
   live session's hook, which finds the closed session's script by name. The
   dedicated server loads a global `session-closed` hook from the regenerated
-  `<state root>/tmux/enforced.conf`; its Go handler holds the lifecycle lock
+  `<state root>/tmux/enforced.<label>.conf`; its Go handler holds the lifecycle lock
   and skips a recreated or moved session. That file also enforces the root
   ownership marker and server lifetime settings after the user-editable
-  `questmaster.conf`. A manifest
+  shared `questmaster.conf`. Each label has its own `reload.<label>.conf`, which
+  sources the user and enforced files in one tmux command. Config reload and
+  restart refuse running servers with a missing or foreign root marker. A manifest
   without the field predates it and keeps its old path until the session stops
   (`Manifest.RuntimeDirOrLegacy`, the one legacy branch).
 - Keep the legacy route until `qm tmux audit` finds no live legacy managed

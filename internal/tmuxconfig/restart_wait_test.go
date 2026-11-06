@@ -11,12 +11,15 @@ import (
 // exitingRunner kills the server on if-shell, then reports it alive for
 // aliveFor more list-sessions calls before it is gone (or forever when < 0).
 type exitingRunner struct {
+	root     string
 	aliveFor int
 	listings int
 }
 
 func (r *exitingRunner) Run(_ context.Context, args ...string) (string, error) {
 	switch args[0] {
+	case "show-options":
+		return tmuxconfig.RootMarker(r.root, "questmaster"), nil
 	case "if-shell":
 		return "", nil
 	case "list-sessions":
@@ -31,8 +34,8 @@ func (r *exitingRunner) Run(_ context.Context, args ...string) (string, error) {
 
 func TestRestartIfEmptyWaitsForTheServerToExit(t *testing.T) {
 	t.Parallel()
-	r := &exitingRunner{aliveFor: 2}
-	result, err := tmuxconfig.RestartIfEmpty(t.Context(), tmux.NewClient(r))
+	r := &exitingRunner{root: t.TempDir(), aliveFor: 2}
+	result, err := tmuxconfig.RestartIfEmpty(t.Context(), tmux.NewClient(r), r.root)
 	if err != nil || !result.Restarted {
 		t.Fatalf("restart: %+v, %v", result, err)
 	}
@@ -43,8 +46,8 @@ func TestRestartIfEmptyWaitsForTheServerToExit(t *testing.T) {
 
 func TestRestartIfEmptyErrorsWhenTheServerDoesNotExit(t *testing.T) {
 	t.Parallel()
-	r := &exitingRunner{aliveFor: -1}
-	result, err := tmuxconfig.RestartIfEmpty(t.Context(), tmux.NewClient(r))
+	r := &exitingRunner{root: t.TempDir(), aliveFor: -1}
+	result, err := tmuxconfig.RestartIfEmpty(t.Context(), tmux.NewClient(r), r.root)
 	if err == nil || result.Restarted {
 		t.Fatalf("restart of a server that never exits: %+v, %v", result, err)
 	}

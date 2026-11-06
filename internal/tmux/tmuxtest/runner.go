@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -29,6 +30,7 @@ const (
 	sunPathSize = 104
 	// maxSocketPathBytes is the longest socket path the harness accepts.
 	maxSocketPathBytes = sunPathSize - 1
+	commandTimeout     = 10 * time.Second
 )
 
 // errNoSocket reports a tmux call that is not addressed to a private socket.
@@ -99,16 +101,32 @@ func RequireIntegration(t testing.TB) {
 	t.Logf("tmux -V: %s", version)
 }
 
+// StubQuestmaster gives generated tmux hooks a harmless command in tests.
+// Without it, the os.Executable fallback would point at the Go test binary.
+func StubQuestmaster(t testing.TB) {
+	t.Helper()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "questmaster"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write questmaster hook stub: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 // runTmux runs tmux with argv, which must begin with -S <socket>. It is the one
 // place this package starts tmux against a server.
 func runTmux(ctx context.Context, socket string, argv []string) (string, error) {
 	if len(argv) < 2 || argv[0] != "-S" || argv[1] != socket {
 		return "", fmt.Errorf("%w: %q", errNoSocket, argv)
 	}
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "tmux", argv...)
 	cmd.Env = childEnv(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("tmux %q timed out: %w", argv[2:], ctx.Err())
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return "", &tmux.ExitError{
@@ -143,7 +161,9 @@ func isNoServer(err error) bool {
 
 // tmuxVersion runs `tmux -V`. It names no server and never connects to one.
 func tmuxVersion() (string, error) {
-	cmd := exec.Command("tmux", "-V")
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "tmux", "-V")
 	cmd.Env = childEnv(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {

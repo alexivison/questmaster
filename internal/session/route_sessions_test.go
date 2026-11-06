@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmux/tmuxtest"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
@@ -53,6 +54,7 @@ func TestStartRecordsServerBeforeLaunch(t *testing.T) {
 func routedService(t *testing.T) (*Service, *mockRunner, *mockRunner) {
 	t.Helper()
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "test_named")
+	tmuxtest.StubQuestmaster(t)
 	svc, legacy := setupService(t)
 	named := newMockRunner()
 	svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{

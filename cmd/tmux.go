@@ -104,7 +104,7 @@ func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
 				tmuxconfig.FilePaths
 				EffectiveLabel string `json:"effective_label"`
-			}{tmuxconfig.Paths(store.Root()), label})
+			}{tmuxconfig.PathsForLabel(store.Root(), label), label})
 		},
 	})
 	configCmd.AddCommand(&cobra.Command{
@@ -123,10 +123,16 @@ func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *
 			if err != nil {
 				return err
 			}
+			var errors []string
 			if file == "" {
-				file = tmuxconfig.Paths(store.Root()).Config
+				if err := tmuxconfig.EnsureGenerated(store.Root()); err != nil {
+					return err
+				}
+				paths := tmuxconfig.PathsForLabel(store.Root(), label)
+				errors, err = tmuxconfig.Check(cmd.Context(), paths.Config, paths.Enforced)
+			} else {
+				errors, err = tmuxconfig.Check(cmd.Context(), file)
 			}
-			errors, err := tmuxconfig.Check(cmd.Context(), file)
 			if err != nil {
 				return err
 			}
@@ -141,7 +147,7 @@ func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *
 		if err != nil {
 			return err
 		}
-		result, err := tmuxconfig.RestartIfEmpty(cmd.Context(), client)
+		result, err := tmuxconfig.RestartIfEmpty(cmd.Context(), client, store.Root())
 		if err != nil {
 			return err
 		}
