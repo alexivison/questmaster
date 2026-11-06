@@ -18,6 +18,11 @@ func TestPendingAlertUsesCurrentHeadForCI(t *testing.T) {
 	ci := func(id, head, result string) state.PullRequestEvent {
 		return state.PullRequestEvent{ID: id, Kind: "ci", HeadSHA: head, Result: result}
 	}
+	settled := func(id, head, result string) state.PullRequestEvent {
+		event := ci(id, head, result)
+		event.Finished = true
+		return event
+	}
 	comment := state.PullRequestEvent{ID: "comment-1", Kind: "comment"}
 	for _, tc := range []struct {
 		name, registryHead, checkedHead string
@@ -27,8 +32,10 @@ func TestPendingAlertUsesCurrentHeadForCI(t *testing.T) {
 		wantCalls, wantSends            int
 	}{
 		{"stale CI alone", newHead, newHead, nil, []state.PullRequestEvent{ci("old", oldHead, "success")}, "", "CI:", 1, 0},
+		{"stale settled CI", newHead, newHead, nil, []state.PullRequestEvent{settled("old-settled", oldHead, "failure")}, "", "CI:", 1, 0},
 		{"stale CI and comment", newHead, newHead, nil, []state.PullRequestEvent{ci("old", oldHead, "success"), comment}, "1 comment", "CI:", 1, 1},
 		{"current head", newHead, newHead, nil, []state.PullRequestEvent{ci("new", newHead, "success")}, "CI: success (6e3b997)", "", 1, 1},
+		{"current settled CI", newHead, newHead, nil, []state.PullRequestEvent{settled("new-settled", newHead, "failure")}, "CI: failure, finished (6e3b997)", "", 1, 1},
 		{"registry lags push", oldHead, newHead, nil, []state.PullRequestEvent{ci("old", oldHead, "success")}, "", "CI:", 1, 0},
 		{"checked head overrides registry", oldHead, newHead, nil, []state.PullRequestEvent{ci("new", newHead, "success")}, "CI: success (6e3b997)", "", 1, 1},
 		{"check error falls back", oldHead, "", errors.New("unavailable"), []state.PullRequestEvent{ci("old", oldHead, "success")}, "CI: success (a0dcbf0)", "", 1, 1},

@@ -303,7 +303,7 @@ func (j *Job) step(ctx context.Context) error {
 				continue
 			}
 			prior, hadPrior := statuses[pr.Key]
-			if current.UpdatedAt == prior.UpdatedAt && current.Comments == prior.Comments && current.Review == prior.Review && current.State == prior.State && current.HeadSHA == prior.HeadSHA && current.CI == prior.CI && !ciRerunFinished(prior, current) {
+			if current.UpdatedAt == prior.UpdatedAt && current.Comments == prior.Comments && current.Review == prior.Review && current.State == prior.State && current.HeadSHA == prior.HeadSHA && current.CI == prior.CI && !ciRerunFinished(prior, current) && !ciSettled(prior, current) {
 				continue
 			}
 			if limited[pr.Host] {

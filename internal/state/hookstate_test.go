@@ -1389,3 +1389,14 @@ func TestStateLockTimeoutDoesNotKeepTheLock(t *testing.T) {
 		t.Fatalf("lock after the timed-out writer was granted it: %v", err)
 	}
 }
+
+func TestAppendHookErrorDoesNotRecreateSessionDirectory(t *testing.T) {
+	root := t.TempDir()
+	const sessionID = "qm-deleted"
+	if err := AppendHookErrorAt(root, sessionID, "late hook"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("error = %v, want missing directory", err)
+	}
+	if _, err := os.Stat(SessionStateDir(root, sessionID)); !os.IsNotExist(err) {
+		t.Fatalf("session directory was recreated: %v", err)
+	}
+}
