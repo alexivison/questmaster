@@ -110,32 +110,41 @@ func writeShims(root, id, executable string) error {
 		target = StableExecutable(root)
 	}
 	script := []byte("#!/bin/sh\nexec '" + strings.ReplaceAll(target, "'", "'\\''") + "' \"$@\"\n")
-	// Keep concurrent forks from inheriting a writable shim descriptor just before
-	// the rename makes that inode executable by its public path.
-	syscall.ForkLock.Lock()
-	defer syscall.ForkLock.Unlock()
 	for _, name := range []string{"qm", "questmaster"} {
-		file, err := os.CreateTemp(dir, name+"-")
+		tmp, err := writeShimTemp(dir, name, script)
 		if err != nil {
 			return err
 		}
-		if _, err := file.Write(script); err != nil {
-			file.Close()
-			os.Remove(file.Name())
-			return err
-		}
-		if err := file.Close(); err != nil {
-			os.Remove(file.Name())
-			return err
-		}
-		if err := os.Chmod(file.Name(), 0o700); err != nil {
-			os.Remove(file.Name())
-			return err
-		}
-		if err := os.Rename(file.Name(), filepath.Join(dir, name)); err != nil {
-			os.Remove(file.Name())
+		if err := os.Rename(tmp, filepath.Join(dir, name)); err != nil {
+			os.Remove(tmp)
 			return fmt.Errorf("write %s shim: %w", name, err)
 		}
 	}
 	return nil
+}
+
+func writeShimTemp(dir, name string, script []byte) (string, error) {
+	// ForkExec takes the write lock. Holding its read lock until the writable
+	// descriptor closes keeps a child from inheriting that descriptor.
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	file, err := os.CreateTemp(dir, name+"-")
+	if err != nil {
+		return "", err
+	}
+	tmp := file.Name()
+	if _, err := file.Write(script); err != nil {
+		file.Close()
+		os.Remove(tmp)
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	if err := os.Chmod(tmp, 0o700); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	return tmp, nil
 }

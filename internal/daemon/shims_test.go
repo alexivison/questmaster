@@ -24,24 +24,27 @@ func writeTestExecutable(t *testing.T, path string, data []byte) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	syscall.ForkLock.Lock()
-	defer syscall.ForkLock.Unlock()
-	tmp, err := os.CreateTemp(filepath.Dir(path), "qm-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		t.Fatal(err)
-	}
-	if err := tmp.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(tmp.Name(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
+	tmpName := func() string {
+		syscall.ForkLock.RLock()
+		defer syscall.ForkLock.RUnlock()
+		tmp, err := os.CreateTemp(filepath.Dir(path), "qm-test-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Remove(tmp.Name()) })
+		if _, err := tmp.Write(data); err != nil {
+			tmp.Close()
+			t.Fatal(err)
+		}
+		if err := tmp.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(tmp.Name(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return tmp.Name()
+	}()
+	if err := os.Rename(tmpName, path); err != nil {
 		t.Fatal(err)
 	}
 }
