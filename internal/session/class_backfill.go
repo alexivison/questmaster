@@ -119,17 +119,17 @@ func (j *ClassBackfillJob) runPass(ctx context.Context) error {
 	return nil
 }
 
-// liveMasterClasses is the explicit creation-server-only class-balancing path.
-// It does not delete state or decide whether any existing session is stopped.
-func liveMasterClasses(ctx context.Context, store *state.Store, tmuxClient *tmux.Client) (map[string]struct{}, []string, error) {
-	if tmuxClient == nil {
-		return nil, nil, fmt.Errorf("tmux client is required")
-	}
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmuxClient}, func() string { return "default" }, nil)
-	return routedLiveMasterClasses(ctx, store, router)
+func routedLiveMasterClasses(ctx context.Context, store *state.Store, router *tmuxroute.Router) (map[string]struct{}, []string, error) {
+	return liveMasterClassesFromInventory(ctx, store, router, false)
 }
 
-func routedLiveMasterClasses(ctx context.Context, store *state.Store, router *tmuxroute.Router) (map[string]struct{}, []string, error) {
+// visibleLiveMasterClasses is for Start, where balancing is optional and a
+// temporarily unavailable server should not prevent creating a new master.
+func visibleLiveMasterClasses(ctx context.Context, store *state.Store, router *tmuxroute.Router) (map[string]struct{}, []string, error) {
+	return liveMasterClassesFromInventory(ctx, store, router, true)
+}
+
+func liveMasterClassesFromInventory(ctx context.Context, store *state.Store, router *tmuxroute.Router, allowPartial bool) (map[string]struct{}, []string, error) {
 	if store == nil {
 		return nil, nil, fmt.Errorf("state store is required")
 	}
@@ -137,9 +137,11 @@ func routedLiveMasterClasses(ctx context.Context, store *state.Store, router *tm
 		return nil, nil, fmt.Errorf("tmux router is required for class backfill")
 	}
 	inv := router.Inventory(ctx)
-	for _, server := range inv.Servers {
-		if server.Outcome == tmuxroute.Unavailable {
-			return nil, nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+	if !allowPartial {
+		for _, server := range inv.Servers {
+			if server.Outcome == tmuxroute.Unavailable {
+				return nil, nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+			}
 		}
 	}
 	liveSessions := make(map[string]struct{}, len(inv.Rows))
@@ -155,7 +157,7 @@ func routedLiveMasterClasses(ctx context.Context, store *state.Store, router *tm
 		}
 		handle, err := router.Route(manifest)
 		if err != nil {
-			return nil, nil, err
+			continue
 		}
 		if handle.Label() != row.Label {
 			continue

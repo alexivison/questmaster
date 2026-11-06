@@ -4,6 +4,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/alexivison/questmaster/internal/state"
@@ -33,6 +34,21 @@ func TestClassBackfillSeesBothServers(t *testing.T) {
 	}
 	if len(live) != 2 || len(classes) != 2 {
 		t.Fatalf("live=%v classes=%v", live, classes)
+	}
+}
+
+func TestClassBackfillBalancesFromAvailableServer(t *testing.T) {
+	store := state.OpenStore(t.TempDir())
+	createClassBackfillMaster(t, store, "qm-visible", "wizard")
+	visible := tmux.NewClient(backfillViewRunner(func(context.Context, ...string) (string, error) { return "qm-visible", nil }))
+	unavailable := tmux.NewClient(backfillViewRunner(func(context.Context, ...string) (string, error) { return "", fmt.Errorf("server unavailable") }))
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": unavailable, "questmaster": visible}, func() string { return "questmaster" }, nil)
+	if err := store.Update("qm-visible", func(m *state.Manifest) { m.TmuxServer = "questmaster" }); err != nil {
+		t.Fatal(err)
+	}
+	live, classes, err := visibleLiveMasterClasses(t.Context(), store, router)
+	if err != nil || len(live) != 1 || len(classes) != 1 || classes[0] != "wizard" {
+		t.Fatalf("live=%v classes=%v err=%v", live, classes, err)
 	}
 }
 

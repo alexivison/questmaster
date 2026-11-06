@@ -108,21 +108,46 @@ func NewProduction(store *state.Store, defaultClient *tmux.Client) (*Router, err
 	}
 	paths := tmuxconfig.Paths(root)
 	files := []string{paths.Config, paths.Enforced}
-	// The injected client now selects creation; legacy manifests need default.
-	defaultClient = tmux.NewClient(tmux.LegacyServer())
+	// The injected client selects creation; legacy manifests need their own runner.
+	sendTimeout := defaultClient.SendTimeout
+	newClient := func(runner tmux.Runner) *tmux.Client {
+		client := tmux.NewClient(runner)
+		client.SendTimeout = sendTimeout
+		return client
+	}
+	defaultClient = newClient(tmux.LegacyServer())
 	named, err := tmux.NamedServerLabel(label, files[0], files[1])
 	if err != nil {
 		return nil, err
 	}
-	r := New(state.OpenStore(root), map[string]*tmux.Client{"default": defaultClient, label: tmux.NewClient(named)}, func() string { return label }, files)
+	r := New(state.OpenStore(root), map[string]*tmux.Client{"default": defaultClient, label: newClient(named)}, func() string { return label }, files)
 	r.factory = func(recorded string) (*tmux.Client, error) {
 		server, err := tmux.NamedServerLabel(recorded, files[0], files[1])
 		if err != nil {
 			return nil, err
 		}
-		return tmux.NewClient(server), nil
+		return newClient(server), nil
+	}
+	if err := r.refreshPersistedLabels(); err != nil {
+		return nil, err
 	}
 	return r, nil
+}
+
+func (r *Router) refreshPersistedLabels() error {
+	if r.store == nil {
+		return nil
+	}
+	labels, err := state.ReadTmuxServerLabels(r.store.Root())
+	if err != nil {
+		return err
+	}
+	for _, label := range labels {
+		if _, err := r.handle(label); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Router) handle(label string) (Handle, error) {
@@ -192,6 +217,11 @@ func (r *Router) RecordedHandles() ([]Handle, error) {
 			return nil, err
 		}
 		for _, m := range manifests {
+			if m.TmuxServer != "" && m.TmuxServer != "default" {
+				if err := tmux.ValidateNamedLabel(string(m.TmuxServer)); err != nil {
+					continue
+				}
+			}
 			if _, err := r.Route(m); err != nil {
 				return nil, err
 			}
@@ -247,6 +277,11 @@ func (r *Router) Invalidate() {
 // LiveIDs returns the union of observed session names only when every server
 // answered. Destructive callers must never treat unavailable as empty.
 func (r *Router) LiveIDs(ctx context.Context) (map[string]bool, error) {
+	// Destructive cleanup gets a fresh label set even when this router was
+	// constructed before another process created a development session.
+	if err := r.refreshPersistedLabels(); err != nil {
+		return nil, err
+	}
 	inv := r.Inventory(ctx)
 	for _, server := range inv.Servers {
 		if server.Outcome == Unavailable {

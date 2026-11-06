@@ -79,6 +79,39 @@ func TestProductionRouteUsesRecordedLabel(t *testing.T) {
 	}
 }
 
+func TestProductionRouterInventoriesPersistedLabels(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_current")
+	root := t.TempDir()
+	if err := state.RecordTmuxServerLabel(root, "dev_previous"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewProduction(state.OpenStore(root), tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) { return "", nil })))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handles, err := r.KnownHandles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(handles) != 3 || handles[0].Label() != "default" || handles[1].Label() != "dev_current" || handles[2].Label() != "dev_previous" {
+		t.Fatalf("known handles = %v", handles)
+	}
+}
+
+func TestLiveIDsRejectsLabelRecordedAfterRouterCreation(t *testing.T) {
+	root := t.TempDir()
+	r := New(state.OpenStore(root), map[string]*tmux.Client{"default": tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) {
+		t.Fatal("inventory ran before checking the new label")
+		return "", nil
+	}))}, func() string { return "default" }, nil)
+	if err := state.RecordTmuxServerLabel(root, "dev_previous"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.LiveIDs(t.Context()); err == nil {
+		t.Fatal("destructive inventory treated an unrouteable recorded label as absent")
+	}
+}
+
 func TestRouteUnknownLabelErrors(t *testing.T) {
 	r := testRouter(t, func(context.Context, ...string) (string, error) { return "", nil }, func(context.Context, ...string) (string, error) { return "", nil })
 	for _, label := range []string{"other", "bad label", "Default"} {

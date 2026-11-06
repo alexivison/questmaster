@@ -310,6 +310,9 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		if err := s.Store.Update(sessionID, func(m *state.Manifest) { m.TmuxServer = state.TmuxServer(handle.Label()) }); err != nil {
 			return s.startRollbackError(ctx, sessionID, true, fmt.Errorf("record tmux server: %w", err))
 		}
+		if err := s.verifyCreationOwnership(ctx, handle); err != nil {
+			return s.startRollbackError(ctx, sessionID, true, err)
+		}
 
 		if err := s.launchSession(ctx, launchConfig{
 			serverLabel: handle.Label(),
@@ -377,7 +380,7 @@ func (s *Service) rollbackStartedSession(ctx context.Context, sessionID string, 
 		ctx, cancel := rollbackContext(ctx)
 		defer cancel()
 		if err := s.Client.KillSession(ctx, sessionID); err != nil {
-			errs = append(errs, fmt.Errorf("kill partial tmux session: %w", err))
+			return fmt.Errorf("kill partial tmux session: %w", err)
 		}
 	}
 	if _, err := s.cleanupStartedSession(sessionID); err != nil {
@@ -407,7 +410,7 @@ func (s *Service) startDisplayMetadata(opts StartOpts) *state.DisplayMetadata {
 }
 
 func (s *Service) activeMasterClasses(ctx context.Context) ([]string, error) {
-	_, classes, err := liveMasterClasses(ctx, s.Store, s.Client)
+	_, classes, err := visibleLiveMasterClasses(ctx, s.Store, s.router())
 	if err != nil {
 		return nil, fmt.Errorf("list live sessions for class assignment: %w", err)
 	}
@@ -452,6 +455,10 @@ var errSessionIDTaken = errors.New("session ID taken")
 // rollback removes that directory and never a legacy one.
 func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, launch func(context.Context, string) error) error {
 	const maxAttempts = 100
+	creation, err := s.router().Creation()
+	if err != nil {
+		return err
+	}
 	timestamp := s.Now()
 	for attempt := range maxAttempts {
 		id := state.NewSessionID(timestamp)
@@ -478,6 +485,9 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, l
 			for _, h := range handles {
 				exists, err := h.Client().HasSession(ctx, id)
 				if err != nil {
+					if h.Label() != creation.Label() {
+						continue // another server's outage cannot prevent creation
+					}
 					_ = s.Store.Delete(id)
 					return err
 				}
@@ -507,7 +517,19 @@ func (s *Service) prepareCreation(ctx context.Context, handle tmuxroute.Handle) 
 	if err != nil {
 		return fmt.Errorf("inspect named tmux server: %w", err)
 	}
-	if !present {
+	if present {
+		if err := s.verifyCreationOwnership(ctx, handle); err != nil {
+			return err
+		}
+	}
+	if err := state.RecordTmuxServerLabel(s.Store.Root(), handle.Label()); err != nil {
+		return fmt.Errorf("record named tmux server: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) verifyCreationOwnership(ctx context.Context, handle tmuxroute.Handle) error {
+	if handle.Label() == "default" {
 		return nil
 	}
 	marker, err := handle.Client().RunBatch(ctx, []string{"show-options", "-gqv", "@questmaster_root"})

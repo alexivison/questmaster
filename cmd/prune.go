@@ -87,6 +87,19 @@ func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, clien
 		}
 		return result, fmt.Errorf("read state dir: %w", err)
 	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".json")
+		if !state.IsValidSessionID(id) || liveSet[id] {
+			continue
+		}
+		if _, err := store.Read(id); err != nil {
+			return result, fmt.Errorf("cannot prune with unreadable session manifest %s: %w", id, err)
+		}
+	}
 
 	cutoff := time.Now().Add(-time.Duration(maxDays) * 24 * time.Hour)
 	wouldDelete := map[string]bool{}
@@ -133,9 +146,12 @@ func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, clien
 			continue
 		}
 
-		// Try to parse manifest for master-with-workers guard; skip on parse failure (prune it).
+		// A manifest can become unreadable after the preflight scan.
 		m, readErr := store.Read(sessionID)
-		if readErr == nil && m.AgentSessionType() == "master" && len(m.Workers) > 0 {
+		if readErr != nil {
+			return result, fmt.Errorf("cannot prune with unreadable session manifest %s: %w", sessionID, readErr)
+		}
+		if m.AgentSessionType() == "master" && len(m.Workers) > 0 {
 			continue
 		}
 
