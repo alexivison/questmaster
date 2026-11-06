@@ -98,7 +98,7 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 		s.runtime = &serve.Server{Snapshotter: serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)}
 	}
 	if s.runtime.Snapshotter == nil {
-		s.runtime.Snapshotter = serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)
+		s.runtime.Snapshotter = serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil, s.runtime.TmuxRouter)
 	}
 	for _, job := range config.Jobs {
 		if pr, ok := job.(*prstatus.Job); ok {

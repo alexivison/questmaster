@@ -75,8 +75,7 @@ func newDaemonCmd(store *state.Store, router *tmuxroute.Router, routerErr error)
 		}
 		c.IdleGrace = idleGrace
 		prTmux := newDaemonTmuxClient()
-		prTmux.CacheListSessions(time.Second)
-		c.Jobs = append(c.Jobs, prstatus.NewJob(store.Root(), prTmux, prstatus.GH))
+		c.Jobs = append(c.Jobs, prstatus.NewJob(store.Root(), prTmux, prstatus.GH, router))
 		if clockInterval > 0 {
 			c.ClockInterval = clockInterval
 		}
@@ -184,7 +183,7 @@ func newDaemonConfigWithRouter(store *state.Store, tmuxClient *tmux.Client, rout
 	}
 	return daemon.Config{
 		Root:    root,
-		Jobs:    []daemon.Job{session.NewClassBackfillJob(state.OpenStore(root), tmuxClient)},
+		Jobs:    []daemon.Job{session.NewClassBackfillJob(state.OpenStore(root), tmuxClient, router)},
 		Runtime: &serve.Server{TmuxRouter: router},
 	}, nil
 }

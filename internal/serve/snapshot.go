@@ -18,6 +18,7 @@ import (
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/tracker"
 )
 
@@ -25,6 +26,7 @@ import (
 type Snapshotter struct {
 	store        *state.Store
 	tmuxClient   *tmux.Client
+	router       *tmuxroute.Router
 	fetcher      tracker.SessionFetcher
 	projects     *state.ProjectResolver
 	now          func() time.Time
@@ -33,14 +35,20 @@ type Snapshotter struct {
 }
 
 // NewSnapshotter creates a snapshot reader from existing qm services.
-func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time.Time) *Snapshotter {
+func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time.Time, routers ...*tmuxroute.Router) *Snapshotter {
 	if store == nil {
 		store = state.OpenStore(state.StateRoot())
 	}
-	if tmuxClient == nil {
-		tmuxClient = tmux.NewClient(tmux.DefaultServer())
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
 	}
-	tmuxClient.CacheListSessions(time.Second)
+	if router == nil {
+		if tmuxClient == nil {
+			tmuxClient = tmux.NewClient(tmux.DefaultServer())
+		}
+		router = tmuxroute.New(store, map[string]*tmux.Client{"default": tmuxClient}, func() string { return "default" }, nil)
+	}
 	if now == nil {
 		now = time.Now
 	}
@@ -48,7 +56,8 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 	return &Snapshotter{
 		store:      store,
 		tmuxClient: tmuxClient,
-		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store, projects),
+		router:     router,
+		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store, projects, router),
 		projects:   projects,
 		now:        now,
 	}
@@ -185,8 +194,8 @@ func (s *Snapshotter) Invalidate(change Change) {
 		// A state.json/artifacts.json rewrite cannot change tmux liveness, so
 		// those keep the 1s ListSessions TTL cache (worst case: a status flip
 		// lags by the TTL). Lifecycle and broad changes still clear it.
-		if s.tmuxClient != nil && (change.BroadTracker || change.Lifecycle || len(change.SessionIDs) == 0) {
-			s.tmuxClient.ClearListSessionsCache()
+		if s.router != nil && (change.BroadTracker || change.Lifecycle || len(change.SessionIDs) == 0) {
+			s.router.Invalidate()
 		}
 		if change.BroadTracker || len(change.SessionIDs) == 0 {
 			s.clearTrackerCache()
@@ -242,7 +251,15 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 			return s.refreshTracker()
 		}
 		before := next.Sessions[idx]
-		if _, live := liveSessions[sessionID]; live {
+		manifest, manifestErr := s.store.Read(sessionID)
+		if manifestErr != nil {
+			return s.refreshTracker()
+		}
+		handle, routeErr := s.router.Route(manifest)
+		if routeErr != nil {
+			return s.refreshTracker()
+		}
+		if _, live := liveSessions[handle.Label()+"\x00"+sessionID]; live {
 			next.Sessions[idx].Status = "active"
 		} else {
 			next.Sessions[idx].Status = "stopped"
@@ -369,16 +386,18 @@ func sameTime(a, b *time.Time) bool {
 }
 
 func (s *Snapshotter) liveSessionSet() (map[string]struct{}, error) {
-	if s.tmuxClient == nil {
-		return nil, fmt.Errorf("tmux client is required")
+	if s.router == nil {
+		return nil, fmt.Errorf("tmux router is required")
 	}
-	sessions, err := s.tmuxClient.ListSessions(context.Background())
-	if err != nil {
-		return nil, err
+	inv := s.router.Inventory(context.Background())
+	for _, server := range inv.Servers {
+		if server.Outcome == tmuxroute.Unavailable {
+			return nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+		}
 	}
-	live := make(map[string]struct{}, len(sessions))
-	for _, sessionID := range sessions {
-		live[sessionID] = struct{}{}
+	live := make(map[string]struct{}, len(inv.Rows))
+	for _, row := range inv.Rows {
+		live[row.Label+"\x00"+row.ID] = struct{}{}
 	}
 	return live, nil
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
@@ -22,12 +23,12 @@ type listJSONOutput struct {
 	Resumable []listSessionJSON `json:"resumable"`
 }
 
-func newListCmd(store *state.Store, client *tmux.Client) *cobra.Command {
+func newListCmd(store *state.Store, client *tmux.Client, routers ...*tmuxroute.Router) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List questmaster sessions (active and resumable)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result, err := collectList(cmd.Context(), store, client)
+			result, err := collectList(cmd.Context(), store, client, routers...)
 			if err != nil {
 				return err
 			}
@@ -41,16 +42,23 @@ type listResult struct {
 	stale  []state.Manifest
 }
 
-func collectList(ctx context.Context, store *state.Store, client *tmux.Client) (listResult, error) {
-	live, err := client.ListSessions(ctx)
-	if err != nil {
-		return listResult{}, fmt.Errorf("list tmux sessions: %w", err)
+func collectList(ctx context.Context, store *state.Store, client *tmux.Client, routers ...*tmuxroute.Router) (listResult, error) {
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
 	}
-	liveSet := make(map[string]bool, len(live))
-	for _, s := range live {
-		if state.IsValidSessionID(s) {
-			liveSet[s] = true
+	if router == nil {
+		router = tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	}
+	inv := router.Inventory(ctx)
+	for _, server := range inv.Servers {
+		if server.Outcome == tmuxroute.Unavailable {
+			return listResult{}, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
 		}
+	}
+	liveSet := make(map[string]bool, len(inv.Rows))
+	for _, row := range inv.Rows {
+		liveSet[row.Label+"\x00"+row.ID] = true
 	}
 
 	all, err := store.DiscoverSessions()
@@ -66,12 +74,19 @@ func collectList(ctx context.Context, store *state.Store, client *tmux.Client) (
 
 	// Build active list in tmux order (preserves shell semantics).
 	var active []state.Manifest
-	for _, id := range live {
+	for _, row := range inv.Rows {
+		id := row.ID
 		if !state.IsValidSessionID(id) {
 			continue
 		}
 		if m, ok := manifestIdx[id]; ok {
-			active = append(active, m)
+			h, err := router.Route(m)
+			if err != nil {
+				return listResult{}, err
+			}
+			if h.Label() == row.Label {
+				active = append(active, m)
+			}
 		} else {
 			active = append(active, state.Manifest{SessionID: id})
 		}
@@ -80,7 +95,11 @@ func collectList(ctx context.Context, store *state.Store, client *tmux.Client) (
 	// Stale: manifests not live in tmux.
 	var stale []state.Manifest
 	for _, m := range all {
-		if !liveSet[m.SessionID] {
+		h, err := router.Route(m)
+		if err != nil {
+			return listResult{}, err
+		}
+		if !liveSet[h.Label()+"\x00"+m.SessionID] {
 			stale = append(stale, m)
 		}
 	}

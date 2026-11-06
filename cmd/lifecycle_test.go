@@ -21,10 +21,10 @@ import (
 func allPassRunner() *mockRunner {
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) > 0 && args[0] == "has-session" {
-			return "", &tmux.ExitError{Code: 1}
+			return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 		}
 		if len(args) > 0 && args[0] == "list-sessions" {
-			return "", &tmux.ExitError{Code: 1}
+			return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 		}
 		if len(args) > 0 && args[0] == "new-session" {
 			return "%1", nil
@@ -48,7 +48,7 @@ func hasSessionRunner(live ...string) *mockRunner {
 		}
 		if len(args) >= 1 && args[0] == "list-sessions" {
 			if len(live) == 0 {
-				return "", &tmux.ExitError{Code: 1}
+				return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 			}
 			return strings.Join(live, "\n"), nil
 		}

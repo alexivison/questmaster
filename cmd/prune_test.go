@@ -55,7 +55,7 @@ func (r *pruneRunner) Run(_ context.Context, args ...string) (string, error) {
 			names = append(names, s)
 		}
 		if len(names) == 0 {
-			return "", &tmux.ExitError{Code: 1}
+			return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 		}
 		result := ""
 		for i, s := range names {

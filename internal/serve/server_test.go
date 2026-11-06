@@ -20,6 +20,7 @@ import (
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/tracker"
 	"github.com/fsnotify/fsnotify"
 )
@@ -2705,6 +2706,7 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 		t.Fatalf("initial active snapshot: %v", err)
 	}
 	incremental.tmuxClient = tmux.NewClient(fakeTmuxRunner{})
+	incremental.router = tmuxroute.New(env.store, map[string]*tmux.Client{"default": incremental.tmuxClient}, func() string { return "default" }, nil)
 	got, err = incremental.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
 	if err != nil {
 		t.Fatalf("incremental stopped snapshot: %v", err)

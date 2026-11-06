@@ -45,7 +45,7 @@ func displayRunner(t *testing.T, sessionName string, live ...string) *mockRunner
 		}
 		if len(args) >= 1 && args[0] == "list-sessions" {
 			if len(live) == 0 {
-				return "", &tmux.ExitError{Code: 1}
+				return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 			}
 			return strings.Join(live, "\n"), nil
 		}

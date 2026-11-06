@@ -8,6 +8,7 @@ import (
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/tracker"
 	"github.com/spf13/cobra"
 )
@@ -23,7 +24,7 @@ type sessionsJSONRow struct {
 	Cwd           string `json:"cwd,omitempty"`
 }
 
-func newSessionsCmd(store *state.Store, client *tmux.Client) *cobra.Command {
+func newSessionsCmd(store *state.Store, client *tmux.Client, routers ...*tmuxroute.Router) *cobra.Command {
 	return &cobra.Command{
 		Use:   "sessions",
 		Short: "Emit live questmaster sessions as JSON for integrations",
@@ -35,13 +36,13 @@ reported active=true when its agent pane state is "working", and
 active=false otherwise. The session is always emitted regardless of the
 active flag, so consumers can render idle sessions too.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSessions(cmd.OutOrStdout(), store, client)
+			return runSessions(cmd.OutOrStdout(), store, client, routers...)
 		},
 	}
 }
 
-func runSessions(w io.Writer, store *state.Store, client *tmux.Client) error {
-	snapshot, err := tracker.NewLiveSessionFetcher(client, store, state.NewProjectResolver())(tracker.SessionInfo{})
+func runSessions(w io.Writer, store *state.Store, client *tmux.Client, routers ...*tmuxroute.Router) error {
+	snapshot, err := tracker.NewLiveSessionFetcher(client, store, state.NewProjectResolver(), routers...)(tracker.SessionInfo{})
 	if err != nil {
 		return err
 	}
