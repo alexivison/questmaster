@@ -36,8 +36,8 @@ enum WorkerChatMetrics {
 
     /// Design `#D8DEE9` and `#9DA7B1` land on the nearest palette tokens by RGB; `#768390` is exact, and
     /// `#E8B34A` has its own `chatWorking` token. Worker free text is `#D9DBB8`, which has its own `chatSpeech` token. Tags are
-    /// named by RPG rarity: common (white) for tool calls and summoned familiars, rare and epic for item tags. Status tags keep
-    /// their status colours.
+    /// named by RPG rarity: common (white) for tool calls and summoned or dismissed familiars, rare and epic for item tags.
+    /// Status tags keep their status colours.
     enum Color {
         static let text = AppPalette.text
         static let speech = AppPalette.chatSpeech
