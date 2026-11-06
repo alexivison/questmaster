@@ -2357,9 +2357,10 @@ func TestStopReadsAssistantBeyond4KB(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 
+	root := setTestStateRoot(t)
+	seedHookSession(t, root, "qm-tail")
 	r := defaultHookRunner()
 	r.Now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC) }
-	setTestStateRoot(t)
 
 	payload, _ := json.Marshal(map[string]interface{}{"transcript_path": path})
 	var buf bytes.Buffer
@@ -2500,8 +2501,8 @@ func TestHookClaudeSessionIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
-	if store.readCalls != 1 {
-		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)
+	if store.readCalls != 2 {
+		t.Fatalf("manifest reads: got %d, want 2", store.readCalls)
 	}
 	if store.updateCalls != 0 {
 		t.Fatalf("manifest update should be skipped when unchanged, got %d updates", store.updateCalls)
@@ -2545,8 +2546,8 @@ func TestHookClaudeNoSessionIDLeavesManifestUntouched(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
-	if store.readCalls != 0 || store.updateCalls != 0 {
-		t.Fatalf("manifest should be untouched, reads=%d updates=%d", store.readCalls, store.updateCalls)
+	if store.readCalls != 1 || store.updateCalls != 0 {
+		t.Fatalf("manifest should only be read for the session check, reads=%d updates=%d", store.readCalls, store.updateCalls)
 	}
 	if len(tmuxEnv.calls) != 0 {
 		t.Fatalf("tmux env should be untouched, got %+v", tmuxEnv.calls)
@@ -3042,8 +3043,8 @@ func TestHookClaudeSessionEndPreservesLockedTitle(t *testing.T) {
 	if got := store.manifest.ExtraString("title_locked"); got != "1" {
 		t.Fatalf("title_locked: got %q, want 1", got)
 	}
-	if store.readCalls != 1 {
-		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)
+	if store.readCalls != 2 {
+		t.Fatalf("manifest reads: got %d, want 2", store.readCalls)
 	}
 	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RoleShell}) {
 		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
@@ -3261,8 +3262,8 @@ func TestHookCodexThreadIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
-	if store.readCalls != 1 {
-		t.Fatalf("manifest reads: got %d, want 1", store.readCalls)
+	if store.readCalls != 2 {
+		t.Fatalf("manifest reads: got %d, want 2", store.readCalls)
 	}
 	if store.updateCalls != 0 {
 		t.Fatalf("manifest update should be skipped when unchanged, got %d updates", store.updateCalls)
@@ -3306,8 +3307,8 @@ func TestHookCodexThreadIDUnsetLeavesManifestUntouched(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr: %q", stderr)
 	}
-	if store.readCalls != 0 || store.updateCalls != 0 {
-		t.Fatalf("manifest should be untouched, reads=%d updates=%d", store.readCalls, store.updateCalls)
+	if store.readCalls != 1 || store.updateCalls != 0 {
+		t.Fatalf("manifest should only be read for the session check, reads=%d updates=%d", store.readCalls, store.updateCalls)
 	}
 	if len(tmuxEnv.calls) != 0 {
 		t.Fatalf("tmux env should be untouched, got %+v", tmuxEnv.calls)
@@ -4385,6 +4386,7 @@ func TestHookDoesNotCallDiscoverSessions(t *testing.T) {
 // disk-backed store (no fake HookRunner).
 func TestHookEndToEndOnDisk(t *testing.T) {
 	root := setTestStateRoot(t)
+	seedHookSession(t, root, "qm-disk")
 
 	r := defaultHookRunner()
 	r.Now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC) }
