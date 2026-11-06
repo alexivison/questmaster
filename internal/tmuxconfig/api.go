@@ -181,6 +181,11 @@ func RestartIfEmpty(ctx context.Context, client *tmux.Client) (RestartResult, er
 		return RestartResult{}, err
 	}
 	if strings.TrimSpace(out) == "" {
+		// kill-server returns before the server process is gone, so a status or a
+		// new session right after this call could still reach the dying server.
+		if err := waitForServerExit(ctx, client); err != nil {
+			return RestartResult{}, err
+		}
 		return RestartResult{Restarted: true}, nil
 	}
 	sessions, err := strconv.Atoi(strings.TrimSpace(out))
@@ -188,4 +193,28 @@ func RestartIfEmpty(ctx context.Context, client *tmux.Client) (RestartResult, er
 		return RestartResult{}, fmt.Errorf("invalid tmux restart refusal count %q", out)
 	}
 	return RestartResult{Refused: true, Sessions: sessions}, nil
+}
+
+// serverExitTimeout bounds how long a restart waits for the killed server to go.
+const serverExitTimeout = 2 * time.Second
+
+// serverExitPoll is how often the wait asks whether the server is still there.
+const serverExitPoll = 20 * time.Millisecond
+
+// waitForServerExit polls until the server no longer answers. list-sessions
+// never starts a server, so polling cannot bring it back.
+func waitForServerExit(ctx context.Context, client *tmux.Client) error {
+	ctx, cancel := context.WithTimeout(ctx, serverExitTimeout)
+	defer cancel()
+	for {
+		_, err := client.RunBatch(ctx, []string{"list-sessions"})
+		if isNoServer(err) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("tmux server did not exit within %s after kill-server", serverExitTimeout)
+		case <-time.After(serverExitPoll):
+		}
+	}
 }
