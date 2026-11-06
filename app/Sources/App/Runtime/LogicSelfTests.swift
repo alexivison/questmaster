@@ -6,6 +6,7 @@ import Foundation
 import ImageIO
 import QuestmasterCore
 import SwiftUI
+import WebKit
 
 @MainActor
 enum LogicSelfTests {
@@ -15,15 +16,26 @@ enum LogicSelfTests {
         ("testDaemonEnsureUsesRespawnPolicy", testDaemonEnsureUsesRespawnPolicy),
         ("testDevBackendBeatsGlobalPathInSourceCheckout", testDevBackendBeatsGlobalPathInSourceCheckout),
         ("testPackagedBundleBeatsDevAndGlobalBackends", testPackagedBundleBeatsDevAndGlobalBackends),
+        ("testInstalledBundleStartsTheStableLink", testInstalledBundleStartsTheStableLink),
+        ("testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM", testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM),
         ("testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath", testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath),
         ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
+        ("testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges", testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
+        ("testTmuxStartupScriptRespawnsTheCreatedPaneByID", testTmuxStartupScriptRespawnsTheCreatedPaneByID),
+        ("testTmuxStartupScriptTargetsOnlyTheExactSession", testTmuxStartupScriptTargetsOnlyTheExactSession),
+        ("testTmuxStartupScriptWritesNoGlobalEnvironment", testTmuxStartupScriptWritesNoGlobalEnvironment),
+        ("testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment", testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment),
+        ("testTmuxClientCallsTargetTheExactSession", testTmuxClientCallsTargetTheExactSession),
         ("testNavigationTogglesKeepFocusAndHideToTerminal", testNavigationTogglesKeepFocusAndHideToTerminal),
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
+        ("testArtifactViewerLoadsNothingWhenTheBlockerFailsToCompile", testArtifactViewerLoadsNothingWhenTheBlockerFailsToCompile),
+        ("testArtifactViewerLoadsThePageOnceTheBlockerCompiles", testArtifactViewerLoadsThePageOnceTheBlockerCompiles),
+        ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
+        ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
-        ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testShellRowsLeaveTheRepoGroupsForTheirOwnSection", testShellRowsLeaveTheRepoGroupsForTheirOwnSection),
         ("testAnAttachedShellsPanelBarFollowsItsOwnColour", testAnAttachedShellsPanelBarFollowsItsOwnColour),
         ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
@@ -37,8 +49,9 @@ enum LogicSelfTests {
         ("testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting", testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting),
         ("testDurationClockHasOneTimerWhateverTheSubscribers", testDurationClockHasOneTimerWhateverTheSubscribers),
         ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
-        ("testSelectedSessionTagNamesTheAttachedSessionsProject", testSelectedSessionTagNamesTheAttachedSessionsProject),
-        ("testSelectedSessionTagSizesItsPartsFromTheSVG", testSelectedSessionTagSizesItsPartsFromTheSVG),
+        ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
+        ("testSelectedSessionPanelFrameKeepsItsRoundedCorners", testSelectedSessionPanelFrameKeepsItsRoundedCorners),
+        ("testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges", testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges),
         ("testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation", testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation),
         ("testAvatarEffectLayersKeepTheirPlacement", testAvatarEffectLayersKeepTheirPlacement),
         ("testAFinishPlaysInPlace", testAFinishPlaysInPlace),
@@ -59,7 +72,7 @@ enum LogicSelfTests {
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testBundledPaladinSpritesReadTheirAnimationFile", testBundledPaladinSpritesReadTheirAnimationFile),
         ("testBundledClericSpritesReadTheirAnimationFile", testBundledClericSpritesReadTheirAnimationFile),
-        ("testTheBubbleStaysInTheSlotAndUnderTheTag", testTheBubbleStaysInTheSlotAndUnderTheTag),
+        ("testTheBubbleStaysInTheAvatarSlot", testTheBubbleStaysInTheAvatarSlot),
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
@@ -86,9 +99,8 @@ enum LogicSelfTests {
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testChromeShadowsReachPastTheirClips", testChromeShadowsReachPastTheirClips),
         ("testShellRowsKeepTheMocksGeometry", testShellRowsKeepTheMocksGeometry),
-        ("testTheShellsScrollWithThePlatesInOneList", testTheShellsScrollWithThePlatesInOneList),
-        ("testTheTagStandsAtTheTrackersBottom", testTheTagStandsAtTheTrackersBottom),
-        ("testEachBundledClassSitsOnTheBottomMargin", testEachBundledClassSitsOnTheBottomMargin),
+        ("testTheShellSectionIsPinnedToTheTrackersBottom", testTheShellSectionIsPinnedToTheTrackersBottom),
+        ("testTheShellSectionScrollsInsideItselfPastItsMaxHeight", testTheShellSectionScrollsInsideItselfPastItsMaxHeight),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testQuestLogFilterReturnAndEscHandBackToTheList", testQuestLogFilterReturnAndEscHandBackToTheList),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
@@ -104,6 +116,7 @@ enum LogicSelfTests {
         ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
         ("testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents", testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
+        ("testArtifactExternalOpenUsesCurrentListAndViewerArtifact", testArtifactExternalOpenUsesCurrentListAndViewerArtifact),
         ("testGChordShortcutIgnoresCapsLock", testGChordShortcutIgnoresCapsLock),
         ("testKeymapPressReadsEventsAsTheKeymapDoes", testKeymapPressReadsEventsAsTheKeymapDoes),
         ("testKeymapPressIgnoresCapsLock", testKeymapPressIgnoresCapsLock),
@@ -147,7 +160,16 @@ enum LogicSelfTests {
         ("testOneShotServeClientsRejectIncompatibleEnvelopes", testOneShotServeClientsRejectIncompatibleEnvelopes),
         ("testServeStreamReconnectsAfterProtocolMismatch", testServeStreamReconnectsAfterProtocolMismatch),
         ("testReadLineReturnsALineSpanningManyReads", testReadLineReturnsALineSpanningManyReads),
+        ("testServeStreamJoinsLinesSplitAcrossWrites", testServeStreamJoinsLinesSplitAcrossWrites),
+        ("testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap", testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap),
+        ("testServeStreamStopsReadingAtAMidStreamProtocolMismatch", testServeStreamStopsReadingAtAMidStreamProtocolMismatch),
+        ("testServeStreamKeepsTheLastTrackerWhenTheConnectionDrops", testServeStreamKeepsTheLastTrackerWhenTheConnectionDrops),
+        ("testServeClientStopEndsAConnectedStream", testServeClientStopEndsAConnectedStream),
+        ("testServeClientStopClosesASocketThatConnectsAfterIt", testServeClientStopClosesASocketThatConnectsAfterIt),
+        ("testServeClientStopEndsTheRetryWait", testServeClientStopEndsTheRetryWait),
+        ("testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE", testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
+        ("testSettingsArrangeMovesAProjectWithShiftJAndK", testSettingsArrangeMovesAProjectWithShiftJAndK),
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
@@ -323,7 +345,7 @@ enum LogicSelfTests {
         let rowIDs = TrackerRenderer.flatSessions(in: tracker).map(\.id)
         try expect(rowIDs == ["master", "worker", "shell-first", "shell-second"], "the cursor and the numbers should walk the plates, then the shells, got \(rowIDs)")
 
-        let tag = SelectedSessionTagContent.make(currentTerminalSessionID: "shell-second", tracker: tracker)
+        let tag = SelectedSessionPanelContent.make(currentTerminalSessionID: "shell-second", tracker: tracker)
         try expect(tag.id == "shell-second" && tag.projectName == "Repo", "the tag should name an attached shell's repo, got \(tag.id) / \(tag.projectName)")
     }
 
@@ -338,7 +360,7 @@ enum LogicSelfTests {
         let tracker = TrackerRenderer.tracker(snapshot)
 
         func barColor(attached id: String) -> NSColor {
-            SelectedSessionTagContent.make(currentTerminalSessionID: id, tracker: tracker).projectColor
+            SelectedSessionPanelContent.make(currentTerminalSessionID: id, tracker: tracker).projectColor
         }
         guard let magenta = AppPalette.displayColor("magenta") else {
             throw TestFailure("magenta should be a display colour")
@@ -429,7 +451,7 @@ enum LogicSelfTests {
         let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
         let held = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         window.contentView = held
-        held.configure(path: CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil), color: AppPalette.bright)
+        held.configure(path: CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil), color: AppPalette.text)
         try expect(held.layer?.animationKeys()?.isEmpty != false, "a band should have no animation")
         try expect(held.layer?.opacity == TrackerGlowNSView.bandOpacity, "a band should hold its opacity")
     }
@@ -610,8 +632,10 @@ enum LogicSelfTests {
             return (weight / (scale * scale), weight == 0 ? .zero : CGPoint(x: sum.x / weight, y: sum.y / weight))
         }
 
-        /// The row tops: the first plate sits a spacing down the list (no header-alignment cell height here), the next after a row and a gap.
-        let masterTop = TrackerListMetrics.spacing
+        /// The first plate follows the selected-session panel and its list gap; each following row adds its height and a gap.
+        let masterTop = TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: 0)
+            + SelectedSessionPanel.canvasSize.height
+            + TrackerListMetrics.selectedPanelGap
         let workerTop = masterTop + TrackerNameplateRole.master.canvasSize.height + TrackerListMetrics.spacing
         let collapsedTop = workerTop + TrackerNameplateRole.worker.canvasSize.height + TrackerListMetrics.spacing
         let gutter = TrackerListMetrics.sidePadding
@@ -754,9 +778,9 @@ enum LogicSelfTests {
 
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
         try expectClose(TrackerListMetrics.spacing, 10, "every gap in the list")
+        try expectClose(TrackerListMetrics.selectedPanelGap, 40, "gap between the selected-session panel and the list")
+        try expectClose(TrackerListMetrics.shellClearance, 40, "clearance between the list and the pinned shell section")
         try expectClose(TrackerListMetrics.contentWidth, TrackerPlateDesign.topLevelSize.width + TrackerPlateDesign.glowBandWidth, "tracker content width, the master plate's and its band's")
-        try expectClose(TrackerListMetrics.selectedTagGap, 40, "gap between the list and the selected-session tag")
-        try expectClose(TrackerListMetrics.shellGap, 20, "gap between the last plate and the first shell")
 
         // The collapsed workers sit right under the disc's row, 40 right of its left edge, and fill the plate's width.
         let discLeft = TrackerNameplateRole.master.portraitOrigin.x
@@ -963,37 +987,246 @@ enum LogicSelfTests {
         }
     }
 
-    /// The tag's parts, from the SVG on the spacing scale: the id tab 15 high, the band 20 and the bar 10 inside a 1.5pt rim.
-    /// The tag is as wide as its title with 10 on each side of the band, up to the avatar's slot, and grows with the title.
-    private static func testSelectedSessionTagSizesItsPartsFromTheSVG() throws {
-        try expect(SelectedSessionTagMetrics.tabHeight == 15, "the id tab should be 15 high")
-        try expect(SelectedSessionTagMetrics.bandHeight == 20, "the title band should be 20 high")
-        try expect(SelectedSessionTagMetrics.barHeight == 10, "the project bar should be 10 high")
-        try expect(SelectedSessionTagMetrics.borderWidth == 1.5, "the frame's rim should be 1.5")
-        try expect(
-            SelectedSessionTagMetrics.width(forTitle: "") == 2 * (Space.item + SelectedSessionTagMetrics.borderWidth),
-            "an empty title leaves only the padding and the rim"
-        )
-        let short = SelectedSessionTagMetrics.width(forTitle: "Fix")
-        let long = SelectedSessionTagMetrics.width(forTitle: String(repeating: "x", count: 200))
-        try expect(short > 2 * Space.item && short < long, "the tag should grow with its title, got \(short) and \(long)")
-        try expect(long == TrackerAvatarMetrics.slotWidth, "a long title should stop at the avatar's slot, got \(long)")
+    /// Renders the panel's plate and reads the frame's right-hand corners, on the border outside the title strip and the
+    /// bar: each arc is the frame's colour, and outside it is clear. The SVG's clip group has a dark copy of the title
+    /// strip, which must not reach past the strip.
+    @MainActor
+    private static func testSelectedSessionPanelFrameKeepsItsRoundedCorners() throws {
+        let content = SelectedSessionPanelContent(title: "", id: "", projectName: "", projectColor: AppPalette.accent)
+        let size = SelectedSessionPanel.canvasSize
+        let scale: CGFloat = 2
+        // A real window, not `ImageRenderer`, which can't draw the panel's icon layers (they host their own views).
+        let window = HeadlessWindow(size: size, scale: scale)
+        defer { window.close() }
+        let view = NSHostingView(rootView: SelectedSessionPanel(content: content, onCopyID: { _ in }))
+        view.frame = NSRect(origin: .zero, size: size)
+        window.contentView = view
+        window.show()
+        func pixel(_ bitmap: NSBitmapImageRep, _ x: CGFloat, _ y: CGFloat) -> NSColor? {
+            bitmap.colorAt(x: Int(x * scale), y: Int(y * scale))?.usingColorSpace(.sRGB)
+        }
+        var bitmap = try snapshot(view, size: size, scale: scale)
+        try expect(waitUntil {
+            if let next = try? snapshot(view, size: size, scale: scale) {
+                bitmap = next
+            }
+            return (pixel(bitmap, 258.5, 24.5)?.alphaComponent ?? 0) > 0.9
+        }, "the panel should draw its frame")
+        try expect(bitmap.pixelsWide == 520 && bitmap.pixelsHigh == 150, "the panel should render 260 x 75 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
+        guard let arc = pixel(bitmap, 258.5, 24.5), let outside = pixel(bitmap, 259.5, 22),
+              let frame = AppPalette.lineSoftSubtle.usingColorSpace(.sRGB) else {
+            throw TestFailure("the corner pixels should be readable")
+        }
+        func isFrameColour(_ color: NSColor) -> Bool {
+            color.alphaComponent > 0.9
+                && abs(color.redComponent - frame.redComponent) < 0.02
+                && abs(color.greenComponent - frame.greenComponent) < 0.02
+                && abs(color.blueComponent - frame.blueComponent) < 0.02
+        }
+        try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
+        try expect(isFrameColour(arc), "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
+        guard let bottomArc = pixel(bitmap, 258.5, 65) else {
+            throw TestFailure("the bottom-right pixel should be readable")
+        }
+        try expect(isFrameColour(bottomArc), "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")
     }
 
-    private static func testSelectedSessionTagNamesTheAttachedSessionsProject() throws {
+    private static func testSelectedSessionPanelNamesTheAttachedSessionsProject() throws {
         let master = TrackerSession(id: "qm-attached", title: "Fix bug", repoName: "Preview", role: "master")
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "preview", name: "Preview", sessions: [master])])
         let tracker = TrackerRenderer.tracker(snapshot)
 
-        let attached = SelectedSessionTagContent.make(currentTerminalSessionID: "qm-attached", tracker: tracker)
+        let attached = SelectedSessionPanelContent.make(currentTerminalSessionID: "qm-attached", tracker: tracker)
         guard attached.id == "qm-attached", attached.projectName == "Preview" else {
-            throw TestFailure("the tag should name the attached session's project, got \(attached.id) / \(attached.projectName)")
+            throw TestFailure("the panel should name the attached session's project, got \(attached.id) / \(attached.projectName)")
         }
-        let shell = SelectedSessionTagContent.make(currentTerminalSessionID: nil, tracker: tracker)
+        let shell = SelectedSessionPanelContent.make(currentTerminalSessionID: nil, tracker: tracker)
         guard shell.projectName.isEmpty else {
             throw TestFailure("a shell with no attached session should show no project")
         }
+    }
+
+    /// The disc's icon (a class portrait, or a shell's glyph) fades in when the attached session (or its portrait) changes, in
+    /// Core Animation: one opacity animation on the icon's own layer, from clear to full over the standard step on the shared
+    /// easing, run once by the render server with the views left in place (the icon is neither re-created nor redrawn for it).
+    /// Exactly one fade runs when an icon comes in; none when the disc goes to, or stays, empty. The first icon, an edit that
+    /// leaves the session and its portrait alone, a view outside a window and Reduce Motion show no fade. The disc's pixels
+    /// are the model layers', which the fade leaves alone: the new icon is in them when the fade starts and they end as drawn
+    /// fresh.
+    private static func testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges() throws {
+        defer { Motion.reducesMotion = { false } }
+        Motion.reducesMotion = { false }
+        func content(id: String, title: String = "Fix bug", portrait: SessionPortrait? = nil, isShell: Bool = false) -> SelectedSessionPanelContent {
+            SelectedSessionPanelContent(title: title, id: id, projectName: "Preview", projectColor: AppPalette.accent, portrait: portrait, isShell: isShell)
+        }
+        func views(under view: NSView) -> [NSView] { [view] + view.subviews.flatMap { views(under: $0) } }
+        func icons(in view: NSView) -> [IconFadeView] { views(under: view).compactMap { $0 as? IconFadeView } }
+        func fades(in view: NSView) -> [CABasicAnimation] { icons(in: view).compactMap(\.fadeAnimation) }
+        /// The clearest an animating icon layer is right now, as Core Animation shows it: 1 when none is animating.
+        func shownOpacity(in view: NSView) -> Float {
+            icons(in: view).filter { $0.fadeAnimation != nil }.compactMap { $0.layer?.presentation()?.opacity }.min() ?? 1
+        }
+        func host(_ initial: SelectedSessionPanelContent) throws -> (model: SelectedSessionPanelFadeModel, view: NSView, window: HeadlessWindow) {
+            let model = SelectedSessionPanelFadeModel(initial)
+            let size = SelectedSessionPanel.canvasSize
+            let window = HeadlessWindow(size: size)
+            let view = NSHostingView(rootView: SelectedSessionPanelFadeHarness(model: model))
+            view.frame = NSRect(origin: .zero, size: size)
+            window.contentView = view
+            window.show()
+            try expect(waitUntil { icons(in: view).count == 1 }, "the panel should mount its one icon layer")
+            return (model, view, window)
+        }
+        /// The bytes of the disc's square, 64 across, from the panel's top left.
+        func disc(_ view: NSView) throws -> [UInt8] {
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds), let data = rep.bitmapData else {
+                throw TestFailure("the panel should render to a bitmap")
+            }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+            let side = Int(64 * scale)
+            let origin = Int(6 * scale)
+            var bytes: [UInt8] = []
+            for row in origin..<(origin + side) {
+                let start = row * rep.bytesPerRow + origin * rep.samplesPerPixel
+                bytes.append(contentsOf: UnsafeBufferPointer(start: data + start, count: side * rep.samplesPerPixel))
+            }
+            return bytes
+        }
+        /// The disc once its portrait has drawn: a portrait has far more shades than the bare disc.
+        let portraitShades = 100
+        func drawnDisc(_ view: NSView) throws -> [UInt8] {
+            var bytes: [UInt8] = []
+            try expect(waitUntil {
+                bytes = (try? disc(view)) ?? []
+                return Set(bytes).count > portraitShades
+            }, "the portrait should draw")
+            return bytes
+        }
+        func distance(_ a: [UInt8], _ b: [UInt8]) -> Double {
+            Double(zip(a, b).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }) / Double(max(1, a.count))
+        }
+        func isDrawnAs(_ view: NSView, _ settled: [UInt8]) -> Bool {
+            (try? disc(view)).map { distance($0, settled) < 1.5 } ?? false
+        }
+
+        let paladin = content(id: "qm-a", portrait: .master(.paladin))
+        let wizard = content(id: "qm-b", portrait: .master(.wizard))
+        let shell = content(id: "qm-c", isShell: true)
+        let otherShell = content(id: "qm-d", isShell: true)
+        let empty = content(id: "qm-e")
+        let otherEmpty = content(id: "qm-f")
+        let fresh = try host(wizard)
+        defer { fresh.window.close() }
+        let wizardSettled = try drawnDisc(fresh.view)
+
+        let (model, view, window) = try host(paladin)
+        defer { window.close() }
+        let paladinSettled = try drawnDisc(view)
+        try expect(distance(paladinSettled, wizardSettled) > 5, "the two classes should draw differently, got \(distance(paladinSettled, wizardSettled))")
+        try expect(fades(in: view).isEmpty, "the first icon should not fade in")
+        let mounted = views(under: view).map(ObjectIdentifier.init)
+
+        /// Switches to `next` from a clean slate (a finished fade stays on its layer until Core Animation's next commit) and
+        /// returns how many icon layers fade, once the first shows.
+        func fadeCount(after next: SelectedSessionPanelContent, _ what: String) throws -> Int {
+            icons(in: view).forEach { $0.layer?.removeAllAnimations() }
+            model.content = next
+            try expect(waitUntil { shownOpacity(in: view) < 1 }, "\(what) should start clear and fade in on its layer")
+            return fades(in: view).count
+        }
+        /// Switches to `next` from a clean slate and, once `landed`, expects nothing to fade.
+        func expectNoFade(after next: SelectedSessionPanelContent, landed: () -> Bool, _ what: String) throws {
+            icons(in: view).forEach { $0.layer?.removeAllAnimations() }
+            model.content = next
+            try expect(waitUntil(landed), "\(what) should land")
+            pump(0.1)
+            try expect(fades(in: view).isEmpty, "\(what) shouldn't fade")
+        }
+
+        // A new session's class: its portrait, and only that, comes in from clear on its layer.
+        try expect(try fadeCount(after: wizard, "a class after a class") == 1, "a class-to-class switch should fade one icon")
+        let running = fades(in: view)
+        try expect(
+            running.allSatisfy {
+                $0.keyPath == "opacity" && $0.fromValue as? Double == 0 && $0.toValue as? Double == 1
+                    && $0.duration == Motion.duration(.standard) && $0.repeatCount == 0 && !$0.autoreverses
+                    && $0.timingFunction === Motion.timingFunction
+            },
+            "it is one Core Animation opacity fade from clear to full over the standard step, once, on the shared easing"
+        )
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the fade should end on its own, on full opacity")
+        try expect(icons(in: view).allSatisfy { $0.layer?.opacity == 1 }, "and leave the icon layer fully opaque")
+        try expect(views(under: view).map(ObjectIdentifier.init) == mounted, "the icon's views should be the same ones, not re-created")
+        try expect(waitUntil { isDrawnAs(view, wizardSettled) }, "the fade should end on the new icon as drawn fresh")
+
+        // The same session and portrait with a new title: no fade.
+        try expectNoFade(after: content(id: "qm-b", title: "Another title", portrait: .master(.wizard)), landed: { true }, "an edit to the same session")
+
+        // A shell's glyph fades in as a class's portrait does, one fade a switch; so does the portrait after it.
+        try expect(try fadeCount(after: shell, "a shell after a class") == 1, "a class-to-shell switch should fade one icon")
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the glyph's fade should end on its own")
+        try expect(waitUntil { !isDrawnAs(view, wizardSettled) }, "the glyph should replace the portrait")
+        try expect(try fadeCount(after: otherShell, "another shell") == 1, "a shell-to-shell switch should fade one icon")
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the second glyph's fade should end on its own")
+        try expect(try fadeCount(after: paladin, "a class after a shell") == 1, "a shell-to-class switch should fade one icon")
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the portrait's fade should end on its own")
+        try expect(waitUntil { isDrawnAs(view, paladinSettled) }, "the class's portrait should end as drawn fresh")
+
+        // An empty disc (no class, or nothing attached) has no icon to fade: going to it drops the old icon at once, and
+        // going from it to another empty disc changes nothing. A class after it fades in.
+        try expectNoFade(after: empty, landed: { !isDrawnAs(view, paladinSettled) }, "a class-to-empty-disc switch")
+        try expectNoFade(after: otherEmpty, landed: { true }, "an empty-disc-to-empty-disc switch")
+        try expect(try fadeCount(after: wizard, "a class after an empty disc") == 1, "an empty-disc-to-class switch should fade one icon")
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the portrait's fade should end on its own")
+        try expect(views(under: view).map(ObjectIdentifier.init) == mounted, "no switch should re-create the icon's views")
+        try expect(waitUntil { isDrawnAs(view, wizardSettled) }, "the class's portrait should end as drawn fresh")
+
+        // An icon still fading in when the disc goes empty: the fade goes with the icon. Nothing is cleared by hand after the
+        // switch (`expectNoFade` would), so only the view can have dropped it.
+        try expect(try fadeCount(after: paladin, "a class before an empty disc") == 1, "a class after a class should fade one icon")
+        model.content = empty
+        try expect(waitUntil { fades(in: view).isEmpty }, "a switch to an empty disc should drop the fade still running")
+
+        // Reduce Motion: the new icon is there at once, with nothing to run.
+        icons(in: view).forEach { $0.layer?.removeAllAnimations() }
+        Motion.reducesMotion = { true }
+        model.content = paladin
+        try expect(waitUntil { isDrawnAs(view, paladinSettled) }, "under Reduce Motion the icon should land")
+        try expect(fades(in: view).isEmpty, "under Reduce Motion the icon should land with no fade")
+
+        // The view itself: nothing to fade outside a window, on the first key, the same key or an empty key (nothing to show);
+        // leaving the window ends a fade, and any update under Reduce Motion drops one still running.
+        Motion.reducesMotion = { false }
+        let loose = IconFadeView(rootView: AnyView(Color.clear))
+        loose.configure(rootView: AnyView(Color.clear), key: "a")
+        loose.configure(rootView: AnyView(Color.clear), key: "b")
+        try expect(loose.fadeAnimation == nil, "a view outside a window has nothing to fade")
+        let looseWindow = HeadlessWindow(size: SelectedSessionPanel.canvasSize)
+        defer { looseWindow.close() }
+        let container = NSView(frame: NSRect(origin: .zero, size: SelectedSessionPanel.canvasSize))
+        looseWindow.contentView = container
+        container.addSubview(loose)
+        loose.configure(rootView: AnyView(Color.clear), key: "b")
+        try expect(loose.fadeAnimation == nil, "the same key shouldn't fade")
+        loose.configure(rootView: AnyView(Color.clear), key: "")
+        try expect(loose.fadeAnimation == nil, "an empty key is nothing to show and shouldn't fade")
+        loose.configure(rootView: AnyView(Color.clear), key: "c")
+        try expect(loose.fadeAnimation != nil, "a new key in a window, after an empty one, should fade")
+        loose.removeFromSuperview()
+        try expect(loose.fadeAnimation == nil, "a view removed from its window mid-fade should have no fade left")
+        container.addSubview(loose)
+        try expect(loose.fadeAnimation == nil, "and a remount shouldn't bring one back")
+        loose.configure(rootView: AnyView(Color.clear), key: "d")
+        try expect(loose.fadeAnimation != nil, "a new key after the remount should fade again")
+        loose.configure(rootView: AnyView(Color.clear), key: "")
+        try expect(loose.fadeAnimation == nil, "a switch to an empty key mid-fade should drop the fade, though it starts none")
+        loose.configure(rootView: AnyView(Color.clear), key: "e")
+        try expect(loose.fadeAnimation != nil, "a key after an empty one should fade")
+        Motion.reducesMotion = { true }
+        loose.configure(rootView: AnyView(Color.clear), key: "e")
+        try expect(loose.fadeAnimation == nil, "an update with the same key under Reduce Motion should drop a fade still running")
     }
 
     /// A pose switch lands at once. Core Animation animates an implicit change to a layer's contents, position, bounds or
@@ -1767,10 +2000,9 @@ enum LogicSelfTests {
         try expect(missing.isEmpty, "every frame the cleric's file plays should have its art, missing: \(missing)")
     }
 
-    /// The shared bubble, drawn as the calling-out rig places it, sits inside the slot and under the tag. Every bundled class with an
-    /// anchor is checked, and a fixture with one covers the path until a class ships one.
+    /// The shared bubble stays inside the avatar slot. Every bundled class with an anchor is checked, and a fixture with one covers the path until a class ships one.
     @MainActor
-    private static func testTheBubbleStaysInTheSlotAndUnderTheTag() throws {
+    private static func testTheBubbleStaysInTheAvatarSlot() throws {
         for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key })
         where sprites.animation.animation(for: .callingOut)?.bubble != nil {
             try expectBubbleClear(of: sprites, named: classID)
@@ -1795,11 +2027,10 @@ enum LogicSelfTests {
         return TrackerAvatarSprites(classID: "cleric", animation: animation, folder: folder)
     }
 
-    /// Checks the bubble the calling-out rig places for `sprites`, as the slot sees it (top left origin): it lies inside the slot, and its
-    /// top sits under the tag's bottom edge, which is `avatarGap` over the class's idle figure.
+    /// Checks the bubble the calling-out rig places for `sprites`, as the slot sees it (top left origin): it lies inside the slot.
     @MainActor
     private static func expectBubbleClear(of sprites: TrackerAvatarSprites, named name: String) throws {
-        guard let placement = sprites.animation.animation(for: .callingOut), let figure = sprites.idleFigureHeight,
+        guard let placement = sprites.animation.animation(for: .callingOut),
               sprites.bubble != nil, let rig = TrackerAvatarFrameRig(pose: .callingOut, placement: placement, sprites: sprites) else {
             throw TestFailure("\(name) should draw its calling out with the shared bubble")
         }
@@ -1808,16 +2039,15 @@ enum LogicSelfTests {
         try expect(rig.root.sublayers?.last === rig.bubble, "\(name)'s bubble should draw over the figure and its effects")
         // Layers measure from the bottom left: the bubble is in the root's space, and the root in the slot's.
         let bubble = rig.bubble.frame.offsetBy(dx: rig.root.frame.minX, dy: rig.root.frame.minY)
-        let top = slot.height - bubble.maxY
-        let tagBottom = slot.height - CGFloat(figure) - TrackerListMetrics.avatarGap
+        let bubbleTop = slot.height - bubble.maxY
+        let bubbleBottom = slot.height - bubble.minY
         try expect(bubble.width > 0 && bubble.height > 0, "\(name)'s bubble should have a frame")
-        try expect(bubble.minX >= slot.minX && bubble.maxX <= slot.maxX && top >= slot.minY && slot.height - bubble.minY <= slot.maxY,
+        try expect(bubble.minX >= slot.minX && bubble.maxX <= slot.maxX && bubbleTop >= slot.minY && bubbleBottom <= slot.maxY,
                    "\(name)'s bubble should sit inside the slot, got \(bubble)")
-        try expect(top >= tagBottom, "\(name)'s bubble should sit under the tag's bottom at \(tagBottom), got its top at \(top)")
     }
 
     /// Each bundled class's idle figure is measured from its own art, against its foot line, and the slot reserves the tallest one
-    /// rounded up to the 5 pt step. The tag's place follows these numbers.
+    /// rounded up to the 5 pt step.
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
@@ -2064,6 +2294,33 @@ enum LogicSelfTests {
         try expect(backend.source == .bundled && backend.executablePath == fixture.qm.path, "bundle should use its qm")
     }
 
+    private static func testInstalledBundleStartsTheStableLink() throws {
+        let fixture = try appBackendFixture()
+        let installed = fixture.stateRoot.appendingPathComponent("bin/versions/v1-test-0123456789ab/qm")
+        let stable = fixture.stateRoot.appendingPathComponent("bin/current/qm")
+        try FileManager.default.createDirectory(at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try writeExecutable("#!/bin/sh\necho installed qm\n", to: installed)
+        try FileManager.default.createSymbolicLink(atPath: stable.path, withDestinationPath: installed.path)
+        let backend = AppBackendResolver.resolve(arguments: [], environment: fixture.environment,
+                                                workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        // The link path itself, not its target: the daemon is canonical because it runs as the link.
+        try expect(backend.source == .stable && backend.executablePath == stable.path,
+                   "installed bundle should start the stable link, got \(backend.source) \(backend.executablePath)")
+        try expect(backend.command("start")?.arguments == ["daemon", "start"], "stable link should use daemon start")
+    }
+
+    private static func testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM() throws {
+        let fixture = try appBackendFixture()
+        let stable = fixture.stateRoot.appendingPathComponent("bin/current/qm")
+        try FileManager.default.createDirectory(at: stable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: stable.path, withDestinationPath: fixture.root.appendingPathComponent("gone/qm").path)
+        let backend = AppBackendResolver.resolve(arguments: [], environment: fixture.environment,
+                                                workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        try expect(backend.source == .bundled && backend.executablePath == fixture.qm.path,
+                   "a dangling stable link should fall back to the bundle's qm, got \(backend.source) \(backend.executablePath)")
+    }
+
     private static func testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath() throws {
         let fixture = try appBackendFixture()
         let backend = LaunchConfiguration.load(
@@ -2121,6 +2378,40 @@ enum LogicSelfTests {
         try expect(env["PATH"]?.split(separator: ":").first.map(String.init) == shim, "daemon shim should be first on PATH")
     }
 
+    /// A record miss (after every dropped connection) hashes the daemon binary only when it changed on disk.
+    private static func testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges() throws {
+        let fixture = try appBackendFixture()
+        let binary = fixture.root.appendingPathComponent("daemon-qm")
+        try Data("first build".utf8).write(to: binary)
+        let json = try String(data: JSONSerialization.data(withJSONObject: [
+            "running": true, "root": fixture.stateRoot.path, "identity": "canonical",
+            "socket": fixture.root.appendingPathComponent("daemon.sock").path,
+            "executable": binary.path, "shim_directory": fixture.root.appendingPathComponent("daemon-shims").path,
+            "build": "first build", "generation": 1, "accepting": true,
+        ]), encoding: .utf8) ?? ""
+        try writeExecutable("#!/bin/sh\nprintf '%s\\n' '\(json)'\n", to: fixture.qm)
+        let config = LaunchConfiguration.load(environment: fixture.environment,
+                                              workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        let previous = AppBackendEnvironment.current
+        defer { if let previous { AppBackendEnvironment.activate(previous) } }
+        AppBackendEnvironment.activate(config.backend)
+        var hashed: [String] = []
+        let connection = DaemonConnection(config: config, hashFile: { path in
+            hashed.append(path)
+            return (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        })
+
+        _ = try connection.record()
+        connection.invalidate()
+        _ = try connection.record()
+        try expect(hashed == [binary.path], "an unchanged binary should be hashed once, got \(hashed.count) hashes")
+
+        try Data("second, longer build".utf8).write(to: binary)
+        connection.invalidate()
+        _ = try connection.record()
+        try expect(hashed.count == 2, "a changed binary should be hashed again, got \(hashed.count) hashes")
+    }
+
     private static func testTmuxStartupScriptScopesAppBackendEnvironmentToSession() throws {
         let fixture = try appBackendFixture()
         let backend = LaunchConfiguration.load(
@@ -2138,10 +2429,10 @@ enum LogicSelfTests {
             "QUESTMASTER_PATH_PREFIX": "/test/prefix",
         ]
         let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: env)
-        let createIndex = try substringIndex(in: script, "\"$tmux\" new-session -d -s \"$session\" sleep 2147483647")
+        let createIndex = try substringIndex(in: script, "\"$tmux\" new-session -d -P -F '#{pane_id}' -s \"$session\" sleep 2147483647")
 
         try expect(!script.contains("exec \"$tmux\" attach-session"), "startup script should not exec tmux attach")
-        let attachIndex = try substringIndex(in: script, "\"$tmux\" attach-session -t \"$session\" || true")
+        let attachIndex = try substringIndex(in: script, "\"$tmux\" attach-session -t \"=$session\" || true")
         let markerIndex = try substringIndex(in: script, "printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")
         let unsetIndex = try substringIndex(in: script, "unset QUESTMASTER_SESSION TMUX TMUX_PANE || true")
         let shellExecIndex = try substringIndex(in: script, "exec '/tmp/custom shell/zsh' -l")
@@ -2151,22 +2442,18 @@ enum LogicSelfTests {
 
         for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX"] {
             try expect(!script.contains("set-environment -g '\(key)'"), "startup script should not globally sync \(key)")
-            try expect(script.contains("set-environment -t \"$session\" '\(key)'"), "startup script should session-sync \(key)")
-            let syncIndex = try substringIndex(in: script, "set-environment -t \"$session\" '\(key)'")
+            try expect(script.contains("set-environment -t \"=$session\" '\(key)'"), "startup script should session-sync \(key)")
+            let syncIndex = try substringIndex(in: script, "set-environment -t \"=$session\" '\(key)'")
             try expect(createIndex < syncIndex, "startup script should create session before syncing \(key)")
         }
-        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_DAEMON_SOCKET"] {
-            try expect(script.contains("set-environment -g -r '\(key)'"), "startup script should clear stale global \(key)")
-        }
-        try expect(script.contains("set-environment -g -r 'QUESTMASTER_HOME'"), "startup script should clear stale global quest home")
-        try expect(script.contains("set-environment -t \"$session\" -r 'QUESTMASTER_HOME'"), "startup script should clear session quest home")
-        let respawnIndex = try substringIndex(in: script, "\"$tmux\" respawn-pane -k -t \"$session\":0.0")
+        try expect(script.contains("set-environment -t \"=$session\" -r 'QUESTMASTER_HOME'"), "startup script should clear session quest home")
+        let respawnIndex = try substringIndex(in: script, "\"$tmux\" respawn-pane -k -t \"$pane\"")
         try expect(createIndex < respawnIndex, "startup script should respawn created panes after env sync")
         let respawnLines = script.split(separator: "\n").map(String.init)
-        let respawnLine = respawnLines[try lineIndex(in: respawnLines, containing: "respawn-pane -k -t \"$session\":0.0")]
+        let respawnLine = respawnLines[try lineIndex(in: respawnLines, containing: "respawn-pane -k -t \"$pane\"")]
         try expect(respawnLines.last == "exec '/tmp/custom shell/zsh' -l", "startup script should end by execing the login shell")
         try expect(
-            !respawnLine.contains("respawn-pane -k -t \"$session\":0.0 || true"),
+            !respawnLine.contains("respawn-pane -k -t \"$pane\" || true"),
             "startup script should not respawn the placeholder without an explicit shell command"
         )
         try expect(respawnLine.contains("/tmp/custom shell/zsh"), "startup script should respawn using the configured shell")
@@ -2176,10 +2463,120 @@ enum LogicSelfTests {
         fallbackEnv.removeValue(forKey: "SHELL")
         let fallbackScript = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: fallbackEnv)
         let fallbackLines = fallbackScript.split(separator: "\n").map(String.init)
-        let fallbackRespawnLine = fallbackLines[try lineIndex(in: fallbackLines, containing: "respawn-pane -k -t \"$session\":0.0")]
+        let fallbackRespawnLine = fallbackLines[try lineIndex(in: fallbackLines, containing: "respawn-pane -k -t \"$pane\"")]
         try expect(fallbackRespawnLine.contains("/bin/zsh"), "startup script should fall back to /bin/zsh")
         try expect(fallbackRespawnLine.contains("-l"), "fallback shell should be a login shell")
-        try expect(script.contains("set-environment -g 'HOME'"), "startup script may still global-sync safe shell keys")
+    }
+
+    private static func testTmuxStartupScriptTargetsOnlyTheExactSession() throws {
+        // qm-123 is a prefix of qm-123-456. tmux resolves a bare name to the sibling
+        // when no session is named qm-123, so session targets need the exact-match "=".
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: [
+            "HOME": "/Users/example",
+            "PATH": "/usr/bin",
+            "QUESTMASTER_BIN": "/Applications/example/qm",
+        ])
+        try expect(script.contains("session='qm-123'"), "startup script should name the session it was built for")
+        let targetLines = script.split(separator: "\n").filter { $0.contains(" -t ") }
+        try expect(!targetLines.isEmpty, "startup script should address tmux sessions with -t")
+        for line in targetLines {
+            let target = line.contains("respawn-pane") ? "\"$pane\"" : "\"=$session\""
+            try expect(line.contains(" -t \(target)"), "startup script should use an exact target: \(line)")
+        }
+    }
+
+    private static func testTmuxStartupScriptRespawnsTheCreatedPaneByID() throws {
+        let tmuxPath = ProcessInfo.processInfo.environment["QUESTMASTER_TEST_TMUX_WRAPPER"] ?? "/usr/bin/tmux"
+        let script = tmuxStartupScript(tmuxPath: tmuxPath, session: "qm-123", environment: [
+            "HOME": "/tmp",
+            "PATH": "/usr/bin:/bin",
+            "SHELL": "/bin/sh",
+        ])
+        try expect(!script.contains(":0.0"), "startup script should not assume window and pane index zero")
+        try expect(!script.contains("-t \"=$session\":0"), "startup script should not target window index zero")
+        try expect(script.contains("new-session -d -P -F '#{pane_id}' -s \"$session\""),
+                   "startup script should capture the created pane ID")
+        try expect(script.contains("respawn-pane -k -t \"$pane\""),
+                   "startup script should respawn the pane by its captured ID")
+        try expect(script.contains("if [ \"$created\" = 1 ] && [ -n \"$pane\" ]; then"),
+                   "startup script should not respawn without a captured pane ID")
+        if let path = ProcessInfo.processInfo.environment["QUESTMASTER_TEST_STARTUP_SCRIPT_DUMP"] {
+            try script.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private static func testTmuxStartupScriptWritesNoGlobalEnvironment() throws {
+        let environment = [
+            "HOME": "/Users/example",
+            "XDG_CONFIG_HOME": "/Users/example/.config",
+            "SHELL": "/bin/zsh",
+            "LANG": "en_US.UTF-8",
+            "USER": "example",
+            "TMPDIR": "/private/tmp/example/",
+            "PATH": "/test/prefix:/usr/bin",
+            "QUESTMASTER_APP": "1",
+            "QUESTMASTER_STATE_ROOT": "/Users/example/.questmaster-state",
+            "QUESTMASTER_BIN": "/test/prefix/qm",
+            "QUESTMASTER_PATH_PREFIX": "/test/prefix",
+        ]
+        for values in [environment, [:]] {
+            let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: values)
+            try expect(!script.contains("set-environment -g"), "startup script should write no global tmux environment")
+        }
+    }
+
+    private static func testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment() throws {
+        // A server the script starts copies its starting environment into the global one,
+        // so the script starts it without Questmaster's keys and without the shim directory on PATH.
+        let environment = [
+            "HOME": "/Users/example",
+            "PATH": "/Users/example/shim:/usr/bin:/bin",
+            "QUESTMASTER_APP": "1",
+            "QUESTMASTER_STATE_ROOT": "/Users/example/.questmaster-state",
+            "QUESTMASTER_BIN": "/Users/example/shim/qm",
+            "QUESTMASTER_PATH_PREFIX": "/Users/example/shim",
+            "QUESTMASTER_DAEMON_SOCKET": "/Users/example/.questmaster-state/daemon.sock",
+        ]
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: environment)
+        let lines = script.split(separator: "\n").map(String.init)
+        let newSessionLine = lines[try lineIndex(in: lines, containing: "new-session -d -P -F '#{pane_id}' -s")]
+
+        try expect(newSessionLine.contains("/usr/bin/env -u QUESTMASTER_APP "), "new server should start through env without Questmaster keys")
+        for key in [
+            "QUESTMASTER_APP",
+            "QUESTMASTER_STATE_ROOT",
+            "QUESTMASTER_HOME",
+            "QUESTMASTER_BIN",
+            "QUESTMASTER_PATH_PREFIX",
+            "QUESTMASTER_DAEMON_SOCKET",
+            "QUESTMASTER_TMUX_STARTUP_SCRIPT",
+            "QUESTMASTER_SESSION",
+        ] {
+            try expect(newSessionLine.contains("-u \(key) "), "new server should start without \(key)")
+        }
+        try expect(newSessionLine.contains("PATH=\"$server_path\" \"$tmux\" new-session"), "new server should start with the scrubbed PATH")
+        try expect(script.contains("shim_prefix='/Users/example/shim'"), "startup script should name the shim directory it removes from PATH")
+        let scrubIndex = try substringIndex(in: script, "server_path=")
+        let hasSessionIndex = try substringIndex(in: script, "has-session -t \"=$session\"")
+        try expect(scrubIndex < hasSessionIndex, "startup script should scrub PATH before starting a server")
+    }
+
+    private static func testTmuxClientCallsTargetTheExactSession() throws {
+        let sessionID = "qm-123"
+        let syncArguments = TerminalTmuxClientProcess.sessionEnvironmentSyncArguments(
+            sessionID: sessionID,
+            environment: ["HOME": "/Users/example", "QUESTMASTER_BIN": ""]
+        )
+        let syncTargets = zip(syncArguments, syncArguments.dropFirst()).filter { $0.0 == "-t" }.map(\.1)
+        try expect(!syncTargets.isEmpty, "environment sync should address the session with -t")
+        try expect(syncTargets.allSatisfy { $0 == "=\(sessionID)" }, "environment sync should target the session exactly: \(syncTargets)")
+        try expect(!syncArguments.contains("-g"), "environment sync should write no global tmux environment")
+
+        let switchArguments = TerminalTmuxClientProcess.switchClientArguments(clientName: "/dev/ttys001", targetSessionID: sessionID)
+        try expect(Array(switchArguments.suffix(2)) == ["-t", "=\(sessionID)"], "switch-client should target the session exactly")
+
+        let editorArguments = TerminalTmuxClientProcess.editorWindowArguments(sessionID: sessionID, path: "/tmp/a.md", shell: "/bin/zsh")
+        try expect(Array(editorArguments.prefix(3)) == ["new-window", "-t", "=\(sessionID)"], "editor window should target the session exactly")
     }
 
     private static func testNavigationTogglesKeepFocusAndHideToTerminal() throws {
@@ -2259,6 +2656,110 @@ enum LogicSelfTests {
         )
     }
 
+    /// The page loads only behind the remote-content blocker. When the blocker doesn't compile, the viewer shows its
+    /// blocked pane and loads nothing: the page view is taken down, and the page it held never got a URL.
+    private static func testArtifactViewerLoadsNothingWhenTheBlockerFailsToCompile() throws {
+        let page = try temporaryArtifactPage()
+        defer { try? FileManager.default.removeItem(atPath: page.path) }
+        let compiler = DeferredRuleListCompiler()
+        let window = HeadlessWindow(size: artifactViewerSize)
+        let host = NSHostingView(rootView: artifactViewer(page, compiler: compiler))
+        host.frame = NSRect(origin: .zero, size: artifactViewerSize)
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+
+        // The compile is held, so the page view is in the tree while the blocker is still pending.
+        let webView = try pageView(in: host)
+        try expect(waitUntil { compiler.attempts == 1 }, "the viewer should ask for the blocker once")
+        compiler.failCompile()
+        try expect(
+            waitUntil { !subviews(of: host).contains { $0 is WKWebView } },
+            "the blocked pane should replace the page view when the blocker fails"
+        )
+        pump(0.3)
+        try expect(webView.url == nil && !webView.isLoading, "no page should load when the blocker fails, got \(String(describing: webView.url))")
+        let bitmap = try snapshot(host, size: artifactViewerSize, scale: 1)
+        try expect(
+            inkEdges(bitmap, scale: 1, columns: 0..<Int(artifactViewerSize.width), rows: 0..<Int(artifactViewerSize.height), over: AppPalette.artifactViewerBackground) != nil,
+            "the blocked pane should draw its message"
+        )
+    }
+
+    /// The control for the test above: with a blocker that compiles, the same viewer does load the page, so the page
+    /// staying unloaded there means the blocker held it.
+    private static func testArtifactViewerLoadsThePageOnceTheBlockerCompiles() throws {
+        let page = try temporaryArtifactPage()
+        defer { try? FileManager.default.removeItem(atPath: page.path) }
+        let window = HeadlessWindow(size: artifactViewerSize)
+        let host = NSHostingView(rootView: artifactViewer(page, compiler: WebKitRuleListCompiler()))
+        host.frame = NSRect(origin: .zero, size: artifactViewerSize)
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+
+        let webView = try pageView(in: host)
+        try expect(waitUntil { webView.url != nil }, "the page should load once the blocker compiles")
+    }
+
+    /// The page view the viewer builds for an HTML artifact, once SwiftUI has laid the hosted viewer out.
+    private static func pageView(in host: NSView) throws -> WKWebView {
+        guard waitUntil({ subviews(of: host).contains { $0 is WKWebView } }),
+              let view = subviews(of: host).compactMap({ $0 as? WKWebView }).first else {
+            throw TestFailure("the viewer should build the page view for an HTML artifact")
+        }
+        return view
+    }
+
+    private static let artifactViewerSize = CGSize(width: 320, height: 240)
+
+    private static func artifactViewer(_ page: ArtifactReference, compiler: any ArtifactRuleListCompiling) -> some View {
+        ArtifactViewerPane(
+            displayState: .viewing(page),
+            reloadNonce: 0,
+            onOpenExternal: { _ in },
+            ruleListCompiler: compiler
+        )
+        .frame(width: artifactViewerSize.width, height: artifactViewerSize.height)
+    }
+
+    /// A real page in the temp directory, so a load that slips past the blocker would succeed.
+    private static func temporaryArtifactPage() throws -> ArtifactReference {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("questmaster-blocker-probe-\(UUID().uuidString).html")
+        try Data("<!doctype html><meta charset=\"utf-8\"><title>Probe</title><p>Probe</p>".utf8).write(to: url)
+        return ArtifactReference(kind: "html", path: url.path, label: "Probe", sessionID: "qm-probe", addedAt: "")
+    }
+
+    private static func testArtifactExternalOpenRouting() throws {
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/report.MD") == .editor, "Markdown should use the editor")
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/report.html") == .browser, "HTML should use the browser")
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/diagram.PNG") == .preview, "images should use Preview")
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/data.csv") == .system, "other files should use their default app")
+        let missing = ArtifactReference(
+            kind: "markdown",
+            path: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("missing.md").path,
+            label: "Missing",
+            addedAt: ""
+        )
+        do {
+            try ArtifactExternalOpener.open(artifact: missing, attachedSessionID: "qm-a", tmuxPath: "/usr/bin/tmux", environment: [:])
+            throw TestFailure("missing artifact should fail before launching an app")
+        } catch ArtifactExternalOpenError.missingFile {
+            // Expected.
+        }
+    }
+
+    private static func testArtifactEditorWindowKeepsPathSeparate() throws {
+        let path = "/tmp/report ' with spaces; $(touch danger).md"
+        let args = TerminalTmuxClientProcess.editorWindowArguments(sessionID: "qm-a", path: path, shell: "/bin/zsh")
+        try expect(Array(args.prefix(5)) == ["new-window", "-t", "=qm-a", "-n", "Artifact"], "editor should open a new tmux window")
+        try expect(args[6] == "/tmp", "editor window should start beside the artifact")
+        try expect(args[7].contains("artifact_path=$1"), "editor script should read the path as an argument")
+        try expect(args[7].hasSuffix("'/tmp/report '\\'' with spaces; $(touch danger).md'"), "path should be shell quoted as one positional argument")
+        try expect(args[7].contains("eval \"set -- $EDITOR\""), "editor command should allow arguments")
+    }
+
     private static func testLocalMarkdownImageURLFiltering() throws {
         let baseURL = URL(fileURLWithPath: "/tmp/artifacts", isDirectory: true)
         try expect(
@@ -2269,12 +2770,6 @@ enum LogicSelfTests {
             LocalMarkdownImages.fileURL(URL(string: "https://example.com/screenshot.png")) == nil,
             "remote markdown images should not load through the local provider"
         )
-    }
-
-    private static func testTrackerSkeletonMatchesServeStartupMessages() throws {
-        try expect(trackerShowsSkeleton(for: "connecting to backend..."), "current startup text should show skeleton")
-        try expect(trackerShowsSkeleton(for: "backend not connected - retrying"), "retry text should keep showing the skeleton")
-        try expect(trackerShowsSkeleton(for: "backend finishing a previous operation"), "handoff wait should show skeleton")
     }
 
     private static func testDockPanePublishesModeChanges() throws {
@@ -2403,18 +2898,17 @@ enum LogicSelfTests {
             }, "the skeleton view should mount and start its expected motion")
             return breaths(in: view)
         }
-        func tracker(_ label: String) -> some View {
+        func tracker(_ connection: ConnectionState) -> some View {
             let store = RuntimeStore(sourceLabel: "test")
-            if !label.isEmpty {
-                store.apply(.serveUnavailable(label))
-            }
+            store.apply(RuntimeUpdate(connection: connection))
             return TrackerRootView(store: store, newSessionPresenter: NewSessionSheetPresenter(), destructiveConfirmationPresenter: DestructiveConfirmationPresenter())
         }
         let settings = SettingsSheetView(
             presentation: SettingsSheetPresentation(
                 mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: nil))),
                 modelClient: StubModelClient(deferCompletions: true),
-                effortClient: StubReasoningEffortClient()
+                effortClient: StubReasoningEffortClient(),
+                runtime: RuntimeStore(sourceLabel: "test")
             ),
             dismiss: {}
         )
@@ -2425,15 +2919,15 @@ enum LogicSelfTests {
         Motion.reducesMotion = { true }
         defer { Motion.reducesMotion = { false } }
         try expect(try hosted(TerminalAttachSkeleton(), shouldBreathe: false).isEmpty, "the terminal's veil holds still under Reduce Motion")
-        try expect(try hosted(tracker("connecting to backend..."), shouldBreathe: false).isEmpty, "the tracker's ghost plates hold still under Reduce Motion")
+        try expect(try hosted(tracker(.connecting), shouldBreathe: false).isEmpty, "the tracker's ghost plates hold still under Reduce Motion")
         try expect(try hosted(settings, shouldBreathe: false).isEmpty, "the Settings pickers hold still under Reduce Motion")
         Motion.reducesMotion = { false }
 
         let veil = try hosted(TerminalAttachSkeleton(), shouldBreathe: true)
         try expect(veil.count == 1 && veil[0].duration == SkeletonMotion.period, "the terminal's veil should be one breath, got \(veil.count)")
-        let ghosts = try hosted(tracker("connecting to backend..."), shouldBreathe: true)
+        let ghosts = try hosted(tracker(.connecting), shouldBreathe: true)
         try expect(ghosts.count == 1 && ghosts[0].duration == SkeletonMotion.period, "the tracker's ghost plates should be one breath, got \(ghosts.count)")
-        try expect(try hosted(tracker(""), shouldBreathe: false).isEmpty, "a tracker with a backend shows no skeleton and nothing breathes")
+        try expect(try hosted(tracker(.connected), shouldBreathe: false).isEmpty, "a tracker with a backend shows no skeleton and nothing breathes")
         let pickers = try hosted(settings, shouldBreathe: true)
         try expect(!pickers.isEmpty && pickers.allSatisfy { $0.duration == SkeletonMotion.period }, "the Settings pickers waiting for options should breathe, got \(pickers.count)")
     }
@@ -2915,6 +3409,23 @@ enum LogicSelfTests {
             preferredArtifactSessionID: "qm-a"
         )
         try expect(model.artifactModel.selectedArtifactID == second.id, "render should retain the selected artifact")
+    }
+
+    private static func testArtifactExternalOpenUsesCurrentListAndViewerArtifact() throws {
+        let artifact = ArtifactReference(kind: "markdown", path: "/tmp/report.md", label: "Report", sessionID: "qm-a", addedAt: "", id: "art-report")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
+            TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", artifacts: [artifact]),
+        ])])
+        let model = DockPaneModel()
+        var opened: [ArtifactReference] = []
+        model.onOpenArtifactExternal = { opened.append($0) }
+        var keys = ListKeyResolver()
+        _ = model.apply(DockState(dockContent: .artifactList, selectedArtifactID: artifact.id), snapshot: snapshot, preferredArtifactSessionID: "qm-a")
+        try expect(dockKey(try keyEvent("o", keyCode: 31), &keys, model, snapshot), "list o should be handled")
+        _ = model.apply(DockState(dockContent: .artifactViewer, selectedArtifactID: artifact.id), snapshot: snapshot, preferredArtifactSessionID: "qm-a")
+        try expect(dockKey(try keyEvent("o", keyCode: 31), &keys, model, snapshot, in: []), "viewer o should be handled")
+        try expect(opened == [artifact, artifact], "list and viewer should open the same artifact externally")
     }
 
     private static func testKeymapPressReadsEventsAsTheKeymapDoes() throws {
@@ -3830,12 +4341,15 @@ enum LogicSelfTests {
         try expect(sent == [.jumpToTop] && leaves == 1, "Return should only move the cursor and hand the keys back, sent \(sent)")
         try expect(filter.query == "write", "Return should keep the filter applied, got \(filter.query)")
 
-        try expect(filter.handleCommand(.plain(125)), "↓ should move the list when no suggestion shows")
-        try expect(store.selectedID == "q3", "↓ should move the cursor to the next match, got \(String(describing: store.selectedID))")
+        try expect(!filter.handleCommand(.plain(125)), "↓ should be the caret's when no suggestion shows: the list moves with j and k")
+        try expect(store.selectedID == "q1", "↓ should leave the cursor on the first match, got \(String(describing: store.selectedID))")
+        try expect(filter.handleCommand(Keymap.KeyPress(keyCode: 45, character: "n", modifiers: [.control])) && store.selectedID == "q3", "⌃n should move the list down with no suggestion showing, got \(String(describing: store.selectedID))")
+        try expect(filter.handleCommand(Keymap.KeyPress(keyCode: 35, character: "p", modifiers: [.control])) && store.selectedID == "q1", "⌃p should move the list back up with no suggestion showing")
+        try expect(filter.handleCommand(.plain(48)) && store.selectedID == "q1", "Tab should take the press and move nothing: the filter is the Quest Log's one field")
         try expect(!filter.handleCommand(Keymap.KeyPress(keyCode: 38, character: "j")), "j should type into the filter, not move the list")
 
         try expect(filter.handleCommand(.plain(53)), "Esc should be the filter's when no suggestion shows")
-        try expect(leaves == 2 && store.selectedID == "q3" && filter.query == "write", "Esc should hand the keys back and keep the cursor and the filter")
+        try expect(leaves == 2 && store.selectedID == "q1" && filter.query == "write", "Esc should hand the keys back and keep the cursor and the filter")
     }
 
     /// A child (⌘T's New Quest over the Quest Log) closing hands the keys back to what had them in the modal it
@@ -4015,12 +4529,10 @@ enum LogicSelfTests {
         }
         let size = CGSize(width: TrackerPlateDesign.topLevelSize.width, height: 3 * TrackerShellMetrics.rowHeight)
         func render(selected: String, viewed: String) throws -> PixelProbe {
-            let section = VStack(spacing: 0) {
-                TrackerShellRows(
-                    shells: shells, topInset: 0, selectedID: selected, viewedID: viewed, areaFocused: true, shortcutNumbers: [:],
-                    commandLongPressIsActive: false, onSelect: { _ in }, onActivate: { _ in }, onEditSession: { _ in }
-                ).rows
-            }
+            let section = TrackerShellRows(
+                shells: shells, selectedID: selected, viewedID: viewed, areaFocused: true, shortcutNumbers: [:], commandLongPressIsActive: false,
+                onSelect: { _ in }, onActivate: { _ in }, onEditSession: { _ in }
+            )
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .background(AppPalette.window.swiftUI)
             let view = NSHostingView(rootView: section)
@@ -4081,7 +4593,8 @@ enum LogicSelfTests {
         try expect(both.isColor(edgeColumn, middle, AppPalette.item), "and filled inside the outline")
     }
 
-    /// A tracker column with `masters` plates and `shells` shells in a window `height` tall, with `viewed` attached.
+    /// A real tracker in a headless window at 1x, with `masters` plates and `shells` shells (`shell-0` ...), `viewed` the
+    /// attached session. The viewed shell's row is filled, which marks where the shell section is.
     @MainActor
     private final class TrackerFixture {
         let store: RuntimeStore
@@ -4089,11 +4602,11 @@ enum LogicSelfTests {
         let window: HeadlessWindow
         let size: CGSize
 
-        init(masters: Int, shells: Int, viewed: String, height: Int, sessionClass: String = "") throws {
-            func session(_ id: String, role: String, sessionClass: String = "") -> TrackerSession {
-                TrackerSession(id: id, title: id, repoName: "Repo", sessionClass: sessionClass, agent: role == "shell" ? "shell" : "codex", role: role, state: "idle")
+        init(masters: Int, shells: Int, viewed: String, height: Int) throws {
+            func session(_ id: String, role: String) -> TrackerSession {
+                TrackerSession(id: id, title: id, repoName: "Repo", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle")
             }
-            let plates = (0..<masters).map { session("master-\($0)", role: "master", sessionClass: sessionClass) }
+            let plates = (0..<masters).map { session("master-\($0)", role: "master") }
             let shellRows = (0..<shells).map { session("shell-\($0)", role: "shell") }
             store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: viewed, expandedMasterIDs: [])
             store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: plates + shellRows)])))
@@ -4111,20 +4624,16 @@ enum LogicSelfTests {
             window = HeadlessWindow(size: size, scale: 1)
             window.contentView = view
             window.show()
-            try expect(LogicSelfTests.waitUntil { !self.scrollViews.isEmpty }, "the tracker list should finish laying out")
+            let shellSectionHeight = min(CGFloat(shells) * TrackerShellMetrics.rowHeight, TrackerShellMetrics.maxHeight)
+            try expect(LogicSelfTests.waitUntil { scrollView(height: shellSectionHeight) != nil }, "the tracker shell section should finish laying out")
+        }
+
+        func observePointerMove(_ seconds: TimeInterval) {
+            RunLoop.main.run(until: Date().addingTimeInterval(seconds))
         }
 
         func close() {
             window.close()
-        }
-
-        /// Every scroll view in the column: the one list, once it lays out.
-        var scrollViews: [NSScrollView] {
-            func find(in view: NSView) -> [NSScrollView] {
-                let own = (view as? NSScrollView).map { [$0] } ?? []
-                return own + view.subviews.flatMap(find)
-            }
-            return find(in: view)
         }
 
         /// The tracker's pixels now.
@@ -4138,6 +4647,17 @@ enum LogicSelfTests {
             bitmap.size = size
             view.cacheDisplay(in: view.bounds, to: bitmap)
             return PixelProbe(bitmap: bitmap, height: Int(size.height))
+        }
+
+        /// The scroll view that is `height` tall: the shell section's (the plates' list is the one taller).
+        func scrollView(height: CGFloat) -> NSScrollView? {
+            func find(in view: NSView) -> NSScrollView? {
+                if let scrollView = view as? NSScrollView, abs(scrollView.frame.height - height) < 0.5 {
+                    return scrollView
+                }
+                return view.subviews.lazy.compactMap(find).first
+            }
+            return find(in: view)
         }
     }
 
@@ -4160,88 +4680,118 @@ enum LogicSelfTests {
             return (0..<height).filter { isColor(column, $0, AppPalette.item) }
         }
 
-        /// Nothing of a plate in the band above the tag, at several columns.
-        func clearBand(above panelTop: Int) -> Bool {
-            let clearTop = panelTop - Int(TrackerListMetrics.selectedTagGap)
-            return [60, 120, 200].allSatisfy { x in (clearTop..<panelTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
-        }
-
-        /// The lowest row with a pixel off the window's colour in one of `columns`. Nil when the columns are clear.
-        func lowestInkRow(columns: Range<Int>) -> Int? {
-            (0..<height).reversed().first { row in
-                columns.contains { column in !isColor(column, row, AppPalette.window) }
-            }
+        /// Nothing of a plate in the band above the section, at several columns.
+        func clearBand(above sectionTop: Int) -> Bool {
+            let clearTop = sectionTop - Int(TrackerListMetrics.shellClearance)
+            return [60, 120, 200].allSatisfy { x in (clearTop..<sectionTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
         }
     }
 
-    /// Where the tag's top edge sits in a column `height` tall with no class attached: the bottom margin, the tallest figure, the gap
-    /// above it and the tag stand under it.
-    private static func tagTopEdge(height: Int) -> CGFloat {
-        CGFloat(height) - TrackerListMetrics.verticalPadding - CGFloat(TrackerAvatarMetrics.tallestFigureHeight) - TrackerListMetrics.avatarGap
-            - SelectedSessionTagMetrics.height
+    /// How far a scroll view has scrolled from the top of its content.
+    private static func offsetFromTop(_ scrollView: NSScrollView) -> CGFloat {
+        guard let document = scrollView.documentView else {
+            return 0
+        }
+        let visible = scrollView.documentVisibleRect
+        return document.isFlipped ? visible.minY : document.frame.height - visible.maxY
     }
 
-    /// The shells are the plates' list's last block: one scroll view holds both, and a viewed last shell is in view on the
-    /// first render, above the tag.
-    private static func testTheShellsScrollWithThePlatesInOneList() throws {
-        let height = 600
-        let fixture = try TrackerFixture(masters: 14, shells: 14, viewed: "shell-13", height: height)
-        defer { fixture.close() }
-        try expect(fixture.scrollViews.count == 1, "the plates and the shells should share one scroll view, got \(fixture.scrollViews.count)")
-        var lastShellRow: Int?
-        try expect(waitUntil {
-            lastShellRow = (try? fixture.probe())?.filledShellRows.last
-            return lastShellRow != nil
-        }, "the viewed last shell should be in view on the first render")
-        try expect(CGFloat(lastShellRow ?? 0) < tagTopEdge(height: height), "the viewed last shell should sit above the tag, got row \(String(describing: lastShellRow))")
-    }
-
-    /// The tag stands at the column's bottom, centred over the avatar: its frame's rim under the id tab, the title band under
-    /// the rim, and clear space above it under the list. The tab's fill is the column's own, so the test reads the frame, and
-    /// the band where its title is not (the title is centred, and the band's padding is left of it).
-    private static func testTheTagStandsAtTheTrackersBottom() throws {
+    /// The shell section sits on the tracker column's bottom edge, at its bottom margin, however many plates there are:
+    /// with few plates there is empty space above it, with many the plates are cut `shellClearance` above it, and with
+    /// many shells the section stops at its max height. The viewed shell's filled row marks the section's bottom (the
+    /// last shell) or its top (the first).
+    private static func testTheShellSectionIsPinnedToTheTrackersBottom() throws {
         let height = 700
-        let fixture = try TrackerFixture(masters: 1, shells: 2, viewed: "shell-1", height: height)
-        defer { fixture.close() }
-        let probe = try fixture.probe()
-        let top = tagTopEdge(height: height)
-        let column = Int(TrackerListMetrics.sidePadding + TrackerAvatarMetrics.slotWidth / 2)
-        let rimRow = Int(top + SelectedSessionTagMetrics.tabHeight + SelectedSessionTagMetrics.borderWidth / 2)
-        let bandRow = Int(top + SelectedSessionTagMetrics.tabHeight + SelectedSessionTagMetrics.borderWidth + SelectedSessionTagMetrics.bandHeight / 2)
-        let bandPadding = column - 30
-        try expect(probe.isColor(column, rimRow, AppPalette.line), "the frame's rim should sit at row \(rimRow) in the column's centre")
-        try expect(probe.isColor(bandPadding, bandRow, AppPalette.item), "the title band should sit at row \(bandRow), left of its title")
-        try expect(probe.clearBand(above: Int(top)), "the tag should have clear space above it, under the list")
+        let bottom = height - Int(TrackerListMetrics.verticalPadding) - 1
+        let rowHeight = Int(TrackerShellMetrics.rowHeight)
+        func probe(masters: Int, shells: Int, viewed: String) throws -> PixelProbe {
+            let fixture = try TrackerFixture(masters: masters, shells: shells, viewed: viewed, height: height)
+            defer { fixture.close() }
+            return try fixture.probe()
+        }
+        func sectionTop(shells: Int) -> Int {
+            height - Int(TrackerListMetrics.verticalPadding) - min(shells * rowHeight, Int(TrackerShellMetrics.maxHeight))
+        }
+
+        let few = try probe(masters: 1, shells: 2, viewed: "shell-1")
+        try expect(few.filledShellRows.last == bottom, "with few plates the section should end at the column's bottom margin, got row \(String(describing: few.filledShellRows.last)) for \(bottom)")
+        try expect(few.filledShellRows.suffix(rowHeight).first == bottom - rowHeight + 1, "the viewed shell's row should be 35 high")
+        try expect(few.clearBand(above: sectionTop(shells: 2)), "there should be empty space above the section")
+
+        let many = try probe(masters: 14, shells: 2, viewed: "shell-1")
+        try expect(many.filledShellRows.last == bottom, "with many plates the section should stay at the column's bottom margin, got row \(String(describing: many.filledShellRows.last)) for \(bottom)")
+        try expect(many.clearBand(above: sectionTop(shells: 2)), "the plates should be cut a clearance above the section, leaving its band empty")
+
+        // Past five rows the section stops at its max height, five rows, and the plates keep their clearance above it.
+        let crowded = try probe(masters: 14, shells: 8, viewed: "shell-0")
+        let crowdedTop = sectionTop(shells: 8)
+        try expect(crowdedTop == bottom + 1 - Int(TrackerShellMetrics.maxHeight), "eight shells should stand 175 high")
+        try expect(crowded.filledShellRows.contains(crowdedTop) && !crowded.filledShellRows.contains(crowdedTop - 1), "the first of eight shells should be the section's top, got rows \(crowded.filledShellRows.suffix(40))")
+        try expect(crowded.clearBand(above: crowdedTop), "the capped section keeps its clearance too")
     }
 
-    /// Each bundled class's figure stands on the column's bottom margin: its sole sits `verticalPadding` above the column's bottom edge.
-    /// The sole is the bottom edge of the feet's row. The art can hang below its feet (the bard's does, by two rows), so the lowest ink
-    /// is the sole only for a class whose art stops at its feet; the reach below the feet is read from the art, and the rest is layout.
-    @MainActor
-    private static func testEachBundledClassSitsOnTheBottomMargin() throws {
-        let height = 960
-        let columns = Int(TrackerListMetrics.sidePadding)..<Int(TrackerListMetrics.sidePadding + TrackerAvatarMetrics.slotWidth)
-        for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
-            let fixture = try TrackerFixture(masters: 1, shells: 0, viewed: "master-0", height: height, sessionClass: classID)
-            defer { fixture.close() }
-            guard let idle = sprites.idleFrame(1), let footRow = sprites.animation.animation(for: .idle)?.footRow,
-                  let artRows = TrackerAvatarSprites.opaqueRows(of: idle) else {
-                throw TestFailure("the \(classID)'s idle art should load")
-            }
-            var lowest: Int?
-            try expect(waitUntil {
-                lowest = (try? fixture.probe())?.lowestInkRow(columns: columns)
-                return lowest != nil
-            }, "the \(classID)'s figure should draw in its column")
-            guard let lowest else {
-                throw TestFailure("the \(classID)'s figure should have a lowest row")
-            }
-            let reach = artRows.upperBound - footRow
-            let sole = lowest - reach + 1
-            let distance = CGFloat(height - sole)
-            try expect(distance == TrackerListMetrics.verticalPadding,
-                       "the \(classID)'s sole should sit \(TrackerListMetrics.verticalPadding) pt above the column's bottom edge, got \(distance)")
+    /// Many shells at the minimum window height: the section is `maxHeight` tall and scrolls inside itself, its last shell
+    /// reachable; a viewed last shell is in view on the first render; the cursor following the viewed session scrolls the
+    /// section the least it takes, but not when the pointer moved the cursor there.
+    private static func testTheShellSectionScrollsInsideItselfPastItsMaxHeight() throws {
+        let height = 600
+        let rowHeight = Int(TrackerShellMetrics.rowHeight)
+        let maxHeight = Int(TrackerShellMetrics.maxHeight)
+        let shells = 14
+        let bottom = height - Int(TrackerListMetrics.verticalPadding) - 1
+        let sectionTop = bottom + 1 - maxHeight
+        let contentHeight = CGFloat(shells * rowHeight)
+
+        // First render with the last shell viewed: it is in view, at the section's bottom, and the section is 175 tall (the
+        // row above its first visible one starts at its top, and the band above it is clear).
+        let last = try TrackerFixture(masters: 14, shells: shells, viewed: "shell-13", height: height)
+        defer { last.close() }
+        let lastProbe = try last.probe()
+        try expect(lastProbe.filledShellRows.last == bottom && lastProbe.filledShellRows.suffix(rowHeight).first == bottom - rowHeight + 1,
+                   "a viewed last shell should be in view on the first render, got rows \(lastProbe.filledShellRows.suffix(40))")
+        let discColumn = Int(TrackerListMetrics.sidePadding + TrackerShellMetrics.discLead + TrackerShellMetrics.discDiameter / 2)
+        let discTop = sectionTop + Int((TrackerShellMetrics.rowHeight - TrackerShellMetrics.discDiameter) / 2)
+        try expect(lastProbe.isColor(discColumn, discTop, AppPalette.item), "the section should be 175 tall: its first visible row's disc should sit at \(discTop)")
+        try expect(lastProbe.clearBand(above: sectionTop), "the plates should stay above the section's clearance")
+        guard let lastScroll = last.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view: the section should scroll inside itself")
         }
+        try expect(abs((lastScroll.documentView?.frame.height ?? 0) - contentHeight) < 0.5, "the section's content should be all \(shells) rows, \(contentHeight) tall, got \(String(describing: lastScroll.documentView?.frame.height))")
+        try expect(abs(offsetFromTop(lastScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the first render should have scrolled to the last row, got \(offsetFromTop(lastScroll))")
+
+        // The last shell is reachable by scrolling: from the top, the section scrolls down to it.
+        let first = try TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        defer { first.close() }
+        guard let firstScroll = first.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view when the first shell is viewed")
+        }
+        try expect(offsetFromTop(firstScroll) == 0, "a viewed first shell needs no scroll, got \(offsetFromTop(firstScroll))")
+        let firstProbe = try first.probe()
+        try expect(firstProbe.filledShellRows.first(where: { $0 > sectionTop - 1 }) == sectionTop, "the viewed first shell should be the section's top row")
+        firstScroll.contentView.scroll(to: NSPoint(x: 0, y: (firstScroll.documentView?.isFlipped ?? true) ? contentHeight - TrackerShellMetrics.maxHeight : 0))
+        firstScroll.reflectScrolledClipView(firstScroll.contentView)
+        try expect(abs(offsetFromTop(firstScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the section should scroll down to its last row")
+
+        // The cursor follows the viewed session: onto the last shell, by the keys' way, the section scrolls the least it takes.
+        let moved = try TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        defer { moved.close() }
+        guard let movedScroll = moved.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view after the viewed session moved")
+        }
+        moved.store.setCurrentTerminalSessionID("shell-13")
+        try expect(waitUntil { abs(offsetFromTop(movedScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5 }, "the viewed last shell should scroll into view")
+        try expect(abs(offsetFromTop(movedScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the cursor onto the last shell should scroll it into view, got \(offsetFromTop(movedScroll))")
+
+        // A cursor the pointer moved is already under it: no scroll.
+        let hovered = try TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        defer { hovered.close() }
+        PointerHighlight.cursor.pointerMoved(to: "shell-13")
+        hovered.store.setCurrentTerminalSessionID("shell-13")
+        hovered.observePointerMove(0.8)
+        guard let hoveredScroll = hovered.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view after the pointer moved the cursor")
+        }
+        try expect(offsetFromTop(hoveredScroll) == 0, "a cursor the pointer moved should not scroll the section, got \(offsetFromTop(hoveredScroll))")
     }
 
     /// The spacing the source scan can't see (AGENTS.md, "Spacing"), measured on 1x renders: stacked paddings and row
@@ -4335,10 +4885,14 @@ enum LogicSelfTests {
     }
 
     /// The elevation shadows (AGENTS.md, "Interaction states") reach past the clip that shapes their panel: a modal's
-    /// from `scoopedPanel`, the dock's from `ScoopedLayerChrome`. A pixel 2pt under each panel's bottom edge, on the
-    /// window fill, must be darker than the same fill far from it, and only a shadow dropped downward is that dark
-    /// there.
+    /// (`modal`) from `scoopedPanel`, the dock's (`raised`, 1.5 down) from `ScoopedLayerChrome`. A pixel 2pt under each
+    /// panel's bottom edge, on the window fill, must be darker than the same fill far from it, and only a shadow dropped
+    /// downward is that dark there. Every layer that draws the raised shadow in its own bounds leaves room for its whole
+    /// bleed, so no edge cuts it: the tracker plates' silhouette layers and the toast's hosting view.
     private static func testChromeShadowsReachPastTheirClips() throws {
+        try expect(TrackerPlateDesign.silhouetteMargin >= Elevation.raised.bleed, "the plates' silhouette layers should hold the raised shadow's \(Elevation.raised.bleed) bleed, got a \(TrackerPlateDesign.silhouetteMargin) margin")
+        try expect(ToastBanner.shadowMargin >= Elevation.raised.bleed, "the toast's hosting view should hold the raised shadow's \(Elevation.raised.bleed) bleed, got a \(ToastBanner.shadowMargin) margin")
+
         func darkness(_ view: NSView, size: CGSize, belowPanelAt probe: CGPoint) throws -> CGFloat {
             view.frame = NSRect(origin: .zero, size: size)
             let window = HeadlessWindow(size: size, scale: 1)
@@ -5746,12 +6300,12 @@ enum LogicSelfTests {
                 do {
                     _ = try UnixSocketMutationClient.decodeAck(line)
                     try expect(false, "incompatible \(ok ? "success" : "error") envelope was accepted")
-                } catch let error as ServeClientError {
-                    try expect(error.isProtocolVersionMismatch, "version mismatch should win over the response payload")
+                } catch ServeClientError.protocolMismatch {
+                    // Expected: the version mismatch wins over the response payload.
                 }
             }
         }
-        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":2,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
+        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":3,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
     }
 
     private static func testServeStreamReconnectsAfterProtocolMismatch() throws {
@@ -5772,7 +6326,7 @@ enum LogicSelfTests {
         let padding = String(repeating: "x", count: 100_000)
         let lines = [
             "{\"protocol_version\":1,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wrong\",\"sessions\":[]}}\n",
-            "{\"protocol_version\":2,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[],\"padding\":\"\(padding)\"}}\n",
+            "{\"protocol_version\":3,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[],\"padding\":\"\(padding)\"}}\n",
         ]
         DispatchQueue.global().async {
             for line in lines {
@@ -5781,7 +6335,7 @@ enum LogicSelfTests {
                 let peer = Darwin.accept(listener, nil, nil)
                 guard peer >= 0 else { return }
                 try? UnixSocketIO.setReadTimeout(on: peer, seconds: 5)
-                let hello = "{\"root\":\"\(fixture.stateRoot.path)\",\"identity\":\"canonical\",\"protocol_version\":2,\"accepting\":true}\n"
+                let hello = "{\"root\":\"\(fixture.stateRoot.path)\",\"identity\":\"canonical\",\"protocol_version\":3,\"accepting\":true}\n"
                 try? UnixSocketIO.write(Data(hello.utf8), to: peer)
                 var requestBytes = [UInt8](repeating: 0, count: 4096)
                 var requestLines = 0
@@ -5796,6 +6350,7 @@ enum LogicSelfTests {
         }
 
         var labels: [String] = []
+        var states: [ConnectionState] = []
         let recordJSON: [String: Any] = [
             "running": true, "root": fixture.stateRoot.path, "identity": "canonical", "socket": path,
             "executable": fixture.qm.path, "shim_directory": fixture.root.appendingPathComponent("shim").path,
@@ -5805,13 +6360,19 @@ enum LogicSelfTests {
         let config = LaunchConfiguration.load(arguments: ["--no-daemon-start"], environment: fixture.environment,
                                               workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
         let client = UnixSocketServeClient(connection: DaemonConnection(config: config, record: record))
+        defer { client.stop() }
         client.start(onUpdate: { update in
-            DispatchQueue.main.async { labels.append(update.observedLabel ?? "") }
-        }, onStatus: { _ in })
+            DispatchQueue.main.async {
+                labels.append(update.observedLabel ?? "")
+                states.append(contentsOf: update.connection.map { [$0] } ?? [])
+            }
+        })
         try waitForMainQueue("protocol mismatch and recovered tracker stream", until: {
-            labels.contains(where: { $0.contains("protocol_version") }) && labels.contains("recovered")
+            states.contains(where: { $0.blockingMessage?.contains("protocol_version") == true }) && labels.contains("recovered")
         })
         try expect(!labels.contains("wrong"), "incompatible tracker data should not reach the store")
+        let afterMismatch = states.drop(while: { $0.blockingMessage == nil })
+        try expect(afterMismatch.contains(.connected), "the recovered tracker should make the connection live again, got \(states)")
     }
 
     private static func testReadLineReturnsALineSpanningManyReads() throws {
@@ -5833,6 +6394,281 @@ enum LogicSelfTests {
         // The sockets close only once the writer is done, so it never writes to a closed one.
         _ = written.wait(timeout: .now() + 5)
         try expect(read == line, "readLine should return the whole line, newline and later bytes excluded (got \(read.count) bytes)")
+    }
+
+    /// A tracker line reaches the store only once its newline arrives, however the bytes are split across writes; a
+    /// blank line is skipped and the connection stays up.
+    private static func testServeStreamJoinsLinesSplitAcrossWrites() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let one = serveTrackerLine("wire-one")
+        let two = serveTrackerLine("wire-two")
+        let three = serveTrackerLine("wire-three", padding: 100_000)
+
+        try harness.write(String(one.prefix(40)))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        try harness.write(String(one.dropFirst(40)) + "\n" + String(two.prefix(30)))
+        try waitForMainQueue("the first line", until: { harness.wireLabels == ["wire-one"] })
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        try expect(harness.wireLabels == ["wire-one"], "a line without its newline should wait, got \(harness.wireLabels)")
+
+        try harness.write(String(two.dropFirst(30)) + "\n\n")
+        let bytes = Array((three + "\n").utf8)
+        for start in stride(from: 0, to: bytes.count, by: 1_000) {
+            try UnixSocketIO.write(Data(bytes[start..<min(start + 1_000, bytes.count)]), to: harness.daemon)
+        }
+        try waitForMainQueue("every line", until: { harness.wireLabels.count == 3 })
+        try expect(harness.wireLabels == ["wire-one", "wire-two", "wire-three"], "lines should arrive whole and in order, got \(harness.wireLabels)")
+        try expect(harness.connects == 1, "a split line should not drop the connection, got \(harness.connects) connects")
+    }
+
+    /// A line as long as the pending-line cap still arrives; bytes past the cap with no newline drop the connection,
+    /// nothing of that frame reaches the store, and the client connects again.
+    private static func testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let cap = UnixSocketServeClient.maxBufferedLineBytes
+        let unpadded = serveTrackerLine("wire-at-cap")
+        let atCap = serveTrackerLine("wire-at-cap", padding: cap - unpadded.utf8.count)
+        try expect(atCap.utf8.count == cap, "the at-cap line should be exactly \(cap) bytes, got \(atCap.utf8.count)")
+        let stream = Data((serveTrackerLine("wire-before") + "\n" + atCap + "\n").utf8) + Data(repeating: 0x78, count: cap + 16_384)
+        let daemon = harness.daemon
+        let written = DispatchSemaphore(value: 0)
+        // The client hangs up partway through the oversized frame, so this write ends in an error the test expects.
+        DispatchQueue.global().async {
+            try? UnixSocketIO.write(stream, to: daemon)
+            written.signal()
+        }
+
+        try expect(readsClosed(daemon, within: 10), "the client should close a connection whose frame outgrows the cap")
+        // The daemon end closes only once the writer is done with it.
+        try expect(written.wait(timeout: .now() + 10) == .success, "the oversized write should end once the client hangs up")
+        try waitForMainQueue("a reconnect after the oversized frame", until: { harness.connects >= 2 })
+        try waitForMainQueueTurn()
+        try expect(harness.wireLabels == ["wire-before", "wire-at-cap"], "only the whole lines should arrive, got \(harness.wireLabels)")
+    }
+
+    /// A line with another protocol version ends the read: lines after it on the same connection never reach the store,
+    /// and the client connects again.
+    private static func testServeStreamStopsReadingAtAMidStreamProtocolMismatch() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let lines = [
+            serveTrackerLine("wire-before"),
+            serveTrackerLine("wire-mismatched", version: ServeContract.protocolVersion - 1),
+            serveTrackerLine("wire-after"),
+        ]
+        try harness.write(lines.joined(separator: "\n") + "\n")
+
+        try expect(readsClosed(harness.daemon, within: 10), "the client should close the connection at the mismatched line")
+        try waitForMainQueue("a reconnect after the mismatch", until: { harness.connects >= 2 })
+        try waitForMainQueueTurn()
+        try expect(harness.wireLabels == ["wire-before"], "nothing from the mismatched line on should arrive, got \(harness.wireLabels)")
+    }
+
+    /// A dropped connection (every daemon restart) keeps the last tracker in the store until a fresh one arrives,
+    /// rather than emptying it.
+    private static func testServeStreamKeepsTheLastTrackerWhenTheConnectionDrops() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let line = "{\"protocol_version\":\(ServeContract.protocolVersion),\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wire-live\",\"sessions\":[{\"id\":\"qm-1\",\"title\":\"Kept\",\"status\":\"active\",\"state\":\"idle\",\"elapsed_ms\":0,\"worker_count\":0,\"repo\":{\"identity\":\"example-app\",\"name\":\"example-app\"}}]}}\n"
+        try harness.write(line)
+        try waitForMainQueue("the live tracker", until: { harness.wireLabels == ["wire-live"] })
+
+        shutdown(harness.daemon, SHUT_RDWR)
+        try waitForMainQueue("a reconnect after the drop", until: { harness.connects >= 2 })
+        try waitForMainQueueTurn()
+        let sessions = harness.store.snapshot.tracker.repos.flatMap(\.sessions).map(\.id)
+        try expect(sessions == ["qm-1"], "the last tracker should stay after the drop, got \(sessions)")
+        try expect(harness.store.snapshot.connection == .reconnecting, "the store should know the tracker is the last one, got \(harness.store.snapshot.connection)")
+    }
+
+    /// Stop ends a healthy connection at once: it returns without waiting, the socket closes, the loop exits and the
+    /// client doesn't connect again.
+    private static func testServeClientStopEndsAConnectedStream() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        try harness.write(serveTrackerLine("wire-live") + "\n")
+        try waitForMainQueue("the live line", until: { harness.wireLabels == ["wire-live"] })
+
+        let started = Date()
+        harness.client.stop()
+        try expect(Date().timeIntervalSince(started) < 0.1, "stop should return without waiting for the loop")
+        try expect(readsClosed(harness.daemon, within: 1), "stop should close a connected socket at once")
+        try expect(serveLoopExits(harness.client, within: 1), "the loop should exit once stopped")
+        try expect(harness.connects == 1, "a stopped client should not connect again, got \(harness.connects) connects")
+    }
+
+    /// A stop that lands while a connect is under way closes the socket that connect returns, without reading it.
+    private static func testServeClientStopClosesASocketThatConnectsAfterIt() throws {
+        var fds: [Int32] = [0, 0]
+        try expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0, "could not create socket pair")
+        defer { close(fds[1]) }
+        let clientEnd = fds[0]
+        let connecting = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let client = UnixSocketServeClient(connect: {
+            connecting.signal()
+            _ = release.wait(timeout: .now() + 10)
+            return clientEnd
+        }, invalidate: {})
+        client.start(onUpdate: { _ in })
+        try expect(connecting.wait(timeout: .now() + 5) == .success, "the client should start connecting")
+
+        client.stop()
+        release.signal()
+        try expect(readsClosed(fds[1], within: 1), "a socket connected after stop should close at once")
+        try expect(serveLoopExits(client, within: 1), "the loop should exit once stopped")
+    }
+
+    /// Stop wakes the wait between failed connects instead of sleeping it out.
+    private static func testServeClientStopEndsTheRetryWait() throws {
+        let counter = ConnectCounter()
+        let client = UnixSocketServeClient(connect: {
+            _ = counter.increment()
+            throw ServeClientError.connect("no daemon in this test")
+        }, invalidate: {})
+        client.start(onUpdate: { _ in })
+        // The fourth failure starts the longest wait (one second).
+        try waitForMainQueue("four failed connects", until: { counter.value >= 4 })
+
+        client.stop()
+        try expect(serveLoopExits(client, within: 0.5), "stop should end the retry wait at once")
+    }
+
+    /// A write to a socket whose other end has gone (a daemon that hung up, or a stop's shutdown before the serve
+    /// client's requests go out) fails with an error instead of raising SIGPIPE, which the app doesn't ignore.
+    private static func testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("qm-pipe-\(UUID().uuidString.prefix(8)).sock").path
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        try expect(listener >= 0, "could not create test socket")
+        defer {
+            close(listener)
+            unlink(path)
+        }
+        let bound = try UnixSocketIO.withAddress(path) { address, length in
+            Darwin.bind(listener, address, length)
+        }
+        try expect(bound == 0 && listen(listener, 1) == 0, "could not listen on test socket")
+
+        let client = try UnixSocketIO.connect(path: path)
+        defer { close(client) }
+        let peer = Darwin.accept(listener, nil, nil)
+        try expect(peer >= 0, "could not accept the test connection")
+        close(peer)
+
+        var failed = false
+        for _ in 0..<3 where !failed {
+            do { try UnixSocketIO.write(Data("{}\n".utf8), to: client) } catch { failed = true }
+        }
+        try expect(failed, "a write to a peer that hung up should fail")
+    }
+
+    /// Whether the client's connection loop has returned within `timeout`: it runs on the client's serial queue, so a
+    /// block queued behind it runs only once it does.
+    private static func serveLoopExits(_ client: UnixSocketServeClient, within timeout: TimeInterval) -> Bool {
+        let exited = DispatchSemaphore(value: 0)
+        client.queue.async { exited.signal() }
+        return exited.wait(timeout: .now() + timeout) == .success
+    }
+
+    /// One serve tracker event line, without its newline, labelled by `observed_at` and padded by `padding` bytes.
+    private static func serveTrackerLine(_ label: String, version: Int = ServeContract.protocolVersion, padding: Int = 0) -> String {
+        let pad = String(repeating: "x", count: padding)
+        return "{\"protocol_version\":\(version),\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"\(label)\",\"sessions\":[],\"padding\":\"\(pad)\"}}"
+    }
+
+    /// Reads `fd` until its peer closes (true), or `timeout` passes first (false).
+    private static func readsClosed(_ fd: Int32, within timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            guard poll(&ready, 1, Int32(remaining * 1000)) == 1 else { return false }
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count == 0 || (count < 0 && errno == ECONNRESET) { return true }
+            if count < 0 { return false }
+        }
+    }
+
+    /// A serve client whose first connect is one end of a socket pair; the test plays the daemon on the other end
+    /// (`daemon`). Every later connect fails, so after a drop the client only retries.
+    @MainActor
+    private final class ServeStreamHarness {
+        let daemon: Int32
+        let client: UnixSocketServeClient
+        private let counter: ConnectCounter
+        /// The `observed_at` labels of the tracker updates that reached the client's callback, in order, on the main
+        /// queue. Only `wire-` labels count: the client also reports its own connection status as updates.
+        private(set) var wireLabels: [String] = []
+        /// Every update applied in order, as the app's runtime connection applies them.
+        let store = RuntimeStore(sourceLabel: "test")
+
+        var connects: Int { counter.value }
+
+        init() throws {
+            var fds: [Int32] = [0, 0]
+            guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+                throw TestFailure("could not create socket pair")
+            }
+            var on: Int32 = 1
+            for fd in fds {
+                setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            }
+            let clientEnd = fds[0]
+            let counter = ConnectCounter()
+            daemon = fds[1]
+            self.counter = counter
+            client = UnixSocketServeClient(connect: {
+                guard counter.increment() == 1 else {
+                    throw ServeClientError.connect("the test daemon accepts one connection")
+                }
+                return clientEnd
+            }, invalidate: {})
+        }
+
+        func start() {
+            client.start(onUpdate: { [weak self] update in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.store.apply(update)
+                    guard update.tracker != nil, let label = update.observedLabel, label.hasPrefix("wire-") else { return }
+                    self.wireLabels.append(label)
+                }
+            })
+        }
+
+        func write(_ text: String) throws {
+            try UnixSocketIO.write(Data(text.utf8), to: daemon)
+        }
+
+        func finish() {
+            client.stop()
+            close(daemon)
+        }
+    }
+
+    private final class ConnectCounter {
+        private let lock = NSLock()
+        private var count = 0
+
+        var value: Int {
+            lock.lock(); defer { lock.unlock() }
+            return count
+        }
+
+        func increment() -> Int {
+            lock.lock(); defer { lock.unlock() }
+            count += 1
+            return count
+        }
     }
 
     // The effort keys are the model field's own: e in its SELECT state, ⌃e in
@@ -6187,6 +7023,40 @@ enum LogicSelfTests {
 
     // Guards the live-apply contract: cycling a value sends its
     // role_default.set the moment it changes, with no confirm/done step.
+    /// R arranges, j moves the highlight, and J / K move the highlighted project, through the sheet's own key handling.
+    private static func testSettingsArrangeMovesAProjectWithShiftJAndK() throws {
+        let runtime = RuntimeStore(sourceLabel: "test")
+        let projects = ["alpha", "beta", "gamma"].map { TrackerProject(id: "/p/\($0)", name: $0, path: "/p/\($0)") }
+        runtime.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [], projects: projects)))
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: nil))),
+                modelClient: nil,
+                effortClient: nil,
+                runtime: runtime
+            ),
+            dismiss: {}
+        )
+        model.selectSection(.projects)
+        func press(_ characters: String, ignoring: String, keyCode: UInt16, flags: NSEvent.ModifierFlags = []) throws -> Bool {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                characters: characters, charactersIgnoringModifiers: ignoring, isARepeat: false, keyCode: keyCode
+            ) else {
+                throw TestFailure("could not create \(characters) key event")
+            }
+            return model.handle(event)
+        }
+        try expect(try press("r", ignoring: "r", keyCode: 15), "r should be taken")
+        try expect(model.projects.isArranging, "r should start arranging")
+        try expect(try press("j", ignoring: "j", keyCode: 38), "j should be taken")
+        try expect(model.projects.highlightIndex == 1, "j should move the highlight to beta, got \(model.projects.highlightIndex)")
+        try expect(try press("J", ignoring: "J", keyCode: 38, flags: .shift), "J should be taken")
+        try expect(model.projects.projectRows.map(\.name) == ["alpha", "gamma", "beta"], "J should move beta down, got \(model.projects.projectRows.map(\.name))")
+        try expect(try press("K", ignoring: "K", keyCode: 40, flags: .shift), "K should be taken")
+        try expect(model.projects.projectRows.map(\.name) == ["alpha", "beta", "gamma"], "K should move beta back up, got \(model.projects.projectRows.map(\.name))")
+    }
+
     private static func testSettingsCyclingAFieldSendsItsRoleDefaultImmediately() throws {
         let modelClient = StubModelClient(
             models: ["claude": [
@@ -7817,7 +8687,8 @@ enum LogicSelfTests {
             presentation: SettingsSheetPresentation(
                 mutationClient: mutationClient,
                 modelClient: modelClient,
-                effortClient: effortClient
+                effortClient: effortClient,
+                runtime: RuntimeStore(sourceLabel: "test")
             ),
             dismiss: dismiss
         )
@@ -7863,12 +8734,6 @@ enum LogicSelfTests {
             didRun = true
         }
         try waitForMainQueue("queued main-thread work", until: { didRun })
-    }
-
-    private static func trackerShowsSkeleton(for observedLabel: String) -> Bool {
-        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.apply(.serveUnavailable(observedLabel))
-        return isBackendStartingMessage(snapshot.serviceStateMessage)
     }
 
     /// A press at the dock's model, resolved as `SwiftUIDockPane` resolves it for the content shown (`in:`, the artifact
@@ -8098,6 +8963,27 @@ private struct TestFailure: Error, CustomStringConvertible {
 
     init(_ description: String) {
         self.description = description
+    }
+}
+
+/// A blocker whose compile waits until the test fails it, as WebKit rejects a rule list. Holding the completion keeps
+/// the page view in the tree long enough for the test to capture it; a compile that failed at once would be gone first.
+private final class DeferredRuleListCompiler: ArtifactRuleListCompiling {
+    private(set) var attempts = 0
+    private var pendingCompletion: ((WKContentRuleList?, Error?) -> Void)?
+
+    func compileRuleList(
+        identifier: String,
+        encodedRules: String,
+        completion: @escaping (WKContentRuleList?, Error?) -> Void
+    ) {
+        attempts += 1
+        pendingCompletion = completion
+    }
+
+    func failCompile() {
+        pendingCompletion?(nil, TestFailure("injected rule list failure"))
+        pendingCompletion = nil
     }
 }
 #endif

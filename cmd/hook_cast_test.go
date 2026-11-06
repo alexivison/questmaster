@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -213,7 +214,7 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 				openCodeHookEvent(t, r, "qm-cast-opencode", "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_cast"}})
 			}
 			var durations []toolDurationCall
-			r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+			r.RecordToolDuration = func(_ context.Context, agent, tool, command string, duration time.Duration) error {
 				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
 				return nil
 			}
@@ -242,8 +243,10 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 				t.Fatalf("recorded durations = %+v, want %+v", durations, wantDurations)
 			}
 
-			tc.start(t, r, base)
-			tc.clear(t, r, base.Add(time.Second))
+			// Later than the end above: a hook older than the pane's last
+			// event is overtaken and clears nothing.
+			tc.start(t, r, base.Add(5*time.Second))
+			tc.clear(t, r, base.Add(6*time.Second))
 			pane = rec.lastState.Panes["agent"]
 			if pane.Tool != "" || len(pane.RunningTools) != 0 {
 				t.Fatalf("stale clearing left cast = %+v", pane)
@@ -278,7 +281,7 @@ func TestHookCastLearnsToolNameFromMatchedStart(t *testing.T) {
 	r, rec := newTestRunner(t)
 	started := time.Date(2026, 10, 20, 7, 33, 48, 0, time.UTC)
 	var recorded toolDurationCall
-	r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+	r.RecordToolDuration = func(_ context.Context, agent, tool, command string, duration time.Duration) error {
 		recorded = toolDurationCall{agent: agent, tool: tool, command: command, duration: duration}
 		return nil
 	}
@@ -387,7 +390,7 @@ func TestHookCastSkipsDurationAfterSessionWaitsForInput(t *testing.T) {
 				openCodeHookEvent(t, r, "qm-cast-wait-opencode", "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_wait"}})
 			}
 			var durations []toolDurationCall
-			r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+			r.RecordToolDuration = func(_ context.Context, agent, tool, command string, duration time.Duration) error {
 				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
 				return nil
 			}
@@ -451,7 +454,7 @@ func TestHookCastSkipsAskUserToolDurationsInHarnessOrder(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
 			var durations []toolDurationCall
-			r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+			r.RecordToolDuration = func(_ context.Context, agent, tool, command string, duration time.Duration) error {
 				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
 				return nil
 			}

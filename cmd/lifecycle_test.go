@@ -26,6 +26,9 @@ func allPassRunner() *mockRunner {
 		if len(args) > 0 && args[0] == "list-sessions" {
 			return "", &tmux.ExitError{Code: 1}
 		}
+		if len(args) > 0 && args[0] == "new-session" {
+			return "%1", nil
+		}
 		return "", nil
 	}}
 }
@@ -38,7 +41,7 @@ func hasSessionRunner(live ...string) *mockRunner {
 	}
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 3 && args[0] == "has-session" {
-			if set[args[2]] {
+			if set[exactSession(args[2])] {
 				return "", nil
 			}
 			return "", &tmux.ExitError{Code: 1}
@@ -48,6 +51,9 @@ func hasSessionRunner(live ...string) *mockRunner {
 				return "", &tmux.ExitError{Code: 1}
 			}
 			return strings.Join(live, "\n"), nil
+		}
+		if len(args) >= 1 && args[0] == "new-session" {
+			return "%1", nil
 		}
 		return "", nil
 	}}
@@ -273,6 +279,9 @@ func TestStartCmd_ModelAndReasoningEffortReachAgent(t *testing.T) {
 		calls = append(calls, strings.Join(args, " "))
 		if len(args) > 0 && args[0] == "has-session" {
 			return "", &tmux.ExitError{Code: 1}
+		}
+		if len(args) > 0 && args[0] == "new-session" {
+			return "%1", nil
 		}
 		return "", nil
 	}}

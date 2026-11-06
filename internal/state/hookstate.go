@@ -4,20 +4,21 @@ package state
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/alexivison/questmaster/internal/repo"
 )
 
 // SchemaVersion is the current PaneState/SessionState schema version. Hook
@@ -48,14 +49,17 @@ const (
 
 var ensuredSessionStateDirs sync.Map
 
-// Artifact is a session-scoped runtime reference to a generated file.
+// Artifact is one file reference that may be linked to several sessions.
 type Artifact struct {
-	Kind      string `json:"kind"`
-	Path      string `json:"path"`
-	Label     string `json:"label,omitempty"`
-	SessionID string `json:"session_id"`
-	ProjectID string `json:"project_id"`
-	AddedAt   string `json:"added_at"`
+	ID                 string   `json:"id,omitempty"`
+	Kind               string   `json:"kind"`
+	Path               string   `json:"path"`
+	Label              string   `json:"label,omitempty"`
+	SessionID          string   `json:"session_id,omitempty"` // Legacy projection for older readers.
+	SessionIDs         []string `json:"session_ids,omitempty"`
+	CreatedBySessionID string   `json:"created_by_session_id,omitempty"`
+	ProjectID          string   `json:"project_id"`
+	AddedAt            string   `json:"added_at"`
 }
 
 // SessionState is the authoritative per-session state snapshot written by
@@ -204,6 +208,11 @@ func SessionArtifactsPath(root, id string) string {
 	return filepath.Join(SessionStateDir(root, id), "artifacts.json")
 }
 
+// SessionHookErrorLogPath returns the hook-errors.log path for the session.
+func SessionHookErrorLogPath(root, id string) string {
+	return filepath.Join(SessionStateDir(root, id), "hook-errors.log")
+}
+
 // SessionStateLockPath returns the flock path. We lock a sibling file
 // rather than state.json itself so the atomic rename of state.json never
 // races a still-held lock fd.
@@ -312,22 +321,42 @@ func UpdateSessionState(id string, mutate func(*SessionState) bool) error {
 		return errors.New("no state root resolved")
 	}
 	return withStateLock(root, id, func() error {
-		ss, err := loadSessionStateAt(root, id)
+		ss, err := loadOrResetSessionStateLocked(root, id)
 		if err != nil {
 			return err
-		}
-		if ss == nil {
-			ss = &SessionState{
-				SessionID: id,
-				Version:   SchemaVersion,
-				Panes:     map[string]PaneState{},
-			}
 		}
 		if !mutate(ss) {
 			return nil
 		}
 		return writeSessionStateLocked(root, id, ss)
 	})
+}
+
+// loadOrResetSessionStateLocked loads state.json for a writer that holds the
+// state lock, or returns empty state when there is none. state.json is
+// ephemeral: hooks rebuild it from the next event. So a file that no longer
+// decodes is renamed to state.json.corrupt-<unix> and the writer starts from
+// empty state, instead of every later hook failing on it. The rename is noted
+// in hook-errors.log.
+func loadOrResetSessionStateLocked(root, id string) (*SessionState, error) {
+	path := SessionStatePath(root, id)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	ss, decodeErr := decodeSessionState(data)
+	if decodeErr == nil {
+		return ss, nil
+	}
+	aside := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+	if err := os.Rename(path, aside); err != nil {
+		return nil, errors.Join(decodeErr, fmt.Errorf("move corrupt state aside: %w", err))
+	}
+	_ = AppendHookErrorAt(root, id, fmt.Sprintf("state.json did not decode (%v); moved it to %s and started from empty state", decodeErr, filepath.Base(aside)))
+	return &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}, nil
 }
 
 // UpdateAndLog folds the JSONL event append and the state.json
@@ -347,18 +376,19 @@ func UpdateAndLog(id string, ev *StateEvent, mutate func(*SessionState) bool) er
 
 // UpdateAndLogAt is UpdateAndLog with the state root supplied by the caller.
 func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) bool) error {
-	return UpdateAndLogWithEventsAt(root, id, ev, mutate, nil)
+	return UpdateAndLogWithEventsAt(context.Background(), root, id, ev, mutate, nil)
 }
 
 // UpdateAndLogWithEvents appends events produced from the agent event and
-// applies their state mutation under one lock.
-func UpdateAndLogWithEvents(id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
-	return UpdateAndLogWithEventsAt(StateRoot(), id, ev, mutate, extraEvents)
+// applies their state mutation under one lock. A deadline on ctx bounds the
+// wait for the lock; past it nothing is written and the lock error returns.
+func UpdateAndLogWithEvents(ctx context.Context, id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
+	return UpdateAndLogWithEventsAt(ctx, StateRoot(), id, ev, mutate, extraEvents)
 }
 
 // UpdateAndLogWithEventsAt is UpdateAndLogWithEvents with the state root
 // supplied by the caller.
-func UpdateAndLogWithEventsAt(root, id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
+func UpdateAndLogWithEventsAt(ctx context.Context, root, id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
@@ -374,13 +404,10 @@ func UpdateAndLogWithEventsAt(root, id string, ev *StateEvent, mutate func(*Sess
 	if ev.Ts.IsZero() {
 		ev.Ts = time.Now().UTC()
 	}
-	return withStateLock(root, id, func() error {
-		ss, err := loadSessionStateAt(root, id)
+	return withStateLockContext(ctx, root, id, func() error {
+		ss, err := loadOrResetSessionStateLocked(root, id)
 		if err != nil {
 			return errors.Join(appendRotatingJSONL(SessionStateLogPath(root, id), *ev), err)
-		}
-		if ss == nil {
-			ss = &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}
 		}
 		changed := mutate(ss)
 		var extras []*StateEvent
@@ -403,14 +430,15 @@ func UpdateAndLogWithEventsAt(root, id string, ev *StateEvent, mutate func(*Sess
 }
 
 // UpdateAndLogBatch applies a related group of hook events under one state
-// lock. Complete log lines remain visible if writing state.json fails.
-func UpdateAndLogBatch(id string, events []*StateEvent, mutate func(*SessionState) bool) error {
-	return updateAndLogBatchAt(StateRoot(), id, events, mutate, func(w io.Writer, data []byte) (int, error) {
+// lock. Complete log lines remain visible if writing state.json fails. A
+// deadline on ctx bounds the wait for the lock, as in UpdateAndLogWithEvents.
+func UpdateAndLogBatch(ctx context.Context, id string, events []*StateEvent, mutate func(*SessionState) bool) error {
+	return updateAndLogBatchAt(ctx, StateRoot(), id, events, mutate, func(w io.Writer, data []byte) (int, error) {
 		return w.Write(data)
 	})
 }
 
-func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*SessionState) bool, writeEvents func(io.Writer, []byte) (int, error)) error {
+func updateAndLogBatchAt(ctx context.Context, root, id string, events []*StateEvent, mutate func(*SessionState) bool, writeEvents func(io.Writer, []byte) (int, error)) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
@@ -428,13 +456,10 @@ func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*Ses
 			ev.Ts = time.Now().UTC()
 		}
 	}
-	return withStateLock(root, id, func() error {
-		ss, err := loadSessionStateAt(root, id)
+	return withStateLockContext(ctx, root, id, func() error {
+		ss, err := loadOrResetSessionStateLocked(root, id)
 		if err != nil {
 			return err
-		}
-		if ss == nil {
-			ss = &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}
 		}
 		changed := mutate(ss)
 		var eventData bytes.Buffer
@@ -448,7 +473,7 @@ func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*Ses
 		var log *os.File
 		var oldSize int64
 		if eventData.Len() > 0 {
-			log, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			log, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 			if err != nil {
 				return fmt.Errorf("open state log: %w", err)
 			}
@@ -517,6 +542,12 @@ func ArtifactsRegistryPath(root string) string {
 	return filepath.Join(root, "artifacts.json")
 }
 
+// SendLockDir holds the per-pane locks that keep two tmux senders to one pane
+// from interleaving (tmux.Client.Send).
+func SendLockDir(root string) string {
+	return filepath.Join(root, "tmux-send")
+}
+
 // ArtifactsRegistryLockPath returns the root-level artifact registry lock path.
 func ArtifactsRegistryLockPath(root string) string {
 	return filepath.Join(root, "artifacts.json.lock")
@@ -569,6 +600,7 @@ func UpsertArtifact(sessionID string, artifact Artifact) error {
 
 // UpsertArtifactAt is UpsertArtifact with an explicit state root.
 func UpsertArtifactAt(root, sessionID string, artifact Artifact) error {
+	rawLabel, rawKind := artifact.Label, artifact.Kind
 	artifact = normalizeArtifact(artifact)
 	if artifact.Path == "" {
 		return errors.New("artifact path is required")
@@ -582,28 +614,47 @@ func UpsertArtifactAt(root, sessionID string, artifact Artifact) error {
 	if root == "" {
 		return errors.New("no state root resolved")
 	}
-	artifact.SessionID = sessionID
 	return withArtifactsRegistryLock(root, func() error {
 		artifacts, err := loadArtifactsGlobalLocked(root)
 		if err != nil {
 			return err
 		}
-		previousSessionID := ""
 		for i := range artifacts {
-			if artifacts[i].Path == artifact.Path {
-				previousSessionID = artifacts[i].SessionID
-				artifacts[i] = artifact
-				if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
-					return err
-				}
-				return syncArtifactSidecarsLocked(root, artifacts, previousSessionID, sessionID)
+			if artifacts[i].Path != artifact.Path {
+				continue
 			}
+			current := artifacts[i]
+			alreadyLinked := artifactHasSession(current, sessionID)
+			current.SessionIDs = append(current.SessionIDs, sessionID)
+			if alreadyLinked {
+				if rawLabel != "" {
+					current.Label = rawLabel
+				}
+				if rawKind != "" {
+					current.Kind = rawKind
+				}
+				if artifact.ProjectID != "" {
+					current.ProjectID = artifact.ProjectID
+				}
+				current.AddedAt = artifact.AddedAt
+			}
+			current = normalizeArtifact(current)
+			artifacts[i] = current
+			if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
+				return err
+			}
+			return syncArtifactSidecarsLocked(root, artifacts, current.SessionIDs...)
 		}
+		artifact.SessionIDs = append(artifact.SessionIDs, sessionID)
+		if artifact.CreatedBySessionID == "" {
+			artifact.CreatedBySessionID = sessionID
+		}
+		artifact = normalizeArtifact(artifact)
 		artifacts = append(artifacts, artifact)
 		if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
 			return err
 		}
-		return syncArtifactSidecarsLocked(root, artifacts, sessionID)
+		return syncArtifactSidecarsLocked(root, artifacts, artifact.SessionIDs...)
 	})
 }
 
@@ -629,8 +680,21 @@ func UpsertArtifactGlobal(root string, artifact Artifact) error {
 		}
 		for i := range artifacts {
 			if artifacts[i].Path == artifact.Path {
+				current := artifacts[i]
+				artifact.ID = current.ID
+				artifact.SessionIDs = append(artifact.SessionIDs, current.SessionIDs...)
+				if artifact.CreatedBySessionID == "" {
+					artifact.CreatedBySessionID = current.CreatedBySessionID
+				}
+				if artifact.ProjectID == "" {
+					artifact.ProjectID = current.ProjectID
+				}
+				artifact = normalizeArtifact(artifact)
 				artifacts[i] = artifact
-				return writeArtifactsRegistryLocked(root, artifacts)
+				if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
+					return err
+				}
+				return syncArtifactSidecarsLocked(root, artifacts, artifact.SessionIDs...)
 			}
 		}
 		return writeArtifactsRegistryLocked(root, append(artifacts, artifact))
@@ -660,12 +724,19 @@ func RemoveArtifactAt(root, sessionID, path string) (bool, error) {
 			return err
 		}
 		next := make([]Artifact, 0, len(artifacts))
+		affected := []string{sessionID}
 		for _, artifact := range artifacts {
-			if artifact.Path == path && artifact.SessionID == sessionID {
-				removed = true
+			if artifact.Path != path || !artifactHasSession(artifact, sessionID) {
+				next = append(next, artifact)
 				continue
 			}
-			next = append(next, artifact)
+			removed = true
+			affected = append(affected, artifact.SessionIDs...)
+			artifact.SessionIDs = removeArtifactSession(artifact.SessionIDs, sessionID)
+			artifact.SessionID = ""
+			if len(artifact.SessionIDs) != 0 {
+				next = append(next, normalizeArtifact(artifact))
+			}
 		}
 		if !removed {
 			return nil
@@ -673,7 +744,7 @@ func RemoveArtifactAt(root, sessionID, path string) (bool, error) {
 		if err := writeArtifactsRegistryLocked(root, next); err != nil {
 			return err
 		}
-		return syncArtifactSidecarsLocked(root, next, sessionID)
+		return syncArtifactSidecarsLocked(root, next, affected...)
 	})
 	return removed, err
 }
@@ -694,9 +765,11 @@ func RemoveArtifactGlobal(root, path string) (bool, error) {
 			return err
 		}
 		next := make([]Artifact, 0, len(artifacts))
+		var affected []string
 		for _, artifact := range artifacts {
 			if artifact.Path == path {
 				removed = true
+				affected = append(affected, artifact.SessionIDs...)
 				continue
 			}
 			next = append(next, artifact)
@@ -704,9 +777,120 @@ func RemoveArtifactGlobal(root, path string) (bool, error) {
 		if !removed {
 			return nil
 		}
-		return writeArtifactsRegistryLocked(root, next)
+		if err := writeArtifactsRegistryLocked(root, next); err != nil {
+			return err
+		}
+		return syncArtifactSidecarsLocked(root, next, affected...)
 	})
 	return removed, err
+}
+
+// DeleteArtifactAt removes the registered file and every session link. The
+// registry lock keeps deletion ordered with registration and relinking.
+func DeleteArtifactAt(root, idOrPath string) (bool, error) {
+	if idOrPath == "" {
+		return false, errors.New("artifact id or path is required")
+	}
+	if root == "" {
+		return false, errors.New("no state root resolved")
+	}
+	removed := false
+	err := withArtifactsRegistryLock(root, func() error {
+		artifacts, err := loadArtifactsGlobalLocked(root)
+		if err != nil {
+			return err
+		}
+		target, found := ArtifactByIDOrPath(artifacts, idOrPath)
+		if !found {
+			return nil
+		}
+		info, err := os.Lstat(target.Path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect artifact file: %w", err)
+		}
+		stagedPath := ""
+		if err == nil {
+			if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+				return fmt.Errorf("artifact path is not a file: %s", target.Path)
+			}
+			temp, err := os.CreateTemp(filepath.Dir(target.Path), ".artifact-delete-*")
+			if err != nil {
+				return fmt.Errorf("stage artifact deletion: %w", err)
+			}
+			stagedPath = temp.Name()
+			if err := temp.Close(); err != nil {
+				_ = os.Remove(stagedPath)
+				return fmt.Errorf("close deletion staging file: %w", err)
+			}
+			if err := os.Rename(target.Path, stagedPath); err != nil {
+				_ = os.Remove(stagedPath)
+				if !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("stage artifact file: %w", err)
+				}
+				stagedPath = ""
+			}
+		}
+		next := make([]Artifact, 0, len(artifacts)-1)
+		for _, artifact := range artifacts {
+			if artifact.ID != target.ID {
+				next = append(next, artifact)
+			}
+		}
+		if err := writeArtifactsRegistryLocked(root, next); err != nil {
+			if stagedPath != "" {
+				if restoreErr := os.Rename(stagedPath, target.Path); restoreErr != nil {
+					return errors.Join(err, fmt.Errorf("restore artifact file from %s: %w", stagedPath, restoreErr))
+				}
+			}
+			return err
+		}
+		var syncedIDs []string
+		// Sidecars are compatibility copies. Restore those already changed if a
+		// later write fails, so a reported failure keeps the file registered.
+		rollback := func(cause error) error {
+			if stagedPath != "" {
+				if restoreErr := os.Rename(stagedPath, target.Path); restoreErr != nil {
+					return errors.Join(cause, fmt.Errorf("restore artifact file from %s: %w", stagedPath, restoreErr))
+				}
+			}
+			registryErr := writeArtifactsRegistryLocked(root, artifacts)
+			sidecarErr := syncArtifactSidecarsLocked(root, artifacts, syncedIDs...)
+			return errors.Join(cause, registryErr, sidecarErr)
+		}
+		for _, sessionID := range target.SessionIDs {
+			if err := syncArtifactSidecarsLocked(root, next, sessionID); err != nil {
+				return rollback(err)
+			}
+			syncedIDs = append(syncedIDs, sessionID)
+		}
+		if stagedPath != "" {
+			if err := os.Remove(stagedPath); err != nil {
+				return rollback(fmt.Errorf("remove staged artifact file %s: %w", stagedPath, err))
+			}
+		}
+		removed = true
+		cleanupManagedArtifactDirectory(root, target)
+		return nil
+	})
+	return removed, err
+}
+
+func cleanupManagedArtifactDirectory(root string, artifact Artifact) {
+	library := filepath.Join(root, "artifact-files")
+	relative, err := filepath.Rel(library, artifact.Path)
+	if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return
+	}
+	parts := strings.Split(relative, string(filepath.Separator))
+	if len(parts) != 3 || parts[1] != artifact.ID || (parts[0] != "ungrouped" && !strings.HasPrefix(parts[0], "project-")) {
+		return
+	}
+	dir := filepath.Join(library, parts[0], parts[1])
+	if err := os.Remove(dir); err != nil {
+		return // Keep directories containing any other files.
+	}
+	_ = os.Remove(filepath.Dir(dir))
+	_ = os.Remove(library)
 }
 
 func FilterArtifacts(artifacts []Artifact, scope, sessionID, projectID string) []Artifact {
@@ -728,7 +912,7 @@ func FilterArtifacts(artifacts []Artifact, scope, sessionID, projectID string) [
 
 	filtered := make([]Artifact, 0, len(artifacts))
 	for _, artifact := range artifacts {
-		if artifact.SessionID == sessionID {
+		if artifactHasSession(artifact, sessionID) {
 			filtered = append(filtered, artifact)
 		}
 	}
@@ -796,19 +980,20 @@ func migrateArtifactsRegistry(root string) ([]Artifact, error) {
 
 func mergeMigratedArtifacts(byPath map[string]Artifact, artifacts []Artifact, sessionID, projectID string) {
 	for _, artifact := range artifacts {
-		artifact = normalizeArtifact(artifact)
-		if artifact.Path == "" || !filepath.IsAbs(artifact.Path) {
-			continue
-		}
-		if artifact.SessionID == "" {
+		if artifact.SessionID == "" && len(artifact.SessionIDs) == 0 {
 			artifact.SessionID = sessionID
 		}
 		if artifact.ProjectID == "" {
 			artifact.ProjectID = projectID
 		}
-		if current, ok := byPath[artifact.Path]; !ok || artifactNewer(artifact, current) {
-			byPath[artifact.Path] = artifact
+		artifact = normalizeArtifact(artifact)
+		if artifact.Path == "" || !filepath.IsAbs(artifact.Path) {
+			continue
 		}
+		if current, ok := byPath[artifact.Path]; ok {
+			artifact = mergeArtifactRecords(current, artifact)
+		}
+		byPath[artifact.Path] = artifact
 	}
 }
 
@@ -817,11 +1002,7 @@ func artifactProjectID(root, sessionID string) string {
 	if err != nil {
 		return ""
 	}
-	r, ok := repo.Resolve(m.Cwd)
-	if !ok {
-		return ""
-	}
-	return r.Identity
+	return ProjectIDAt(root, m.Cwd)
 }
 
 func loadArtifactsSidecarAt(root, sessionID string) ([]Artifact, bool, error) {
@@ -923,15 +1104,64 @@ func dedupeArtifactsByPath(artifacts []Artifact) []Artifact {
 		if artifact.Path == "" {
 			continue
 		}
-		if current, ok := byPath[artifact.Path]; !ok || artifactNewer(artifact, current) {
-			byPath[artifact.Path] = artifact
+		if current, ok := byPath[artifact.Path]; ok {
+			artifact = mergeArtifactRecords(current, artifact)
 		}
+		byPath[artifact.Path] = artifact
 	}
 	out := make([]Artifact, 0, len(byPath))
 	for _, artifact := range byPath {
 		out = append(out, artifact)
 	}
 	return out
+}
+
+func mergeArtifactRecords(current, incoming Artifact) Artifact {
+	preferred := current
+	if artifactNewer(incoming, current) {
+		preferred = incoming
+	}
+	preferred.SessionIDs = append(append([]string(nil), current.SessionIDs...), incoming.SessionIDs...)
+	if preferred.CreatedBySessionID == "" {
+		preferred.CreatedBySessionID = current.CreatedBySessionID
+	}
+	if preferred.ID == "" {
+		preferred.ID = current.ID
+	}
+	return normalizeArtifact(preferred)
+}
+
+// ArtifactByIDOrPath resolves a registry record by stable ID or canonical path.
+func ArtifactByIDOrPath(artifacts []Artifact, value string) (Artifact, bool) {
+	path := value
+	if filepath.IsAbs(value) {
+		path = filepath.Clean(value)
+	}
+	for _, artifact := range artifacts {
+		if artifact.ID == value || artifact.Path == path {
+			return artifact, true
+		}
+	}
+	return Artifact{}, false
+}
+
+func artifactHasSession(artifact Artifact, sessionID string) bool {
+	for _, id := range artifact.SessionIDs {
+		if id == sessionID {
+			return true
+		}
+	}
+	return artifact.SessionID == sessionID
+}
+
+func removeArtifactSession(ids []string, sessionID string) []string {
+	next := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != sessionID {
+			next = append(next, id)
+		}
+	}
+	return next
 }
 
 func artifactNewer(left, right Artifact) bool {
@@ -996,6 +1226,10 @@ func ArtifactKindForPath(path string) string {
 func normalizeArtifact(artifact Artifact) Artifact {
 	if artifact.Path != "" {
 		artifact.Path = filepath.Clean(artifact.Path)
+		if artifact.ID == "" {
+			sum := sha256.Sum256([]byte(artifact.Path))
+			artifact.ID = fmt.Sprintf("art-%x", sum[:12])
+		}
 	}
 	artifact.Kind = strings.ToLower(strings.TrimSpace(artifact.Kind))
 	if artifact.Kind == "" {
@@ -1006,6 +1240,20 @@ func normalizeArtifact(artifact Artifact) Artifact {
 	}
 	if artifact.AddedAt == "" {
 		artifact.AddedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	if artifact.CreatedBySessionID == "" && artifact.SessionID != "" {
+		artifact.CreatedBySessionID = artifact.SessionID
+	}
+	ids := append([]string(nil), artifact.SessionIDs...)
+	if artifact.SessionID != "" {
+		ids = append(ids, artifact.SessionID)
+	}
+	sort.Strings(ids)
+	ids = slices.Compact(ids)
+	artifact.SessionIDs = ids
+	artifact.SessionID = ""
+	if len(ids) > 0 {
+		artifact.SessionID = ids[0]
 	}
 	return artifact
 }
@@ -1087,7 +1335,7 @@ func writeSessionStateLocked(root, id string, ss *SessionState) error {
 	data = append(data, '\n')
 	path := SessionStatePath(root, id)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("write tmp state: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -1186,8 +1434,37 @@ func appendRotatingJSONL(path string, ev StateEvent) error {
 	if err != nil {
 		return fmt.Errorf("encode state event: %w", err)
 	}
-	data = append(data, '\n')
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	return appendRotatingLine(path, append(data, '\n'))
+}
+
+// AppendHookError appends one timestamped line to the session's
+// hook-errors.log. Agents discard a hook's stderr, so this file is where a
+// failed hook leaves its trace. It takes no state lock, so a hook that timed
+// out waiting for that lock can still log, and it rotates like state.jsonl.
+func AppendHookError(id, text string) error {
+	return AppendHookErrorAt(StateRoot(), id, text)
+}
+
+// AppendHookErrorAt is AppendHookError with the state root supplied by the
+// caller.
+func AppendHookErrorAt(root, id, text string) error {
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
+	}
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	if err := ensureSessionStateDir(root, id); err != nil {
+		return err
+	}
+	line := time.Now().UTC().Format(time.RFC3339Nano) + " " + strings.TrimRight(text, "\n") + "\n"
+	return appendRotatingLine(SessionHookErrorLogPath(root, id), []byte(line))
+}
+
+// appendRotatingLine appends data to path and rotates the file to path.1 once
+// it reaches StateJSONLMaxSize, keeping one rolled file.
+func appendRotatingLine(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open state log: %w", err)
 	}
@@ -1199,7 +1476,7 @@ func appendRotatingJSONL(path string, ev StateEvent) error {
 		f.Close()
 		_ = os.Remove(path + ".1")
 		_ = os.Rename(path, path+".1")
-		f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
 			return fmt.Errorf("open state log: %w", err)
 		}
@@ -1212,46 +1489,92 @@ func appendRotatingJSONL(path string, ev StateEvent) error {
 }
 
 func withFileLock(lockPath string, fn func() error) error {
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	return withFileLockContext(context.Background(), lockPath, fn)
+}
+
+// withFileLockContext is withFileLock with the wait bounded by ctx's
+// deadline, as lockFile describes.
+func withFileLockContext(ctx context.Context, lockPath string, fn func() error) error {
+	unlock, err := lockFile(ctx, lockPath)
 	if err != nil {
-		return fmt.Errorf("open log lock: %w", err)
+		return fmt.Errorf("acquire lock %s: %w", filepath.Base(lockPath), err)
 	}
-	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		return fmt.Errorf("acquire log lock: %w", err)
-	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	defer unlock()
 	return fn()
 }
 
-// withStateLock acquires an exclusive flock on the per-session lockfile
-// and runs fn while holding it. The lockfile is created on first use.
+// lockFile opens lockPath, creating it, and takes an exclusive flock on it.
+// unlock releases the lock and closes the file.
 //
-// We use plain blocking flock (LOCK_EX) rather than a LOCK_NB + sleep
-// poll loop. On macOS the kernel can take tens of ms to release a
-// dropped flock after the holding process exits; polling with LOCK_NB
-// pays back-to-back scheduler pauses that show up as ~200ms p99 tail
-// outliers. Blocking LOCK_EX is kernel-driven and adds <1ms in the
-// uncontended case.
+// The flock is always a blocking LOCK_EX, so waiters queue in the kernel. On
+// macOS the kernel can take tens of ms to hand over a dropped flock; a
+// LOCK_NB + sleep poll loop showed ~200ms p99 tail outliers. A 2 ms poll
+// loop, tried in 2026-11 to give hooks a deadline, also starved waiters:
+// with nine hooks on one session, p99 reached ~1 s and some hooks hit the
+// deadline and skipped their state write.
 //
-// There is no userspace timeout: deadlock is impossible (no recursive
-// locking; defer-unlock on every path). If the kernel were to hang the
-// lock, the agent's own hook timeout (Claude: 5s by default) is the
-// outer cap.
+// With a deadline on ctx, the blocking flock runs in a goroutine and the
+// caller stops waiting at the deadline with ctx's error. The flock cannot be
+// cancelled, so it stays queued and is released as soon as it is granted;
+// the file stays open until then, so its descriptor is not reused under the
+// waiting call. A hook exits right after, which drops it anyway.
+func lockFile(ctx context.Context, lockPath string) (func(), error) {
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
+	}
+	fd := int(f.Fd())
+	unlock := func() {
+		syscall.Flock(fd, syscall.LOCK_UN) //nolint:errcheck
+		f.Close()
+	}
+	if _, bounded := ctx.Deadline(); !bounded {
+		if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+			f.Close()
+			return nil, err
+		}
+		return unlock, nil
+	}
+	granted := make(chan error, 1)
+	go func() { granted <- syscall.Flock(fd, syscall.LOCK_EX) }()
+	select {
+	case err := <-granted:
+		if err != nil {
+			f.Close()
+			return nil, err
+		}
+		return unlock, nil
+	case <-ctx.Done():
+		go func() {
+			if <-granted == nil {
+				unlock()
+				return
+			}
+			f.Close()
+		}()
+		return nil, ctx.Err()
+	}
+}
+
+// withStateLock runs fn holding the per-session state lock, however long the
+// wait. Hooks use withStateLockContext with their deadline.
 func withStateLock(root, id string, fn func() error) error {
+	return withStateLockContext(context.Background(), root, id, fn)
+}
+
+// withStateLockContext acquires an exclusive flock on the per-session
+// lockfile and runs fn while holding it. The lockfile is created on first
+// use. A deadline on ctx bounds the wait (lockFile); there is no deadlock to
+// guard against otherwise (no recursive locking; defer-unlock on every path).
+func withStateLockContext(ctx context.Context, root, id string, fn func() error) error {
 	if err := ensureSessionStateDir(root, id); err != nil {
 		return err
 	}
-	lockPath := SessionStateLockPath(root, id)
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	unlock, err := lockFile(ctx, SessionStateLockPath(root, id))
 	if err != nil {
-		return fmt.Errorf("open state lock: %w", err)
-	}
-	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("acquire state lock for %s: %w", id, err)
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	defer unlock()
 	return fn()
 }
 

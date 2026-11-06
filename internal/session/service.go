@@ -1,4 +1,17 @@
 // Package session manages lifecycle operations (start, delete, continue, spawn).
+//
+// Lifecycle locks: Start, Continue and Delete run their check, create, set-up
+// and delete steps while holding the session's lifecycle lock
+// (state.Store.WithLifecycleLock), so two operations on one session never
+// interleave. A worker's Start and Continue also hold its master's lock through
+// registering and launching the worker, and a master's Delete holds its own
+// lock through the cascade over its workers, so no worker is registered or
+// launched around that cascade. Locks are taken parent first, then child, and
+// nothing that holds a child's lock takes its parent's. A master's Continue
+// cascades to its workers after releasing its own lock; each worker's Continue
+// then takes the locks itself. The steps under the locks share one deadline
+// (defaultLifecycleTimeout), so a tmux server that stops answering holds the
+// locks only that long.
 package session
 
 import (
@@ -7,7 +20,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
@@ -33,6 +45,45 @@ type Service struct {
 	Now func() int64
 	// RandSuffix returns a random int for session ID dedup.
 	RandSuffix func() int64
+
+	// lifecycleTimeout overrides defaultLifecycleTimeout in tests.
+	lifecycleTimeout time.Duration
+}
+
+const (
+	// defaultLifecycleTimeout bounds the steps one lifecycle operation runs under
+	// its locks.
+	defaultLifecycleTimeout = 30 * time.Second
+	// rollbackTimeout bounds a rollback, which runs even after the lifecycle
+	// deadline has passed.
+	rollbackTimeout = 5 * time.Second
+)
+
+// locked runs fn under the lifecycle locks of ids, taken in order (a master
+// before its worker; empty ids are skipped). fn's context carries the lifecycle
+// deadline, which starts once every lock is held.
+func (s *Service) locked(ctx context.Context, ids []string, fn func(context.Context) error) error {
+	if len(ids) == 0 {
+		timeout := s.lifecycleTimeout
+		if timeout == 0 {
+			timeout = defaultLifecycleTimeout
+		}
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return fn(ctx)
+	}
+	if ids[0] == "" {
+		return s.locked(ctx, ids[1:], fn)
+	}
+	return s.Store.WithLifecycleLock(ids[0], func() error {
+		return s.locked(ctx, ids[1:], fn)
+	})
+}
+
+// rollbackContext keeps a rollback running after the lifecycle deadline that
+// may have caused it, under a deadline of its own.
+func rollbackContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
 }
 
 // NewService creates a session service with production defaults.
@@ -52,29 +103,28 @@ func NewService(store *state.Store, client *tmux.Client, repoRoot string, regist
 	return svc
 }
 
-// runtimeDir returns the runtime directory path for a session.
-// Uses /tmp/ (not os.TempDir()) so runtime cleanup sees the same stable path
-// on macOS, where os.TempDir() returns a per-user /var/folders/... location.
-func runtimeDir(sessionID string) string {
-	return filepath.Join("/tmp", sessionID)
+// ensureRuntimeDir makes a session's private runtime directory at dir and
+// writes its session-name file.
+func ensureRuntimeDir(dir, sessionID string) error {
+	if err := state.EnsureRuntimeDir(dir); err != nil {
+		return err
+	}
+	if err := state.WriteRuntimeFile(dir, "session-name", []byte(sessionID+"\n")); err != nil {
+		return fmt.Errorf("write session-name: %w", err)
+	}
+	return nil
 }
 
-// ensureRuntimeDir creates the runtime directory and writes the session name file.
-func ensureRuntimeDir(sessionID string) (string, error) {
-	dir := runtimeDir(sessionID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create runtime dir: %w", err)
+// removeRuntimeDir removes the runtime directory the session's manifest
+// records. A session with no readable manifest has no known directory.
+func (s *Service) removeRuntimeDir(sessionID string) {
+	m, err := s.Store.Read(sessionID)
+	if err != nil {
+		return
 	}
-	nameFile := filepath.Join(dir, "session-name")
-	if err := os.WriteFile(nameFile, []byte(sessionID+"\n"), 0o644); err != nil {
-		return "", fmt.Errorf("write session-name: %w", err)
+	if dir, err := m.RuntimeDirOrLegacy(); err == nil {
+		_ = os.RemoveAll(dir)
 	}
-	return dir, nil
-}
-
-// removeRuntimeDir removes the runtime directory for a session.
-func removeRuntimeDir(sessionID string) {
-	os.RemoveAll(runtimeDir(sessionID))
 }
 
 // sessionRole identifies a session's role for agent launch behavior.

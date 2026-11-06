@@ -83,13 +83,16 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if err := os.Chdir(config.Home); err != nil {
 		return fmt.Errorf("daemon chdir home: %w", err)
 	}
+	if err := ensureStableForIdentity(config.Root, id, config.Executable); err != nil {
+		return fmt.Errorf("stable executable: %w", err)
+	}
 	if err := writeShims(config.Root, id, config.Executable); err != nil {
 		return fmt.Errorf("daemon shims: %w", err)
 	}
 	if err := installEnvironment(config.daemonEnvironment(id)); err != nil {
 		return fmt.Errorf("daemon environment: %w", err)
 	}
-	s := &server{config: config, id: id, socket: socket, dir: dir, stop: make(chan struct{}, 1), upgrade: make(chan string, 1), lastActivity: time.Now(), jobsRequested: jobsRequested || id == "canonical"}
+	s := &server{config: config, id: id, socket: socket, dir: dir, stop: make(chan struct{}, 1), upgrade: make(chan string, 1), lastActivity: time.Now(), jobsRequested: jobsAllowed(id, jobsRequested)}
 	s.runtime = config.Runtime
 	if s.runtime == nil {
 		s.runtime = &serve.Server{Snapshotter: serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)}
@@ -101,7 +104,7 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 		if pr, ok := job.(*prstatus.Job); ok {
 			s.runtime.PRRefresh = func(ctx context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
 				if !s.jobsOwner() {
-					return nil, fmt.Errorf("PR polling is unavailable on this daemon")
+					return nil, fmt.Errorf("PR polling is unavailable on this daemon: it does not hold the jobs lock")
 				}
 				if !wait {
 					pr.Notify(keys)

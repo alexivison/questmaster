@@ -75,7 +75,7 @@ func TestContinueLaunchUsesCurrentMasterClassVoice(t *testing.T) {
 	if err := svc.Store.SetSessionClass(sessionID, "wizard"); err != nil {
 		t.Fatalf("reclass session: %v", err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir(sessionID)) })
+	t.Cleanup(func() { _ = os.RemoveAll(state.NewRuntimeDir(svc.Store.Root(), sessionID)) })
 
 	if _, err := svc.Continue(t.Context(), sessionID); err != nil {
 		t.Fatalf("Continue: %v", err)
@@ -166,7 +166,7 @@ func TestContinueKillsTmuxSessionOnLaunchFailureButPreservesManifest(t *testing.
 		t.Fatal("Continue error = nil, want launch failure")
 	}
 
-	if !runner.hasCall("kill-session", "-t", sessionID) {
+	if !runner.hasCall("kill-session", "-t", tmux.SessionTarget(sessionID)) {
 		t.Fatal("Continue should best-effort kill the partial tmux session on launch failure")
 	}
 	if runner.sessions[sessionID] {
@@ -174,6 +174,29 @@ func TestContinueKillsTmuxSessionOnLaunchFailureButPreservesManifest(t *testing.
 	}
 	if _, err := svc.Store.Read(sessionID); err != nil {
 		t.Fatalf("manifest must be preserved on Continue failure for retry, got: %v", err)
+	}
+}
+
+// A new-session that fails because the session already exists created nothing.
+// That session belongs to whoever created it, so Continue must not kill it.
+func TestContinueDuplicateSessionErrorDoesNotKill(t *testing.T) {
+	setTestStateRoot(t, t.TempDir())
+	svc, runner := setupService(t)
+	sessionID := "qm-duplicate"
+	createTestManifest(t, svc.Store, sessionID, "duplicate", t.TempDir(), "")
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "new-session" {
+			return "", &tmux.ExitError{Code: 1, Stderr: "duplicate session: " + sessionID}
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	if _, err := svc.Continue(t.Context(), sessionID); err == nil {
+		t.Fatal("Continue error = nil, want the duplicate-session error")
+	}
+
+	if runner.hasCall("kill-session") {
+		t.Fatalf("Continue killed a session it did not create: %v", runner.calls)
 	}
 }
 
@@ -230,7 +253,7 @@ func TestContinueAliveRefreshesAppOwnedEnvironment(t *testing.T) {
 			t.Fatalf("tmux env %s = %q, want %q", key, got, want)
 		}
 	}
-	if !runner.hasCall("set-environment", "-t", sessionID, "-u", "QUESTMASTER_HOME") {
+	if !runner.hasCall("set-environment", "-t", tmux.SessionTarget(sessionID), "-u", "QUESTMASTER_HOME") {
 		t.Fatal("legacy QUESTMASTER_HOME must be cleared")
 	}
 	if got := runner.envVars[sessionID+":PATH"]; filepath.SplitList(got)[0] != prefix {
@@ -281,7 +304,7 @@ func TestCascadeWorkers_MissingVsCorruptManifest(t *testing.T) {
 	runner := &testRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if args[0] == "has-session" {
 			for i, a := range args {
-				if a == "-t" && i+1 < len(args) && args[i+1] == "qm-alive" {
+				if a == "-t" && i+1 < len(args) && args[i+1] == "=qm-alive:" {
 					return "", nil // alive session exists
 				}
 			}

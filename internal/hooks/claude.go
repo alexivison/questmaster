@@ -41,8 +41,12 @@ const claudeScriptCommandPath = "~/.claude/hooks/questmaster-state.sh"
 // claudeScriptCommandToken is the substring used to identify questmaster
 // entries when merging or removing them. Independent of the leading
 // path so it also matches legacy absolute-path entries written by
-// earlier installer versions.
+// earlier installer versions, which install then rewrites.
 const claudeScriptCommandToken = "questmaster-state.sh"
+
+// claudeHookTimeoutSec is the timeout written into each hook entry. The
+// hook bounds itself well under it.
+const claudeHookTimeoutSec = 5
 
 // ClaudeInstaller manages the Claude Code hook surface. Writes the
 // script to ~/.claude/hooks/questmaster-state.sh and merges hook entries
@@ -131,18 +135,29 @@ func (c *ClaudeInstaller) Status() Report {
 	if err != nil {
 		return Report{Agent: "claude", Status: StatusOutdated, Detail: fmt.Sprintf("settings unreadable: %v", err)}
 	}
-	installed := c.countInstalled(settings)
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	present, current := 0, 0
+	for _, e := range claudeEvents {
+		arr, _ := hooks[e.Event].([]interface{})
+		found, ok := claudeEntryState(arr, e)
+		if found {
+			present++
+		}
+		if ok {
+			current++
+		}
+	}
 	want := len(claudeEvents)
 	switch {
-	case !scriptOK && installed == 0:
+	case !scriptOK && present == 0:
 		return Report{Agent: "claude", Status: StatusNotInstalled}
-	case scriptOK && installed == want:
+	case scriptOK && current == want:
 		return Report{Agent: "claude", Status: StatusCurrent}
 	default:
 		return Report{
 			Agent:  "claude",
 			Status: StatusOutdated,
-			Detail: fmt.Sprintf("script_ok=%v installed_entries=%d/%d", scriptOK, installed, want),
+			Detail: fmt.Sprintf("script_ok=%v current_entries=%d/%d", scriptOK, current, want),
 		}
 	}
 }
@@ -238,9 +253,10 @@ func (c *ClaudeInstaller) backupIfNeededWithOptions(opts InstallOptions) error {
 	return os.WriteFile(c.backupPath(), data, 0o644)
 }
 
-// mergeOurEntries appends a questmaster entry block for each event that
-// does not already have one. User-managed entries and prior questmaster
-// installs are preserved. It reports whether settings changed.
+// mergeOurEntries makes each event hold exactly the current questmaster
+// entry: an event whose questmaster hooks are missing or stale loses them
+// and gets a fresh entry block. Events already current and user-managed
+// hooks are left as they are. It reports whether settings changed.
 func (c *ClaudeInstaller) mergeOurEntries(settings map[string]interface{}) bool {
 	changed := false
 	hooks, _ := settings["hooks"].(map[string]interface{})
@@ -251,10 +267,10 @@ func (c *ClaudeInstaller) mergeOurEntries(settings map[string]interface{}) bool 
 	}
 	for _, e := range claudeEvents {
 		existing, _ := hooks[e.Event].([]interface{})
-		if hasQuestmasterEntryForAction(existing, e.Action) {
+		if _, current := claudeEntryState(existing, e); current {
 			continue
 		}
-		hooks[e.Event] = append(existing, c.buildEntry(e))
+		hooks[e.Event] = append(dropQuestmasterEntries(existing), c.buildEntry(e))
 		changed = true
 	}
 	return changed
@@ -306,11 +322,10 @@ func (c *ClaudeInstaller) removeFromSettings() error {
 // buildEntry returns a new no-matcher entry block for this event/action,
 // sitting alongside any user-managed matcher-scoped blocks already in place.
 func (c *ClaudeInstaller) buildEntry(e claudeEntry) map[string]interface{} {
-	scriptCmd := fmt.Sprintf("%s %s", claudeScriptCommandPath, e.Action)
 	inner := map[string]interface{}{
 		"type":    "command",
-		"command": scriptCmd,
-		"timeout": 5,
+		"command": claudeCommand(e),
+		"timeout": claudeHookTimeoutSec,
 	}
 	if e.Async {
 		inner["async"] = true
@@ -322,24 +337,16 @@ func (c *ClaudeInstaller) buildEntry(e claudeEntry) map[string]interface{} {
 	}
 }
 
-func (c *ClaudeInstaller) countInstalled(settings map[string]interface{}) int {
-	hooks, _ := settings["hooks"].(map[string]interface{})
-	count := 0
-	for _, e := range claudeEvents {
-		arr, _ := hooks[e.Event].([]interface{})
-		if hasQuestmasterEntryForAction(arr, e.Action) {
-			count++
-		}
-	}
-	return count
+func claudeCommand(e claudeEntry) string {
+	return claudeScriptCommandPath + " " + e.Action
 }
 
-// hasQuestmasterEntryForAction reports whether any entry in arr contains an
-// inner-hook command that references questmaster-state.sh for the given
-// action. The match is by command-path suffix so legacy absolute-path
-// installs are still recognised.
-func hasQuestmasterEntryForAction(arr []interface{}, action string) bool {
-	suffix := claudeScriptCommandToken + " " + action
+// claudeEntryState reports whether arr, one event's hook entries, holds any
+// questmaster hook, and whether it holds exactly the one buildEntry writes:
+// the same command path, timeout and async flag. Any other questmaster hook
+// there, a legacy absolute path or a duplicate included, makes it stale.
+func claudeEntryState(arr []interface{}, e claudeEntry) (present, current bool) {
+	var ours []map[string]interface{}
 	for _, item := range arr {
 		obj, ok := item.(map[string]interface{})
 		if !ok {
@@ -347,17 +354,24 @@ func hasQuestmasterEntryForAction(arr []interface{}, action string) bool {
 		}
 		innerHooks, _ := obj["hooks"].([]interface{})
 		for _, ih := range innerHooks {
-			ihObj, ok := ih.(map[string]interface{})
+			hook, ok := ih.(map[string]interface{})
 			if !ok {
 				continue
 			}
-			cmd, _ := ihObj["command"].(string)
-			if strings.HasSuffix(cmd, suffix) {
-				return true
+			if cmd, _ := hook["command"].(string); strings.Contains(cmd, claudeScriptCommandToken) {
+				ours = append(ours, hook)
 			}
 		}
 	}
-	return false
+	if len(ours) != 1 {
+		return len(ours) > 0, false
+	}
+	hook := ours[0]
+	typ, _ := hook["type"].(string)
+	cmd, _ := hook["command"].(string)
+	async, _ := hook["async"].(bool)
+	return true, typ == "command" && cmd == claudeCommand(e) &&
+		numericEqual(hook["timeout"], claudeHookTimeoutSec) && async == e.Async
 }
 
 // dropQuestmasterEntries returns arr with questmaster inner hooks removed. An

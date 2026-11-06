@@ -216,7 +216,7 @@ func TestChatCommandDiscoversCurrentMaster(t *testing.T) {
 	t.Setenv(state.SessionEnv, "")
 	store := setupStore(t)
 	createFeedManifests(t, store, "qm-master", "qm-w1")
-	out := runCmd(t, store, displayRunner("qm-master"), "chat")
+	out := runCmd(t, store, displayRunner(t, "qm-master"), "chat")
 	var page workerfeed.HistoryPage
 	if err := json.Unmarshal([]byte(out), &page); err != nil {
 		t.Fatal(err)

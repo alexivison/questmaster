@@ -82,6 +82,7 @@ enum RenderPreview {
         renderView(terminalEndedView(), size: CGSize(width: 520, height: 300), to: "\(outputDir)/terminal-ended.png")
         render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
+        render(trackerView(connection: .reconnecting), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-reconnecting.png")
         render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
         render(trackerListStatusView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-status.png")
         render(trackerListGapsView(), size: CGSize(width: 340, height: 820), to: "\(outputDir)/tracker-list-gaps.png")
@@ -164,10 +165,11 @@ enum RenderPreview {
         for fixture in ["master", "list", "shimmer"] {
             render(castFixtureView(fixture), size: CGSize(width: 340, height: 420), to: "\(outputDir)/cast-\(fixture).png")
         }
-        let tagSize = CGSize(width: TrackerAvatarMetrics.slotWidth, height: SelectedSessionTagMetrics.height)
-        render(selectedSessionTagView(), size: tagSize, to: "\(outputDir)/selected-session-tag.png")
-        render(selectedSessionTagView(title: "Terminal", id: "", projectName: ""), size: tagSize, to: "\(outputDir)/selected-session-tag-terminal.png")
-        render(selectedSessionTagView(title: "Wire up the worker chat and the session tag's long title", projectName: "questmaster"), size: tagSize, to: "\(outputDir)/selected-session-tag-long.png")
+        render(selectedSessionPanelView(), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel.png")
+        render(selectedSessionPanelView(withText: false), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-plain.png")
+        render(selectedSessionPanelView(portrait: .master(.cleric)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-class.png")
+        render(selectedSessionPanelView(portrait: .familiar(.wizard)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-familiar.png")
+        render(selectedSessionPanelView(isShell: true), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-shell.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -197,6 +199,7 @@ enum RenderPreview {
         renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
         recordQuestLogAnimations(to: outputDir)
         recordDockPanelAnimations(to: outputDir)
+        recordSelectedSessionFade(to: outputDir)
         recordRefreshSpinner(to: outputDir)
         recordTrackerAvatarMotion(to: outputDir)
         recordTrackerAvatarRound2(to: outputDir)
@@ -233,6 +236,11 @@ enum RenderPreview {
         render(ToastBanner(message: "Copied qm-1783901769").background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         render(settingsView(loading: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-skeleton.png")
+        render(projectsSettingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects.png")
+        render(projectsSettingsView(arranging: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects-arrange.png")
+        render(projectsSettingsView(folders: settingsUnlistedFolders), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects-folders.png")
+        render(projectEditView(adding: false), size: projectEditSize(fields: 2), to: "\(outputDir)/settings-project-edit.png")
+        render(projectEditView(adding: true), size: projectEditSize(fields: 3), to: "\(outputDir)/settings-project-add.png")
         print("RenderPreview: done")
         exit(0)
     }
@@ -537,6 +545,28 @@ enum RenderPreview {
         canvas.layer?.backgroundColor = AppPalette.window.cgColor
         canvas.addSubview(column)
         return (canvas, column)
+    }
+
+    /// The selected-session panel's class icon fading in as the attached session changes, sampled frame by frame: the
+    /// paladin's icon, then the wizard's. Ends past the fade so the last frames are the settled icon.
+    @MainActor
+    private static func recordSelectedSessionFade(to dir: String) {
+        let size = SelectedSessionPanel.canvasSize
+        let model = SelectedSessionPanelFadeModel(SelectedSessionPanelContent(
+            title: "Improve fuzzy search ranking", id: "qm-1789532989", projectName: "Questmaster",
+            projectColor: NSColor(hex: 0x7A7AF0), portrait: .master(.paladin)
+        ))
+        let host = NSHostingView(rootView: SelectedSessionPanelFadeHarness(model: model).background(AppPalette.window.swiftUI))
+        // The fade is Core Animation's, so the frames are its presentation layers, captured from a plain (non-flipped) container.
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        host.frame = container.bounds
+        container.addSubview(host)
+        recordAnimation("selected-session-fade-gif", root: container, size: size, crop: CGRect(origin: .zero, size: size), duration: (MotionStep.standard.seconds + 0.12) * Motion.slowdown, capturesLayers: true, to: dir) {
+            model.content = SelectedSessionPanelContent(
+                title: "Wire up the worker chat", id: "qm-1789533001", projectName: "Questmaster",
+                projectColor: NSColor(hex: 0x7A7AF0), portrait: .master(.wizard)
+            )
+        }
     }
 
     /// A panel coming and going while the other grows or shrinks, as `DockColumnView` runs it, sampled frame by frame.
@@ -1021,7 +1051,7 @@ enum RenderPreview {
     @MainActor
     private static func skeletonView() -> some View {
         let store = RuntimeStore(sourceLabel: "preview")
-        store.apply(.serveUnavailable("connecting to backend..."))
+        store.apply(RuntimeUpdate(connection: .connecting))
         return TrackerRootView(
             store: store,
             newSessionPresenter: NewSessionSheetPresenter(),
@@ -1031,8 +1061,9 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func trackerView(expandedMasterID: String? = nil) -> some View {
+    private static func trackerView(expandedMasterID: String? = nil, connection: ConnectionState = .connected) -> some View {
         let store = trackerPreviewStore()
+        store.apply(RuntimeUpdate(connection: connection))
         if let expandedMasterID {
             store.toggleWorkersCollapsed(for: expandedMasterID)
         }
@@ -1566,8 +1597,25 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The selected-session tag as the column draws it, centred in the avatar's slot. The default is the mock's session; an
-    /// empty id and project draw the "Terminal" tag of nothing attached.
+    /// The selected-session panel with the strings and the bar colour `Selected Session.svg` shows, or with no text, to
+    /// compare the plate alone against the SVG's raster. With neither a portrait nor `isShell` the disc is empty.
+    @MainActor
+    private static func selectedSessionPanelView(withText: Bool = true, portrait: SessionPortrait? = nil, isShell: Bool = false) -> some View {
+        SelectedSessionPanel(
+            content: SelectedSessionPanelContent(
+                title: withText ? "Improve fuzzy search ranking" : "",
+                id: withText ? "qm-1789532989" : "",
+                projectName: withText ? "Questmaster" : "",
+                projectColor: NSColor(hex: 0x7A7AF0),
+                portrait: portrait,
+                isShell: isShell
+            ),
+            onCopyID: { _ in }
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// A standalone selected-session-tag preview. The tracker now uses its pinned selected-session panel above the plate list.
     @MainActor
     private static func selectedSessionTagView(
         title: String = "Trace Events", id: String = "qm-1789532989", projectName: String = "scry"
@@ -1580,8 +1628,8 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The tracker column with a master attached and shells under the plates: the avatar under the selected-session tag. `state`
-    /// and `tool` set the pose; a class other than bard leaves the slot empty.
+    /// A real tracker column with a master attached and shells at the bottom: selected-session panel, plates, avatar slot and
+    /// pinned shell section. `state` and `tool` set the pose; a class other than bard leaves the slot empty.
     @MainActor
     private static func trackerAvatarView(state: String, tool: String? = nil, sessionClass: String = "bard") -> some View {
         let attached = TrackerSession(
@@ -1715,9 +1763,8 @@ enum RenderPreview {
         let displayColors = AppPalette.displayColorNames.keys.sorted().compactMap { name in
             AppPalette.displayColorNames[name].map { (name, $0) }
         }
-        let fallbackColors = AppPalette.repoFallbacks.enumerated().map { ("repo fallback \($0.offset + 1)", $0.element) }
         return VStack(alignment: .leading, spacing: 3) {
-            ForEach(displayColors + fallbackColors, id: \.0) { name, color in
+            ForEach(displayColors + [("none", AppPalette.muted)], id: \.0) { name, color in
                 HStack(spacing: 8) {
                     Text(name)
                         .font(AppFonts.monoSmall.swiftUI)
@@ -1835,7 +1882,7 @@ enum RenderPreview {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let filename = lightDocument ? "light-artifact.html" : "dark-artifact.html"
         let url = directory.appendingPathComponent(filename)
-        let colors = lightDocument ? ("#f7f0de", "#302820") : ("#22272e", "#c4d0dc")
+        let colors = lightDocument ? ("#f7f0de", "#302820") : ("#252a31", "#c4d0dc")
         let document = """
         <!doctype html><html><head><style>
         body { margin: 0; padding: 20px; background: \(colors.0); color: \(colors.1); font: 15px -apple-system; }
@@ -2055,8 +2102,70 @@ enum RenderPreview {
             presentation: SettingsSheetPresentation(
                 mutationClient: SettingsPreviewMutationClient(),
                 modelClient: loading ? SettingsPreviewStalledClient() : SettingsPreviewModelClient(),
-                effortClient: loading ? SettingsPreviewStalledClient() : SettingsPreviewEffortClient()
+                effortClient: loading ? SettingsPreviewStalledClient() : SettingsPreviewEffortClient(),
+                runtime: RuntimeStore(sourceLabel: "preview")
             ),
+            dismiss: {}
+        )
+    }
+
+    /// settings-projects-mock.png's projects, with their colours; the paths sit under this machine's home directory, so
+    /// they show as `~`.
+    private static let settingsProjects: [TrackerProject] = {
+        let home = NSHomeDirectory()
+        return [
+            TrackerProject(id: "repo-code", name: "Code", defaultName: "Code", path: home + "/Code", color: "sky"),
+            TrackerProject(id: "repo-dotfiles", name: "dotfiles", defaultName: "dotfiles", path: home + "/Code/dotfiles", color: "lime"),
+            TrackerProject(id: "repo-questmaster", name: "questmaster", defaultName: "questmaster", path: home + "/Code/questmaster", color: "orange"),
+            TrackerProject(id: "repo-scry", name: "scry", defaultName: "scry", path: home + "/Code/scry", color: "violet"),
+            TrackerProject(id: "repo-portfolio", name: "portfolio", defaultName: "github.io", path: home + "/Code/alexivison.github.io", color: "teal"),
+        ]
+    }()
+
+    /// Edit Project shows the name and colour; Add Project the path above them.
+    private static func projectEditSize(fields: Int) -> CGSize {
+        CGSize(width: ModalFormMetrics.editWidth, height: ModalFormMetrics.height(fields: fields))
+    }
+
+    /// Folders that hold sessions but belong to no project: one with several sessions, one with a single session, and one
+    /// under home, so the paths show as `~`.
+    private static let settingsUnlistedFolders: [TrackerUnlistedFolder] = {
+        let home = NSHomeDirectory()
+        return [
+            TrackerUnlistedFolder(path: home + "/Code/scratch-notes", sessionCount: 3),
+            TrackerUnlistedFolder(path: home + "/Downloads/build-logs", sessionCount: 1),
+            TrackerUnlistedFolder(path: "/opt/tools/exports", sessionCount: 2),
+        ]
+    }()
+
+    /// The Projects section with the second project highlighted, and arrange mode on when `arranging`.
+    @MainActor
+    private static func projectsSettingsView(arranging: Bool = false, folders: [TrackerUnlistedFolder] = []) -> some View {
+        let runtime = RuntimeStore(sourceLabel: "preview")
+        runtime.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [], projects: settingsProjects, unlistedFolders: folders)))
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: SettingsPreviewMutationClient(),
+                modelClient: nil,
+                effortClient: nil,
+                runtime: runtime
+            ),
+            dismiss: {}
+        )
+        model.selectSection(.projects)
+        model.projects.highlightRow(2)
+        if arranging {
+            model.projects.beginArrange()
+        }
+        return SettingsSheetView(model: model)
+    }
+
+    /// The Edit Project sheet for the highlighted project, or Add Project with no path typed yet.
+    @MainActor
+    private static func projectEditView(adding: Bool) -> some View {
+        let draft = adding ? ProjectEditDraft.adding() : ProjectEditDraft.editing(settingsProjects[2])
+        return ProjectEditSheetView(
+            presentation: ProjectEditPresentation(draft: draft, mutationClient: SettingsPreviewMutationClient()),
             dismiss: {}
         )
     }
@@ -2339,7 +2448,6 @@ enum RenderPreview {
         let studying = avatarPreviewSession(id: "qm-m1", tool: "Read")
         let done = avatarPreviewSession(id: "qm-m1", state: "done")
         let worker = avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil)
-        let newWorker = avatarPreviewSession(id: "qm-w2", parentID: "qm-m1", sessionClass: nil)
         let instructed = avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil, exchange: ("instructions", "2026-10-28T09:00:00Z"))
         let reported = avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil, exchange: ("report", "2026-10-28T09:00:00Z"))
         func feed(_ sessions: [TrackerSession]) -> (TrackerAvatarStage) -> Void {
@@ -2664,4 +2772,21 @@ private final class SettingsPreviewEffortClient: ServeReasoningEffortSuggesting 
     }
 }
 
+/// The selected-session panel over a model its content can change in, for the fade's recording and self-test.
+@MainActor
+final class SelectedSessionPanelFadeModel: ObservableObject {
+    @Published var content: SelectedSessionPanelContent
+
+    init(_ content: SelectedSessionPanelContent) {
+        self.content = content
+    }
+}
+
+struct SelectedSessionPanelFadeHarness: View {
+    @ObservedObject var model: SelectedSessionPanelFadeModel
+
+    var body: some View {
+        SelectedSessionPanel(content: model.content, onCopyID: { _ in })
+    }
+}
 #endif

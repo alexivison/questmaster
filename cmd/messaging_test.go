@@ -37,6 +37,15 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 	}
 }
 
+// livePaneDisplay answers display-message like tmux for one live pane that is
+// not in copy mode.
+func livePaneDisplay(args []string) string {
+	if args[len(args)-1] == "#{pane_id}\t#{pane_dead}" {
+		return "%1\t0"
+	}
+	return "0"
+}
+
 // messagingRunner simulates live sessions with idle agent panes.
 func messagingRunner(live ...string) *mockRunner {
 	liveSet := make(map[string]bool)
@@ -46,7 +55,7 @@ func messagingRunner(live ...string) *mockRunner {
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
-			if liveSet[target] {
+			if liveSet[exactSession(target)] {
 				return "", nil
 			}
 			return "", &tmux.ExitError{Code: 1}
@@ -55,7 +64,7 @@ func messagingRunner(live ...string) *mockRunner {
 			return "1 0 agent", nil
 		}
 		if len(args) >= 1 && args[0] == "display-message" {
-			return "0", nil // pane idle
+			return livePaneDisplay(args), nil
 		}
 		if len(args) >= 1 && args[0] == "send-keys" {
 			return "", nil
@@ -83,7 +92,7 @@ func newSendCaptureRunner(live ...string) *sendCaptureRunner {
 func (r *sendCaptureRunner) Run(_ context.Context, args ...string) (string, error) {
 	if len(args) >= 1 && args[0] == "has-session" {
 		target := args[len(args)-1]
-		if r.live[target] {
+		if r.live[exactSession(target)] {
 			return "", nil
 		}
 		return "", &tmux.ExitError{Code: 1}
@@ -95,7 +104,7 @@ func (r *sendCaptureRunner) Run(_ context.Context, args ...string) (string, erro
 		if len(args) > 0 && args[len(args)-1] == "#{session_name}" {
 			return "", &tmux.ExitError{Code: 1}
 		}
-		return "0", nil
+		return livePaneDisplay(args), nil
 	}
 	if len(args) >= 1 && args[0] == "send-keys" {
 		if len(args) >= 2 && args[len(args)-1] != "Enter" {

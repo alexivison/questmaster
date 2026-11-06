@@ -10,6 +10,7 @@ enum QuestmasterLogicTests {
         timed("TrackerRecolorLogicTests") { TrackerRecolorLogicTests.run() }
         timed("TrackerCommandStateTests") { TrackerCommandStateTests.run() }
         timed("MutationRequestTests") { MutationRequestTests.run() }
+timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("NavigationLogicTests") { NavigationLogicTests.run() }
         timed("ShellSplitLayoutTests") { ShellSplitLayoutTests.run() }
         timed("TerminalCellSnappingTests") { TerminalCellSnappingTests.run() }
@@ -18,6 +19,7 @@ enum QuestmasterLogicTests {
         timed("DockWidthPreferenceTests") { DockWidthPreferenceTests.run() }
         timed("ServeRecoveryPolicyTests") { ServeRecoveryPolicyTests.run() }
         timed("DaemonConnectionTests") { DaemonConnectionTests.run() }
+        timed("ConnectionStateTests") { ConnectionStateTests.run() }
         timed("NewSessionLogicTests") { NewSessionLogicTests.run() }
         timed("SessionClassLogicTests") { SessionClassLogicTests.run() }
         timed("ColorFieldTests") { ColorFieldTests.run() }
@@ -40,6 +42,8 @@ enum QuestmasterLogicTests {
         timed("DisplayClassificationTests") { DisplayClassificationTests.run() }
         timed("ArtifactCoreTests") { ArtifactCoreTests.run() }
         timed("QuestCoreTests") { QuestCoreTests.run() }
+timed("ProjectOrderTests") { ProjectOrderTests.run() }
+        timed("ProjectSettingsTests") { ProjectSettingsTests.run() }
         timed("ShellChromeTests") { ShellChromeTests.run() }
         timed("CaffeineStateTests") { CaffeineStateTests.run() }
         timed("GhosttyConfigParserTests") { GhosttyConfigParserTests.run() }

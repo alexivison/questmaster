@@ -7,8 +7,8 @@ import SwiftUI
 /// fields and buttons put them at 460 wide (the old modals were 420), with 150-wide buttons (the overview's 152).
 /// A master's or worker's title row starts with its portrait, 5 taller than a field.
 private enum TrackerEditMetrics {
-    static let width: CGFloat = 460
-    static let buttonWidth: CGFloat = 150
+    static let width = ModalFormMetrics.editWidth
+    static let buttonWidth = ModalFormMetrics.editButtonWidth
 
     static func size(fields: Int, portraitRow: Bool = false) -> CGSize {
         CGSize(width: width, height: ModalFormMetrics.height(fields: fields, portraitRow: portraitRow))
@@ -19,25 +19,6 @@ private enum TrackerEditMetrics {
 enum TrackerEditField: Equatable {
     case title
     case color
-}
-
-/// The colour input's focus plumbing, shared by both sheets: the caret goes into the text as a search
-/// starts and leaves it as the field returns to SELECT.
-private struct TrackerColorFocus {
-    var textNonce = 0
-    var sinkNonce = 0
-
-    /// `PickerFieldMode.caretChange`, with the colour input focused.
-    mutating func follow(from before: PickerFieldMode, to after: PickerFieldMode) {
-        switch PickerFieldMode.caretChange(from: before, to: after, fieldFocused: true) {
-        case .intoText:
-            textNonce += 1
-        case .outOfText:
-            sinkNonce += 1
-        case nil:
-            break
-        }
-    }
 }
 
 struct TrackerEditSessionSheet: View {
@@ -51,7 +32,7 @@ struct TrackerEditSessionSheet: View {
     @State private var color: ColorFieldModel
     @State private var focus: TrackerEditField
     @State private var titleNonce = 0
-    @State private var colorFocus = TrackerColorFocus()
+    @State private var colorFocus = ModalColorFocus()
     @State private var errorMessage: String?
     private let initialColor: String
     private let initialColorIndex: Int
@@ -87,7 +68,7 @@ struct TrackerEditSessionSheet: View {
             VStack(spacing: ModalFormMetrics.fieldSpacing) {
                 titleRow
                 if allowsColor {
-                    TrackerColorInput(color: $color, colorFocus: $colorFocus, focused: focus == .color, onFocus: { moveFocus(to: .color, byClick: true) })
+                    ModalColorInput(color: $color, colorFocus: $colorFocus, focused: focus == .color, onFocus: { moveFocus(to: .color, byClick: true) })
                 }
             }
             .background(FocusSink(nonce: colorFocus.sinkNonce))
@@ -188,7 +169,7 @@ struct TrackerEditSessionSheet: View {
     }
 
     private var modalKeyContext: ModalKeyContext {
-        ModalKeyContext(focus: keyFocus, fieldCount: allowsColor ? 2 : 1, submitting: false, submits: true)
+        ModalKeyContext(focus: keyFocus, fieldCount: allowsColor ? 2 : 1, hasTextFields: true, submitting: false, submits: true)
     }
 
     /// The colour input takes ←/→ to cycle only in SELECT; while it searches they move the caret.
@@ -198,7 +179,7 @@ struct TrackerEditSessionSheet: View {
 
     /// The colour input's keys, then the class key (⌃e in the title, for a master).
     private func handleFieldKey(_ event: NSEvent) -> Bool {
-        if focus == .color, TrackerColorInput.handle(event, color: &color, colorFocus: &colorFocus) {
+        if focus == .color, ModalColorInput.handle(event, color: &color, colorFocus: &colorFocus) {
             return true
         }
         guard portrait.isEditable, SessionClassKey.cycles(event.keymapPress, titleFocused: focus == .title) else {
@@ -209,7 +190,7 @@ struct TrackerEditSessionSheet: View {
     }
 
     private func cycleColor(_ step: Int) {
-        TrackerColorInput.cycle(step, color: &color, colorFocus: &colorFocus)
+        ModalColorInput.cycle(step, color: &color, colorFocus: &colorFocus)
     }
 }
 
@@ -219,7 +200,7 @@ struct TrackerEditRepoSheet: View {
     let save: (String) -> Bool
 
     @State private var color: ColorFieldModel
-    @State private var colorFocus = TrackerColorFocus()
+    @State private var colorFocus = ModalColorFocus()
     @State private var errorMessage: String?
     private let initialColor: String
     private let initialColorIndex: Int
@@ -257,7 +238,7 @@ struct TrackerEditRepoSheet: View {
                     .frame(maxWidth: .infinity, minHeight: FormFieldMetrics.height, maxHeight: FormFieldMetrics.height, alignment: .topLeading)
                     .fieldChrome(focused: false)
                     .accessibilityLabel("Repo \(repo.name)")
-                TrackerColorInput(color: $color, colorFocus: $colorFocus, focused: true, onFocus: {})
+                ModalColorInput(color: $color, colorFocus: $colorFocus, focused: true, onFocus: {})
             }
             .background(FocusSink(nonce: colorFocus.sinkNonce))
         }
@@ -285,8 +266,8 @@ struct TrackerEditRepoSheet: View {
         dismiss()
     }
 
-    /// The sheet's keys: the colour input's own, then the shared modal keys (`ModalKeys`). The colour is the only
-    /// field, so Tab does nothing.
+    /// The sheet's keys: the colour input's own, then the shared modal keys (`ModalKeys`). The name is fixed, so the
+    /// colour is the only field: Tab does nothing, and j and k type only into the colour's search.
     private func handle(_ event: NSEvent) -> Bool {
         ModalKeyActions(
             context: { modalKeyContext },
@@ -298,68 +279,14 @@ struct TrackerEditRepoSheet: View {
     }
 
     private var modalKeyContext: ModalKeyContext {
-        ModalKeyContext(focus: color.mode == .select ? .select : .line, fieldCount: 1, submitting: false, submits: true)
+        ModalKeyContext(focus: color.mode == .select ? .select : .line, fieldCount: 1, hasTextFields: false, submitting: false, submits: true)
     }
 
     private func handleFieldKey(_ event: NSEvent) -> Bool {
-        TrackerColorInput.handle(event, color: &color, colorFocus: &colorFocus)
+        ModalColorInput.handle(event, color: &color, colorFocus: &colorFocus)
     }
 
     private func cycleColor(_ step: Int) {
-        TrackerColorInput.cycle(step, color: &color, colorFocus: &colorFocus)
-    }
-}
-
-/// The edit sheets' colour input and its keys.
-private struct TrackerColorInput: View {
-    @Binding var color: ColorFieldModel
-    @Binding var colorFocus: TrackerColorFocus
-    let focused: Bool
-    var onFocus: () -> Void
-
-    var body: some View {
-        ColorField(
-            model: $color,
-            focusNonce: colorFocus.textNonce,
-            focused: focused,
-            onClickText: {
-                onFocus()
-                let before = color.mode
-                color.startSearch(.editCurrent)
-                colorFocus.follow(from: before, to: color.mode)
-            },
-            onSwatchClick: {
-                onFocus()
-                let before = color.mode
-                color.cycle(1)
-                colorFocus.follow(from: before, to: color.mode)
-            }
-        )
-    }
-
-    /// Runs the key the focused colour input takes: its own ⌥←/⌥→ (`ColorFieldModel.optionCycleDelta`), then the shared
-    /// picker keys (`PickerFieldKey`). In SELECT, ←/→ and h/l are the modal's select keys, so they pass: a search
-    /// must not start on h or l. The caret follows the mode.
-    static func handle(_ event: NSEvent, color: inout ColorFieldModel, colorFocus: inout TrackerColorFocus) -> Bool {
-        let before = color.mode
-        let press = event.keymapPress
-        if let delta = ColorFieldModel.optionCycleDelta(press) {
-            color.cycle(delta)
-        } else if before == .select, ModalKeys.cycleStep(press) != nil {
-            return false
-        } else if let command = PickerFieldKey.command(press, mode: before, showsSuggestions: color.showsSuggestions) {
-            color.apply(command)
-        } else {
-            return false
-        }
-        colorFocus.follow(from: before, to: color.mode)
-        return true
-    }
-
-    /// The modal's cycle for the colour, ←/→ in SELECT: the next or previous colour, without a search.
-    static func cycle(_ step: Int, color: inout ColorFieldModel, colorFocus: inout TrackerColorFocus) {
-        let before = color.mode
-        color.cycle(step)
-        colorFocus.follow(from: before, to: color.mode)
+        ModalColorInput.cycle(step, color: &color, colorFocus: &colorFocus)
     }
 }

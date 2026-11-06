@@ -1,8 +1,8 @@
 import { chmod, lstat, unlink } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { accessSync, constants, mkdirSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
-import { dirname, join } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -10,7 +10,8 @@ const maxRequestBytes = 1 << 20;
 const maxIDBytes = 128;
 const recentLimit = 40;
 const snippetLimit = 180;
-const hookTimeoutMs = 1_000;
+// The hook bounds itself (800 ms), so this only catches a hook that hangs.
+const hookTimeoutMs = 5_000;
 const hookBatchLimit = 32;
 const hookBatchByteLimit = 48 * 1024;
 const hookBatchDelayMs = 150;
@@ -189,11 +190,32 @@ function writeMarker(): void {
 	}
 }
 
+function isExecutable(path: string): boolean {
+	try {
+		accessSync(path, constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+// questmasterBin picks the binary the way questmaster-state.sh does: an
+// executable $QUESTMASTER_BIN, then questmaster, then qm on PATH.
+function questmasterBin(): string {
+	const configured = process.env.QUESTMASTER_BIN ?? "";
+	if (configured && isExecutable(configured)) return configured;
+	const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+	for (const name of ["questmaster", "qm"]) {
+		if (dirs.some((dir) => isExecutable(join(dir, name)))) return name;
+	}
+	return "questmaster";
+}
+
 function runHook(action: string, input: string): Promise<void> {
 	return new Promise((resolve) => {
 		let child: ReturnType<typeof spawn>;
 		try {
-			child = spawn("questmaster", ["hook", "pi", action], { stdio: ["pipe", "ignore", "ignore"] });
+			child = spawn(questmasterBin(), ["hook", "pi", action], { stdio: ["pipe", "ignore", "ignore"] });
 		} catch {
 			resolve();
 			return;
@@ -450,14 +472,17 @@ export default function (pi: ExtensionAPI) {
 		if (typeof pi.sendUserMessage !== "function") return;
 		const sessionID = process.env.QUESTMASTER_SESSION ?? "";
 		if (!sessionPattern.test(sessionID)) return;
-		const runtimeDir = join("/tmp", sessionID);
+		// Questmaster names the session's runtime directory; without it there is
+		// no socket, and messages fall back to typed input.
+		const runtimeDir = process.env.QUESTMASTER_RUNTIME_DIR ?? "";
+		if (!isAbsolute(runtimeDir) || basename(runtimeDir) !== sessionID) return;
 		try {
 			const runtime = await lstat(runtimeDir);
 			if (!runtime.isDirectory() || runtime.uid !== process.getuid() || (runtime.mode & 0o022) !== 0) return;
 		} catch {
 			return;
 		}
-		const socketPath = join("/tmp", sessionID, "pi.sock");
+		const socketPath = join(runtimeDir, "pi.sock");
 		if (!(await clearStaleSocket(socketPath))) return;
 		const next = createServer(handle);
 		next.on("error", () => {});

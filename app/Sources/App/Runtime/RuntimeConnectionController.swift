@@ -8,8 +8,6 @@ final class RuntimeConnectionController {
     private let connection: DaemonConnection
     private var runtimeClient: UnixSocketServeClient?
     private var pendingCoalescedRender = false
-    private var connected = false
-    private var incompatible = false
 
     init(connection: DaemonConnection, runtimeStore: RuntimeStore, render: @escaping () -> Void) {
         self.connection = connection
@@ -19,6 +17,9 @@ final class RuntimeConnectionController {
 
     func start(onInitialAttemptComplete: @escaping () -> Void) {
         guard runtimeClient == nil else { return }
+        // Connecting starts here, with the daemon record, before the client's own loop does.
+        runtimeStore.apply(RuntimeUpdate(connection: .connecting))
+        scheduleCoalescedRender()
         DispatchQueue.global(qos: .userInitiated).async { [connection, weak self] in
             _ = try? connection.record()
             DispatchQueue.main.async {
@@ -27,9 +28,9 @@ final class RuntimeConnectionController {
                 onInitialAttemptComplete()
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-            guard let self, !self.connected, !self.incompatible else { return }
-            self.runtimeStore.apply(.serveUnavailable(DaemonWaitingStatus.message(after: 5)))
+        DispatchQueue.main.asyncAfter(deadline: .now() + ConnectionState.waitingWindow) { [weak self] in
+            guard let self, self.runtimeStore.snapshot.connection == .connecting else { return }
+            self.runtimeStore.apply(RuntimeUpdate(connection: .unavailable))
             self.scheduleCoalescedRender()
         }
     }
@@ -37,26 +38,13 @@ final class RuntimeConnectionController {
     private func startRuntimeClient() {
         let client = UnixSocketServeClient(connection: connection)
         runtimeClient = client
-        client.start(
-            onUpdate: { [weak self] update in
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    if update.observedLabel?.contains("incompatible backend") == true {
-                        self.incompatible = true
-                    } else if update.observedLabel?.contains("backend") != true {
-                        self.incompatible = false
-                    }
-                    self.runtimeStore.apply(update)
-                    self.scheduleCoalescedRender()
-                }
-            },
-            onStatus: { [weak self] status in
-                DispatchQueue.main.async {
-                    if status == "backend connected" { self?.connected = true }
-                    self?.scheduleCoalescedRender()
-                }
+        client.start(onUpdate: { [weak self] update in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.runtimeStore.apply(update)
+                self.scheduleCoalescedRender()
             }
-        )
+        })
     }
 
     func stop() { runtimeClient?.stop() }

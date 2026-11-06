@@ -47,6 +47,10 @@ type Manifest struct {
 	SessionType string           `json:"session_type,omitempty"`
 	Workers     []string         `json:"workers,omitempty"`
 	Display     *DisplayMetadata `json:"display,omitempty"`
+	// RuntimeDir is the session's runtime directory (NewRuntimeDir). It is
+	// empty for a session started before it was recorded; read it through
+	// RuntimeDirOrLegacy.
+	RuntimeDir string `json:"runtime_dir,omitempty"`
 
 	// Extra preserves unknown fields written by bash helpers
 	// (e.g. parent_session, initial_prompt).
@@ -76,7 +80,7 @@ type AgentManifest struct {
 var knownManifestKeys = map[string]struct{}{
 	"session_id": {}, "created_at": {}, "updated_at": {}, "title": {},
 	"cwd": {}, "window_name": {}, "agents": {}, "agent_path": {},
-	"session_type": {}, "workers": {}, "display": {},
+	"session_type": {}, "workers": {}, "display": {}, "runtime_dir": {},
 }
 
 // UnmarshalJSON preserves unknown fields in Extra. It decodes the typed fields
@@ -259,6 +263,11 @@ func (m Manifest) marshalFields() (map[string]json.RawMessage, error) {
 	}
 	if m.Display != nil && !m.Display.IsZero() {
 		if err := marshalField(fields, "display", m.Display); err != nil {
+			return nil, err
+		}
+	}
+	if m.RuntimeDir != "" {
+		if err := marshalField(fields, "runtime_dir", m.RuntimeDir); err != nil {
 			return nil, err
 		}
 	}

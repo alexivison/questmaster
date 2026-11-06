@@ -13,6 +13,11 @@ enum UnixSocketIO {
         guard fd >= 0 else {
             throw ServeClientError.connect(String(cString: strerror(errno)))
         }
+        // A write after the other end has gone (the daemon hung up, or the serve client's stop shut the socket down)
+        // must fail, not raise SIGPIPE, which the app doesn't ignore. It is set before connecting, as a socket that is
+        // already disconnected refuses it.
+        var noSigpipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
         do {
             try withAddress(path) { address, length in
                 guard Darwin.connect(fd, address, length) == 0 else {

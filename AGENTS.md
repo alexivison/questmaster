@@ -31,7 +31,7 @@ app/                 # the macOS Swift package (Questmaster.app)
   Sources/Core/      # QuestmasterCore: pure logic (Foundation + Observation only)
   Sources/App/       # Questmaster: SwiftUI views, sockets, subprocesses
   Tests/             # QuestmasterLogicTests (Core-only, custom runner)
-scripts/, app/Scripts/   # bench-hook.sh, build-app.sh
+scripts/, app/Scripts/   # bench-hook.sh, build-app.sh, install-app.sh (+ test-install.sh)
 ```
 
 ## Build, test, run
@@ -58,9 +58,18 @@ swift run --package-path app QuestmasterLogicTests      # Core + app self-tests
 ```
 
 `build-app.sh` builds the Swift executable, fetches/embeds GhosttyKit, **builds
-the Go `qm` binary into the bundle**, ad-hoc codesigns, and installs. Because the
-app ships its own `qm`, **merging backend changes to `main` does not make them
-live in the app until the bundle is rebuilt.**
+the Go `qm` binary into the bundle**, stamps both with one `git describe`
+version, ad-hoc codesigns, and hands the bundle to `install-app.sh`. That stages
+and verifies it beside the installed app, copies its `qm` to
+`<state root>/bin/versions/<version>-<hash>/qm`, retargets the stable link
+`<state root>/bin/current/qm` (what hooks and the installed app run) by rename,
+swaps the bundle by renames and keeps the old one as `Questmaster.app.previous`
+(`install-app.sh --rollback`). Because the app ships its own `qm`, **merging
+backend changes to `main` does not make them live in the app until the bundle is
+rebuilt.** Agents never run either script against the real install: a test run
+uses a temporary `--install-path`, `HOME` and `QUESTMASTER_STATE_ROOT` with
+`--isolated` (the installer refuses a mix), and `app/Scripts/test-install.sh`
+covers the installer.
 
 State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 
@@ -87,9 +96,33 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
   background alerts on live, idle or done sessions and recent tmux input.
   The status query also reads the authenticated viewer login; this one-way
   personal setup ignores that author's discussion before recording events.
+- Projects are the folders the tracker groups by. `projects.json` (`state.ProjectRegistry`)
+  stores the user's order, added folders and name overrides; project colors stay in
+  `repo-colors.json`, keyed by the same project ID. `state.ProjectResolver` is the one
+  path-to-project mapping: a session cwd, a new artifact, a quest, or a color seed takes its
+  project ID from it (`state.ProjectIDAt` for one-shot callers), never from a raw `repo.Resolve`.
+  The tracker payload's `unlisted_folders` are the session cwds that resolve to no project, still exist
+  and lie outside the state root; `buildProjectSnapshots` builds them in the same pass as `projects`.
 
 Invariants that aren't obvious from the code:
 
+- **Every tmux call names its server and its session exactly.** Production
+  clients are `tmux.NewClient(tmux.DefaultServer())`: each command passes
+  `-L default` and runs without TMUX, TMUX_PANE and TMUX_TMPDIR, which describe
+  the caller's own server. Session targets are `tmux.SessionTarget` (`=name:`),
+  never a bare name, which tmux matches by prefix. A session's pane is targeted
+  by the ID `NewSession` reports, never by index: nothing assumes window or pane
+  index 0, since a server may set base-index or pane-base-index. The caller's
+  own pane counts only when TMUX names this server (`callerSession`).
+- **A session's runtime files live in its manifest's `runtime_dir`**, an
+  owner-only `<state root>/runtime/<id>` (`state.NewRuntimeDir`,
+  `state.EnsureRuntimeDir`, files through `state.WriteRuntimeFile`). The tmux
+  session carries it as `QUESTMASTER_RUNTIME_DIR` for the Pi extension; readers
+  take the path from one of the two, never from the ID. The session-closed hook
+  relies on the `<state root>/runtime/<id>` shape: tmux may run another live
+  session's hook, which finds the closed session's script by name. A manifest
+  without the field predates it and keeps its old path until the session stops
+  (`Manifest.RuntimeDirOrLegacy`, the one legacy branch).
 - The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
   not any single Go type — version it deliberately.
 - **No model or reasoning-effort list is hardcoded.** Each harness declares its
@@ -101,6 +134,11 @@ Invariants that aren't obvious from the code:
   values to a list. Tests must disable the models.dev catalog (or inject a
   fetcher) and inject effort-source fixtures so they never access the network,
   real harnesses, or the real Codex cache.
+- **Delivery labels are what happened, not what the agent did.** A send result is
+  `accepted` (a native socket took the frame), `submitted` (tmux `send-keys` typed
+  it), or empty (the alert was held). `received` is reserved for a harness-observed
+  receipt that names the message; no code path produces it. Do not label a tmux
+  send as received. `README.md` documents the CLI output.
 
 ## The Go↔Swift contract
 
@@ -192,9 +230,9 @@ again where it was when the keys come back.
 
 | Element | State | Look |
 |---|---|---|
-| Pick-to-open row (artifacts, dropdowns, filter suggestions) | rest | no fill, `textBody` #D8DEE9, icon tile border `line`, icon and meta `textMeta` #9DA7B1 |
-| | highlighted, area focused (`RowLook.highlighted`) | `item` fill, `textSelected` #E6EDF3, icon tile border `controlBorder`, icon `textSelected`, meta `textMetaHighlighted` #ADBAC7 |
-| | highlighted, area unfocused (`RowLook.highlightedUnfocused`) | `item` fill, `textBody` text and icon, icon tile border `controlBorder`, meta `textMeta` #9DA7B1 |
+| Pick-to-open row (artifacts, dropdowns, filter suggestions) | rest | no fill, `textBody` #ADBAC7, icon tile border `line`, icon and meta `textMeta` #8D9AA8 |
+| | highlighted, area focused (`RowLook.highlighted`) | `item` fill, `textSelected` #C4D0DC, icon tile border `controlBorder`, icon `textSelected`, meta `textMetaHighlighted` #9DA7B1 |
+| | highlighted, area unfocused (`RowLook.highlightedUnfocused`) | `item` fill, `textBody` text and icon, icon tile border `controlBorder`, meta `textMeta` #8D9AA8 |
 | | missing file (`RowLook.missingFile`) | the row's look with a `warn` icon |
 | | marked for deletion (`MarkLook`) | `accent` diamond in the row's left gutter |
 | Any row | under the pointer (`RowLook.hovered`) | 1pt `line` outline, no fill; text, icon and meta as at rest |
@@ -235,9 +273,11 @@ again where it was when the keys come back.
   titles, project headers and marks; never for selection or focus.
 - Shadows come only from an elevation token (`Elevation` in `SharedUI/Theme.swift`), never numbers at the call site;
   each is a black drop shadow, and a shadow drawn inside a clip is a bug (draw it outside, as `scoopedPanel` and
-  `ScoopedLayerChrome` do). `raised` (black 35%, blur 4, 1.5 down): tracker plates and their discs, and every
-  dropdown (`SuggestionDropdown`). `panel` (30%, blur 12, 4 down): the dock's panels, the action bar header and the toast. `modal` (45%,
-  blur 30, 10 down): every in-window modal, the Quest Log included. An inner shadow, the one kind that belongs inside
+  `ScoopedLayerChrome` do). The look stays flat, so everything at panel level takes the one tight shadow, `raised`
+  (black 35%, blur 4, 1.5 down): tracker plates and their discs, every dropdown (`SuggestionDropdown`), the dock's
+  panels, the action bar header and the toast; there is no softer panel level. A layer that draws a shadow leaves
+  `raised.bleed` (7.5) of room past its shape (the plates' `TrackerPlateDesign.silhouetteMargin` and the toast's
+  `ToastBanner.shadowMargin` are 10). `modal` (45%, blur 30, 10 down): every in-window modal, the Quest Log included. An inner shadow, the one kind that belongs inside
   its clip, is a `Recess` token in the same file (`portrait`: 3 deep, blur 1, black 20%, the sheets' portrait discs).
   Panel, dock and toast borders are 2pt
   `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). A dock panel's frame lifts to
@@ -309,6 +349,10 @@ again where it was when the keys come back.
   the ghost on, `SkeletonMotion.period` (1.6s) each way on `Motion.breathingTimingFunction`, only while in a window, still
   under Reduce Motion (read through `Motion.reducesMotion`, not SwiftUI's environment, so the self-tests' override applies):
   SwiftUI never animates a skeleton, so nothing redraws while the terminal shares the main thread.
+- The tracker follows the runtime connection's typed state (`ConnectionState`, on the store's snapshot, decided in Core
+  by `ConnectionStateMachine`): its skeleton only while no tracker has come yet (`awaitsFirstTracker`); after a dropped
+  connection (every daemon restart) the last tracker stays, drawn at `Token.Opacity.dimmed`, until a fresh one arrives
+  (`showsLastTracker`); an incompatible backend empties it and shows its `StatusMessagePane` (`blockingMessage`).
 - Dock titles (Artifacts, Worker Log, Version Control, an open artifact) are title case in
   `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Version
   Control's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
@@ -340,6 +384,26 @@ again where it was when the keys come back.
   motion step and only once (`DockPanelMotion`; Reduce Motion skips it, see "Motion"): never an animation that keeps
   running, as the terminal shares the main thread.
 
+**Modal keys.** Every in-window modal takes its keys the same way: its focused field's own keys first (a picker's, the
+path's, the prompt's), then `ModalKeys.command` (`Core/Navigation/ModalKeys.swift`). A sheet states whether it has text
+fields (`ModalKeyContext.hasTextFields`), and the focused part decides the rest:
+
+- **A form with text fields** (New Session, Add or Edit Project, the tracker's edit sheets, New Quest): Tab, ⇧Tab, ⌃J and
+  ⌃K move between its fields, from a select too, so a form never gets stuck. j and k type. The prompt keeps Tab as text.
+- **A list or a select-only modal** (the Projects list, the Quest Log's list, Settings' Models, a delete confirmation,
+  Edit Repo's colour): j and k move its rows or fields. Tab, ⇧Tab, ⌃J and ⌃K take the press and do nothing, so it never
+  reaches the terminal.
+- **Arrows**: ↑ and ↓ never move a modal. A suggestion dropdown takes them first (`suggestionUp` and `suggestionDown`),
+  a text field's caret takes them, and anywhere else they are taken and do nothing.
+- **Unchanged**: ⇧⌘J and ⇧⌘K move in every modal; ←/→ and h/l cycle a select; ⇧⌘H and ⇧⌘L as before; Return and Esc as
+  before. Settings' own keys (H/L, [ and ], e, R, n, K and J) stay. ⌥k is no field key.
+- **The Quest Log** applies the rule per focused part: its filter is a text field, its list is a list
+  (`ListCapabilities.modalMoves`). With no suggestion showing, the filter's ↑/↓ are the caret's (`FilterFieldKey`'s
+  `arrowsMoveList` is off there), while ⌃p and ⌃n still move the list, as vim's previous and next do.
+
+Non-modal lists (the tracker, the dock's lists, Version Control, the Worker Log) keep their own keys, arrows included
+(`ListKeyResolver`'s `moveUp` and `moveDown`).
+
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
 fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`
 outside the token layer, `brassActive` or `ActionBarButtonLook` outside the action bar, a
@@ -357,7 +421,7 @@ is a multiple of 5, and spacing takes one of four steps (`Space` in
 | `Space.row` | 5 | rows of one list control; a field and its dropdown; collapsed circles; the cast row under its disc |
 | `Space.item` | 10 | sibling items (plates, tabs, buttons, chat entries, bar icons); icon → text; text inset inside a control; header band → content |
 | `Space.section` | 20 | the shell gap (`ShellMetrics.gap`); every panel's edge margin; blocks inside a panel |
-| `Space.group` | 40 | between groups of blocks: the list → the selected-session tag |
+| `Space.group` | 40 | between groups of blocks: the selected-session panel → the plate list; the plate list → the avatar slot |
 
 Control heights are one family (`ControlHeight`): `chip` 15, `compact` 25
 (pill tabs, Quest Log rows), `control` 30 (buttons, dropdown rows), `field` 35
@@ -373,21 +437,21 @@ agent's logo in a 25pt badge (logo 15), as big as a collapsed worker's circle, w
 disc on the left and below it (`TrackerPlateDesign.badgeOverhang`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
 A shell row is 35 high (`ControlHeight.field`) and as wide as the 260 column, flush with the plates, stacked with no gap
 (the tracker mock's layout, not Shell Session.svg's inset and spaced rows), with a 25pt disc (`ControlHeight.compact`) 10
-in and the title 10 past it. The shells follow the last plate with `TrackerListMetrics.shellGap` (`Space.section`), in the
-plates' one scrolling list: `TrackerShellRows.rows` is a `ForEach` that sits directly in the lazy list, so the list knows
-each shell's id and scrolls to a far one as it does a plate. The list's cursor is one id, and the list brings the cursor's
-row into view when it appears (`scrollOnAppear`); a cursor the pointer moved scrolls nothing (`PointerCursor`). Below the
-list the free space stands, then the avatar block: the selected-session tag, `TrackerListMetrics.selectedTagGap` (`Space.group`)
-below the list at the tallest class's figure, and the avatar slot with its bottom margin (`verticalPadding`, `Space.section`).
-The tag's bottom sits `avatarGap` (`Space.section`) above the top of the attached class's idle figure, so it drops for a shorter
-figure, and the room goes between the list and the tag (`TrackerTagLayout`, Core).
+in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its
+edge), as tall as its rows up to `TrackerShellMetrics.maxHeight` (175, five rows), and scrolls inside itself past that;
+the plates scroll in their own list above it. The avatar slot sits between that list and the pinned shell section, with
+`TrackerListMetrics.shellClearance` (`Space.group`) between the list and the slot, and `verticalPadding` (`Space.section`)
+below the slot. The slot is 260pt wide and reserves the tallest bundled class's idle figure, rounded up to 5pt (175pt now),
+so changing classes never moves the layout. With no shells the plate list uses the column's full available height. The
+selected-session panel is pinned above the list: its 260 x 75 canvas starts at the tracker's top inset, and the first
+plate starts `TrackerListMetrics.selectedPanelGap` (`Space.group`) below it. The tracker has one cursor id; the plates'
+list and the shell section each receive it only for their own rows, and a cursor the pointer moved scrolls neither
+(`PointerCursor`).
 
-The selected-session tag (`SelectedSessionTag`, `SelectedSessionTagMetrics`) is `Main Chat Session Tag.svg` on the scale: an
-id tab `ControlHeight.chip` (15) high, `Space.row` in from each side of the frame, over a frame with a 1.5pt rim (the SVG's
-stroke, which also divides the title band from the project bar), a 20pt title band and a 10pt project bar. The tag is as
-wide as its title plus `Space.item` on each side of the band, up to the avatar slot, and it is centred over the avatar.
-Its frame casts `Elevation.raised`; its colours are `panel` (tab), `textMeta` (id), `line` (frame), `item` (band), `textBody`
-(title and project) and the project's own colour (bar).
+The selected-session panel (`SelectedSessionPanel`) carries the attached session's id, title, project and disc icon. The
+disc shows a class portrait, a shell's terminal glyph or nothing. Its project bar uses the project's colour, while a shell
+uses its own display colour or the neutral shell grey. The icon fades in over `MotionStep.standard` when the attached
+session or its icon changes; the first draw, an empty disc, and Reduce Motion do not fade. The panel copies the id on click.
 
 Not spacing, so free of the rule: text baselines and line heights, a glyph's
 optical nudge, radii and stroke widths, 0/1 spacers, and `svg…` lengths in an
@@ -431,7 +495,7 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 | Step | Seconds | Role |
 |---|---|---|
 | `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade |
-| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
+| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
 | `MotionStep.flight` | 1.0 | a spell travelling across the window, from the class avatar's hand to the Worker Log's edge (or off the window's right edge) or back (an arc that eases out, along a Core Animation position path); the spell's impact frame then holds for this long and fades over `fast` |
 
 - **One easing:** ease out, quick at first and settling, as the cubic Bézier (0, 0, 0.58, 1), the system's own `.easeOut`.
@@ -467,22 +531,19 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 - **Anchor and moves:** a pose's feet (`foot_row`, the row of its lowest boot pixel) stand on the slot's baseline, and its body column (`body_column`) on the slot's centre column, so an effect on one side doesn't move him. Art below the feet hangs under the baseline, into the margin under the slot. The slot is `TrackerAvatarMetrics.slotWidth` by `slotHeight`, one point a sprite pixel. `slotHeight` reserves the tallest bundled
 class's idle figure (`TrackerAvatarSprites.idleFigureHeight`, read once at load), rounded up to 5 (175 now), so no class changes
 the slot's size. The moves are horizontal only (`TrackerAvatarMotion`, Core), so no figure leaves its baseline: a release steps 3 px forward on its strike, and a catch recoils 2 px back on the catch. The strike is one step of the `once` character track: the second by default, or the first step that shows the pose's `strike_frame` (`"strike_frame": 3`, an art frame number, as the tracks use). The move starts as that step begins and returns as the next step does, or as the block ends when it is the last. A class with an entrance before the peak names the peak's frame, so the move lands on it rather than on the entrance's second frame. A finish plays in place, with no move. The figure layer (character and front) carries the moves, as discrete additive keyframes on `position.x` that return to the anchor exactly. The behind layer stays put.
-- **Looping idle:** `01-idle` may carry a `loop` block (a `character` track, and optional `front` and `behind`, as any pose's). Then idle is a frame loop like the other steady poses (`TrackerAvatarFrameRig`, art `01-idle-f<n>.png`, placed by idle's own `foot_row` and `body_column`) and does none of the layered idle's work below: no breath, no blink, no fidgets. The keys it would use are not needed. `idle` (`leg_rows`, `eye_row`, `eye_columns`, `lid_colour`) may be left out of the file, and `fidgets` too; if the file keeps them they are not read (`TrackerAvatarAnimation.idle` is nil and `fidgets` empty, so no fidget ever plays). Without a loop nothing changes for a class: idle is the layered idle, and its `leg_rows` is required (`incompleteIdle`). Example: `"01-idle": {"foot_row": 160, "body_column": 49, "loop": {"character": [[1, 0.15], [2, 0.15], [3, 0.15], [4, 0.15]], "front": [[1, 0.3], [2, 0.3]]}}`. **How the other poses meet it:** the loop restarts from its first frame every time idle comes on screen, after a finish, a cue, a bow, a calling out or a switch (a hidden rig stops its loop and a shown one starts afresh), so draw each steady pose's finish to end on idle f1 and it lands on the loop's start. Draw each enter to open from idle f1 too; the director does not wait for idle's cycle before a change, so the pose that idle leaves snaps from whichever loop frame is showing, as the layered idle snaps from its breath. Idle f1 is also the figure the tag measures, so draw it as the loop's standing rest. Reduce Motion holds f1 (the rest frame of each track). A missing idle frame is missing like any pose's, and the idle draws nothing until it lands (`missingFrames` lists it).
+- **Looping idle:** `01-idle` may carry a `loop` block (a `character` track, and optional `front` and `behind`, as any pose's). Then idle is a frame loop like the other steady poses (`TrackerAvatarFrameRig`, art `01-idle-f<n>.png`, placed by idle's own `foot_row` and `body_column`) and does none of the layered idle's work below: no breath, no blink, no fidgets. The keys it would use are not needed. `idle` (`leg_rows`, `eye_row`, `eye_columns`, `lid_colour`) may be left out of the file, and `fidgets` too; if the file keeps them they are not read (`TrackerAvatarAnimation.idle` is nil and `fidgets` empty, so no fidget ever plays). Without a loop nothing changes for a class: idle is the layered idle, and its `leg_rows` is required (`incompleteIdle`). Example: `"01-idle": {"foot_row": 160, "body_column": 49, "loop": {"character": [[1, 0.15], [2, 0.15], [3, 0.15], [4, 0.15]], "front": [[1, 0.3], [2, 0.3]]}}`. **How the other poses meet it:** the loop restarts from its first frame every time idle comes on screen, after a finish, a cue, a bow, a calling out or a switch (a hidden rig stops its loop and a shown one starts afresh), so draw each steady pose's finish to end on idle f1 and it lands on the loop's start. Draw each enter to open from idle f1 too; the director does not wait for idle's cycle before a change, so the pose that idle leaves snaps from whichever loop frame is showing, as the layered idle snaps from its breath. Idle f1 is the figure used to measure the slot's reserved height, so draw it as the loop's standing rest. Reduce Motion holds f1 (the rest frame of each track). A missing idle frame is missing like any pose's, and the idle draws nothing until it lands (`missingFrames` lists it).
 - **Idle:** idle draws as layers, not frames (unless it has a loop; see Looping idle). The rows below `leg_rows` stay still while the rows above breathe in whole-pixel steps, never a glide: they hold at rest for `breathHoldPeriod` (1.6 s), drop 1 px for as long, and come back, a `breathPeriod` cycle of 3.2 s. The steps are a discrete keyframe animation on the upper layer, so the eyelids move with it, and a half-pixel position never shows. A blink shows the `lid_colour` lids over `eye_columns` on `eye_row` for `blinkClosedSeconds` (0.15 s), every 3 to 6 s. An idle with no eyes (none of the three eye keys in its file) has no lids and never blinks; it breathes all the same. Fidgets (`TrackerAvatarFidgets`, Core): while idle, after a random gap of 8 to 15 s (`TrackerAvatarFidgetTiming.gapSeconds`), he plays one fidget from the file in place, then breathes again. A fidget never follows the same fidget, and one whose art is missing is skipped. Any other pose stops a fidget at once. The picks come from an injected random source, so tests seed it. A fidget's frame replaces the idle layers, so breath and blink pause until he is back, and its anchor is idle's.
-- **Tag:** the selected-session tag floats over the attached class's idle figure (`TrackerTagLayout`, Core). Its top sits
-  `TrackerListMetrics.selectedTagGap` below the list at the tallest figure, plus the difference in height for a shorter one, and
-  its bottom sits `avatarGap` above the figure's top row (`TrackerAvatarSprites.idleFigureHeight`: idle f1's top opaque row
-  against idle's foot row, read at load). It follows the class's idle height only: never a pose, a breath, a fidget or a blink.
-  A class change moves it at once, and the list's bottom edge stays put. No class (a shell, nothing attached, a class with no
-  art) puts it where the tallest figure does. A pose taller than idle may reach the tag's gap; the tag draws in front, by the
-  order of the block's ZStack (`SwiftUITracker.avatarBlock`).
+- **Slot:** the avatar is shown in a fixed slot after the scrolling plate list and above the pinned shell section. Its height is
+  the tallest bundled class's idle figure, rounded up to 5pt, and its width matches a master plate. The avatar's sole stays
+  on the slot's bottom edge for every pose; art below the feet uses the slot's bottom margin. A class change swaps the pose
+  without changing the slot's size or moving the plate list or selected-session panel.
 - **Bubble:** calling out may show one shared `!` bubble for every class, `Resources/Sprites/shared/bubble.png`, drawn at one
   point a sprite pixel. Its bottom centre sits on the pose's `bubble` anchor (`{"x", "y"}`, in `11-calling-out`'s canvas
   pixels, read as `TrackerAvatarPoseAnimation.bubble`), placed like the frames by `foot_row` and `body_column`. A class
   without an anchor shows none, and a file that puts one on another pose doesn't read. The bubble shows with the pose's
   enter, stays still through the loop, and goes when the pose ends (a snap, as every pose change is). Reduce Motion
   shows it too. It sits over the figure and its front effect (`TrackerAvatarFrameRig.bubble`), and the self-test keeps
-  it inside the slot and under the tag's bottom edge for each class with an anchor.
+  it inside the slot for each class with an anchor.
 - **Spell frames:** a class may give a spell several frames in `animation.json`. A top-level optional `spells` object is keyed by the spell's resource name (`S1-summoning-orb`, `S2-messenger`, `S6-returning-wisp`, as the art files are, and as poses are keyed by theirs). Each entry has up to four optional keys: `flight` and `impact`, tracks in the poses' `[frame, seconds]` form, `anchor`, `{"x", "y"}`, and `faces`, `"left"` or `"right"`. A part with a track plays one art file per frame, `S6-returning-wisp-flight-f<n>.png` and `S6-returning-wisp-impact-f<n>.png`; a part without one keeps its single still, `S6-returning-wisp-flight.png`, drawn as before, and a file with no `spells` key (all four classes today) draws every spell as stills. Example: `"spells": {"S6-returning-wisp": {"flight": [[1, 0.06], [2, 0.06], [3, 0.06], [4, 0.06], [5, 0.06], [6, 0.06], [7, 0.06], [8, 0.06]], "impact": [[1, 0.08], [2, 0.08], [3, 0.08], [4, 0.08], [5, 0.08], [6, 0.08], [7, 0.08], [8, 0.08]], "anchor": {"x": 47, "y": 12}}}`. The flight's frames cycle while the spell flies, on a Core Animation contents animation that repeats for the flight's length (`MotionStep.flight`) and no longer, so nothing runs on after the spell lands. The impact's frames play once where the flight lands, rest on the last frame while its layer goes, and the layer is removed when the track has run (its length is the file's; no hold or fade, which stills keep). **Drawing the flight's frames:** every frame of a track shares one canvas (frame 1 stands for all); draw the spell **facing right (+x), head leading and trail streaming left**, whatever path it will fly. `anchor` is the pixel (column `x`, row `y`, from the canvas's top left) that rides the path and lands on the target: put it on the comet's head, and the head lands on the avatar's hand (or the Worker Log's edge) with its trail behind it. With no anchor it is the canvas's centre. A flight that heads left, the returning wisp's (`TrackerSpellPath.Route.headsLeft`), is mirrored about the anchor's pixel, so the head still leads and the trail streams behind. The art is not rotated onto the arc (pixel art stays on its grid), so on the arc's slope the head leads to within a few degrees of the path. An impact is drawn centred on the landing, never mirrored. `faces` says which way the flight art is drawn, still or frames (`TrackerAvatarFacing`): the overlay mirrors it on a flight that heads the other way (`TrackerAvatarFacing.isMirrored`), about the anchor. Frames face right unless the file says; a still with no `faces` is drawn as it always was, centred and unmirrored, so a still that doesn't say flies the way it did. Only the returning wisp flies left. Bundled stills face right except the bard's and the paladin's wisps, which are drawn facing left (they fly left already, so they say nothing); the wizard's and the cleric's wisps face right, so their files say `"spells": {"S6-returning-wisp": {"faces": "right"}}` and are mirrored on their way back. A new class draws its stills facing the way they fly, or says which way they face; `testEveryBundledStillLeadsWithItsHeadOnItsPath` lists how each bundled still is drawn and checks every one leads with its head. A flight that leaves the window ends far enough past its edge that the anchor's trail is out of view too (`TrackerSpellPath.route(trail:)`). A file whose frame has no art, or whose tracks name a frame with none, gives its class no flight for that spell, as a pose with missing art draws nothing (`missingFrames` in the self-tests lists them, stills included).
 - **Flights:** `TrackerSpellPath` (Core) decides where a spell flies, from the layout. A spell leaves the avatar's hand (`handPoint` in the avatar's slot) and lands on the Worker Log's left edge, level with the hand and clamped into the panel's height; with no Worker Log showing (the dock hidden, its bottom panel on artifacts, or only Version Control), it leaves the window's right edge at the hand's height and its impact is not drawn. A returning wisp runs back from that same spot and impacts on the hand. Every worker meets the same spot. `TrackerFlightOverlay` (App) draws each flight over the whole window, above the tracker, terminal and dock, with no hits, no keys and no first responder. The flight takes `MotionStep.flight` (1.0 s) along an arc `TrackerAvatarDesign.flightArcHeight` (40 pt) high, and a still impact holds for that time, then fades (frames play once instead; see Spell frames). The overlay reads the Worker Log's frame from the bottom dock view (`AppDelegate.workerLogWindowFrame`) and the hand from the avatar's view (`TrackerAvatarHandle`), not from SwiftUI preferences (`TrackerAvatarFlights.swift`).
 - **Reduce Motion:** the poses still change, but each layer shows the first frame of its track, with no frame animation, moves, breath, blink, fidgets, enters, finishes or flights (`TrackerAvatar.updateMotion` stops them, and the director and fidgets skip theirs). A beat that was only a flight goes with it.
@@ -507,7 +568,12 @@ The scan reads lines, so a duration passed through a helper's parameter isn't se
   `t.Helper()` on helpers. State uses a `t.TempDir()` store; tmux is mocked via a
   `Runner` func. Goldens live in `testdata/` dirs. Tests that resolve the state
   root must set `QUESTMASTER_STATE_ROOT` to a temporary directory; the resolver
-  rejects the live root in test binaries.
+  rejects the live root in test binaries. Tests that need real tmux use
+  `internal/tmux/tmuxtest`: every call goes to a private `-S` socket with
+  TMUX, TMUX_PANE and TMUX_TMPDIR stripped. Name them `TestIntegration…` and
+  call `tmuxtest.RequireIntegration` (they run only with
+  `QUESTMASTER_TMUX_INTEGRATION=1`, as in the `tmux-integration` CI job).
+  Production code must not import `tmuxtest`; a test enforces that.
 - **Swift:** Core-only, via a custom runner in
   `app/Tests/QuestmasterLogicTests/main.swift` (no XCTest). Add a pure-Core suite
   by appending `XxxTests.run()` there. The runner also spawns
@@ -533,9 +599,14 @@ The scan reads lines, so a duration passed through a helper's parameter isn't se
   and OpenCode selects a managed per-class master agent file. The voice is fixed
   at launch; reclassing takes effect on the next launch, including continuing a
   stopped session or restarting it.
-- Branch from `main`. App work and backend work both ship as PRs **direct to
-  `main`** (there is no long-lived integration branch). Open **draft** PRs by
-  default. Prefer separate PRs for backend vs app when the change is separable.
+- Branch from a freshly fetched `origin/main` (`git fetch origin`, then
+  `git worktree add <path> -b <branch> origin/main`), never from a local `main`:
+  it can be stale or still on a history `main` has since rewritten, and a PR
+  cut from it drags that old history along. Before opening a PR, check that
+  `git log origin/main..HEAD` lists only its own commits. App work and backend
+  work both ship as PRs **direct to `main`** (there is no long-lived integration
+  branch). Open **draft** PRs by default. Prefer separate PRs for backend vs app
+  when the change is separable.
 - Do file edits inside a **dedicated git worktree** so concurrent sessions don't
   trample each other.
 - **Do not drive the GUI via AppleScript/`osascript`/synthetic keystrokes** — it

@@ -165,9 +165,29 @@ public final class QuestLogStore {
 
     public init() {}
 
-    /// The command a press asks of the Quest Log, with its capabilities (`ListCapabilities.questLog`).
+    /// The command a press asks of the Quest Log. The list keys (`ListCapabilities.questLog`) come first, so a press
+    /// still cancels a pending `g`; then the rows move with the modal keys: j and k, while Tab, ⌃J, ⌃K and ↑/↓ take nothing.
     public func command(for press: Keymap.KeyPress) -> ListCommand? {
-        keys.command(for: press, in: .questLog)
+        keys.command(for: press, in: .questLog) ?? modalMove(for: press)
+    }
+
+    /// The Quest Log's list as a modal with no text field: one row per quest.
+    private func modalMove(for press: Keymap.KeyPress) -> ListCommand? {
+        let context = ModalKeyContext(
+            focus: nil,
+            fieldCount: QuestDisplayState.flatQuests(in: sections).count,
+            hasTextFields: false,
+            submitting: false,
+            submits: false
+        )
+        switch ModalKeys.command(for: press, in: context) {
+        case .nextField?:
+            return .move(1)
+        case .previousField?:
+            return .move(-1)
+        case .submit?, .cancel?, .cycle?, .consume?, nil:
+            return nil
+        }
     }
 
     public func open() {
@@ -257,7 +277,7 @@ public final class QuestLogStore {
             return targets.isEmpty ? nil : .delete(targets)
         case .copy:
             return targets.isEmpty ? nil : .copy(targets)
-        case .jumpToTopPrefix, .open, .previousTab, .nextTab, .refresh, .editRepo,
+        case .jumpToTopPrefix, .open, .openExternal, .previousTab, .nextTab, .refresh, .editRepo,
              .toggleWorkersCollapsed, .toggleAllWorkersCollapsed:
             return nil
         }

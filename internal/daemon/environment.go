@@ -108,8 +108,8 @@ func (c Config) daemonEnvironment(id string) map[string]string {
 	env["QUESTMASTER_STATE_ROOT"] = c.Root
 	env["QUESTMASTER_APP"] = "1"
 	env["QUESTMASTER_BIN"] = filepath.Join(prefix, "qm")
-	if id == "canonical" {
-		env["QUESTMASTER_BIN"] = c.Executable
+	if installedIdentity(id) {
+		env["QUESTMASTER_BIN"] = StableExecutable(c.Root)
 	}
 	env["QUESTMASTER_PATH_PREFIX"] = prefix
 	env["PATH"] = prependPath(prefix, normalizedPath(env["PATH"], env["HOME"]))

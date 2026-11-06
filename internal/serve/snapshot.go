@@ -9,12 +9,12 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -26,6 +26,7 @@ type Snapshotter struct {
 	store        *state.Store
 	tmuxClient   *tmux.Client
 	fetcher      tracker.SessionFetcher
+	projects     *state.ProjectResolver
 	now          func() time.Time
 	mu           sync.Mutex
 	trackerCache *TrackerSnapshot
@@ -37,16 +38,18 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 		store = state.OpenStore(state.StateRoot())
 	}
 	if tmuxClient == nil {
-		tmuxClient = tmux.NewExecClient()
+		tmuxClient = tmux.NewClient(tmux.DefaultServer())
 	}
 	tmuxClient.CacheListSessions(time.Second)
 	if now == nil {
 		now = time.Now
 	}
+	projects := state.NewProjectResolver()
 	return &Snapshotter{
 		store:      store,
 		tmuxClient: tmuxClient,
-		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store),
+		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store, projects),
+		projects:   projects,
 		now:        now,
 	}
 }
@@ -61,12 +64,13 @@ func (s *Snapshotter) StateRoot() string {
 
 // TrackerSnapshot is the native tracker's read model.
 type TrackerSnapshot struct {
-	ObservedAt time.Time          `json:"observed_at"`
-	Current    *CurrentSession    `json:"current,omitempty"`
-	Sessions   []SessionSnapshot  `json:"sessions"`
-	Projects   []ProjectSnapshot  `json:"projects,omitempty"`
-	Artifacts  []ArtifactSnapshot `json:"artifacts,omitempty"`
-	Quests     []QuestSnapshot    `json:"quests,omitempty"`
+	ObservedAt      time.Time                `json:"observed_at"`
+	Current         *CurrentSession          `json:"current,omitempty"`
+	Sessions        []SessionSnapshot        `json:"sessions"`
+	Projects        []ProjectSnapshot        `json:"projects,omitempty"`
+	UnlistedFolders []UnlistedFolderSnapshot `json:"unlisted_folders,omitempty"`
+	Artifacts       []ArtifactSnapshot       `json:"artifacts,omitempty"`
+	Quests          []QuestSnapshot          `json:"quests,omitempty"`
 }
 
 // CurrentSession identifies the session the current process is attached to,
@@ -79,22 +83,35 @@ type CurrentSession struct {
 
 // ArtifactSnapshot is a tracker-visible runtime artifact reference.
 type ArtifactSnapshot struct {
-	Kind      string `json:"kind"`
-	Path      string `json:"path"`
-	Label     string `json:"label"`
-	SessionID string `json:"session_id"`
-	ProjectID string `json:"project_id"`
-	AddedAt   string `json:"added_at"`
-	Missing   bool   `json:"missing,omitempty"`
+	ID                 string   `json:"id"`
+	Kind               string   `json:"kind"`
+	Path               string   `json:"path"`
+	Label              string   `json:"label"`
+	SessionID          string   `json:"session_id"`
+	SessionIDs         []string `json:"session_ids"`
+	CreatedBySessionID string   `json:"created_by_session_id"`
+	ProjectID          string   `json:"project_id"`
+	AddedAt            string   `json:"added_at"`
+	Missing            bool     `json:"missing,omitempty"`
 }
 
-// ProjectSnapshot is a historical repo project discovered from session
-// manifests. Linked worktrees share one ID and path through repo.Resolve.
+// ProjectSnapshot is one project in the user's order. Name is the effective
+// display name; DefaultName is the folder name it falls back to. Path is the
+// project folder: a repo's main root or an added folder.
 type ProjectSnapshot struct {
-	ID    string `json:"id"`
-	Name  string `json:"name,omitempty"`
-	Path  string `json:"path,omitempty"`
-	Color string `json:"color,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	DefaultName string `json:"default_name,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Color       string `json:"color,omitempty"`
+}
+
+// UnlistedFolderSnapshot is a folder that holds sessions but belongs to no
+// project. Path is the session cwd as stored, not the folder's repo or parent.
+// SessionCount counts the sessions whose cwd is exactly that path.
+type UnlistedFolderSnapshot struct {
+	Path         string `json:"path"`
+	SessionCount int    `json:"session_count"`
 }
 
 type QuestSnapshot struct {
@@ -406,13 +423,18 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	statuses, _ := state.LoadPullRequestStatuses(s.store.Root())
 	state.AttachPullRequestStatuses(prs, statuses)
 	s.observeTrackerRows(snap.Sessions, observedAt)
+	projects, unlisted, err := buildProjectSnapshots(s.store, s.projects, artifacts, quests)
+	if err != nil {
+		return TrackerSnapshot{}, err
+	}
 	return s.cacheTracker(TrackerSnapshot{
-		ObservedAt: observedAt,
-		Current:    currentSessionSnapshot(current),
-		Sessions:   s.sessionSnapshots(snap.Sessions, observedAt, artifacts, prs),
-		Projects:   s.projectSnapshots(artifacts, quests),
-		Artifacts:  artifactSnapshots(artifacts),
-		Quests:     questSnapshots(quests),
+		ObservedAt:      observedAt,
+		Current:         currentSessionSnapshot(current),
+		Sessions:        s.sessionSnapshots(snap.Sessions, observedAt, artifacts, prs),
+		Projects:        projects,
+		UnlistedFolders: unlisted,
+		Artifacts:       artifactSnapshots(artifacts),
+		Quests:          questSnapshots(quests),
 	}), nil
 }
 
@@ -435,16 +457,25 @@ func (s *Snapshotter) observeTrackerRows(rows []tracker.SessionRow, observedAt t
 func cloneTrackerSnapshot(snapshot TrackerSnapshot) TrackerSnapshot {
 	snapshot.Sessions = append([]SessionSnapshot(nil), snapshot.Sessions...)
 	for i := range snapshot.Sessions {
-		snapshot.Sessions[i].Artifacts = append([]ArtifactSnapshot(nil), snapshot.Sessions[i].Artifacts...)
+		snapshot.Sessions[i].Artifacts = cloneArtifactSnapshots(snapshot.Sessions[i].Artifacts)
 		if snapshot.Sessions[i].Cast != nil {
 			cast := *snapshot.Sessions[i].Cast
 			snapshot.Sessions[i].Cast = &cast
 		}
 	}
-	snapshot.Artifacts = append([]ArtifactSnapshot(nil), snapshot.Artifacts...)
+	snapshot.Artifacts = cloneArtifactSnapshots(snapshot.Artifacts)
 	snapshot.Quests = append([]QuestSnapshot(nil), snapshot.Quests...)
 	snapshot.Projects = append([]ProjectSnapshot(nil), snapshot.Projects...)
+	snapshot.UnlistedFolders = append([]UnlistedFolderSnapshot(nil), snapshot.UnlistedFolders...)
 	return snapshot
+}
+
+func cloneArtifactSnapshots(artifacts []ArtifactSnapshot) []ArtifactSnapshot {
+	cloned := append([]ArtifactSnapshot(nil), artifacts...)
+	for i := range cloned {
+		cloned[i].SessionIDs = append([]string(nil), cloned[i].SessionIDs...)
+	}
+	return cloned
 }
 
 func trackerSessionIndex(rows []SessionSnapshot, sessionID string) int {
@@ -681,77 +712,107 @@ func (s *Snapshotter) globalQuests() []state.Quest {
 	return quests
 }
 
-func (s *Snapshotter) projectSnapshots(artifacts []state.Artifact, quests []state.Quest) []ProjectSnapshot {
-	manifests, err := s.store.DiscoverSessions()
+// buildProjectSnapshots lists every project the tracker shows, in the user's
+// order, and the session folders that belong to none. A project is found from
+// a session cwd, a repo color, an artifact, or a quest. An added folder is
+// listed even when nothing lives in it yet.
+func buildProjectSnapshots(store *state.Store, resolver *state.ProjectResolver, artifacts []state.Artifact, quests []state.Quest) ([]ProjectSnapshot, []UnlistedFolderSnapshot, error) {
+	manifests, err := store.DiscoverSessions()
 	if err != nil {
-		return nil
+		return nil, nil, err
 	}
-	repoColors, _ := state.NewRepoColorStore(s.StateRoot()).Load()
-	repoCache := repo.NewCache()
-	byID := make(map[string]ProjectSnapshot)
-	addRepo := func(r repo.Repo, color string) {
-		if r.Identity == "" {
-			return
-		}
-		existing, exists := byID[r.Identity]
-		if exists {
-			if existing.Color == "" && color != "" {
-				existing.Color = color
-				byID[r.Identity] = existing
-			}
-			return
-		}
-		byID[r.Identity] = ProjectSnapshot{
-			ID:    r.Identity,
-			Name:  r.Name,
-			Path:  r.Root,
-			Color: color,
-		}
-	}
-	addPath := func(path, color string) bool {
-		path = strings.TrimSpace(path)
-		if path == "" || strings.HasPrefix(path, "_") || path == "ungrouped" || !filepath.IsAbs(path) {
-			return false
-		}
-		r, ok := repoCache.Resolve(path)
-		if !ok {
-			return false
-		}
-		addRepo(r, color)
-		return true
-	}
+	// Graceful degradation: an unreadable store leaves no added folders, names or order.
+	registry, _ := state.NewProjectStore(store.Root()).Load()
+	colors, _ := state.NewRepoColorStore(store.Root()).Load()
 
-	for _, manifest := range manifests {
-		addPath(manifest.Cwd, "")
+	found := make(map[string]state.Project)
+	addPath := func(path string) bool {
+		if !isProjectPath(path) {
+			return false
+		}
+		project, ok := resolver.Resolve(registry, path)
+		if ok {
+			found[project.ID] = project
+		}
+		return ok
 	}
-	for id, repoColor := range repoColors {
-		addPath(id, repoColor.Color)
+	sessionCwdCounts := make(map[string]int)
+	for _, manifest := range manifests {
+		if !addPath(manifest.Cwd) {
+			sessionCwdCounts[manifest.Cwd]++
+		}
+	}
+	unlisted := unlistedFolderSnapshots(sessionCwdCounts, store.Root())
+	for _, project := range registry.AddedProjects() {
+		found[project.ID] = project
+	}
+	for id := range colors {
+		addPath(id)
 	}
 	for _, artifact := range artifacts {
-		addPath(artifact.ProjectID, "")
+		addPath(artifact.ProjectID)
 	}
 	for _, quest := range quests {
-		if addPath(quest.ProjectID, "") {
+		if !addPath(quest.ProjectID) {
+			addPath(quest.ProjectPath)
+		}
+	}
+	if len(found) == 0 {
+		return nil, unlisted, nil
+	}
+
+	out := make([]ProjectSnapshot, 0, len(found))
+	for _, project := range found {
+		out = append(out, ProjectSnapshot{
+			ID:          project.ID,
+			Name:        project.Name,
+			DefaultName: project.DefaultName,
+			Path:        project.Path,
+			Color:       colors[project.ID].Color,
+		})
+	}
+	ranks := state.NewProjectOrder(registry.Order)
+	sort.SliceStable(out, func(i, j int) bool {
+		return ranks.Less(out[i].ID, out[i].Name, out[j].ID, out[j].Name)
+	})
+	return out, unlisted, nil
+}
+
+// unlistedFolderSnapshots keeps the session folders that still exist, sit
+// outside the state root, and are project paths, sorted by path. Each distinct
+// folder is looked up once, however many sessions it holds.
+func unlistedFolderSnapshots(sessionCounts map[string]int, stateRoot string) []UnlistedFolderSnapshot {
+	resolvedRoot := resolvedFolderPath(stateRoot)
+	var out []UnlistedFolderSnapshot
+	for path, count := range sessionCounts {
+		if !isProjectPath(path) {
 			continue
 		}
-		addPath(quest.ProjectPath, "")
-	}
-	if len(byID) == 0 {
-		return nil
-	}
-	out := make([]ProjectSnapshot, 0, len(byID))
-	for _, project := range byID {
-		out = append(out, project)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		left := strings.ToLower(out[i].Name)
-		right := strings.ToLower(out[j].Name)
-		if left == right {
-			return out[i].ID < out[j].ID
+		// EvalSymlinks also fails when the folder no longer exists.
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil || state.PathWithin(resolvedRoot, resolved) {
+			continue
 		}
-		return left < right
-	})
+		out = append(out, UnlistedFolderSnapshot{Path: path, SessionCount: count})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// resolvedFolderPath follows symlinks when the path exists, so a state root
+// reached through a link still matches the real path of a session folder.
+func resolvedFolderPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return filepath.Clean(path)
+}
+
+// isProjectPath reports whether a stored reference names a folder. Pseudo
+// buckets such as "_misc" or "ungrouped", and relative paths, name no project.
+func isProjectPath(path string) bool {
+	path = strings.TrimSpace(path)
+	return path != "" && !strings.HasPrefix(path, "_") && path != "ungrouped" && filepath.IsAbs(path)
 }
 
 func artifactSnapshots(artifacts []state.Artifact) []ArtifactSnapshot {
@@ -762,13 +823,16 @@ func artifactSnapshots(artifacts []state.Artifact) []ArtifactSnapshot {
 	out := make([]ArtifactSnapshot, 0, len(sorted))
 	for _, artifact := range sorted {
 		out = append(out, ArtifactSnapshot{
-			Kind:      artifact.Kind,
-			Path:      artifact.Path,
-			Label:     artifact.Label,
-			SessionID: artifact.SessionID,
-			ProjectID: artifact.ProjectID,
-			AddedAt:   artifact.AddedAt,
-			Missing:   state.ArtifactMissing(artifact.Path),
+			ID:                 artifact.ID,
+			Kind:               artifact.Kind,
+			Path:               artifact.Path,
+			Label:              artifact.Label,
+			SessionID:          artifact.SessionID,
+			SessionIDs:         artifact.SessionIDs,
+			CreatedBySessionID: artifact.CreatedBySessionID,
+			ProjectID:          artifact.ProjectID,
+			AddedAt:            artifact.AddedAt,
+			Missing:            state.ArtifactMissing(artifact.Path),
 		})
 	}
 	return out
@@ -822,7 +886,7 @@ func artifactsEqual(a, b []ArtifactSnapshot) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if !reflect.DeepEqual(a[i], b[i]) {
 			return false
 		}
 	}

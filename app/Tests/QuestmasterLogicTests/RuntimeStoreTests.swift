@@ -26,9 +26,9 @@ struct RuntimeStoreTests {
         let store = RuntimeStore(sourceLabel: "label")
         var notifications = 0
         let token = store.observe { notifications += 1 }
-        store.apply(.serveUnavailable("serve down"))
+        store.apply(RuntimeUpdate(connection: .reconnecting))
         expect(notifications == 1, "apply did not notify observer")
-        expect(store.snapshot.observedLabel == "serve down", "apply did not merge update")
+        expect(store.snapshot.connection == .reconnecting, "apply did not merge update")
         expect(store.snapshot.tick == 1, "apply did not advance tick")
         token.cancel()
     }
@@ -37,7 +37,7 @@ struct RuntimeStoreTests {
         let store = RuntimeStore(sourceLabel: "label")
         var notifications = 0
         let token = store.observe { notifications += 1 }
-        let update = RuntimeUpdate.serveUnavailable("serve down")
+        let update = RuntimeUpdate(connection: .reconnecting)
         store.apply(update)
         let tick = store.snapshot.tick
         store.apply(update)
@@ -59,15 +59,15 @@ struct RuntimeStoreTests {
     }
 
     private static func acknowledgedDeletionUpdatesSnapshot() {
-        let deletedArtifact = ArtifactReference(kind: "html", path: "/tmp/plan.html", label: "Plan", sessionID: "qm-a", addedAt: "")
-        let retainedArtifact = ArtifactReference(kind: "html", path: "/tmp/plan.html", label: "Plan", sessionID: "qm-b", addedAt: "")
+        let deletedArtifact = ArtifactReference(kind: "html", path: "/tmp/plan.html", label: "Plan", sessionID: "qm-a", addedAt: "", id: "art-plan", sessionIDs: ["qm-a", "qm-b"])
+        let retainedArtifact = ArtifactReference(kind: "html", path: "/tmp/keep.html", label: "Keep", sessionID: "qm-b", addedAt: "", id: "art-keep")
         let deletedQuest = QuestItem(id: "qst-delete", content: "Delete")
         let retainedQuest = QuestItem(id: "qst-keep", content: "Keep")
         let store = RuntimeStore(sourceLabel: "label")
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(
             repos: [TrackerRepo(id: "repo", name: "Repo", sessions: [
                 TrackerSession(id: "qm-a", title: "A", repoName: "Repo", artifacts: [deletedArtifact]),
-                TrackerSession(id: "qm-b", title: "B", repoName: "Repo", artifacts: [retainedArtifact]),
+                TrackerSession(id: "qm-b", title: "B", repoName: "Repo", artifacts: [deletedArtifact, retainedArtifact]),
             ])],
             artifacts: [deletedArtifact, retainedArtifact],
             quests: [deletedQuest, retainedQuest]
@@ -78,7 +78,7 @@ struct RuntimeStoreTests {
 
         expect(store.snapshot.tracker.artifacts == [retainedArtifact], "acknowledged artifact should leave the global list")
         expect(store.snapshot.tracker.repos[0].sessions[0].artifacts.isEmpty, "acknowledged artifact should leave its session")
-        expect(store.snapshot.tracker.repos[0].sessions[1].artifacts == [retainedArtifact], "same path in another session should remain")
+        expect(store.snapshot.tracker.repos[0].sessions[1].artifacts == [retainedArtifact], "shared artifact should leave every session")
         expect(store.snapshot.tracker.quests == [retainedQuest], "acknowledged quest should leave the list")
     }
 
@@ -86,9 +86,9 @@ struct RuntimeStoreTests {
         let store = RuntimeStore(sourceLabel: "label")
         var notifications = 0
         let token = store.observe { notifications += 1 }
-        store.apply(.serveUnavailable("one"))
+        store.apply(RuntimeUpdate(connection: .connecting))
         token.cancel()
-        store.apply(.serveUnavailable("two"))
+        store.apply(RuntimeUpdate(connection: .reconnecting))
         expect(notifications == 1, "cancelled observer kept receiving notifications")
     }
 

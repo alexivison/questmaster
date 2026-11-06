@@ -7,13 +7,15 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/alexivison/questmaster/internal/config"
 )
 
 // HasSession returns true if the named tmux session exists.
 // Returns (false, nil) for genuine "session not found" and (false, error) for
 // transport failures (connection refused, no server running, etc.).
 func (c *Client) HasSession(ctx context.Context, sessionID string) (bool, error) {
-	_, err := c.runner.Run(ctx, "has-session", "-t", sessionID)
+	_, err := c.runner.Run(ctx, "has-session", "-t", SessionTarget(sessionID))
 	if err != nil {
 		var exitErr *ExitError
 		if errors.As(err, &exitErr) && !exitErr.IsConnectionError() {
@@ -42,7 +44,7 @@ func (c *Client) EnsureSessionRunning(ctx context.Context, sessionID, label stri
 // Propagates transport errors (permission denied, lost server) so callers don't
 // delete manifests for sessions that are still alive but temporarily inaccessible.
 func (c *Client) KillSession(ctx context.Context, sessionID string) error {
-	_, err := c.runner.Run(ctx, "kill-session", "-t", sessionID)
+	_, err := c.runner.Run(ctx, "kill-session", "-t", SessionTarget(sessionID))
 	if err != nil {
 		var exitErr *ExitError
 		if errors.As(err, &exitErr) && !exitErr.IsConnectionError() {
@@ -53,66 +55,102 @@ func (c *Client) KillSession(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// NewSession creates a detached tmux session.
-// Temporarily unsets TMUX env to avoid "sessions should be nested with care" errors
-// when called from within an existing tmux session.
-func (c *Client) NewSession(ctx context.Context, name, windowName, cwd string) error {
-	args := []string{"new-session", "-d", "-s", name}
+// NewSession creates a detached tmux session, sized like the caller's own
+// client when the caller runs in a pane on this server, and returns the ID of
+// its one pane. Callers target that ID: the window and pane indexes depend on
+// the server's base-index and pane-base-index.
+func (c *Client) NewSession(ctx context.Context, name, windowName, cwd string) (string, error) {
+	args := []string{"new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name}
 	if windowName != "" {
 		args = append(args, "-n", windowName)
 	}
-	if w, h, ok := c.currentClientSize(ctx); ok {
-		args = append(args, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h))
+	if client, ok, err := c.callerClient(ctx); err == nil && ok && client.width > 0 && client.height > 0 {
+		args = append(args, "-x", strconv.Itoa(client.width), "-y", strconv.Itoa(client.height))
 	}
 	args = append(args, "-c", cwd)
-	// The Runner interface doesn't support env manipulation, so we use the
-	// EnvRunner wrapper to clear TMUX for this call.
-	_, err := c.runWithoutTMUX(ctx, args...)
+	out, err := c.runner.Run(ctx, args...)
 	if err != nil {
-		return fmt.Errorf("new-session %s: %w", name, err)
+		return "", fmt.Errorf("new-session %s: %w", name, err)
 	}
-	return nil
+	pane := strings.TrimSpace(out)
+	if !paneIDPattern.MatchString(pane) {
+		return "", fmt.Errorf("new-session %s: reported pane %q, not a pane ID", name, pane)
+	}
+	return pane, nil
 }
 
-func (c *Client) currentClientSize(ctx context.Context) (int, int, bool) {
+// tmuxClient is one attached tmux client.
+type tmuxClient struct {
+	name          string
+	width, height int
+}
+
+// callerSession returns the session of the pane this process runs in, when
+// that pane is on the client's server. TMUX and TMUX_PANE describe the server
+// the caller runs in, which need not be this one: pane %3 there is a different
+// pane here. ok is false outside tmux and inside another server.
+func (c *Client) callerSession(ctx context.Context) (string, bool, error) {
 	pane := os.Getenv("TMUX_PANE")
-	if pane == "" {
-		return 0, 0, false
+	socket, _, _ := strings.Cut(os.Getenv("TMUX"), ",")
+	if pane == "" || socket == "" {
+		return "", false, nil
 	}
-
-	out, err := c.runner.Run(ctx, "display-message", "-t", pane, "-p", "#{client_width}\t#{client_height}")
+	out, err := c.runner.Run(ctx, "display-message", "-t", pane, "-p", "#{socket_path}\t#{pane_id}\t#{session_name}")
 	if err != nil {
-		return 0, 0, false
+		var exitErr *ExitError
+		if errors.As(err, &exitErr) && !exitErr.IsConnectionError() {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("find caller pane %s: %w", pane, err)
 	}
-
-	parts := strings.Fields(strings.TrimSpace(out))
-	if len(parts) != 2 {
-		return 0, 0, false
+	// display-message prints empty pane fields for a pane it cannot find.
+	fields := strings.Split(out, "\t")
+	if len(fields) != 3 || fields[0] != socket || fields[1] != pane || fields[2] == "" {
+		return "", false, nil
 	}
-
-	w, err := strconv.Atoi(parts[0])
-	if err != nil || w <= 0 {
-		return 0, 0, false
-	}
-	h, err := strconv.Atoi(parts[1])
-	if err != nil || h <= 0 {
-		return 0, 0, false
-	}
-	return w, h, true
+	return fields[2], true, nil
 }
 
-// runWithoutTMUX executes a tmux command with TMUX env var filtered from the
-// child process environment. Uses ExecRunner's filtered-env path when available;
-// falls back to the standard Runner for mock/test runners where TMUX is irrelevant.
-func (c *Client) runWithoutTMUX(ctx context.Context, args ...string) (string, error) {
-	if er, ok := c.runner.(ExecRunner); ok {
-		return er.RunWithoutEnv(ctx, "TMUX", args...)
+// callerClient returns the client tmux treats as the caller's: the most
+// recently active client showing the caller's session. Commands run with
+// TMUX_PANE stripped, so tmux cannot find it on its own.
+func (c *Client) callerClient(ctx context.Context) (tmuxClient, bool, error) {
+	session, ok, err := c.callerSession(ctx)
+	if err != nil || !ok {
+		return tmuxClient{}, false, err
 	}
-	return c.runner.Run(ctx, args...)
+	out, err := c.runner.Run(ctx, "list-clients", "-t", SessionTarget(session),
+		"-F", "#{client_activity}\t#{client_name}\t#{client_width}\t#{client_height}")
+	if err != nil {
+		return tmuxClient{}, false, fmt.Errorf("list clients of %s: %w", session, err)
+	}
+	var best tmuxClient
+	bestActivity := int64(-1)
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) != 4 || fields[1] == "" {
+			continue
+		}
+		activity, err := strconv.ParseInt(fields[0], 10, 64)
+		if err != nil || activity <= bestActivity {
+			continue
+		}
+		width, _ := strconv.Atoi(fields[2])
+		height, _ := strconv.Atoi(fields[3])
+		best, bestActivity = tmuxClient{name: fields[1], width: width, height: height}, activity
+	}
+	return best, bestActivity >= 0, nil
 }
 
-// RespawnPane kills the current process in a pane and starts a new one.
+// RespawnPane kills the current process in a pane and starts a new one in cwd.
+//
+// The command changes into cwd itself instead of relying on -c alone: a tmux
+// server whose own working directory has been deleted (a removed worktree, for
+// example) starts every new pane in that deleted directory and ignores -c.
 func (c *Client) RespawnPane(ctx context.Context, target, cwd, cmd string) error {
+	if cwd != "" {
+		cmd = "cd -- " + config.ShellQuote(cwd) + " || exit 1; " + cmd
+	}
 	_, err := c.runner.Run(ctx, "respawn-pane", "-k", "-t", target, "-c", cwd, cmd)
 	if err != nil {
 		return fmt.Errorf("respawn-pane %s: %w", target, err)
@@ -157,7 +195,7 @@ func (c *Client) KillWindow(ctx context.Context, target string) error {
 
 // NewWindow creates a new window in a session.
 func (c *Client) NewWindow(ctx context.Context, session, name, cwd string) error {
-	_, err := c.runner.Run(ctx, "new-window", "-t", session, "-n", name, "-c", cwd)
+	_, err := c.runner.Run(ctx, "new-window", "-t", SessionTarget(session), "-n", name, "-c", cwd)
 	if err != nil {
 		return fmt.Errorf("new-window in %s: %w", session, err)
 	}
@@ -252,34 +290,27 @@ func (c *Client) SetWindowOption(ctx context.Context, target, key, value string)
 }
 
 // SetSessionOption sets a session option.
-func (c *Client) SetSessionOption(ctx context.Context, target, key, value string) error {
-	_, err := c.runner.Run(ctx, "set-option", "-t", target, key, value)
+func (c *Client) SetSessionOption(ctx context.Context, session, key, value string) error {
+	_, err := c.runner.Run(ctx, "set-option", "-t", SessionTarget(session), key, value)
 	if err != nil {
-		return fmt.Errorf("set session option %s on %s: %w", key, target, err)
+		return fmt.Errorf("set session option %s on %s: %w", key, session, err)
 	}
 	return nil
 }
 
 // SetEnvironment sets a session environment variable.
 func (c *Client) SetEnvironment(ctx context.Context, session, key, value string) error {
-	_, err := c.runner.Run(ctx, "set-environment", "-t", session, key, value)
+	_, err := c.runner.Run(ctx, "set-environment", "-t", SessionTarget(session), key, value)
 	if err != nil {
 		return fmt.Errorf("set-environment %s in %s: %w", key, session, err)
 	}
 	return nil
 }
 
-// UnsetEnvironment removes a session or global environment variable.
-// Pass session="" for global (-g) unset.
+// UnsetEnvironment removes a variable from one session's environment. There is
+// no global form: the global environment belongs to every session on the server.
 func (c *Client) UnsetEnvironment(ctx context.Context, session, key string) error {
-	args := []string{"set-environment"}
-	if session == "" {
-		args = append(args, "-g")
-	} else {
-		args = append(args, "-t", session)
-	}
-	args = append(args, "-u", key)
-	_, err := c.runner.Run(ctx, args...)
+	_, err := c.runner.Run(ctx, "set-environment", "-t", SessionTarget(session), "-u", key)
 	if err != nil {
 		var exitErr *ExitError
 		if errors.As(err, &exitErr) {
@@ -293,7 +324,7 @@ func (c *Client) UnsetEnvironment(ctx context.Context, session, key string) erro
 // ShowEnvironment reads a session environment variable.
 // Returns the value and true if set, or "" and false if not set.
 func (c *Client) ShowEnvironment(ctx context.Context, session, key string) (string, bool, error) {
-	out, err := c.runner.Run(ctx, "show-environment", "-t", session, key)
+	out, err := c.runner.Run(ctx, "show-environment", "-t", SessionTarget(session), key)
 	if err != nil {
 		var exitErr *ExitError
 		if errors.As(err, &exitErr) {
@@ -313,58 +344,39 @@ func (c *Client) ShowEnvironment(ctx context.Context, session, key string) (stri
 
 // SetHook registers a tmux hook on a session.
 func (c *Client) SetHook(ctx context.Context, session, hookName, cmd string) error {
-	_, err := c.runner.Run(ctx, "set-hook", "-t", session, hookName, cmd)
+	_, err := c.runner.Run(ctx, "set-hook", "-t", SessionTarget(session), hookName, cmd)
 	if err != nil {
 		return fmt.Errorf("set-hook %s on %s: %w", hookName, session, err)
 	}
 	return nil
 }
 
-// SwitchClientWithFallback tries switch-client, then falls back to explicit
-// client targeting via list-clients. Required for popup contexts where the
-// TTY isn't associated with a tmux client.
-// When multiple clients exist, the first from list-clients is used. This is
-// correct for the typical single-terminal case; multi-client setups may need
-// explicit client targeting.
-func (c *Client) SwitchClientWithFallback(ctx context.Context, target string) error {
-	_, err := c.runner.Run(ctx, "switch-client", "-t", target)
-	if err == nil {
-		return nil
-	}
-	// Only fall back on ExitError (tmux ran but failed to find client).
-	// Other errors (missing binary, context cancelled) propagate immediately.
-	var exitErr *ExitError
-	if !errors.As(err, &exitErr) {
-		return fmt.Errorf("switch-client to %s: %w", target, err)
-	}
-
-	// Enumerate clients and target the first one explicitly.
-	out, err := c.runner.Run(ctx, "list-clients", "-F", "#{client_name}")
+// SwitchClient moves the caller's own client to a session. The caller must run
+// in a pane on this server; the client is the one showing that pane's session,
+// never a guess among other clients.
+func (c *Client) SwitchClient(ctx context.Context, sessionID string) error {
+	client, ok, err := c.callerClient(ctx)
 	if err != nil {
-		return fmt.Errorf("switch-client to %s: initial switch failed and cannot list clients: %w", target, err)
+		return fmt.Errorf("switch-client to %s: %w", sessionID, err)
 	}
-	client := strings.SplitN(strings.TrimSpace(out), "\n", 2)[0]
-	if client == "" {
-		return fmt.Errorf("switch-client to %s: no tmux clients found", target)
+	if !ok {
+		return fmt.Errorf("switch-client to %s: this terminal shows no session on Questmaster's tmux server", sessionID)
 	}
-
-	_, err = c.runner.Run(ctx, "switch-client", "-c", client, "-t", target)
-	if err != nil {
-		return fmt.Errorf("switch-client to %s via client %s: %w", target, client, err)
+	if _, err := c.runner.Run(ctx, "switch-client", "-c", client.name, "-t", SessionTarget(sessionID)); err != nil {
+		return fmt.Errorf("switch-client to %s: %w", sessionID, err)
 	}
 	return nil
 }
 
-// SessionName returns the current tmux session name.
+// SessionName returns the session of the pane this process runs in. It fails
+// outside tmux and inside a pane on another server.
 func (c *Client) SessionName(ctx context.Context) (string, error) {
-	args := []string{"display-message"}
-	if pane := os.Getenv("TMUX_PANE"); pane != "" {
-		args = append(args, "-t", pane)
-	}
-	args = append(args, "-p", "#{session_name}")
-	out, err := c.runner.Run(ctx, args...)
+	session, ok, err := c.callerSession(ctx)
 	if err != nil {
 		return "", fmt.Errorf("session name: %w", err)
 	}
-	return strings.TrimSpace(out), nil
+	if !ok {
+		return "", errors.New("session name: not running in a pane on Questmaster's tmux server")
+	}
+	return session, nil
 }

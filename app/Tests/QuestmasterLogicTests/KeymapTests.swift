@@ -24,7 +24,15 @@ controlPageAndHalfPageChords()
         controlHandoffMapsListControlDirections()
         gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter()
         gPrefixTrackerResetClearsPendingState()
+        projectsAddKeyIsPlainN()
         print("KeymapTests: all tests passed")
+    }
+
+    /// Settings' Projects list adds with plain n. ⌘T and a no longer add, so each key stays with one action.
+    private static func projectsAddKeyIsPlainN() {
+        expect(matches(press("n", keyCode: 45), .addProject), "n should add a project")
+        expect(!matches(press("t", [.command], keyCode: 17), .addProject), "⌘T should no longer add a project")
+        expect(!matches(press("a", keyCode: 0), .addProject), "a should no longer add a project")
     }
 
     private static func press(_ character: String?, _ modifiers: Set<Keymap.Modifier> = [], keyCode: UInt16 = 0) -> Keymap.KeyPress {
@@ -43,9 +51,18 @@ controlPageAndHalfPageChords()
         expect(!matches(press("j", [.control, .option]), .moveDown), "⌃⌥j must not be plain j")
         expect(matches(press("j", [.control]), .nextField), "⌃j should move to the next field")
         expect(!matches(press("j"), .nextField), "plain j must not move to the next field")
-        expect(matches(press(nil, [.option], keyCode: 40), .nextField), "⌥k should move to the next field by key code, since it types ˚")
+        expect(!matches(press(nil, [.option], keyCode: 40), .nextField), "⌥k is no field key: it moves an arranged row up, so it must not also step a field")
         expect(!matches(press("k"), .nextField), "plain k must not move to the next field")
         expect(!matches(press("˚", keyCode: 40), .nextField), "⌥k without its modifier must not match")
+        expect(matches(press("j"), .modalMoveDown), "plain j should move a modal's rows down")
+        expect(matches(press("k"), .modalMoveUp), "plain k should move a modal's rows up")
+        expect(!matches(press("j", [.control]), .modalMoveDown), "⌃j is the field step, not a modal row step")
+        expect(!matches(press(nil, keyCode: 125), .modalMoveDown), "↓ is no modal row key: a modal's arrows never move it")
+        expect(!matches(press(nil, keyCode: 126), .modalMoveUp), "↑ is no modal row key: a modal's arrows never move it")
+        expect(matches(press("K", [.shift]), .moveRowUp), "shift-k should move the arranged row up")
+        expect(matches(press("J", [.shift]), .moveRowDown), "shift-j should move the arranged row down")
+        expect(!matches(press("˚", [.option], keyCode: 40), .moveRowUp), "⌥k no longer moves a row: AeroSpace takes it system-wide")
+        expect(!matches(press("k"), .moveRowUp) && !matches(press("j"), .moveRowDown), "plain k and j move the highlight, not the row")
     }
 
     private static func everyActionHasChords() {
@@ -66,6 +83,11 @@ controlPageAndHalfPageChords()
         expect(!matches(press("h", [.command]), .focusLeft), "⌘h must not focus left")
         expect(!matches(press("?", [.shift]), .focusFilter), "shift-/ types ? and is not the filter key")
         expect(matches(press("/"), .focusFilter), "/ should focus the filter")
+        expect(matches(press("H", [.shift]), .previousSection), "shift-h should step to the previous Settings section")
+        expect(matches(press("L", [.shift]), .nextSection), "shift-l should step to the next Settings section")
+        expect(!matches(press("h"), .previousSection) && !matches(press("l"), .nextSection), "plain h and l cycle a select, not the section")
+        expect(!matches(press("H", [.command, .shift]), .previousSection), "⇧⌘H is the focus chord, not the section key")
+        expect(!matches(press("L", [.command, .shift]), .nextSection), "⇧⌘L is the focus chord, not the section key")
     }
 
     private static func listKeysAreArrowsAndLetters() {

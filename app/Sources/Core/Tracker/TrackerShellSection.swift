@@ -1,6 +1,6 @@
 import Foundation
 
-/// A shell row of the tracker, with the name of the repo it was listed under.
+/// A shell row of the tracker's shell section, with the name of the repo it was listed under.
 public struct TrackerShellRow: Equatable {
     public let session: TrackerSession
     public let repoName: String
@@ -13,7 +13,7 @@ public struct TrackerShellRow: Equatable {
 
 /// Shells leave the repo groups: the masters and workers keep their plates, by repo, and every shell, tmux and orphan
 /// row goes to one section under all of them, in the order the snapshot lists them. The cursor and the Cmd+N numbers
-/// walk the plates, then the shells.
+/// walk the plates, then the shell section.
 public enum TrackerShellSection {
     /// A plain shell, a tmux session or an orphan: every row that isn't a master or a worker. A worker whose master
     /// isn't listed stays with its plates.
@@ -24,6 +24,27 @@ public enum TrackerShellSection {
         case .master, .worker:
             return false
         }
+    }
+
+    /// The cursor id the plates' scrolling list gets: the cursor's own while it is on a plate row, nil on a shell or on no
+    /// row. The list only scrolls to plates; a shell's id would make its scroll step consume the pointer's marker (see
+    /// `PointerCursor`) for a row it doesn't hold.
+    public static func plateCursorID(_ cursorID: String?, in rows: [TrackerSession]) -> String? {
+        rows.first { $0.id == cursorID && !isShellRow($0) }?.id
+    }
+
+    /// The cursor id the shell section's scroller gets: the mirror of `plateCursorID`, so each scroller sees only the rows it
+    /// holds.
+    public static func shellCursorID(_ cursorID: String?, in rows: [TrackerSession]) -> String? {
+        rows.first { $0.id == cursorID && isShellRow($0) }?.id
+    }
+
+    /// The shell the section scrolls into view when it appears or its rows change: the cursor's while the cursor is on a
+    /// shell (it follows the viewed session unless the user moved it), else the viewed shell. Nil when neither is a shell
+    /// of the section.
+    public static func revealID(cursorID: String?, viewedID: String?, in shells: [TrackerSession]) -> String? {
+        let shellIDs = Set(shells.map(\.id))
+        return [cursorID, viewedID].compactMap { $0 }.first { shellIDs.contains($0) }
     }
 
     /// The repo's masters and workers, in its order.

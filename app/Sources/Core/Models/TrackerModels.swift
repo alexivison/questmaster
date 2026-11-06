@@ -3,17 +3,21 @@ import Foundation
 public struct TrackerSnapshot: Decodable, Equatable {
     public var repos: [TrackerRepo]
     public var projects: [TrackerProject]
+    /// Session folders that belong to no project, sorted by path.
+    public var unlistedFolders: [TrackerUnlistedFolder]
     public var artifacts: [ArtifactReference]
     public var quests: [QuestItem]
 
     public init(
         repos: [TrackerRepo],
         projects: [TrackerProject] = [],
+        unlistedFolders: [TrackerUnlistedFolder] = [],
         artifacts: [ArtifactReference] = [],
         quests: [QuestItem] = []
     ) {
         self.repos = repos
         self.projects = projects
+        self.unlistedFolders = unlistedFolders
         self.artifacts = artifacts
         self.quests = quests
     }
@@ -22,6 +26,7 @@ public struct TrackerSnapshot: Decodable, Equatable {
         case repos
         case sessions
         case projects
+        case unlistedFolders = "unlisted_folders"
         case artifacts
         case quests
     }
@@ -31,6 +36,7 @@ public struct TrackerSnapshot: Decodable, Equatable {
         artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
         quests = try container.decodeIfPresent([QuestItem].self, forKey: .quests) ?? []
         projects = try container.decodeIfPresent([TrackerProject].self, forKey: .projects) ?? []
+        unlistedFolders = try container.decodeIfPresent([TrackerUnlistedFolder].self, forKey: .unlistedFolders) ?? []
         if let repos = try container.decodeIfPresent([TrackerRepo].self, forKey: .repos) {
             self.repos = repos
             return
@@ -40,15 +46,19 @@ public struct TrackerSnapshot: Decodable, Equatable {
     }
 }
 
+/// A project as the tracker lists it, in the user's order. `name` is the effective display name; `defaultName`
+/// is the folder's name, which the name reverts to when the user clears the override.
 public struct TrackerProject: Decodable, Equatable, Identifiable {
     public var id: String
     public var name: String
+    public var defaultName: String
     public var path: String
     public var color: String
 
-    public init(id: String, name: String, path: String = "", color: String = "") {
+    public init(id: String, name: String, defaultName: String? = nil, path: String = "", color: String = "") {
         self.id = id
         self.name = name
+        self.defaultName = defaultName ?? name
         self.path = path
         self.color = color
     }
@@ -57,6 +67,7 @@ public struct TrackerProject: Decodable, Equatable, Identifiable {
         case id
         case identity
         case name
+        case defaultName = "default_name"
         case path
         case color
     }
@@ -67,8 +78,34 @@ public struct TrackerProject: Decodable, Equatable, Identifiable {
             ?? container.decodeIfPresent(String.self, forKey: .identity)
             ?? ""
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? id
+        defaultName = try container.decodeIfPresent(String.self, forKey: .defaultName) ?? name
         path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
         color = try container.decodeIfPresent(String.self, forKey: .color) ?? ""
+    }
+}
+
+/// A folder that holds sessions but belongs to no project. `path` is the session cwd as stored, and `sessionCount`
+/// counts the sessions whose cwd is exactly that path.
+public struct TrackerUnlistedFolder: Decodable, Equatable, Identifiable {
+    public var path: String
+    public var sessionCount: Int
+
+    public var id: String { path }
+
+    public init(path: String, sessionCount: Int) {
+        self.path = path
+        self.sessionCount = sessionCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case sessionCount = "session_count"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decode(String.self, forKey: .path)
+        sessionCount = try container.decodeIfPresent(Int.self, forKey: .sessionCount) ?? 0
     }
 }
 
@@ -122,8 +159,10 @@ public struct TrackerRepo: Decodable, Equatable {
         }
     }
 
+    /// Groups the daemon's sessions by project. The daemon sends them in the user's project order, so the groups keep
+    /// the order each project first appears in, with ungrouped (and every shell) last.
     public static func grouping(_ sessions: [TrackerSession]) -> [TrackerRepo] {
-        let grouped = Dictionary(grouping: sessions) { session in
+        let groupKey = { (session: TrackerSession) -> String in
             if AgentKind(name: session.agent) == .shell {
                 return "ungrouped"
             }
@@ -132,7 +171,11 @@ public struct TrackerRepo: Decodable, Equatable {
             }
             return session.repoName.isEmpty ? "ungrouped" : session.repoName
         }
-        return grouped.keys.sorted().map { key in
+        let grouped = Dictionary(grouping: sessions, by: groupKey)
+        var seen = Set<String>()
+        let projectKeys = sessions.map(groupKey).filter { $0 != "ungrouped" && seen.insert($0).inserted }
+        let keys = grouped["ungrouped"] == nil ? projectKeys : projectKeys + ["ungrouped"]
+        return keys.map { key in
             let rows = grouped[key] ?? []
             let first = rows.first
             return TrackerRepo(

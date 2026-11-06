@@ -21,21 +21,30 @@ public enum FilterFieldCommand: Equatable {
 }
 
 /// The keys the Quest Log's and the artifact dock's filter fields share. The fields type text, so letters never move
-/// the list here: it moves with ↑/↓ and ⌃p/⌃n. Nil for a key the text system takes: a typed character, Tab with
-/// nothing to take, Backspace in a non-empty field, and any key with a modifier that isn't listed.
+/// the list here. Nil for a key the text system takes: a typed character, Tab with nothing to take, Backspace in a
+/// non-empty field, and any key with a modifier that isn't listed.
 public enum FilterFieldKey {
     /// `showsSuggestions`: a suggestion is showing, so the keys act on it rather than on the list.
+    /// `arrowsMoveList`: with no suggestion showing, ↑/↓ move the list. The Quest Log's rows move with the modal keys
+    /// instead, so there ↑/↓ stay the caret's. ⌃p and ⌃n (vim's next and previous) move the list either way.
     /// `queryIsEmpty` and `hasChips` decide what Backspace removes.
     public static func command(
         _ press: Keymap.KeyPress,
         showsSuggestions: Bool,
+        arrowsMoveList: Bool,
         queryIsEmpty: Bool,
         hasChips: Bool
     ) -> FilterFieldCommand? {
-        if Keymap.matches(press, .suggestionUp) || Keymap.matches(press, .suggestionPrevious) {
+        if Keymap.matches(press, .suggestionUp) {
+            return showsSuggestions ? .moveSuggestion(-1) : arrowListMove(-1, arrowsMoveList: arrowsMoveList)
+        }
+        if Keymap.matches(press, .suggestionDown) {
+            return showsSuggestions ? .moveSuggestion(1) : arrowListMove(1, arrowsMoveList: arrowsMoveList)
+        }
+        if Keymap.matches(press, .suggestionPrevious) {
             return showsSuggestions ? .moveSuggestion(-1) : .moveList(-1)
         }
-        if Keymap.matches(press, .suggestionDown) || Keymap.matches(press, .suggestionNext) {
+        if Keymap.matches(press, .suggestionNext) {
             return showsSuggestions ? .moveSuggestion(1) : .moveList(1)
         }
         if Keymap.matches(press, .tab) {
@@ -51,5 +60,9 @@ public enum FilterFieldKey {
             return showsSuggestions ? .hideSuggestions : .leave
         }
         return nil
+    }
+
+    private static func arrowListMove(_ delta: Int, arrowsMoveList: Bool) -> FilterFieldCommand? {
+        arrowsMoveList ? .moveList(delta) : nil
     }
 }

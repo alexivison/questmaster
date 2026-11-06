@@ -1,6 +1,4 @@
-/// Where the selected-session tag sits over the class avatar in the tracker column. The tag's bottom edge sits a gap above the top
-/// of the attached class's idle figure, so it follows that figure's own height and never a pose, a breath or a fidget. The list
-/// stops where the tallest figure puts it, so a shorter figure lets the tag drop, and the room goes between the list and the tag.
+/// Geometry shared by the avatar slot and the standalone selected-session-tag preview.
 public enum TrackerTagLayout {
     /// The idle figure's height in sprite pixels above its sole, from the foot row (the row of its lowest boot pixel) to its top
     /// opaque row. Row `r` spans `[foot - r, foot - r + 1)` pixels above the sole, so its top edge is `footRow - topRow + 1` up.

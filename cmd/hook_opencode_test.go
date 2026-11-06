@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -775,7 +776,7 @@ func TestHookOpenCodeErrorPartEndsCallWithoutLearningDuration(t *testing.T) {
 	const sessionID = "qm-opencode-error-call"
 	const ocSession = "ses_error"
 	var durations []toolDurationCall
-	r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+	r.RecordToolDuration = func(_ context.Context, agent, tool, command string, duration time.Duration) error {
 		durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
 		return nil
 	}
@@ -1055,4 +1056,78 @@ func uniqueOpenCodeRuntimeID(t *testing.T, prefix string) string {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Base(dir)
+}
+
+// A session that records its runtime directory gets OpenCode's resume ID file
+// there, owner-only, and nothing at /tmp/<id>.
+func TestHookOpenCodeResumeIDGoesToTheRecordedRuntimeDir(t *testing.T) {
+	sessionID := state.NewSessionID(time.Now().UnixNano())
+	dir := state.NewRuntimeDir(t.TempDir(), sessionID)
+	if err := state.EnsureRuntimeDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := newTestRunner(t)
+	store := newManifestStoreStub(sessionID, nil)
+	store.manifest.RuntimeDir = dir
+	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", Window: 1}}
+	r.Store = store
+	r.TmuxClient = &tmuxEnvStub{}
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": "ses_recorded"})
+
+	path := filepath.Join(dir, "opencode-session-id")
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "ses_recorded\n" {
+		t.Fatalf("resume id file = %q, %v", data, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("resume id file mode = %v, %v; want 0600", info.Mode().Perm(), err)
+	}
+	if _, err := os.Lstat(filepath.Join("/tmp", sessionID)); !os.IsNotExist(err) {
+		t.Fatalf("/tmp/%s exists: %v", sessionID, err)
+	}
+}
+
+// The hook writes only into a runtime directory that is already there: it
+// never creates one (least of all /tmp/<id>) and never follows a symlink.
+func TestHookOpenCodeResumeIDNeverCreatesOrFollows(t *testing.T) {
+	missing := state.NewSessionID(time.Now().UnixNano())
+	linked := missing + "-1"
+	target := t.TempDir()
+	linkedDir := state.NewRuntimeDir(t.TempDir(), linked)
+	if err := os.Mkdir(filepath.Dir(linkedDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, linkedDir); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		id, runtimeDir string
+	}{
+		{id: missing},                         // legacy, /tmp/<id> absent
+		{id: linked, runtimeDir: linkedDir},   // recorded, but a symlink
+		{id: missing + "-2", runtimeDir: "/"}, // not a runtime dir at all
+	} {
+		r, _ := newTestRunner(t)
+		store := newManifestStoreStub(tt.id, nil)
+		store.manifest.RuntimeDir = tt.runtimeDir
+		store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", Window: 1}}
+		r.Store = store
+		r.TmuxClient = &tmuxEnvStub{}
+
+		runHookWithStdin(r, "opencode", "event", tt.id, openCodeHookPayload{
+			Version: "phase2-v1",
+			Event:   openCodeEvent{ID: "evt_created", Type: "session.created", Properties: map[string]interface{}{"sessionID": "ses_x"}},
+		})
+		if store.manifest.ExtraString("opencode_session_id") != "ses_x" {
+			t.Fatalf("%s: manifest resume id not captured", tt.id)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join("/tmp", missing)); !os.IsNotExist(err) {
+		t.Fatalf("hook created /tmp/%s: %v", missing, err)
+	}
+	if entries, err := os.ReadDir(target); err != nil || len(entries) != 0 {
+		t.Fatalf("hook wrote through a symlinked runtime dir: %v, %v", entries, err)
+	}
 }

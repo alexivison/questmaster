@@ -12,27 +12,32 @@ import (
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
-// displayRunner returns a mock that reports a session name for display-message
-// and responds to has-session/list-sessions.
-func displayRunner(sessionName string, live ...string) *mockRunner {
+const (
+	testCallerSocket = "/tmp/qm-cmd-test/tmux.sock"
+	testCallerPane   = "%1"
+)
+
+// displayRunner puts the test process in pane testCallerPane of the mock's
+// server, reports sessionName as that pane's session and responds to
+// has-session/list-sessions.
+func displayRunner(t *testing.T, sessionName string, live ...string) *mockRunner {
+	t.Helper()
+	t.Setenv("TMUX", testCallerSocket+",1,0")
+	t.Setenv("TMUX_PANE", testCallerPane)
 	liveSet := make(map[string]bool)
 	for _, s := range live {
 		liveSet[s] = true
 	}
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "display-message" {
-			// Distinguish session-name query from pane idle check.
-			// Idle check uses -t <target> -p #{pane_in_mode}.
-			for _, a := range args {
-				if a == "#{pane_in_mode}" {
-					return "0", nil // pane idle
-				}
+			if args[2] == testCallerPane && args[len(args)-1] == "#{socket_path}\t#{pane_id}\t#{session_name}" {
+				return testCallerSocket + "\t" + testCallerPane + "\t" + sessionName, nil
 			}
-			return sessionName, nil
+			return livePaneDisplay(args), nil
 		}
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
-			if liveSet[target] {
+			if liveSet[exactSession(target)] {
 				return "", nil
 			}
 			return "", &tmux.ExitError{Code: 1}
@@ -59,7 +64,7 @@ func displayRunner(sessionName string, live ...string) *mockRunner {
 func TestDiscoverSessionPrefersQuestmasterSessionEnv(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "qm-current")
 
-	client := tmux.NewClient(displayRunner("qm-other"))
+	client := tmux.NewClient(displayRunner(t, "qm-other"))
 	got, err := discoverSession(t.Context(), client)
 	if err != nil {
 		t.Fatalf("discoverSession: %v", err)
@@ -79,7 +84,7 @@ func TestWorkersCmd_AutoDiscover_Success(t *testing.T) {
 	createManifest(t, store, "qm-master", "master", "/tmp", "")
 	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
-	out := runCmd(t, store, displayRunner("qm-master", "qm-w1"), "workers")
+	out := runCmd(t, store, displayRunner(t, "qm-master", "qm-w1"), "workers")
 	var got workersJSONOutput
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("workers output is not JSON: %v\n%s", err, out)
@@ -97,7 +102,7 @@ func TestWorkersCmd_AutoDiscover_NotMaster(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := runCmdErr(t, store, displayRunner("qm-regular"), "workers")
+	_, err := runCmdErr(t, store, displayRunner(t, "qm-regular"), "workers")
 	if err == nil {
 		t.Fatal("expected error for non-master session")
 	}
@@ -115,6 +120,9 @@ func TestStartCmd_AttachFlag_Accepted(t *testing.T) {
 
 	// Verify --attach is accepted by cobra. The actual attach needs a live tmux
 	// server, so we tolerate runtime errors — only flag-parsing failures are bugs.
+	// With TMUX unset, attachSession runs the real `tmux attach-session` against
+	// the default server. Setting TMUX routes the attach through the injected client.
+	t.Setenv("TMUX", "test-tmux,0,0")
 	_, err := runCmdErr(t, store, allPassRunner(), "start", "--cwd", cwd, "--attach", "test-title")
 	if err != nil && strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("--attach flag not recognized by cobra: %v", err)

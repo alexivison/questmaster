@@ -6,6 +6,8 @@ struct FilterFieldKeyTests {
     static func run() {
         suggestionKeysMoveTheHighlightWhileSuggestionsShow()
         listKeysMoveTheListWhenNoSuggestionShows()
+        arrowsAreTheCaretsWhenArrowsDoNotMoveTheList()
+        controlPAndControlNMoveTheListWhenArrowsDoNot()
         lettersTypeAndNeverMoveTheList()
         tabTakesOnlyAShownSuggestion()
         returnTakesASuggestionOrReturnsToTheList()
@@ -27,6 +29,20 @@ struct FilterFieldKeyTests {
         expect(key("", 125, showsSuggestions: false) == .moveList(1), "↓ with no suggestion should move the list down")
         expect(key("p", 35, modifiers: [.control], showsSuggestions: false) == .moveList(-1), "⌃p with no suggestion should move the list up")
         expect(key("n", 45, modifiers: [.control], showsSuggestions: false) == .moveList(1), "⌃n with no suggestion should move the list down")
+    }
+
+    /// The Quest Log's rows move with j and k, so its ↑/↓ with no suggestion stay the caret's. A shown suggestion still takes them.
+    private static func arrowsAreTheCaretsWhenArrowsDoNotMoveTheList() {
+        expect(key("", 126, showsSuggestions: false, arrowsMoveList: false) == nil, "↑ with no suggestion should be the caret's when arrows do not move the list")
+        expect(key("", 125, showsSuggestions: false, arrowsMoveList: false) == nil, "↓ with no suggestion should be the caret's when arrows do not move the list")
+        expect(key("", 126, showsSuggestions: true, arrowsMoveList: false) == .moveSuggestion(-1), "↑ should still move a shown suggestion")
+    }
+
+    /// ⌃p and ⌃n are vim's previous and next: they move the list with no suggestion showing, arrows or not.
+    private static func controlPAndControlNMoveTheListWhenArrowsDoNot() {
+        expect(key("p", 35, modifiers: [.control], showsSuggestions: false, arrowsMoveList: false) == .moveList(-1), "⌃p with no suggestion should move the list up even when arrows do not")
+        expect(key("n", 45, modifiers: [.control], showsSuggestions: false, arrowsMoveList: false) == .moveList(1), "⌃n with no suggestion should move the list down even when arrows do not")
+        expect(key("p", 35, modifiers: [.control], showsSuggestions: true, arrowsMoveList: false) == .moveSuggestion(-1), "⌃p should move a shown suggestion")
     }
 
     /// `j`, `k` and `l` are the list's keys elsewhere; the filter types them.
@@ -77,12 +93,14 @@ struct FilterFieldKeyTests {
         _ keyCode: UInt16,
         modifiers: Set<Keymap.Modifier> = [],
         showsSuggestions: Bool = false,
+        arrowsMoveList: Bool = true,
         queryIsEmpty: Bool = false,
         hasChips: Bool = true
     ) -> FilterFieldCommand? {
         FilterFieldKey.command(
             Keymap.KeyPress(keyCode: keyCode, character: characters, modifiers: modifiers),
             showsSuggestions: showsSuggestions,
+            arrowsMoveList: arrowsMoveList,
             queryIsEmpty: queryIsEmpty,
             hasChips: hasChips
         )

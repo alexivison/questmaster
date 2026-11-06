@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { lstat, mkdir, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { connect } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -10,8 +11,12 @@ const { default: extension } = await import(pathToFileURL(process.argv[2]));
 assert.ok(process.env.QUESTMASTER_STATE_ROOT, "test must isolate spawned hook state");
 assert.notEqual(process.env.QUESTMASTER_STATE_ROOT, join(process.env.HOME, ".questmaster-state"));
 const sessionID = `qm-pi-ownership-${process.pid}`;
-const runtimeDir = join("/tmp", sessionID);
+// The session's runtime directory comes from $QUESTMASTER_RUNTIME_DIR, never
+// from /tmp/<id>. The parent is short so the socket path stays under 104 bytes.
+const runtimeRoot = await mkdtemp(join(tmpdir(), "qmp"));
+const runtimeDir = join(runtimeRoot, sessionID);
 const socketPath = join(runtimeDir, "pi.sock");
+const legacyDir = join("/tmp", sessionID);
 process.env.QUESTMASTER_SESSION = sessionID;
 await mkdir(runtimeDir, { mode: 0o700 });
 
@@ -35,6 +40,23 @@ async function send(message) {
 		socket.on("connect", () => socket.write(JSON.stringify({ id: "check", message }) + "\n"));
 	});
 }
+
+// Without the variable, or with a directory named for another session, the
+// extension listens nowhere and creates nothing.
+for (const dir of [undefined, join(runtimeRoot, "qm-other")]) {
+	if (dir === undefined) delete process.env.QUESTMASTER_RUNTIME_DIR;
+	else {
+		process.env.QUESTMASTER_RUNTIME_DIR = dir;
+		await mkdir(dir, { mode: 0o700 });
+	}
+	const stray = instance();
+	await stray.handlers.get("session_start")();
+	await assert.rejects(lstat(socketPath), { code: "ENOENT" });
+	await assert.rejects(lstat(join(legacyDir, "pi.sock")), { code: "ENOENT" });
+	if (dir !== undefined) await assert.rejects(lstat(join(dir, "pi.sock")), { code: "ENOENT" });
+	await stray.handlers.get("session_shutdown")();
+}
+process.env.QUESTMASTER_RUNTIME_DIR = runtimeDir;
 
 const primary = instance();
 const inherited = instance();
@@ -70,5 +92,5 @@ try {
 	await recovered?.handlers.get("session_shutdown")();
 	await inherited.handlers.get("session_shutdown")();
 	await primary.handlers.get("session_shutdown")();
-	await rm(runtimeDir, { recursive: true, force: true });
+	await rm(runtimeRoot, { recursive: true, force: true });
 }

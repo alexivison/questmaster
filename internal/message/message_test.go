@@ -242,12 +242,21 @@ func relayFilePathFromPointer(t *testing.T, pointer string) string {
 	return tail[:end+3]
 }
 
+// livePaneDisplay answers display-message like tmux for one live pane that is
+// not in copy mode.
+func livePaneDisplay(args []string) string {
+	if args[len(args)-1] == "#{pane_id}\t#{pane_dead}" {
+		return "%1\t0"
+	}
+	return "0"
+}
+
 // idleAndSendRunner returns a runner that reports panes as idle
 // and records send-keys calls.
 func idleAndSendRunner(sent *[]string) *mockRunner {
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "display-message" {
-			return "0", nil // pane idle
+			return livePaneDisplay(args), nil
 		}
 		if len(args) >= 1 && args[0] == "send-keys" {
 			// Record literal text sends (not Enter)
@@ -369,9 +378,12 @@ func TestRelay_Success(t *testing.T) {
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	err := svc.Relay(t.Context(), "qm-w1", "hello worker")
+	delivery, err := svc.Relay(t.Context(), "qm-w1", "hello worker")
 	if err != nil {
 		t.Fatalf("relay: %v", err)
+	}
+	if delivery != DeliverySubmitted {
+		t.Fatalf("relay delivery = %q, want %q", delivery, DeliverySubmitted)
 	}
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
@@ -388,7 +400,7 @@ func TestRelayFrom_PrefixesInlineMessage(t *testing.T) {
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	err := svc.RelayFrom(t.Context(), "qm-master", "qm-w1", "hello worker")
+	_, err := svc.RelayFrom(t.Context(), "qm-master", "qm-w1", "hello worker")
 	if err != nil {
 		t.Fatalf("relay from: %v", err)
 	}
@@ -418,14 +430,14 @@ func TestRelayFrom_OnlyParentGetsMasterPrefix(t *testing.T) {
 		{"qm-other-master", "[FROM:qm-other-master] hello"},
 		{"qm-root", "[FROM:qm-root] hello"},
 	} {
-		if err := svc.RelayFrom(t.Context(), tc.sender, "qm-worker", "hello"); err != nil {
+		if _, err := svc.RelayFrom(t.Context(), tc.sender, "qm-worker", "hello"); err != nil {
 			t.Fatal(err)
 		}
 		if got := sent[len(sent)-1]; got != tc.want {
 			t.Fatalf("sender %s: got %q, want %q", tc.sender, got, tc.want)
 		}
 	}
-	if err := svc.RelayFrom(t.Context(), "qm-child-parent", "qm-nested", "hello"); err != nil {
+	if _, err := svc.RelayFrom(t.Context(), "qm-child-parent", "qm-nested", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if got := sent[len(sent)-1]; got != "[FROM:qm-child-parent] hello" {
@@ -434,7 +446,7 @@ func TestRelayFrom_OnlyParentGetsMasterPrefix(t *testing.T) {
 	if err := store.Update("qm-worker", func(m *state.Manifest) { m.SessionType = "master" }); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.RelayFrom(t.Context(), "qm-parent", "qm-worker", "hello"); err != nil {
+	if _, err := svc.RelayFrom(t.Context(), "qm-parent", "qm-worker", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if got := sent[len(sent)-1]; got != "[MASTER:qm-parent] hello" {
@@ -459,7 +471,7 @@ func TestRelayFrom_LogsInstructionsFromParentMaster(t *testing.T) {
 			createWorkerManifest(t, store, "qm-worker", "qm-master")
 
 			svc := newService(store, idleAndSendRunner(new([]string)))
-			if err := svc.RelayFrom(t.Context(), "qm-master", "qm-worker", tc.text); err != nil {
+			if _, err := svc.RelayFrom(t.Context(), "qm-master", "qm-worker", tc.text); err != nil {
 				t.Fatalf("relay from: %v", err)
 			}
 			page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)
@@ -505,7 +517,7 @@ func TestRelayFrom_DoesNotLogInstructionsFromOtherSenders(t *testing.T) {
 			}
 
 			svc := newService(store, idleAndSendRunner(new([]string)))
-			if err := svc.RelayFrom(t.Context(), senderID, "qm-worker", "hello"); err != nil {
+			if _, err := svc.RelayFrom(t.Context(), senderID, "qm-worker", "hello"); err != nil {
 				t.Fatalf("relay from %s: %v", senderID, err)
 			}
 			page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)
@@ -529,7 +541,7 @@ func TestRelay_OpenCodeRequiresIdleHookState(t *testing.T) {
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	err := svc.Relay(t.Context(), sessionID, "hello worker")
+	_, err := svc.Relay(t.Context(), sessionID, "hello worker")
 	if err == nil || !strings.Contains(err.Error(), "requires idle or done") {
 		t.Fatalf("relay error = %v, want requires idle or done", err)
 	}
@@ -548,7 +560,7 @@ func TestRelay_OpenCodeAllowsIdleHookState(t *testing.T) {
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	if err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
+	if _, err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
 		t.Fatalf("relay: %v", err)
 	}
 	if len(sent) == 0 || sent[0] != "[FROM:external] hello worker" {
@@ -566,7 +578,7 @@ func TestRelay_OpenCodeAllowsFreshDoneHookState(t *testing.T) {
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	if err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
+	if _, err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
 		t.Fatalf("relay: %v", err)
 	}
 	if len(sent) == 0 || sent[0] != "[FROM:external] hello worker" {
@@ -582,7 +594,7 @@ func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	err := svc.Relay(t.Context(), "qm-w1", long)
+	_, err := svc.Relay(t.Context(), "qm-w1", long)
 	if err != nil {
 		t.Fatalf("relay: %v", err)
 	}
@@ -609,7 +621,7 @@ func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	err := svc.RelayFrom(t.Context(), "qm-master", "qm-w1", long)
+	_, err := svc.RelayFrom(t.Context(), "qm-master", "qm-w1", long)
 	if err != nil {
 		t.Fatalf("relay from: %v", err)
 	}
@@ -640,7 +652,7 @@ func TestRelayFrom_PeerFilePointerIsNeutral(t *testing.T) {
 	createWorkerManifest(t, store, "qm-worker", "qm-master")
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	if err := svc.RelayFrom(t.Context(), "qm-peer", "qm-worker", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+	if _, err := svc.RelayFrom(t.Context(), "qm-peer", "qm-worker", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
 		t.Fatal(err)
 	}
 	if len(sent) != 1 || !strings.HasPrefix(sent[0], "[FROM:qm-peer] Message available at ") || strings.Contains(sent[0], "Act on them") {
@@ -666,7 +678,7 @@ func TestRelay_SessionNotRunning(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	err := svc.Relay(t.Context(), "qm-w1", "hello")
+	_, err := svc.Relay(t.Context(), "qm-w1", "hello")
 	if err == nil {
 		t.Fatal("expected error for non-running session")
 	}
@@ -690,7 +702,7 @@ func TestRelay_NoPaneFound(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	err := svc.Relay(t.Context(), "qm-w1", "hello")
+	_, err := svc.Relay(t.Context(), "qm-w1", "hello")
 	if err == nil {
 		t.Fatal("expected error when no agent pane found")
 	}
@@ -705,7 +717,7 @@ func TestRelay_RejectsInvalidWorkerID(t *testing.T) {
 	}}
 	svc := newService(store, runner)
 
-	err := svc.Relay(t.Context(), "../qm-w1", "hello")
+	_, err := svc.Relay(t.Context(), "../qm-w1", "hello")
 	if err == nil || !strings.Contains(err.Error(), "invalid worker id") {
 		t.Fatalf("relay error = %v, want invalid worker id", err)
 	}
@@ -720,7 +732,7 @@ func TestRelay_RejectsMissingManifest(t *testing.T) {
 	}}
 	svc := newService(store, runner)
 
-	err := svc.Relay(t.Context(), "qm-missing", "hello")
+	_, err := svc.Relay(t.Context(), "qm-missing", "hello")
 	if err == nil || !strings.Contains(err.Error(), "read worker manifest") {
 		t.Fatalf("relay error = %v, want missing manifest", err)
 	}
@@ -733,7 +745,8 @@ func TestAgentOnlyCommandsRejectPlainTerminalSessions(t *testing.T) {
 		"relay": func(t *testing.T, store *state.Store, svc *Service) error {
 			t.Helper()
 			createPlainManifest(t, store, "qm-plain", "plain")
-			return svc.Relay(t.Context(), "qm-plain", "hello")
+			_, err := svc.Relay(t.Context(), "qm-plain", "hello")
+			return err
 		},
 		"broadcast": func(t *testing.T, store *state.Store, svc *Service) error {
 			t.Helper()
@@ -745,7 +758,8 @@ func TestAgentOnlyCommandsRejectPlainTerminalSessions(t *testing.T) {
 			t.Helper()
 			createPlainManifest(t, store, "qm-plain-master", "plain master")
 			createWorkerManifest(t, store, "qm-worker", "qm-plain-master")
-			return svc.Report(t.Context(), "qm-worker", "done")
+			_, err := svc.Report(t.Context(), "qm-worker", "done")
+			return err
 		},
 	}
 
@@ -780,8 +794,8 @@ func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("broadcast from: %v", err)
 	}
-	if result.Delivered != 2 {
-		t.Fatalf("expected 2 sends, got %d", result.Delivered)
+	if result.Submitted != 2 {
+		t.Fatalf("expected 2 sends, got %d", result.Submitted)
 	}
 	for _, msg := range sent {
 		if msg != "[FROM:questmaster] hello all" {
@@ -807,7 +821,7 @@ func TestBroadcastFrom_OnlyActualChildrenGetMasterPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Delivered != 2 || len(sent) != 2 || sent[0] != "[MASTER:qm-master] hello" || sent[1] != "[FROM:qm-master] hello" {
+	if result.Submitted != 2 || len(sent) != 2 || sent[0] != "[MASTER:qm-master] hello" || sent[1] != "[FROM:qm-master] hello" {
 		t.Fatalf("result = %+v, sent = %v", result, sent)
 	}
 	page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)
@@ -866,13 +880,13 @@ func TestBroadcastFrom_SkipsDeadWorkers(t *testing.T) {
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
-			if target == "qm-w2" {
+			if target == tmux.SessionTarget("qm-w2") {
 				return "", &tmux.ExitError{Code: 1}
 			}
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "display-message" {
-			return "0", nil
+			return livePaneDisplay(args), nil
 		}
 		if len(args) >= 1 && args[0] == "send-keys" {
 			return "", nil
@@ -887,8 +901,8 @@ func TestBroadcastFrom_SkipsDeadWorkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
-	if result.Delivered != 1 {
-		t.Fatalf("expected 1 send (skipping dead worker), got %d", result.Delivered)
+	if result.Submitted != 1 {
+		t.Fatalf("expected 1 send (skipping dead worker), got %d", result.Submitted)
 	}
 	if result.Registered != 2 {
 		t.Fatalf("expected 2 registered, got %d", result.Registered)
@@ -908,8 +922,8 @@ func TestBroadcastFrom_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
-	if result.Delivered != 1 {
-		t.Fatalf("expected 1 send, got %d", result.Delivered)
+	if result.Submitted != 1 {
+		t.Fatalf("expected 1 send, got %d", result.Submitted)
 	}
 	if len(sent) == 0 || !strings.HasPrefix(sent[0], "[MASTER:qm-master] Read and follow the instructions in ") {
 		t.Fatalf("expected file pointer for large message, got %v", sent)
@@ -934,7 +948,7 @@ func TestBroadcastFrom_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 		case len(args) >= 1 && args[0] == "list-panes":
 			return "1 0 agent", nil // agent pane resolves
 		case len(args) >= 1 && args[0] == "display-message":
-			return "0", nil // pane idle
+			return livePaneDisplay(args), nil
 		case len(args) >= 1 && args[0] == "send-keys":
 			return "", &tmux.ExitError{Code: 1} // delivery fails
 		}
@@ -943,8 +957,8 @@ func TestBroadcastFrom_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 	svc := newService(store, runner)
 
 	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
-	if result.Delivered != 0 {
-		t.Fatalf("expected 0 delivered when send fails, got %d", result.Delivered)
+	if result.Submitted != 0 {
+		t.Fatalf("expected 0 delivered when send fails, got %d", result.Submitted)
 	}
 	if err == nil {
 		t.Fatal("broadcast to a live worker whose send failed must surface an error, not silently report zero delivery")
@@ -975,8 +989,8 @@ func TestBroadcastFrom_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
 	svc := newService(store, runner)
 
 	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
-	if result.Delivered != 0 {
-		t.Fatalf("expected 0 delivered when pane resolution fails, got %d", result.Delivered)
+	if result.Submitted != 0 {
+		t.Fatalf("expected 0 delivered when pane resolution fails, got %d", result.Submitted)
 	}
 	if err == nil {
 		t.Fatal("broadcast to a live worker whose agent pane cannot be resolved must surface an error")
@@ -1056,7 +1070,7 @@ func TestReadPlainTerminalCapturesWorkspacePaneRaw(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			t.Fatalf("plain read should capture pane 0 directly, not resolve roles")
+			t.Fatalf("plain read should capture the session's pane directly, not resolve roles")
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
 			captureTarget = flagValue(args, "-t")
@@ -1070,8 +1084,9 @@ func TestReadPlainTerminalCapturesWorkspacePaneRaw(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if captureTarget != sessionID+":0.0" {
-		t.Fatalf("capture target = %q, want workspace pane 0", captureTarget)
+	// The session's own pane, whatever the server's base indexes make it.
+	if captureTarget != tmux.SessionTarget(sessionID) {
+		t.Fatalf("capture target = %q, want the session's pane %q", captureTarget, tmux.SessionTarget(sessionID))
 	}
 	if output != "second\nthird" {
 		t.Fatalf("plain read output = %q, want trimmed tail", output)
@@ -1298,7 +1313,7 @@ func TestReport_Success(t *testing.T) {
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	err := svc.Report(t.Context(), "qm-w1", "done: fixed the bug")
+	_, err := svc.Report(t.Context(), "qm-w1", "done: fixed the bug")
 	if err != nil {
 		t.Fatalf("report: %v", err)
 	}
@@ -1327,7 +1342,7 @@ func TestReport_LogsCappedFeedEntry(t *testing.T) {
 			createManifest(t, store, "qm-master", "master", "master")
 			createWorkerManifest(t, store, "qm-w1", "qm-master")
 			svc := newService(store, idleAndSendRunner(new([]string)))
-			if err := svc.Report(t.Context(), "qm-w1", tc.text); err != nil {
+			if _, err := svc.Report(t.Context(), "qm-w1", tc.text); err != nil {
 				t.Fatalf("report: %v", err)
 			}
 			log, err := os.ReadFile(state.SessionStateLogPath(store.Root(), "qm-w1"))
@@ -1364,13 +1379,13 @@ func TestReport_ParentLinkedSessionUsesWorkerPrefix(t *testing.T) {
 	createWorkerManifest(t, store, "qm-child", "qm-master")
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	if err := svc.Report(t.Context(), "qm-child", "hello"); err != nil {
+	if _, err := svc.Report(t.Context(), "qm-child", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if len(sent) != 1 || sent[0] != "[WORKER:qm-child] hello" {
 		t.Fatalf("worker report payloads = %v", sent)
 	}
-	if err := svc.Report(t.Context(), "qm-child", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+	if _, err := svc.Report(t.Context(), "qm-child", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
 		t.Fatal(err)
 	}
 	if len(sent) != 2 || !strings.HasPrefix(sent[1], "[WORKER:qm-child] Worker report available at ") {
@@ -1390,7 +1405,7 @@ func TestReport_NoParentSession(t *testing.T) {
 	createManifest(t, store, "qm-solo", "solo", "")
 
 	svc := newService(store, idleAndSendRunner(new([]string)))
-	err := svc.Report(t.Context(), "qm-solo", "done")
+	_, err := svc.Report(t.Context(), "qm-solo", "done")
 	if err == nil {
 		t.Fatal("expected error for session without parent")
 	}
@@ -1412,7 +1427,7 @@ func TestReport_MasterNotRunning(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	err := svc.Report(t.Context(), "qm-w1", "done")
+	_, err := svc.Report(t.Context(), "qm-w1", "done")
 	if err == nil {
 		t.Fatal("expected error when master is not running")
 	}
@@ -1430,7 +1445,7 @@ func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	err := svc.Report(t.Context(), "qm-w1", long)
+	_, err := svc.Report(t.Context(), "qm-w1", long)
 	if err != nil {
 		t.Fatalf("report: %v", err)
 	}
@@ -1461,7 +1476,7 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	err := svc.Report(t.Context(), "qm-w1", long)
+	_, err := svc.Report(t.Context(), "qm-w1", long)
 	if err != nil {
 		t.Fatalf("report: %v", err)
 	}
@@ -1572,7 +1587,7 @@ func TestWorkers_ReturnsAllWithStatus(t *testing.T) {
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
-			if target == "qm-w2" {
+			if target == tmux.SessionTarget("qm-w2") {
 				return "", &tmux.ExitError{Code: 1}
 			}
 			return "", nil
@@ -1615,9 +1630,9 @@ func TestWorkers_UsesHookDerivedPaneState(t *testing.T) {
 	writeAgentPaneState(t, "qm-status-dead", "working")
 
 	live := map[string]bool{
-		"qm-status-working":  true,
-		"qm-status-idle":     true,
-		"qm-status-hookless": true,
+		tmux.SessionTarget("qm-status-working"):  true,
+		tmux.SessionTarget("qm-status-idle"):     true,
+		tmux.SessionTarget("qm-status-hookless"): true,
 	}
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {

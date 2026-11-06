@@ -19,3 +19,10 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 )
+
+retract (
+	// Republished after history cleanup; cached copies contain removed content.
+	[v0.3.44, v0.3.52]
+	// Republished after history cleanup; cached copies contain removed content.
+	v0.3.11
+)

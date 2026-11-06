@@ -1,14 +1,14 @@
 import Foundation
 
 public enum ServeContract {
-    public static let protocolVersion = 2
+    public static let protocolVersion = 3
 
     public static func requireProtocolVersion(_ version: Int?) throws {
         guard let version else {
-            throw ServeClientError.protocolError("serve protocol incompatible: missing protocol_version")
+            throw ServeClientError.protocolMismatch("serve protocol incompatible: missing protocol_version")
         }
         guard version == protocolVersion else {
-            throw ServeClientError.protocolError("serve protocol incompatible: expected protocol_version \(protocolVersion), got \(version)")
+            throw ServeClientError.protocolMismatch("serve protocol incompatible: expected protocol_version \(protocolVersion), got \(version)")
         }
     }
 
@@ -143,19 +143,14 @@ private struct ObservedPayload: Decodable {
 public enum ServeClientError: LocalizedError {
     case connect(String)
     case protocolError(String)
+    /// The backend speaks another protocol version.
+    case protocolMismatch(String)
     case write(String)
 
     public var errorDescription: String? {
         switch self {
-        case .connect(let message), .protocolError(let message), .write(let message):
+        case .connect(let message), .protocolError(let message), .protocolMismatch(let message), .write(let message):
             return message
         }
-    }
-
-    public var isProtocolVersionMismatch: Bool {
-        guard case .protocolError(let message) = self else {
-            return false
-        }
-        return message.contains("protocol_version")
     }
 }

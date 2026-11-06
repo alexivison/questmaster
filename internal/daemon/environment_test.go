@@ -5,7 +5,6 @@ package daemon
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,6 +53,23 @@ func TestDaemonEnvironmentUsesAllowlistedBaseAndCapturedLogin(t *testing.T) {
 	}
 }
 
+func TestOnlyInstalledIdentitiesGetTheStableExecutableInTheEnvironment(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for id, want := range map[string]string{
+		"canonical":          filepath.Join(root, "bin", "current", "qm"),
+		"bin-0123456789abcd": filepath.Join(root, "bin", "current", "qm"),
+		"dev-0123456789abcd": filepath.Join(root, "daemon", "bin", "dev-0123456789abcd", "qm"),
+	} {
+		c := Config{Root: root, Home: t.TempDir(), LoginEnvironmentRunner: func(context.Context, string, []string) ([]byte, error) {
+			return nil, context.Canceled
+		}}
+		if got := c.daemonEnvironment(id)["QUESTMASTER_BIN"]; got != want {
+			t.Fatalf("%s QUESTMASTER_BIN = %q, want %q", id, got, want)
+		}
+	}
+}
+
 func TestDaemonEnvironmentFallsBackAfterCaptureTimeout(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -65,34 +81,6 @@ func TestDaemonEnvironmentFallsBackAfterCaptureTimeout(t *testing.T) {
 	env := c.daemonEnvironment("canonical")
 	if env["HOME"] != home || env["SHELL"] != "/bin/sh" || env["LANG"] == "" || !strings.Contains(env["PATH"], "/usr/bin") {
 		t.Fatalf("fallback environment=%+v", env)
-	}
-}
-
-func TestDaemonShimsTargetIdentityBinaryAndRewrite(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	for _, id := range []string{"canonical", "dev-abc"} {
-		t.Run(id, func(t *testing.T) {
-			first := filepath.Join(root, "binary ' one")
-			second := filepath.Join(root, "binary two")
-			for path, label := range map[string]string{first: "first", second: "second"} {
-				if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '"+label+":%s' \"$1\"\n"), 0o700); err != nil {
-					t.Fatal(err)
-				}
-			}
-			for _, tc := range []struct{ target, want string }{{first, "first:hello"}, {second, "second:hello"}} {
-				if err := writeShims(root, id, tc.target); err != nil {
-					t.Fatal(err)
-				}
-				for _, name := range []string{"qm", "questmaster"} {
-					shim := filepath.Join(root, "daemon", "bin", id, name)
-					output, err := exec.Command(shim, "hello").Output()
-					if err != nil || string(output) != tc.want {
-						t.Fatalf("%s output=%q err=%v, want %q", shim, output, err, tc.want)
-					}
-				}
-			}
-		})
 	}
 }
 

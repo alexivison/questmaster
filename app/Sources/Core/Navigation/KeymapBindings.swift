@@ -15,6 +15,7 @@ extension Keymap {
         case jumpToTop
         case jumpToBottom
         case open
+        case openExternal
         case back
         case toggleMark
         case focusFilter
@@ -27,6 +28,15 @@ extension Keymap {
 
         // Screen-specific: no meaning shared with another screen
         case editRepo
+        // Settings: H and L step through the sidebar's sections (vim-style, as LazyVim steps buffers)
+        case previousSection
+        case nextSection
+        // Settings' Projects list: R arranges, n adds, e (the shared edit) edits, and K/J move the highlighted row while arranging
+        // (not ⌥k/⌥j: window managers such as AeroSpace take those system-wide)
+        case arrangeProjects
+        case addProject
+        case moveRowUp
+        case moveRowDown
         case startQuest
         case toggleWorkersCollapsed
         case toggleAllWorkersCollapsed
@@ -50,6 +60,10 @@ extension Keymap {
         case backTab
         case nextField
         case previousField
+        /// Plain j and k in a modal (`ModalKeys`): they move a modal's rows or select fields, and type in a form with
+        /// text fields. The lists' own `moveUp` and `moveDown` keep the arrows.
+        case modalMoveUp
+        case modalMoveDown
         case cycleLeft
         case cycleRight
         case optionCycleLeft
@@ -77,6 +91,7 @@ extension Keymap {
         case .jumpToTop: return [.character("g")]
         case .jumpToBottom: return [.character("G")]
         case .open: return [.code(36), .code(76)]
+        case .openExternal: return [.character("o")]
         case .back: return [.character("h"), .code(53), .code(123), .character("[", [.control])]
         case .toggleMark: return [.character(" ")]
         case .focusFilter: return [.character("/")]
@@ -88,6 +103,12 @@ extension Keymap {
         case .edit: return [.character("e")]
 
         case .editRepo: return [.character("E")]
+        case .previousSection: return [.character("H")]
+        case .nextSection: return [.character("L")]
+        case .arrangeProjects: return [.character("r")]
+        case .addProject: return [.character("n")]
+        case .moveRowUp: return [.character("K")]
+        case .moveRowDown: return [.character("J")]
         case .startQuest: return [.character("s")]
         case .toggleWorkersCollapsed: return [.character("c")]
         case .toggleAllWorkersCollapsed: return [.character("C")]
@@ -107,8 +128,10 @@ extension Keymap {
         case .cancel: return [.code(53), .character("[", [.control])]
         case .tab: return [.code(48)]
         case .backTab: return [.code(48, [.shift])]
-        case .nextField: return [.character("j", [.control]), .code(40, [.option])]
+        case .nextField: return [.character("j", [.control])]
         case .previousField: return [.character("k", [.control])]
+        case .modalMoveUp: return [.character("k")]
+        case .modalMoveDown: return [.character("j")]
         case .cycleLeft: return [.code(123), .character("h")]
         case .cycleRight: return [.code(124), .character("l")]
         case .optionCycleLeft: return [.code(123, [.option])]

@@ -68,13 +68,14 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 	return cmd
 }
 
-// PreLaunchSetup clears CLAUDECODE so a nested Claude launch starts clean. It
-// overrides the no-op base behaviour.
+// PreLaunchSetup clears CLAUDECODE from the session so a nested Claude launch
+// starts clean. The launch command unsets it too; the server's global
+// environment is left alone because every session shares it. It overrides the
+// no-op base behaviour.
 func (c *Claude) PreLaunchSetup(ctx context.Context, client TmuxClient, session string) error {
 	if client == nil {
 		return nil
 	}
-	_ = client.UnsetEnvironment(ctx, "", "CLAUDECODE")
 	_ = client.UnsetEnvironment(ctx, session, "CLAUDECODE")
 	return nil
 }

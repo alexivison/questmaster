@@ -117,6 +117,15 @@ var mutationRegistry = map[string]mutationHandler{
 	"role_default.set": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRoleDefaultSet(ctx, payload)
 	},
+	"project.add": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateProjectAdd(payload)
+	},
+	"project.update": func(s *Server, _ context.Context, req Request, _ mutationPayload) (any, error) {
+		return s.mutateProjectUpdate(req.Data)
+	},
+	"project.reorder": func(s *Server, _ context.Context, req Request, _ mutationPayload) (any, error) {
+		return s.mutateProjectReorder(req.Data)
+	},
 	"quest.add": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateQuestAdd(payload)
 	},
@@ -301,46 +310,51 @@ func (s *Server) mutateRename(ctx context.Context, payload mutationPayload) (any
 		client = s.Snapshotter.tmuxClient
 	}
 	if client == nil {
-		client = tmux.NewExecClient()
+		client = tmux.NewClient(tmux.DefaultServer())
 	}
-	var paneTitleErr error
-	if err := s.mutationStore().Update(sessionID, func(m *state.Manifest) {
+	store := s.mutationStore()
+	agentSession := false
+	if err := store.Update(sessionID, func(m *state.Manifest) {
 		m.Title = title
 		m.SetExtra("title_locked", "1")
 		delete(m.Extra, "title_provisional")
-		if len(m.Agents) == 0 {
-			return
-		}
-		alive, err := client.HasSession(ctx, sessionID)
-		if err != nil {
-			paneTitleErr = fmt.Errorf("check renamed session pane: %w", err)
-			return
-		}
-		if !alive {
-			return
-		}
-		pane, err := client.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
-		if errors.Is(err, tmux.ErrRoleNotFound) {
-			// Continue briefly has one untagged pane before launch assigns its role.
-			panes, listErr := client.ListPanes(ctx, sessionID)
-			if listErr != nil {
-				err = listErr
-			} else if len(panes) == 1 && panes[0].WindowIndex == tmux.WindowWorkspace && panes[0].PaneIndex == 0 && panes[0].Role == "" {
-				pane, err = panes[0].Target(), nil
-			}
-		}
-		if err != nil {
-			paneTitleErr = fmt.Errorf("resolve renamed session pane: %w", err)
-			return
-		}
-		paneTitleErr = client.SetManagedPaneTitle(ctx, pane, title)
+		agentSession = len(m.Agents) > 0
 	}); err != nil {
 		return nil, err
 	}
-	if paneTitleErr != nil {
-		return nil, fmt.Errorf("rename session pane: %w", paneTitleErr)
+	if agentSession {
+		if err := renameSessionPane(ctx, store, client, sessionID, title); err != nil {
+			return nil, fmt.Errorf("rename session pane: %w", err)
+		}
 	}
 	return map[string]string{"session_id": sessionID, "title": title}, nil
+}
+
+// renameSessionPane puts a renamed session's committed title on its agent
+// pane when the session is running. It runs after the manifest commit, and
+// WriteCommittedPaneTitle follows a rename that commits during the write.
+func renameSessionPane(ctx context.Context, store *state.Store, client *tmux.Client, sessionID, title string) error {
+	alive, err := client.HasSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("check renamed session pane: %w", err)
+	}
+	if !alive {
+		return nil
+	}
+	pane, err := client.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
+	if errors.Is(err, tmux.ErrRoleNotFound) {
+		// Continue briefly has one untagged pane before launch assigns its role.
+		panes, listErr := client.ListPanes(ctx, sessionID)
+		if listErr != nil {
+			err = listErr
+		} else if len(panes) == 1 && panes[0].Role == "" {
+			pane, err = panes[0].Target(), nil
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("resolve renamed session pane: %w", err)
+	}
+	return state.WriteCommittedPaneTitle(ctx, store, client, sessionID, pane, title)
 }
 
 func (s *Server) mutateRecolor(payload mutationPayload) (any, error) {
@@ -454,7 +468,7 @@ func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	projectID, projectPath, projectName, err := questProjectFromPayload(payload)
+	projectID, projectPath, projectName, err := questProjectFromPayload(s.mutationStore().Root(), payload)
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +514,7 @@ func (s *Server) mutateQuestEdit(payload mutationPayload) (any, error) {
 		strings.TrimSpace(payload.ProjectID) != "" ||
 		strings.TrimSpace(payload.ProjectPath) != "" ||
 		strings.TrimSpace(payload.ProjectName) != "" {
-		quest.ProjectID, quest.ProjectPath, quest.ProjectName, err = questProjectFromPayload(payload)
+		quest.ProjectID, quest.ProjectPath, quest.ProjectName, err = questProjectFromPayload(s.mutationStore().Root(), payload)
 		if err != nil {
 			return nil, err
 		}
@@ -514,7 +528,7 @@ func (s *Server) mutateQuestEdit(payload mutationPayload) (any, error) {
 
 // questProjectFromPayload takes the project the request names. A path sent without an id (a path typed
 // in the app) resolves to the id and name `quest add --project` would give it.
-func questProjectFromPayload(payload mutationPayload) (id, path, name string, err error) {
+func questProjectFromPayload(stateRoot string, payload mutationPayload) (id, path, name string, err error) {
 	id = strings.TrimSpace(payload.ProjectID)
 	path = strings.TrimSpace(payload.ProjectPath)
 	name = strings.TrimSpace(payload.ProjectName)
@@ -525,7 +539,7 @@ func questProjectFromPayload(payload mutationPayload) (id, path, name string, er
 	if !filepath.IsAbs(state.ExpandHome(path)) {
 		return "", "", "", fmt.Errorf("project path must be absolute: %s", path)
 	}
-	return state.ResolveQuestProject(path, true)
+	return state.ResolveQuestProject(stateRoot, path, true)
 }
 
 func (s *Server) mutateQuestDelete(payload mutationPayload) (any, error) {
@@ -544,25 +558,19 @@ func (s *Server) mutateQuestDelete(payload mutationPayload) (any, error) {
 }
 
 func (s *Server) mutateArtifactDelete(payload mutationPayload) (any, error) {
-	path, err := requiredValue("path", payload.Path)
+	idOrPath, err := requiredFirst("artifact id or path", payload.ID, payload.Path)
 	if err != nil {
 		return nil, err
 	}
 	root := s.mutationStore().Root()
-	sessionID := strings.TrimSpace(payload.SessionID)
-	var removed bool
-	if sessionID == "" {
-		removed, err = state.RemoveArtifactGlobal(root, path)
-	} else {
-		removed, err = state.RemoveArtifactAt(root, sessionID, path)
-	}
+	removed, err := state.DeleteArtifactAt(root, idOrPath)
 	if err != nil {
 		return nil, err
 	}
 	if !removed {
-		return nil, fmt.Errorf("artifact %q not found", path)
+		return nil, fmt.Errorf("artifact %q not found", idOrPath)
 	}
-	return map[string]any{"path": path, "deleted": true}, nil
+	return map[string]any{"id": idOrPath, "deleted": true}, nil
 }
 
 func (s *Server) mutationStore() *state.Store {

@@ -89,6 +89,9 @@ type ResolveOptions struct {
 	Query   string
 	Limit   int
 	Refresh bool
+	// Background is set by the daemon, which outlives the request. See
+	// CatalogOptions.Background.
+	Background bool
 	// Root is the state root holding the catalog cache. Empty disables it.
 	Root string
 	// Store supplies recent launches. Nil skips recents.
@@ -113,10 +116,11 @@ func Resolve(ctx context.Context, opts ResolveOptions) Suggestions {
 	agentName := strings.ToLower(strings.TrimSpace(opts.Agent))
 
 	catalog, _ := LoadCatalog(ctx, CatalogOptions{
-		Root:    opts.Root,
-		Fetch:   opts.Fetch,
-		Now:     opts.Now,
-		Refresh: opts.Refresh,
+		Root:       opts.Root,
+		Fetch:      opts.Fetch,
+		Now:        opts.Now,
+		Refresh:    opts.Refresh,
+		Background: opts.Background,
 	})
 
 	probe := opts.Prober

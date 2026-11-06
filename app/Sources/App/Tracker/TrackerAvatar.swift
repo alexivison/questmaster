@@ -4,19 +4,12 @@ import QuestmasterCore
 import SwiftUI
 
 enum TrackerAvatarMetrics {
-    /// The slot the avatar stands in: the master plate's width, which the selected-session tag is centred in.
+    /// The fixed avatar slot matches the master plate's width.
     static let slotWidth = TrackerPlateDesign.topLevelSize.width
-    /// The tallest bundled class's idle figure, in sprite pixels above its sole. The list's bottom edge follows it, so no class moves it.
+    /// The tallest bundled class's idle figure, in sprite pixels above its sole.
     @MainActor static let tallestFigureHeight = TrackerAvatarSprites.bundled().values.compactMap(\.idleFigureHeight).max() ?? 0
-    /// The slot's reserved height: the tallest figure rounded up to the 5 pt step, one point a sprite pixel. It is the same for every
-    /// class, so the slot never changes size when the attached class does.
+    /// The slot's reserved height: the tallest figure rounded up to the 5 pt step, one point a sprite pixel. It is the same for every class.
     @MainActor static let slotHeight = CGFloat(TrackerTagLayout.reservedHeight(tallestFigure: tallestFigureHeight, step: Int(Space.row)))
-    /// From the list's bottom edge to the column's bottom edge: the list gap, the tag, its gap above the tallest figure, the figure's
-    /// height above the sole, and the bottom margin under the sole.
-    @MainActor static var avatarBlockHeight: CGFloat {
-        TrackerListMetrics.selectedTagGap + SelectedSessionTagMetrics.height + TrackerListMetrics.avatarGap + CGFloat(tallestFigureHeight)
-            + TrackerListMetrics.verticalPadding
-    }
     /// The render previews' column: a master plate, two worker plates and the slot, in the tracker's spacing.
     @MainActor static var previewColumnHeight: CGFloat {
         TrackerNameplateRole.master.canvasSize.height + 2 * TrackerNameplateRole.worker.canvasSize.height

@@ -69,11 +69,11 @@ func TestQuestListByIDs(t *testing.T) {
 			t.Fatalf("mkdir git dir: %v", err)
 		}
 	}
-	projectAID, _, _, err := state.ResolveQuestProject(projectA, true)
+	projectAID, _, _, err := state.ResolveQuestProject(store.Root(), projectA, true)
 	if err != nil {
 		t.Fatalf("resolve project A: %v", err)
 	}
-	projectBID, _, _, err := state.ResolveQuestProject(projectB, true)
+	projectBID, _, _, err := state.ResolveQuestProject(store.Root(), projectB, true)
 	if err != nil {
 		t.Fatalf("resolve project B: %v", err)
 	}

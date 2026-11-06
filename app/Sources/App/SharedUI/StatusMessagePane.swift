@@ -32,7 +32,7 @@ struct StatusMessagePane: View {
             if !title.isEmpty {
                 Text(title)
                     .font(AppFonts.bodyBold.swiftUI)
-                    .foregroundStyle(AppPalette.bright.swiftUI)
+                    .foregroundStyle(AppPalette.text.swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }

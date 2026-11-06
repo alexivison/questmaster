@@ -36,9 +36,10 @@ enum TrackerPlateDesign {
     static let workerArtSize = CGSize(width: 255, height: 45)
     static let workerSize = CGSize(width: 232 + workerShift - svgDiscInset, height: ControlHeight.bar)
 
-    /// Room around a canvas for the plate band and the art past its edges (the master's side diamond reaches 2 past
-    /// x = 0), so no layer clips them.
-    static let silhouetteMargin = Space.row
+    /// Room around a canvas for the plate band, the art past its edges (the master's side diamond reaches 2 past
+    /// x = 0) and the body's and disc's raised shadow (`Elevation.raised.bleed`, 7.5), so no layer clips them. Only the
+    /// layers grow with it: each is offset back by it, so nothing on the plate moves.
+    static let silhouetteMargin = Space.item
     /// The visible width of a plate band past the plate's edge.
     static let glowBandWidth: CGFloat = 2
 
@@ -64,7 +65,7 @@ enum TrackerPlateDesign {
     static let attachedDotDiameter = Space.row
     static let attachedDotInset = Space.item
 
-    /// A portrait's agent badge: a circle in the disc's fill with a 1pt `line` border, as big as a collapsed worker's circle
+    /// A portrait's agent badge: a circle in the disc's fill with a 1pt `lineSoftSubtle` border, as big as a collapsed worker's circle
     /// (25) and holding the agent's logo at the same 0.6 (15). Its edge sits `badgeOverhang` (5) outside the disc on the
     /// left and the same below it, on the master's disc and the worker's alike, so its frame starts on whole points.
     static let badgeDiameter = collapsedCircleDiameter

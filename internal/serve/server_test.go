@@ -703,7 +703,7 @@ func TestSnapshotterClockLoadsTypicalWhenDoneRowFindsRunningTool(t *testing.T) {
 		t.Fatalf("seed done state: %v", err)
 	}
 	for _, sample := range []time.Duration{4, 6, 8} {
-		if err := state.RecordToolDurationAt(env.store.Root(), "codex", "Bash", "go test", sample*time.Second); err != nil {
+		if err := state.RecordToolDurationAt(t.Context(), env.store.Root(), "codex", "Bash", "go test", sample*time.Second); err != nil {
 			t.Fatalf("record duration: %v", err)
 		}
 	}
@@ -1330,7 +1330,7 @@ func TestQuestMutationsResolveAProjectSentAsAPathOnly(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatalf("sub dir: %v", err)
 	}
-	wantID, wantPath, wantName, err := state.ResolveQuestProject(sub, true)
+	wantID, wantPath, wantName, err := state.ResolveQuestProject(t.TempDir(), sub, true)
 	if err != nil || wantID == "" || wantName != "realm" || wantPath != sub {
 		t.Fatalf("resolve %s = %q %q %q, %v", sub, wantID, wantPath, wantName, err)
 	}
@@ -1460,6 +1460,45 @@ func TestArtifactDeleteMutationRemovesSessionAndGlobalArtifacts(t *testing.T) {
 				t.Fatalf("artifacts = %#v, want %q removed", artifacts, tc.wantPath)
 			}
 		})
+	}
+}
+
+func TestArtifactDeleteMutationRemovesEverySessionAndFile(t *testing.T) {
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "shared.md")
+	if err := os.WriteFile(path, []byte("shared"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"qm-a", "qm-b"} {
+		if err := state.UpsertArtifactAt(store.Root(), id, state.Artifact{Path: path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	artifacts, err := state.LoadArtifactsGlobal(store.Root())
+	if err != nil || len(artifacts) != 1 {
+		t.Fatalf("registry = %#v, %v", artifacts, err)
+	}
+	snapshots := artifactSnapshots(artifacts)
+	if len(snapshots) != 1 || snapshots[0].ID != artifacts[0].ID || !reflect.DeepEqual(snapshots[0].SessionIDs, []string{"qm-a", "qm-b"}) {
+		t.Fatalf("snapshot = %#v", snapshots)
+	}
+	server := &Server{Snapshotter: &Snapshotter{store: store}}
+	data, err := json.Marshal(map[string]string{"id": artifacts[0].ID, "session_id": "qm-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.mutate(t.Context(), Request{Method: "artifact.delete", Data: data}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("file remains: %v", err)
+	}
+	artifacts, err = state.LoadArtifactsGlobal(store.Root())
+	if err != nil || len(artifacts) != 0 {
+		t.Fatalf("registry after delete = %#v, %v", artifacts, err)
 	}
 }
 
@@ -2361,7 +2400,7 @@ func TestRenameMutationUpdatesAgentPaneTitle(t *testing.T) {
 			}
 			found := false
 			for _, args := range runner.Calls() {
-				if slices.Equal(args, []string{"set-option", "-p", "-t", "qm-demo:0.0", "@questmaster_title", "New session title"}) {
+				if slices.Equal(args, []string{"set-option", "-p", "-t", "=qm-demo:0.0", "@questmaster_title", "New session title"}) {
 					found = true
 				}
 			}
@@ -2385,35 +2424,42 @@ func TestRenameMutationTargetsAdoptedAgentPane(t *testing.T) {
 		t.Fatalf("rename: %v", err)
 	}
 	for _, args := range runner.calls {
-		if len(args) == 6 && args[0] == "set-option" && args[1] == "-p" && args[3] == "qm-demo:0.1" && args[4] == "@questmaster_title" && args[5] == "Adopted agent" {
+		if len(args) == 6 && args[0] == "set-option" && args[1] == "-p" && args[3] == "=qm-demo:0.1" && args[4] == "@questmaster_title" && args[5] == "Adopted agent" {
 			return
 		}
 	}
 	t.Fatalf("agent pane title was not set on 0.1: %v", runner.calls)
 }
 
+// The one untagged pane is the new agent pane whatever its indexes: a server
+// with base-index and pane-base-index 1 numbers it 1.1.
 func TestRenameMutationDuringContinueBeforeRoleTag(t *testing.T) {
-	env := seedServeFixture(t)
-	runner := &untaggedPaneTmuxRunner{}
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
-	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Renamed during continue"}); err != nil {
-		t.Fatalf("rename while the new pane has no role tag: %v", err)
-	}
-	for _, args := range runner.calls {
-		if slices.Equal(args, []string{"set-option", "-p", "-t", "qm-demo:0.0", "@questmaster_title", "Renamed during continue"}) {
-			return
+	for _, pane := range []string{"0 0", "1 1"} {
+		env := seedServeFixture(t)
+		runner := &untaggedPaneTmuxRunner{pane: pane}
+		srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+		if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Renamed during continue"}); err != nil {
+			t.Fatalf("rename while pane %s has no role tag: %v", pane, err)
+		}
+		want := "=qm-demo:" + strings.ReplaceAll(pane, " ", ".")
+		if !slices.ContainsFunc(runner.calls, func(args []string) bool {
+			return slices.Equal(args, []string{"set-option", "-p", "-t", want, "@questmaster_title", "Renamed during continue"})
+		}) {
+			t.Fatalf("new agent pane %s title was not set: %v", want, runner.calls)
 		}
 	}
-	t.Fatalf("new agent pane title was not set: %v", runner.calls)
 }
 
-type untaggedPaneTmuxRunner struct{ calls [][]string }
+type untaggedPaneTmuxRunner struct {
+	pane  string
+	calls [][]string
+}
 
 func (r *untaggedPaneTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
 	r.calls = append(r.calls, append([]string(nil), args...))
 	switch args[0] {
 	case "list-panes":
-		return "0 0", nil
+		return r.pane, nil
 	case "display-message":
 		return "#{pane_title}", nil
 	}
@@ -2644,7 +2690,7 @@ func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T)
 		t.Fatalf("update cast state: %v", err)
 	}
 	for _, sample := range []time.Duration{4, 6, 8} {
-		if err := state.RecordToolDurationAt(env.store.Root(), "codex", "Bash", "go test", sample*time.Second); err != nil {
+		if err := state.RecordToolDurationAt(t.Context(), env.store.Root(), "codex", "Bash", "go test", sample*time.Second); err != nil {
 			t.Fatalf("record duration: %v", err)
 		}
 	}

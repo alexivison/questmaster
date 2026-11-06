@@ -93,6 +93,7 @@ enum TerminalTmuxClientProcess {
             "QUESTMASTER_BIN",
             "QUESTMASTER_PATH_PREFIX",
         ]
+        let target = exactSessionTarget(sessionID)
         var args: [String] = []
         func add(_ command: [String]) {
             if !args.isEmpty { args.append(";") }
@@ -100,15 +101,21 @@ enum TerminalTmuxClientProcess {
         }
         for key in keys {
             if let value = environment[key], !value.isEmpty {
-                add(["set-environment", "-t", sessionID, key, value])
+                add(["set-environment", "-t", target, key, value])
             } else {
-                add(["set-environment", "-t", sessionID, "-r", key])
+                add(["set-environment", "-t", target, "-r", key])
             }
         }
         for key in ["ZDOTDIR", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "TMUX", "TMUX_PANE"] {
-            add(["set-environment", "-t", sessionID, "-r", key])
+            add(["set-environment", "-t", target, "-r", key])
         }
         return args
+    }
+
+    /// tmux matches a bare session name by prefix, so "qm-123" reaches "qm-123-456"
+    /// when no session has the exact name. The "=" forces an exact match.
+    private static func exactSessionTarget(_ sessionID: String) -> String {
+        "=\(sessionID)"
     }
 
     static func switchClient(
@@ -125,7 +132,45 @@ enum TerminalTmuxClientProcess {
     }
 
     static func switchClientArguments(clientName: String, targetSessionID: String) -> [String] {
-        ["switch-client", "-c", clientName, "-t", targetSessionID]
+        ["switch-client", "-c", clientName, "-t", exactSessionTarget(targetSessionID)]
+    }
+
+    static func openEditorWindow(
+        tmuxPath: String,
+        sessionID: String,
+        path: String,
+        shell: String,
+        environment: [String: String]
+    ) throws {
+        var processEnvironment = environment
+        for key in ["TMUX", "TMUX_PANE", "TMUX_TMPDIR"] {
+            processEnvironment.removeValue(forKey: key)
+        }
+        _ = try run(
+            executable: tmuxPath,
+            arguments: editorWindowArguments(sessionID: sessionID, path: path, shell: shell),
+            environment: processEnvironment
+        )
+    }
+
+    static func editorWindowArguments(sessionID: String, path: String, shell: String) -> [String] {
+        // The path is a separate positional argument to the login shell. It is
+        // never interpolated into the script that expands the user's EDITOR.
+        let script = """
+        artifact_path=$1
+        if [ -z "$EDITOR" ]; then
+          printf 'Set $EDITOR to open Markdown artifacts.\\n'
+          exec "$SHELL" -i
+        fi
+        eval "set -- $EDITOR"
+        exec "$@" "$artifact_path"
+        """
+        let command = [shell, "-lic", script, "_", path].map(editorShellQuote).joined(separator: " ")
+        return ["new-window", "-t", exactSessionTarget(sessionID), "-n", "Artifact", "-c", URL(fileURLWithPath: path).deletingLastPathComponent().path, command]
+    }
+
+    private static func editorShellQuote(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     private static func run(

@@ -30,6 +30,14 @@ type Config struct {
 	ClockInterval                            time.Duration
 	LoginEnvironmentRunner                   LoginEnvironmentRunner
 	Exec                                     func(string, []string, []string) error
+	Clock                                    func() time.Time // nil means time.Now; tests inject a fake
+}
+
+func (c Config) now() time.Time {
+	if c.Clock != nil {
+		return c.Clock()
+	}
+	return time.Now()
 }
 
 func (c Config) resolve() (Config, string, string, error) {

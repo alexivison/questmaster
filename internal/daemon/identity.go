@@ -24,6 +24,9 @@ func Identity(root, home, executable string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if isInstallLink(root, home, executable) {
+		return "canonical", nil
+	}
 	canonical, canonicalErr := filepath.EvalSymlinks(filepath.Join(home, ".local", "bin", "questmaster"))
 	if canonicalErr == nil && path == canonical {
 		return "canonical", nil
@@ -49,6 +52,16 @@ func Identity(root, home, executable string) (string, error) {
 		return "", fmt.Errorf("refusing temporary executable %s", path)
 	}
 	return "bin-" + hash(path, 16), nil
+}
+
+// isInstallLink reports whether executable names an install link itself rather than its target.
+// The link's identity holds while its target moves, so it is checked before symlinks resolve.
+func isInstallLink(root, home, executable string) bool {
+	abs, err := filepath.Abs(executable)
+	if err != nil {
+		return false
+	}
+	return abs == StableExecutable(root) || abs == filepath.Join(home, ".local", "bin", "questmaster")
 }
 
 // DevIdentity is stable across rebuilds of a worktree.

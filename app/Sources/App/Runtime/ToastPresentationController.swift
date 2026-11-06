@@ -92,8 +92,9 @@ private final class ToastHostingView: NSHostingView<ToastBanner> {
 
 struct ToastBanner: View {
     static let maxWidth: CGFloat = 360
-    /// Room the hosting view keeps around the card for its panel shadow, which the view's bounds would clip.
-    static let shadowMargin = Space.section + Space.row
+    /// Room the hosting view keeps around the card for its raised shadow (`Elevation.raised.bleed`), which the view's
+    /// bounds would clip.
+    static let shadowMargin = Space.item
     let message: String
 
     var body: some View {
@@ -110,7 +111,7 @@ struct ToastBanner: View {
             borderColor: AppPalette.lineSoftSubtle,
             lineWidth: ScoopedRectangle.borderWidth
         )
-        .elevation(.panel, of: RoundedRectangle(cornerRadius: Token.Radius.card))
+        .elevation(.raised, of: RoundedRectangle(cornerRadius: Token.Radius.card))
         .padding(Self.shadowMargin)
         .help(message)
     }

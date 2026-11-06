@@ -3,9 +3,7 @@ package tmux
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
-	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -18,7 +16,7 @@ func TestHasSession_Exists(t *testing.T) {
 	t.Parallel()
 
 	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if args[0] != "has-session" || flagVal(args, "-t") != "qm-abc" {
+		if args[0] != "has-session" || flagVal(args, "-t") != "=qm-abc:" {
 			t.Errorf("unexpected args: %v", args)
 		}
 		return "", nil
@@ -102,13 +100,13 @@ func TestHasSession_ConnectionError(t *testing.T) {
 	}
 }
 
-func TestSessionName_UsesTMUXPaneTarget(t *testing.T) {
-	t.Setenv("TMUX_PANE", "%77")
+func TestSessionName_ReadsTheCallersPane(t *testing.T) {
+	setCaller(t, "/tmp/qm-test/sock", "%77")
 	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if got := strings.Join(args, " "); !strings.Contains(got, "-t %77") {
-			t.Fatalf("expected TMUX_PANE target in args, got %v", args)
+		if args[0] != "display-message" || flagVal(args, "-t") != "%77" {
+			t.Fatalf("unexpected args: %v", args)
 		}
-		return "qm-worker", nil
+		return "/tmp/qm-test/sock\t%77\tqm-worker", nil
 	})
 	c := NewClient(m)
 
@@ -118,6 +116,31 @@ func TestSessionName_UsesTMUXPaneTarget(t *testing.T) {
 	}
 	if name != "qm-worker" {
 		t.Fatalf("got %q, want %q", name, "qm-worker")
+	}
+}
+
+// TMUX_PANE names a pane on the caller's own server. On another server the
+// same ID is someone else's pane, so SessionName must not answer with it.
+func TestSessionName_RejectsTheCallersPaneWhenOnAnotherServer(t *testing.T) {
+	tests := []struct {
+		name   string
+		tmux   string
+		pane   string
+		output string
+	}{
+		{name: "TMUX names another server", tmux: "/tmp/qm-test/other", pane: "%77", output: "/tmp/qm-test/sock\t%77\tqm-worker"},
+		{name: "pane is not on this server", tmux: "/tmp/qm-test/sock", pane: "%77", output: "/tmp/qm-test/sock\t\t"},
+		{name: "outside tmux", tmux: "", pane: "", output: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setCaller(t, tt.tmux, tt.pane)
+			m := newMock(func(context.Context, ...string) (string, error) { return tt.output, nil })
+
+			if name, err := NewClient(m).SessionName(t.Context()); err == nil {
+				t.Fatalf("SessionName = %q, want an error", name)
+			}
+		})
 	}
 }
 
@@ -258,12 +281,33 @@ func TestNewSession_Success(t *testing.T) {
 		if flagVal(args, "-n") != "work" {
 			t.Errorf("window name: got %q", flagVal(args, "-n"))
 		}
-		return "", nil
+		if !slices.Contains(args, "-P") || flagVal(args, "-F") != "#{pane_id}" {
+			t.Errorf("new-session must print the new pane's ID: %v", args)
+		}
+		return "%7", nil
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "qm-new", "work", "/tmp"); err != nil {
+	pane, err := c.NewSession(t.Context(), "qm-new", "work", "/tmp")
+	if err != nil {
 		t.Fatalf("NewSession: %v", err)
+	}
+	if pane != "%7" {
+		t.Fatalf("NewSession pane = %q, want %%7", pane)
+	}
+}
+
+// Every later pane target is the ID new-session reports, so output that is
+// not a pane ID is an error, not a target.
+func TestNewSession_RejectsOutputThatIsNotAPaneID(t *testing.T) {
+	t.Setenv("TMUX_PANE", "")
+	for _, out := range []string{"", "qm-new:0.0", "%", "%7\n%8"} {
+		m := newMock(func(_ context.Context, args ...string) (string, error) {
+			return out, nil
+		})
+		if pane, err := NewClient(m).NewSession(t.Context(), "qm-new", "", "/tmp"); err == nil {
+			t.Fatalf("NewSession with output %q = %q, want an error", out, pane)
+		}
 	}
 }
 
@@ -277,30 +321,37 @@ func TestNewSession_OmitsBlankWindowName(t *testing.T) {
 		if got := flagVal(args, "-n"); got != "" {
 			t.Errorf("window name flag: got %q, want omitted", got)
 		}
-		return "", nil
+		return "%1", nil
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "qm-new", "", "/tmp"); err != nil {
+	if _, err := c.NewSession(t.Context(), "qm-new", "", "/tmp"); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 }
 
-func TestNewSession_UsesCurrentClientSizeWhenTMUXPaneSet(t *testing.T) {
-	t.Setenv("TMUX_PANE", "%42")
+// A new session takes the size of the client showing the caller's session, as
+// tmux would pick it from the caller's pane: the most recently active one.
+func TestNewSession_UsesTheCallersClientSize(t *testing.T) {
+	setCaller(t, "/tmp/qm-test/sock", "%42")
 
 	m := newMock(func(_ context.Context, args ...string) (string, error) {
 		switch args[0] {
 		case "display-message":
-			if got := strings.Join(args, " "); !strings.Contains(got, "-t %42") {
-				t.Fatalf("expected TMUX_PANE target in args, got %v", args)
+			if flagVal(args, "-t") != "%42" {
+				t.Fatalf("expected caller pane target in args, got %v", args)
 			}
-			return "355\t62", nil
+			return "/tmp/qm-test/sock\t%42\tqm-master", nil
+		case "list-clients":
+			if flagVal(args, "-t") != "=qm-master:" {
+				t.Fatalf("expected the caller's session in args, got %v", args)
+			}
+			return "100\tclient-old\t80\t24\n200\tclient-new\t355\t62", nil
 		case "new-session":
 			if flagVal(args, "-x") != "355" || flagVal(args, "-y") != "62" {
 				t.Fatalf("expected client size flags in %v", args)
 			}
-			return "", nil
+			return "%1", nil
 		default:
 			t.Fatalf("unexpected args: %v", args)
 			return "", nil
@@ -308,7 +359,30 @@ func TestNewSession_UsesCurrentClientSizeWhenTMUXPaneSet(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "qm-sized", "work", "/tmp"); err != nil {
+	if _, err := c.NewSession(t.Context(), "qm-sized", "work", "/tmp"); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+}
+
+func TestNewSession_IgnoresAPaneOnAnotherServer(t *testing.T) {
+	setCaller(t, "/tmp/qm-test/other", "%42")
+
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		switch args[0] {
+		case "display-message":
+			return "/tmp/qm-test/sock\t%42\tqm-unrelated", nil
+		case "new-session":
+			if flagVal(args, "-x") != "" || flagVal(args, "-y") != "" {
+				t.Fatalf("sized from another server's pane: %v", args)
+			}
+			return "%1", nil
+		default:
+			t.Fatalf("unexpected args: %v", args)
+			return "", nil
+		}
+	})
+
+	if _, err := NewClient(m).NewSession(t.Context(), "qm-unsized", "work", "/tmp"); err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 }
@@ -321,35 +395,8 @@ func TestNewSession_Error(t *testing.T) {
 	})
 	c := NewClient(m)
 
-	if err := c.NewSession(t.Context(), "qm-dup", "work", "/tmp"); err == nil {
+	if _, err := c.NewSession(t.Context(), "qm-dup", "work", "/tmp"); err == nil {
 		t.Fatal("expected error, got nil")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// runWithoutTMUX — falls back to standard Run for non-ExecRunner
-// ---------------------------------------------------------------------------
-
-func TestRunWithoutTMUX_MockFallback(t *testing.T) {
-	t.Parallel()
-
-	called := false
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		called = true
-		if args[0] != "new-session" {
-			t.Errorf("expected new-session, got %s", args[0])
-		}
-		return "", nil
-	})
-	c := NewClient(m)
-
-	// Mock runner doesn't implement ExecRunner, so falls back to Run
-	_, err := c.runWithoutTMUX(t.Context(), "new-session", "-d", "-s", "test")
-	if err != nil {
-		t.Fatalf("runWithoutTMUX: %v", err)
-	}
-	if !called {
-		t.Error("expected mock Run to be called")
 	}
 }
 
@@ -370,6 +417,37 @@ func TestRespawnPane_Success(t *testing.T) {
 
 	if err := c.RespawnPane(t.Context(), "qm-s:0.0", "/tmp", "bash"); err != nil {
 		t.Fatalf("RespawnPane: %v", err)
+	}
+}
+
+func TestRespawnPaneChangesIntoTheDirectoryBeforeTheCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cwd  string
+		cmd  string
+		want string
+	}{
+		{name: "plain directory", cwd: "/work/repo", cmd: "exec claude", want: "cd -- '/work/repo' || exit 1; exec claude"},
+		{name: "quote in directory", cwd: "/work/it's", cmd: "exec zsh -l", want: `cd -- '/work/it'"'"'s' || exit 1; exec zsh -l`},
+		{name: "no directory", cwd: "", cmd: "exec claude", want: "exec claude"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got []string
+			c := NewClient(newMock(func(_ context.Context, args ...string) (string, error) {
+				got = args
+				return "", nil
+			}))
+			if err := c.RespawnPane(t.Context(), "qm-s:0.0", tt.cwd, tt.cmd); err != nil {
+				t.Fatalf("RespawnPane: %v", err)
+			}
+			if command := got[len(got)-1]; command != tt.want {
+				t.Fatalf("command = %q, want %q", command, tt.want)
+			}
+		})
 	}
 }
 
@@ -659,74 +737,6 @@ func TestSetManagedPaneTitlePreservesOtherPanesWithoutTitles(t *testing.T) {
 	t.Fatal("pane border format was not set")
 }
 
-func TestSetManagedPaneTitleDisplaysZero(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux is not installed")
-	}
-	runner := isolatedTmuxRunner{socket: fmt.Sprintf("qm-title-zero-%d", os.Getpid())}
-	if _, err := runner.Run(t.Context(), "new-session", "-d", "-s", "qm-title-zero", "sleep 60"); err != nil {
-		t.Fatal(err)
-	}
-	defer runner.Run(context.Background(), "kill-server") //nolint:errcheck
-	if _, err := runner.Run(t.Context(), "set-option", "-wg", "pane-border-format", "#{pane_title}"); err != nil {
-		t.Fatal(err)
-	}
-	client := NewClient(runner)
-	if err := client.SetManagedPaneTitle(t.Context(), "qm-title-zero:0.0", "0"); err != nil {
-		t.Fatal(err)
-	}
-	if err := client.SelectPaneTitle(t.Context(), "qm-title-zero:0.0", "Native"); err != nil {
-		t.Fatal(err)
-	}
-	visible, err := runner.Run(t.Context(), "display-message", "-t", "qm-title-zero:0.0", "-p", "#{E:#{pane-border-format}}")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if visible != "0" {
-		t.Fatalf("pane border title = %q, want Questmaster title 0", visible)
-	}
-}
-
-func TestSetManagedPaneTitleOverridesPaneLocalFormat(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux is not installed")
-	}
-	runner := isolatedTmuxRunner{socket: fmt.Sprintf("qm-title-local-%d", os.Getpid())}
-	if _, err := runner.Run(t.Context(), "new-session", "-d", "-s", "qm-title-local", "sleep 60"); err != nil {
-		t.Fatal(err)
-	}
-	defer runner.Run(context.Background(), "kill-server") //nolint:errcheck
-	target := "qm-title-local:0.0"
-	if _, err := runner.Run(t.Context(), "set-option", "-p", "-t", target, "pane-border-format", "#{pane_title}"); err != nil {
-		t.Skipf("tmux does not support pane-local border formats: %v", err)
-	}
-	client := NewClient(runner)
-	if err := client.SetManagedPaneTitle(t.Context(), target, "Questmaster"); err != nil {
-		t.Fatal(err)
-	}
-	if err := client.SelectPaneTitle(t.Context(), target, "Native"); err != nil {
-		t.Fatal(err)
-	}
-	visible, err := runner.Run(t.Context(), "display-message", "-t", target, "-p", "#{E:#{pane-border-format}}")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if visible != "Questmaster" {
-		t.Fatalf("pane border title = %q, want Questmaster title", visible)
-	}
-}
-
-type isolatedTmuxRunner struct{ socket string }
-
-func (r isolatedTmuxRunner) Run(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "tmux", append([]string{"-L", r.socket}, args...)...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("tmux %v: %w: %s", args, err, strings.TrimSpace(string(out)))
-	}
-	return strings.TrimRight(string(out), "\n"), nil
-}
-
 // ---------------------------------------------------------------------------
 // SelectWindow
 // ---------------------------------------------------------------------------
@@ -865,12 +875,8 @@ func TestUnsetEnvironment_Session(t *testing.T) {
 	t.Parallel()
 
 	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		joined := strings.Join(args, " ")
-		if strings.Contains(joined, "-g") {
-			t.Error("unexpected -g flag for session unset")
-		}
-		if !strings.Contains(joined, "-u") {
-			t.Error("expected -u flag")
+		if got := strings.Join(args, " "); got != "set-environment -t =qm-s: -u KEY" {
+			t.Errorf("args = %q, want a session-scoped unset", got)
 		}
 		return "", nil
 	})
@@ -878,23 +884,6 @@ func TestUnsetEnvironment_Session(t *testing.T) {
 
 	if err := c.UnsetEnvironment(t.Context(), "qm-s", "KEY"); err != nil {
 		t.Fatalf("UnsetEnvironment: %v", err)
-	}
-}
-
-func TestUnsetEnvironment_Global(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		joined := strings.Join(args, " ")
-		if !strings.Contains(joined, "-g") {
-			t.Error("expected -g flag for global unset")
-		}
-		return "", nil
-	})
-	c := NewClient(m)
-
-	if err := c.UnsetEnvironment(t.Context(), "", "KEY"); err != nil {
-		t.Fatalf("UnsetEnvironment global: %v", err)
 	}
 }
 
@@ -1053,174 +1042,99 @@ func TestSetHook_Error(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SwitchClientWithFallback
+// SwitchClient
 // ---------------------------------------------------------------------------
 
-func TestSwitchClientWithFallback_DirectSuccess(t *testing.T) {
-	t.Parallel()
+func TestSwitchClient_MovesTheCallersMostRecentClient(t *testing.T) {
+	setCaller(t, "/tmp/qm-test/sock", "%3")
 
 	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if args[0] != "switch-client" {
-			t.Errorf("expected switch-client, got %s", args[0])
-		}
-		return "", nil
-	})
-	c := NewClient(m)
-
-	if err := c.SwitchClientWithFallback(t.Context(), "qm-new"); err != nil {
-		t.Fatalf("SwitchClientWithFallback: %v", err)
-	}
-	if len(m.calls) != 1 {
-		t.Errorf("expected 1 call (direct switch), got %d", len(m.calls))
-	}
-}
-
-func TestSwitchClientWithFallback_FallbackToExplicitClient(t *testing.T) {
-	t.Parallel()
-
-	callNum := 0
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		callNum++
-		switch callNum {
-		case 1:
-			// First switch-client fails (popup context — no client TTY)
-			if args[0] != "switch-client" {
-				t.Errorf("call 1: expected switch-client, got %s", args[0])
-			}
-			return "", &ExitError{Code: 1}
-		case 2:
-			// list-clients to discover available clients
-			if args[0] != "list-clients" {
-				t.Errorf("call 2: expected list-clients, got %s", args[0])
-			}
-			return "/dev/ttys001", nil
-		case 3:
-			// Retry switch-client with explicit -c flag
-			if args[0] != "switch-client" {
-				t.Errorf("call 3: expected switch-client, got %s", args[0])
-			}
-			if flagVal(args, "-c") != "/dev/ttys001" {
-				t.Errorf("call 3: expected -c /dev/ttys001, got %q", flagVal(args, "-c"))
-			}
-			if flagVal(args, "-t") != "qm-popup" {
-				t.Errorf("call 3: expected -t qm-popup, got %q", flagVal(args, "-t"))
+		switch args[0] {
+		case "display-message":
+			return "/tmp/qm-test/sock\t%3\tqm-master", nil
+		case "list-clients":
+			return "300\tclient-new\t200\t50\n100\tclient-old\t80\t24", nil
+		case "switch-client":
+			if flagVal(args, "-c") != "client-new" || flagVal(args, "-t") != "=qm-new:" {
+				t.Errorf("switch-client args = %v, want -c client-new -t =qm-new:", args)
 			}
 			return "", nil
 		default:
-			t.Fatalf("unexpected call %d: %v", callNum, args)
+			t.Fatalf("unexpected args: %v", args)
 			return "", nil
 		}
 	})
-	c := NewClient(m)
 
-	if err := c.SwitchClientWithFallback(t.Context(), "qm-popup"); err != nil {
-		t.Fatalf("SwitchClientWithFallback: %v", err)
+	if err := NewClient(m).SwitchClient(t.Context(), "qm-new"); err != nil {
+		t.Fatalf("SwitchClient: %v", err)
 	}
-	if callNum != 3 {
-		t.Errorf("expected 3 calls (switch, list, switch -c), got %d", callNum)
+	if last := m.calls[len(m.calls)-1].args; last[0] != "switch-client" {
+		t.Fatalf("last call = %v, want switch-client", last)
 	}
 }
 
-func TestSwitchClientWithFallback_NoClients(t *testing.T) {
-	t.Parallel()
+// Without a client tied to the caller's own pane there is nothing to switch.
+// Picking another client would move a terminal the caller is not using.
+func TestSwitchClient_NeverGuessesAClient(t *testing.T) {
+	tests := []struct {
+		name    string
+		tmux    string
+		display string
+		clients string
+	}{
+		{name: "caller on another server", tmux: "/tmp/qm-test/other", display: "/tmp/qm-test/sock\t%3\tqm-master", clients: "1\tclient-a\t80\t24"},
+		{name: "caller session has no client", tmux: "/tmp/qm-test/sock", display: "/tmp/qm-test/sock\t%3\tqm-master", clients: ""},
+		{name: "outside tmux", tmux: "", display: "", clients: "1\tclient-a\t80\t24"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pane := "%3"
+			if tt.tmux == "" {
+				pane = ""
+			}
+			setCaller(t, tt.tmux, pane)
+			m := newMock(func(_ context.Context, args ...string) (string, error) {
+				switch args[0] {
+				case "display-message":
+					return tt.display, nil
+				case "list-clients":
+					return tt.clients, nil
+				}
+				t.Fatalf("unexpected call: %v", args)
+				return "", nil
+			})
 
-	callNum := 0
+			if err := NewClient(m).SwitchClient(t.Context(), "qm-new"); err == nil {
+				t.Fatal("SwitchClient succeeded, want an error")
+			}
+		})
+	}
+}
+
+func TestSwitchClient_PropagatesTransportErrors(t *testing.T) {
+	setCaller(t, "/tmp/qm-test/sock", "%3")
 	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		callNum++
-		switch callNum {
-		case 1:
-			return "", &ExitError{Code: 1}
-		case 2:
-			// list-clients returns empty (no clients)
-			return "", nil
-		default:
-			t.Fatalf("unexpected call %d", callNum)
-			return "", nil
+		if args[0] == "switch-client" {
+			t.Fatalf("switched after a failed lookup: %v", args)
 		}
-	})
-	c := NewClient(m)
-
-	err := c.SwitchClientWithFallback(t.Context(), "qm-x")
-	if err == nil {
-		t.Fatal("expected error when no clients available")
-	}
-}
-
-func TestSwitchClientWithFallback_NonExitError_NeverFallback(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, _ ...string) (string, error) {
 		return "", errors.New("connection refused")
 	})
-	c := NewClient(m)
 
-	err := c.SwitchClientWithFallback(t.Context(), "qm-x")
-	if err == nil {
-		t.Fatal("expected error propagation for non-ExitError")
-	}
-	// Should NOT attempt list-clients for non-ExitError
-	if len(m.calls) != 1 {
-		t.Errorf("expected 1 call (no fallback for non-ExitError), got %d", len(m.calls))
+	if err := NewClient(m).SwitchClient(t.Context(), "qm-x"); err == nil {
+		t.Fatal("expected error propagation")
 	}
 }
 
-func TestSwitchClientWithFallback_MultipleClients_UsesFirst(t *testing.T) {
-	t.Parallel()
-
-	callNum := 0
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		callNum++
-		switch callNum {
-		case 1:
-			return "", &ExitError{Code: 1}
-		case 2:
-			return "/dev/ttys001\n/dev/ttys002\n/dev/ttys003", nil
-		case 3:
-			if flagVal(args, "-c") != "/dev/ttys001" {
-				t.Errorf("expected first client, got %q", flagVal(args, "-c"))
-			}
-			return "", nil
-		default:
-			t.Fatalf("unexpected call %d", callNum)
-			return "", nil
-		}
-	})
-	c := NewClient(m)
-
-	if err := c.SwitchClientWithFallback(t.Context(), "qm-multi"); err != nil {
-		t.Fatalf("SwitchClientWithFallback: %v", err)
+// setCaller sets the TMUX and TMUX_PANE a process inside a tmux pane would
+// inherit. An empty socket clears both.
+func setCaller(t *testing.T, socket, pane string) {
+	t.Helper()
+	tmuxValue := ""
+	if socket != "" {
+		tmuxValue = socket + ",4242,0"
 	}
-}
-
-// ---------------------------------------------------------------------------
-// filterEnv
-// ---------------------------------------------------------------------------
-
-func TestFilterEnv(t *testing.T) {
-	t.Parallel()
-
-	env := []string{"HOME=/home/user", "TMUX=/tmp/tmux-1000/default,12345,0", "PATH=/usr/bin"}
-	filtered := filterEnv(env, "TMUX")
-
-	if len(filtered) != 2 {
-		t.Fatalf("len: got %d, want 2", len(filtered))
-	}
-	for _, e := range filtered {
-		if strings.HasPrefix(e, "TMUX=") {
-			t.Error("TMUX should have been filtered")
-		}
-	}
-}
-
-func TestFilterEnv_NoMatch(t *testing.T) {
-	t.Parallel()
-
-	env := []string{"HOME=/home/user", "PATH=/usr/bin"}
-	filtered := filterEnv(env, "TMUX")
-
-	if len(filtered) != 2 {
-		t.Fatalf("len: got %d, want 2 (nothing filtered)", len(filtered))
-	}
+	t.Setenv("TMUX", tmuxValue)
+	t.Setenv("TMUX_PANE", pane)
 }
 
 // ---------------------------------------------------------------------------

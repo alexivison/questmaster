@@ -70,8 +70,12 @@ func TestClaudeNativeWritesFrameWithoutTmux(t *testing.T) {
 			received <- frame
 		}
 	}()
-	if err := svc.Relay(t.Context(), "qm-claude-native", "hello"); err != nil {
+	delivery, err := svc.Relay(t.Context(), "qm-claude-native", "hello")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if delivery != DeliveryAccepted {
+		t.Fatalf("Claude native delivery = %q, want %q", delivery, DeliveryAccepted)
 	}
 	select {
 	case frame := <-received:
@@ -108,8 +112,12 @@ func TestClaudeInboundProjectRestriction(t *testing.T) {
 	}
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	if err := svc.Relay(t.Context(), "qm-restricted-claude", "hello"); err != nil {
+	delivery, err := svc.Relay(t.Context(), "qm-restricted-claude", "hello")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if delivery != DeliverySubmitted {
+		t.Fatalf("restricted Claude delivery = %q, want %q", delivery, DeliverySubmitted)
 	}
 	if len(sent) != 1 || sent[0] != "[FROM:external] hello" {
 		t.Fatalf("restricted Claude tmux fallback = %v", sent)
@@ -139,8 +147,12 @@ func TestClaudeUndecidableSettingsUseTmux(t *testing.T) {
 			}
 			var sent []string
 			svc := newService(store, idleAndSendRunner(&sent))
-			if err := svc.Relay(t.Context(), "qm-claude-settings", "hello"); err != nil {
+			delivery, err := svc.Relay(t.Context(), "qm-claude-settings", "hello")
+			if err != nil {
 				t.Fatal(err)
+			}
+			if delivery != DeliverySubmitted {
+				t.Fatalf("undecidable Claude delivery = %q, want %q", delivery, DeliverySubmitted)
 			}
 			if len(sent) != 1 || sent[0] != "[FROM:external] hello" {
 				t.Fatalf("Claude tmux fallback = %v", sent)
@@ -186,8 +198,12 @@ func TestPiReceiptIsUnconfirmedAndNeverRetried(t *testing.T) {
 		_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"unconfirmed"}` + "\n"))
 	}()
 	message := strings.Repeat("x", LargeMessageThreshold+1)
-	if err := svc.Relay(t.Context(), id, message); err != nil {
+	delivery, err := svc.Relay(t.Context(), id, message)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if delivery != DeliveryAccepted {
+		t.Fatalf("Pi unconfirmed acknowledgment delivery = %q, want %q", delivery, DeliveryAccepted)
 	}
 	if <-got != "[FROM:external] "+message || len(sent) != 0 {
 		t.Fatalf("Pi native message or tmux fallback wrong: %v", sent)
@@ -195,7 +211,7 @@ func TestPiReceiptIsUnconfirmedAndNeverRetried(t *testing.T) {
 	svc.dial = func(context.Context, string, string) (net.Conn, error) {
 		return &failingConn{}, nil
 	}
-	if err := svc.Relay(t.Context(), id, "again"); err == nil || errors.Is(err, errNativeUnavailable) {
+	if _, err := svc.Relay(t.Context(), id, "again"); err == nil || errors.Is(err, errNativeUnavailable) {
 		t.Fatalf("post-connect error = %v", err)
 	}
 	if len(sent) != 0 {
@@ -208,3 +224,58 @@ type failingConn struct{ net.Conn }
 func (f *failingConn) Write([]byte) (int, error)   { return 1, errors.New("write failed") }
 func (f *failingConn) SetDeadline(time.Time) error { return nil }
 func (f *failingConn) Close() error                { return nil }
+
+// A session that records its runtime directory takes Pi's socket from there,
+// not from /tmp/<id>.
+func TestPiDeliveryUsesTheRecordedRuntimeDir(t *testing.T) {
+	// Not t.TempDir: its path carries the test name and can exceed the
+	// 103-byte socket limit.
+	root, err := os.MkdirTemp("", "qmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := state.NewSessionID(time.Now().UnixNano())
+	dir := state.NewRuntimeDir(root, id)
+	if err := state.EnsureRuntimeDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", filepath.Join(dir, "pi.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	if err := os.Chmod(filepath.Join(dir, "pi.sock"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	createManifest(t, store, id, "pi", "worker")
+	setAgent(t, store, id, "pi")
+	if err := store.Update(id, func(m *state.Manifest) { m.RuntimeDir = dir }); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		var request piMessageRequest
+		_ = json.NewDecoder(conn).Decode(&request)
+		_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"unconfirmed"}` + "\n"))
+	}()
+	var sent []string
+	delivery, err := newService(store, idleAndSendRunner(&sent)).Relay(t.Context(), id, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delivery != DeliveryAccepted || len(sent) != 0 {
+		t.Fatalf("delivery = %q, tmux fallback = %v; want the recorded socket to accept it", delivery, sent)
+	}
+	if _, err := os.Lstat(filepath.Join("/tmp", id)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("/tmp/%s exists: %v", id, err)
+	}
+}

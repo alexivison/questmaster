@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -185,6 +186,38 @@ func TestPRWatchRejectsPlainSession(t *testing.T) {
 	}
 }
 
+func TestPRWatchHostAllowlist(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupStore(t)
+	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+		t.Fatal(err)
+	}
+	existing, _ := state.ParsePullRequestRef("owner/repo#7")
+	if _, err := state.WatchPullRequest(store.Root(), "qm-pr", existing, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	oldHosts := prLoggedInHosts
+	t.Cleanup(func() { prLoggedInHosts = oldHosts })
+	prLoggedInHosts = func() ([]string, error) { return []string{"other.example"}, nil }
+	_, err := runCmdErr(t, store, sessionsRunner(), "pr", "watch", "https://ghe.example/owner/repo/pull/1", "--session", "qm-pr")
+	if err == nil || !strings.Contains(err.Error(), "accepted: github.com, other.example") {
+		t.Fatalf("watch on unlisted host: %v", err)
+	}
+	prs, err := state.LoadPullRequests(store.Root())
+	if err != nil || len(prs) != 1 || prs[0].Key != existing.Key {
+		t.Fatalf("rejected watch changed the registry: %#v, %v", prs, err)
+	}
+
+	prLoggedInHosts = func() ([]string, error) { return []string{"ghe.example"}, nil }
+	var result struct {
+		Key   string `json:"key"`
+		Added bool   `json:"added"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "watch", "https://ghe.example/owner/repo/pull/1", "--session", "qm-pr")), &result); err != nil || !result.Added || result.Key != "ghe.example/owner/repo#1" {
+		t.Fatalf("watch on logged-in host = %#v, %v", result, err)
+	}
+}
+
 func TestPREventsPreviewAndFull(t *testing.T) {
 	stubPRDaemon(t)
 	store := setupStore(t)
@@ -207,18 +240,33 @@ func TestPREventsPreviewAndFull(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
+	type eventOutput struct {
+		state.PullRequestEvent
+		Untrusted bool   `json:"untrusted"`
+		Notice    string `json:"notice"`
+	}
 	var preview []struct {
-		Body          string `json:"body"`
-		BodyTruncated bool   `json:"body_truncated"`
-		BodyBytes     int    `json:"body_bytes"`
+		eventOutput
+		BodyTruncated bool `json:"body_truncated"`
+		BodyBytes     int  `json:"body_bytes"`
 	}
 	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "events", "owner/repo#7")), &preview); err != nil || len(preview) != 2 || !preview[0].BodyTruncated || preview[0].BodyBytes != len(body) || len(preview[0].Body) > 200 || !utf8.ValidString(preview[0].Body) || strings.Contains(preview[0].Body, "```") || !preview[1].BodyTruncated || preview[1].BodyBytes != len(humanBody) || len(preview[1].Body) != 400 {
 		t.Fatalf("preview = %#v, %v", preview, err)
 	}
-	var full []state.PullRequestEvent
+	for _, event := range preview {
+		if !event.Untrusted || event.Notice == "" {
+			t.Fatalf("preview event lacks untrusted marking: %#v", event)
+		}
+	}
+	var full []eventOutput
 	fullJSON := runCmd(t, store, sessionsRunner(), "pr", "events", "owner/repo#7", "--full")
 	if err := json.Unmarshal([]byte(fullJSON), &full); err != nil || len(full) != 2 || full[0].Body != strings.ReplaceAll(body, "```", "\\`\\`\\`") || full[1].Body != humanBody || strings.Contains(fullJSON, "body_truncated") {
 		t.Fatalf("full = %#v, %v", full, err)
+	}
+	for _, event := range full {
+		if !event.Untrusted || event.Notice == "" {
+			t.Fatalf("full event lacks untrusted marking: %#v", event)
+		}
 	}
 	log, err := state.LoadPullRequestEventLog(store.Root(), ref.Key)
 	if err != nil || len(log.Events) != 2 || log.Events[0].Body != body || log.Events[1].Body != humanBody {
@@ -355,6 +403,89 @@ func stubPRDaemon(t *testing.T) {
 	t.Cleanup(func() { prEnsure, prRequest = oldEnsure, oldRequest })
 }
 
+// holdJobsLock plays the daemon that owns PR jobs on the root.
+func holdJobsLock(t *testing.T, root string) {
+	t.Helper()
+	dir := filepath.Join(root, "daemon")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(filepath.Join(dir, "jobs.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lock.Close() })
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setupPRSession(t *testing.T) *state.Store {
+	t.Helper()
+	store := setupStore(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-pr")
+	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func TestPRWatchReportsMonitoringUnavailableWhenNoDaemonPolls(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupPRSession(t)
+	prEnsure = func(context.Context, daemon.Config) (daemon.Record, error) {
+		return daemon.Record{}, fmt.Errorf("daemon unavailable")
+	}
+	prRequest = func(context.Context, daemon.Config, []string, bool) (map[string]prstatus.HostResult, error) {
+		return nil, fmt.Errorf("PR polling is unavailable on this daemon")
+	}
+	var result struct {
+		Added      bool   `json:"added"`
+		Monitoring string `json:"monitoring"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "watch", "owner/repo#7")), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Added || result.Monitoring != "unavailable" {
+		t.Fatalf("watch = %#v, want added with unavailable monitoring", result)
+	}
+}
+
+func TestPRWatchReportsMonitoringActiveWhileAnotherDaemonHoldsJobs(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupPRSession(t)
+	prEnsure = func(context.Context, daemon.Config) (daemon.Record, error) {
+		return daemon.Record{}, fmt.Errorf("daemon unavailable")
+	}
+	holdJobsLock(t, store.Root())
+	var result struct {
+		Monitoring string `json:"monitoring"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "watch", "owner/repo#7")), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Monitoring != "active" {
+		t.Fatalf("watch monitoring = %q, want active", result.Monitoring)
+	}
+}
+
+func TestPRRefreshReportsMonitoring(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupPRSession(t)
+	holdJobsLock(t, store.Root())
+	var result struct {
+		Monitoring string `json:"monitoring"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "refresh")), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Monitoring != "active" {
+		t.Fatalf("refresh monitoring = %q, want active", result.Monitoring)
+	}
+}
+
 func TestPRSessionRequiresManifest(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -408,5 +539,43 @@ func TestPruneDropsOrphanWatchesAndDryRunPreservesRegistry(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(store.Root(), "qm-orphan.json")); !os.IsNotExist(err) {
 		t.Fatalf("unexpected manifest: %v", err)
+	}
+}
+
+func TestPRExistingWatchOnUnlistedHostStillWorks(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupStore(t)
+	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := state.ParsePullRequestRef("https://ghe.example/owner/repo/pull/2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.WatchPullRequest(store.Root(), "qm-pr", ref, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	oldHosts := prLoggedInHosts
+	t.Cleanup(func() { prLoggedInHosts = oldHosts })
+	prLoggedInHosts = func() ([]string, error) {
+		t.Error("unwatch, events and refresh must not check gh's hosts")
+		return []string{"github.com"}, nil
+	}
+	const watchRef = "https://ghe.example/owner/repo/pull/2"
+	var events []json.RawMessage
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "events", watchRef, "--session", "qm-pr")), &events); err != nil {
+		t.Fatalf("events on existing unlisted-host watch: %v", err)
+	}
+	var refreshed struct {
+		PullRequests []state.PullRequest `json:"pull_requests"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "refresh", watchRef, "--session", "qm-pr")), &refreshed); err != nil || len(refreshed.PullRequests) != 1 || refreshed.PullRequests[0].Key != ref.Key {
+		t.Fatalf("refresh on existing unlisted-host watch = %#v, %v", refreshed, err)
+	}
+	var result struct {
+		Removed bool `json:"removed"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "unwatch", watchRef, "--session", "qm-pr")), &result); err != nil || !result.Removed {
+		t.Fatalf("unwatch on existing unlisted-host watch = %#v, %v", result, err)
 	}
 }

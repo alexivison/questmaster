@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,10 +45,18 @@ type PullRequestStatus struct {
 	Comments           int    `json:"comments"`
 	Review             string `json:"review,omitempty"`
 	CI                 string `json:"ci,omitempty"`
+	CICompletedAt      string `json:"ci_completed_at,omitempty"` // newest finished check on the head; set while CI is success or failure
+	CIRunning          bool   `json:"ci_running,omitempty"`      // a check on the head has not finished
 	ChangedAt          string `json:"changed_at,omitempty"`
 	InaccessibleReason string `json:"inaccessible_reason,omitempty"`
 	Stale              bool   `json:"stale"`
 }
+
+// githubHost is accepted without asking gh; any other host needs a gh login.
+const githubHost = "github.com"
+
+// HostLister reports the GitHub hosts gh is logged in to. A nil HostLister accepts github.com only.
+type HostLister func() ([]string, error)
 
 // ParsePullRequestRef accepts a GitHub-style URL on any host or owner/repo#number.
 func ParsePullRequestRef(raw string) (PullRequest, error) {
@@ -71,6 +80,30 @@ func ParsePullRequestRef(raw string) (PullRequest, error) {
 	}
 	host = strings.ToLower(host)
 	return PullRequest{Key: fmt.Sprintf("%s/%s/%s#%d", host, strings.ToLower(owner), strings.ToLower(repo), n), Host: host, Owner: owner, Repo: repo, Number: n}, nil
+}
+
+// AcceptPullRequestHost checks a host for a new watch: github.com, or a host in loggedInHosts.
+// The host must be the lowercase host from ParsePullRequestRef.
+func AcceptPullRequestHost(host string, loggedInHosts HostLister) error {
+	if host == githubHost {
+		return nil
+	}
+	accepted := []string{githubHost}
+	if loggedInHosts != nil {
+		hosts, err := loggedInHosts()
+		if err != nil {
+			return fmt.Errorf("check gh logins for PR host %q: %w", host, err)
+		}
+		for _, loggedIn := range hosts {
+			if loggedIn != githubHost {
+				accepted = append(accepted, loggedIn)
+			}
+		}
+	}
+	if slices.Contains(accepted, host) {
+		return nil
+	}
+	return fmt.Errorf("PR host %q is not accepted (accepted: %s); log in with gh auth login --hostname %s to watch it", host, strings.Join(accepted, ", "), host)
 }
 
 func PullRequestsRegistryPath(root string) string { return filepath.Join(root, "pull_requests.json") }
@@ -196,24 +229,32 @@ func WatchPullRequest(root, sessionID string, ref PullRequest, now time.Time) (b
 
 func UnwatchPullRequest(root, sessionID, key string) (bool, error) {
 	n, err := mutatePullRequests(root, func(prs *[]PullRequest) (int, error) {
-		for i := range *prs {
-			if (*prs)[i].Key != key {
-				continue
-			}
-			for j, watcher := range (*prs)[i].Watchers {
-				if watcher.SessionID != sessionID {
-					continue
-				}
-				(*prs)[i].Watchers = append((*prs)[i].Watchers[:j], (*prs)[i].Watchers[j+1:]...)
-				if len((*prs)[i].Watchers) == 0 {
-					*prs = append((*prs)[:i], (*prs)[i+1:]...)
-				}
-				return 1, nil
-			}
+		if !removePullRequestWatcher(prs, key, sessionID) {
+			return 0, nil
 		}
-		return 0, nil
+		return 1, nil
 	})
 	return n != 0, err
+}
+
+// removePullRequestWatcher drops one watch, and the PR entry once its last watcher goes.
+func removePullRequestWatcher(prs *[]PullRequest, key, sessionID string) bool {
+	for i := range *prs {
+		if (*prs)[i].Key != key {
+			continue
+		}
+		for j, watcher := range (*prs)[i].Watchers {
+			if watcher.SessionID != sessionID {
+				continue
+			}
+			(*prs)[i].Watchers = append((*prs)[i].Watchers[:j], (*prs)[i].Watchers[j+1:]...)
+			if len((*prs)[i].Watchers) == 0 {
+				*prs = append((*prs)[:i], (*prs)[i+1:]...)
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // DropPullRequestWatches removes watches matching a session predicate. Dry runs count only.

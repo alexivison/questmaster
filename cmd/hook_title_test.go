@@ -2,7 +2,11 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"io"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -71,7 +75,7 @@ func TestHookClaudeDerivesTitleOnFirstPrompt(t *testing.T) {
 	if len(tmuxStub.renameCalls) != 0 {
 		t.Fatalf("rename calls = %d, want 0", len(tmuxStub.renameCalls))
 	}
-	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "investigate the flaky test" {
+	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "=qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "investigate the flaky test" {
 		t.Fatalf("pane title calls = %+v", tmuxStub.paneTitleCalls)
 	}
 }
@@ -171,7 +175,7 @@ func TestHookCodexDerivesTitleOnFirstPrompt(t *testing.T) {
 	if store.manifest.Title != "add a retry to the uploader" {
 		t.Fatalf("title = %q, want %q", store.manifest.Title, "add a retry to the uploader")
 	}
-	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "add a retry to the uploader" {
+	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "=qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "add a retry to the uploader" {
 		t.Fatalf("pane title calls = %+v", tmuxStub.paneTitleCalls)
 	}
 }
@@ -207,4 +211,136 @@ func TestHookDerivesTitleForMasterWithoutRenamingWindow(t *testing.T) {
 	if len(tmuxStub.renameCalls) != 0 {
 		t.Fatalf("rename calls = %d, want 0", len(tmuxStub.renameCalls))
 	}
+}
+
+// titleRaceTmux stands in for tmux while a derived title is written to the
+// pane. Its first pane-title write runs onFirstWrite before the write lands,
+// so a test can commit an explicit rename at the worst moment: after the
+// derived title committed, before its pane write landed.
+type titleRaceTmux struct {
+	*tmuxEnvStub
+	mu           sync.Mutex
+	titles       []string
+	wrote        bool
+	onFirstWrite func()
+}
+
+func (c *titleRaceTmux) SetManagedPaneTitle(_ context.Context, _ string, title string) error {
+	c.mu.Lock()
+	first := !c.wrote
+	c.wrote = true
+	c.mu.Unlock()
+	if first && c.onFirstWrite != nil {
+		c.onFirstWrite()
+	}
+	c.recordTitle(title)
+	return nil
+}
+
+func (c *titleRaceTmux) recordTitle(title string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.titles = append(c.titles, title)
+}
+
+func (c *titleRaceTmux) lastTitle() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.titles) == 0 {
+		return ""
+	}
+	return c.titles[len(c.titles)-1]
+}
+
+func newTitledAgentSession(t *testing.T, sessionID string) *state.Store {
+	t.Helper()
+	store, err := state.NewStore(setTestStateRoot(t))
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+	return store
+}
+
+// An explicit rename that commits after the derived title committed, and
+// whose own pane write lands before the derived one, still ends up on the
+// pane. The derived title's pane write runs outside the manifest lock, so the
+// rename can commit at that moment.
+func TestDerivedTitlePaneWriteLosesToRenameCommittedMeanwhile(t *testing.T) {
+	const sessionID = "qm-title-race"
+	store := newTitledAgentSession(t, sessionID)
+	client := &titleRaceTmux{tmuxEnvStub: &tmuxEnvStub{}}
+	renamed := make(chan error, 1)
+	client.onFirstWrite = func() {
+		go func() {
+			err := store.Update(sessionID, func(m *state.Manifest) {
+				m.Title = "Explicit title"
+				m.SetExtra("title_locked", "1")
+			})
+			if err == nil {
+				client.recordTitle("Explicit title")
+			}
+			renamed <- err
+		}()
+		select {
+		case err := <-renamed:
+			renamed <- err
+		case <-time.After(time.Second):
+			t.Errorf("an explicit rename could not commit while the derived title was written to the pane")
+		}
+	}
+	r, _ := newTestRunner(t)
+	r.Store = store
+	r.TmuxClient = client
+
+	var stderr bytes.Buffer
+	maybeDeriveTitle(t.Context(), r, sessionID, "Derived title", &stderr)
+	if err := <-renamed; err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("hook stderr = %q", stderr.String())
+	}
+	if got := client.lastTitle(); got != "Explicit title" {
+		t.Fatalf("final pane title = %q (writes %q), want the explicit title", got, client.titles)
+	}
+}
+
+// A pane-title write that hangs in tmux must not hold other manifest writers.
+func TestDerivedTitlePaneWriteDoesNotHoldTheManifestLock(t *testing.T) {
+	const sessionID = "qm-title-blocked"
+	store := newTitledAgentSession(t, sessionID)
+	entered, release := make(chan struct{}), make(chan struct{})
+	client := &titleRaceTmux{tmuxEnvStub: &tmuxEnvStub{}, onFirstWrite: func() {
+		close(entered)
+		<-release
+	}}
+	r, _ := newTestRunner(t)
+	r.Store = store
+	r.TmuxClient = client
+
+	derived := make(chan struct{})
+	go func() {
+		maybeDeriveTitle(t.Context(), r, sessionID, "Derived title", io.Discard)
+		close(derived)
+	}()
+	<-entered
+	updated := make(chan error, 1)
+	go func() { updated <- store.Update(sessionID, func(m *state.Manifest) { m.SetExtra("probe", "1") }) }()
+	select {
+	case err := <-updated:
+		if err != nil {
+			t.Fatalf("manifest update: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Errorf("a manifest update waited for a blocked pane-title write")
+		close(release)
+		<-updated
+		<-derived
+		return
+	}
+	close(release)
+	<-derived
 }

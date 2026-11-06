@@ -4,10 +4,13 @@ package state
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -346,7 +349,7 @@ func TestUpdateAndLogBatchWritesEventsAndAppliesMutationOnce(t *testing.T) {
 		{Action: "tool_execution_start", Agent: "pi", Tool: "bash"},
 	}
 	mutateCalls := 0
-	err := UpdateAndLogBatch(id, events, func(ss *SessionState) bool {
+	err := UpdateAndLogBatch(t.Context(), id, events, func(ss *SessionState) bool {
 		mutateCalls++
 		ss.Panes["agent"] = PaneState{Role: "agent", Agent: "pi", State: "working", Tool: "bash"}
 		return true
@@ -390,7 +393,7 @@ func TestUpdateAndLogWithEventsKeepsExpansionAtomic(t *testing.T) {
 	releaseExpansion := make(chan struct{})
 	firstDone := make(chan error, 1)
 	go func() {
-		firstDone <- UpdateAndLogWithEventsAt(root, id, &StateEvent{Action: "commentary"}, func(ss *SessionState) bool {
+		firstDone <- UpdateAndLogWithEventsAt(t.Context(), root, id, &StateEvent{Action: "commentary"}, func(ss *SessionState) bool {
 			ss.Panes["agent"] = PaneState{Role: "agent", LastChatAt: time.Unix(1, 0)}
 			return true
 		}, func(*StateEvent) []*StateEvent {
@@ -477,7 +480,7 @@ func TestUpdateAndLogBatchPartialWriteKeepsCompleteRecords(t *testing.T) {
 	}
 	var writtenBatch []byte
 	var firstRecordEnd int
-	err = updateAndLogBatchAt(root, id, []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}, func(ss *SessionState) bool {
+	err = updateAndLogBatchAt(t.Context(), root, id, []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}, func(ss *SessionState) bool {
 		ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 		return true
 	}, func(w io.Writer, data []byte) (int, error) {
@@ -516,7 +519,7 @@ func TestUpdateAndLogBatchConcurrentReaderCursorSurvivesStateFailure(t *testing.
 	var readerData []byte
 	var readerErr error
 	events := []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}
-	err := updateAndLogBatchAt(root, id, events, func(ss *SessionState) bool {
+	err := updateAndLogBatchAt(t.Context(), root, id, events, func(ss *SessionState) bool {
 		ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 		return true
 	}, func(w io.Writer, data []byte) (int, error) {
@@ -553,7 +556,7 @@ func TestUpdateAndLogBatchConcurrentReaderCursorSurvivesStateFailure(t *testing.
 	if err := os.Remove(statePath + ".tmp"); err != nil {
 		t.Fatalf("remove state write blocker: %v", err)
 	}
-	if err := UpdateAndLogBatch(id, []*StateEvent{{Action: "later"}}, func(ss *SessionState) bool {
+	if err := UpdateAndLogBatch(t.Context(), id, []*StateEvent{{Action: "later"}}, func(ss *SessionState) bool {
 		ss.Panes["agent"] = PaneState{Role: "agent", State: "done"}
 		return true
 	}); err != nil {
@@ -608,7 +611,7 @@ func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
 		if err := os.Mkdir(statePath+".tmp", 0o700); err != nil {
 			t.Fatalf("make state write fail: %v", err)
 		}
-		err := UpdateAndLogBatch(id, []*StateEvent{event}, func(ss *SessionState) bool {
+		err := UpdateAndLogBatch(t.Context(), id, []*StateEvent{event}, func(ss *SessionState) bool {
 			ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 			return true
 		})
@@ -632,7 +635,7 @@ func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
 	t.Run("success rotates complete batch", func(t *testing.T) {
 		root := setStateRoot(t)
 		current, _ := seed(t, root)
-		if err := UpdateAndLogBatch(id, []*StateEvent{event}, func(ss *SessionState) bool {
+		if err := UpdateAndLogBatch(t.Context(), id, []*StateEvent{event}, func(ss *SessionState) bool {
 			ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 			return true
 		}); err != nil {
@@ -847,8 +850,8 @@ func TestUpsertArtifactDoesNotRecreateAbsentPreviousOwnerSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load global artifacts: %v", err)
 	}
-	if len(artifacts) != 1 || artifacts[0].SessionID != newID || artifacts[0].Label != "New" {
-		t.Fatalf("artifacts = %#v, want moved artifact owned by new session", artifacts)
+	if len(artifacts) != 1 || !reflect.DeepEqual(artifacts[0].SessionIDs, []string{newID, oldID}) || artifacts[0].Label != "Old" {
+		t.Fatalf("artifacts = %#v, want both session links and original metadata", artifacts)
 	}
 	if _, err := os.Stat(SessionStateDir(root, oldID)); !os.IsNotExist(err) {
 		t.Fatalf("old session state dir recreated: err=%v", err)
@@ -857,8 +860,8 @@ func TestUpsertArtifactDoesNotRecreateAbsentPreviousOwnerSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load new sidecar: %v", err)
 	}
-	if !ok || len(sidecar) != 1 || sidecar[0].SessionID != newID || sidecar[0].Label != "New" {
-		t.Fatalf("new sidecar = %#v ok=%v, want moved artifact", sidecar, ok)
+	if !ok || len(sidecar) != 1 || !reflect.DeepEqual(sidecar[0].SessionIDs, []string{newID, oldID}) || sidecar[0].Label != "Old" {
+		t.Fatalf("new sidecar = %#v ok=%v, want shared artifact", sidecar, ok)
 	}
 }
 
@@ -1344,4 +1347,88 @@ func TestStateRootRejectsLiveRootDuringTests(t *testing.T) {
 		}
 	}()
 	_ = StateRoot()
+}
+
+// Every locked state.json writer moves an undecodable file aside once and
+// starts from empty state, so one corrupt write cannot fail later hooks.
+func TestStateWritersMoveCorruptStateAside(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		write func(id string, mutate func(*SessionState) bool) error
+	}{
+		{"update", func(id string, mutate func(*SessionState) bool) error {
+			return UpdateSessionState(id, mutate)
+		}},
+		{"update and log", func(id string, mutate func(*SessionState) bool) error {
+			return UpdateAndLogWithEvents(t.Context(), id, &StateEvent{Action: "working", Agent: "claude"}, mutate, nil)
+		}},
+		{"batch", func(id string, mutate func(*SessionState) bool) error {
+			return UpdateAndLogBatch(t.Context(), id, []*StateEvent{{Action: "agent_start", Agent: "pi"}}, mutate)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := setStateRoot(t)
+			id := "qm-corrupt-" + strings.ReplaceAll(tc.name, " ", "-")
+			dir := SessionStateDir(root, id)
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			if err := os.WriteFile(SessionStatePath(root, id), []byte("not json"), 0o600); err != nil {
+				t.Fatalf("write corrupt state: %v", err)
+			}
+			setWorking := func(ss *SessionState) bool {
+				if len(ss.Panes) != 0 {
+					t.Fatalf("writer did not start from empty state: %+v", ss.Panes)
+				}
+				ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
+				return true
+			}
+			if err := tc.write(id, setWorking); err != nil {
+				t.Fatalf("write over corrupt state: %v", err)
+			}
+			ss, err := LoadSessionStateAt(root, id)
+			if err != nil || ss == nil || ss.Panes["agent"].State != "working" {
+				t.Fatalf("state after recovery = %+v (err %v)", ss, err)
+			}
+			aside, _ := filepath.Glob(SessionStatePath(root, id) + ".corrupt-*")
+			if len(aside) != 1 {
+				t.Fatalf("corrupt copies = %v, want one", aside)
+			}
+			log, err := os.ReadFile(filepath.Join(dir, "hook-errors.log"))
+			if err != nil || !strings.Contains(string(log), filepath.Base(aside[0])) {
+				t.Fatalf("hook-errors.log = %q (err %v), want the moved file named", log, err)
+			}
+		})
+	}
+}
+
+// A writer that gave up at its deadline is still queued for the lock in the
+// kernel; when the lock is granted to it, it must let go at once instead of
+// holding the lock for the rest of the process.
+func TestStateLockTimeoutDoesNotKeepTheLock(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-lock-abandoned"
+	if err := ensureSessionStateDir(root, id); err != nil {
+		t.Fatalf("state dir: %v", err)
+	}
+	holder, err := lockFile(t.Context(), SessionStateLockPath(root, id))
+	if err != nil {
+		t.Fatalf("hold lock: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	err = withStateLockContext(ctx, root, id, func() error {
+		t.Fatal("ran without the lock")
+		return nil
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("held lock error = %v, want the deadline", err)
+	}
+	holder()
+
+	next, cancelNext := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancelNext()
+	if err := withStateLockContext(next, root, id, func() error { return nil }); err != nil {
+		t.Fatalf("lock after the timed-out writer was granted it: %v", err)
+	}
 }

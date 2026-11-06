@@ -2,7 +2,7 @@ import Foundation
 import QuestmasterCore
 
 struct AppBackend: Equatable {
-    enum Source: String { case override, bundled, global, dev, unresolved }
+    enum Source: String { case override, stable, bundled, global, dev, unresolved }
 
     let stateRoot: String
     let executablePath: String
@@ -82,10 +82,18 @@ struct AppBackendResolver {
            let path = resolveExecutable(override, environment: environment, workingDirectory: workingDirectory, fileManager: fileManager) {
             return AppBackend(stateRoot: stateRoot, executablePath: path, source: .override, workingDirectory: home, devWorktree: nil)
         }
-        if bundle.bundleURL.pathExtension == "app",
-           let path = bundle.resourceURL?.appendingPathComponent("qm").path,
-           fileManager.isExecutableFile(atPath: path) {
-            return AppBackend(stateRoot: stateRoot, executablePath: path, source: .bundled, workingDirectory: home, devWorktree: nil)
+        if bundle.bundleURL.pathExtension == "app" {
+            // An installed app runs the stable link install-app.sh points at its qm, as the link path
+            // itself: the daemon is canonical because it runs as the link, and hooks follow the same link.
+            let stable = URL(fileURLWithPath: stateRoot).appendingPathComponent("bin/current/qm").path
+            if fileManager.isExecutableFile(atPath: stable) {
+                return AppBackend(stateRoot: stateRoot, executablePath: stable, source: .stable, workingDirectory: home, devWorktree: nil)
+            }
+            // Bootstrap only: a state root nothing has installed into yet has no link. The bundle's qm
+            // starts the daemon, which creates the link, and the next launch takes the branch above.
+            if let path = bundle.resourceURL?.appendingPathComponent("qm").path, fileManager.isExecutableFile(atPath: path) {
+                return AppBackend(stateRoot: stateRoot, executablePath: path, source: .bundled, workingDirectory: home, devWorktree: nil)
+            }
         }
         if bundle.bundleURL.pathExtension != "app",
            let worktree = repoRoot(startingAt: workingDirectory, fileManager: fileManager),

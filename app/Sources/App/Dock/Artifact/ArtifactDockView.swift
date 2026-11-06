@@ -331,14 +331,37 @@ struct ArtifactRow: View {
     }
 }
 
-private struct ArtifactViewerPane: View {
+struct ArtifactViewerPane: View {
     var displayState: ArtifactViewerDisplayState
     var reloadNonce: Int
     var onOpenExternal: (URL) -> Void
+    var ruleListCompiler: any ArtifactRuleListCompiling = WebKitRuleListCompiler()
+
+    @State private var htmlLoading = true
+    /// Set when the remote-content blocker failed to compile: the page is not loaded, and this says why.
+    @State private var htmlBlockedDetail: String?
+
+    private enum SkeletonMetrics {
+        static let titleWidth: CGFloat = 180
+        static let lineWidths: [CGFloat] = [320, 290, 340, 250]
+        static let pulseFrom = 0.6
+        static let pulseTo = 0.7
+    }
 
     var body: some View {
         viewerContent
             .background(AppPalette.artifactViewerBackground.swiftUI)
+            // A blocked page takes its web view down, so the reset lives here, where it outlives that view: another
+            // artifact or a refresh gets a fresh attempt at the blocker.
+            .onChange(of: viewedPath) { _, _ in htmlBlockedDetail = nil }
+            .onChange(of: reloadNonce) { _, _ in htmlBlockedDetail = nil }
+    }
+
+    private var viewedPath: String? {
+        guard case .viewing(let artifact) = displayState else {
+            return nil
+        }
+        return artifact.path
     }
 
     @ViewBuilder
@@ -347,13 +370,29 @@ private struct ArtifactViewerPane: View {
         case .viewing(let artifact):
             switch artifact.resolvedKind {
             case .html:
-                ArtifactWebView(
-                    artifact: artifact,
-                    reloadNonce: reloadNonce,
-                    decideNavigation: ArtifactNavigationPolicy.decide,
-                    openExternal: onOpenExternal
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let htmlBlockedDetail {
+                    ArtifactStatusPane(
+                        symbolName: "shield.slash",
+                        title: "Page not loaded",
+                        message: "The remote-content blocker failed to compile, so this page did not load.",
+                        detail: htmlBlockedDetail
+                    )
+                } else {
+                    ArtifactWebView(
+                        artifact: artifact,
+                        reloadNonce: reloadNonce,
+                        decideNavigation: ArtifactNavigationPolicy.decide,
+                        openExternal: onOpenExternal,
+                        onLoadingChange: { htmlLoading = $0 },
+                        onRuleListFailure: { htmlBlockedDetail = $0 },
+                        ruleListCompiler: ruleListCompiler
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay { if htmlLoading { htmlLoadingSkeleton } }
+                    .onAppear { htmlLoading = true }
+                    .onChange(of: artifact.path) { _, _ in htmlLoading = true }
+                    .onChange(of: reloadNonce) { _, _ in htmlLoading = true }
+                }
             case .markdown:
                 ArtifactMarkdownView(artifact: artifact, reloadNonce: reloadNonce)
             case .image:
@@ -385,6 +424,21 @@ private struct ArtifactViewerPane: View {
         }
     }
 
+    private var htmlLoadingSkeleton: some View {
+        SkeletonPulse(from: SkeletonMetrics.pulseFrom, to: SkeletonMetrics.pulseTo) {
+            VStack(alignment: .leading, spacing: Space.item) {
+                SkeletonBar(width: SkeletonMetrics.titleWidth, height: Space.section)
+                    .padding(.bottom, Space.item)
+                ForEach(Array(SkeletonMetrics.lineWidths.enumerated()), id: \.offset) { _, width in
+                    SkeletonBar(width: width)
+                }
+            }
+            .padding(Space.section)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(AppPalette.artifactViewerBackground.swiftUI)
+        .accessibilityLabel("Loading artifact")
+    }
 }
 
 struct ArtifactStatusPane: View {

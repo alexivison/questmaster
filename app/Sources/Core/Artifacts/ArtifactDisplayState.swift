@@ -35,18 +35,18 @@ public struct ArtifactDisplayUpdate: Equatable {
 public struct ArtifactDisplayState: Equatable {
     public private(set) var currentSessionID: String?
 
-    /// The viewed session's artifact paths when last seen, to spot ones added since. Only that session's: switching
+    /// The viewed session's artifact IDs when last seen, to spot ones added since. Only that session's: switching
     /// sessions starts a new baseline, so a switch never opens an artifact.
-    private var knownArtifactPaths: KnownPaths?
+    private var knownArtifactIDs: KnownIDs?
 
-    private struct KnownPaths: Equatable {
+    private struct KnownIDs: Equatable {
         let sessionID: String
-        let paths: Set<String>
+        let ids: Set<String>
     }
 
     public init() {
         self.currentSessionID = nil
-        self.knownArtifactPaths = nil
+        self.knownArtifactIDs = nil
     }
 
     public static func currentSession(in snapshot: TrackerSnapshot, preferredSessionID: String? = nil) -> TrackerSession? {
@@ -82,7 +82,7 @@ public struct ArtifactDisplayState: Equatable {
             // No session (a detached terminal): the dock hides, and keeps its artifact for when one attaches. The next
             // session starts a new baseline, as a switch does.
             currentSessionID = nil
-            knownArtifactPaths = nil
+            knownArtifactIDs = nil
             return ArtifactDisplayUpdate(
                 artifacts: [],
                 displayState: .noCurrentSession,
@@ -95,10 +95,10 @@ public struct ArtifactDisplayState: Equatable {
         let artifacts = Self.scopedArtifacts(in: snapshot, session: session, scope: scope)
         // The baseline is the session's own artifacts whatever the tab, so one that arrived while the worker chat
         // was showing never opens later.
-        let currentPaths = Set(Self.scopedArtifacts(in: snapshot, session: session, scope: .session).map(\.path))
-        let previousPaths = knownArtifactPaths?.sessionID == session.id ? knownArtifactPaths?.paths : nil
-        let newPaths = previousPaths.map { currentPaths.subtracting($0) } ?? []
-        knownArtifactPaths = KnownPaths(sessionID: session.id, paths: currentPaths)
+        let currentIDs = Set(Self.scopedArtifacts(in: snapshot, session: session, scope: .session).map(\.id))
+        let previousIDs = knownArtifactIDs?.sessionID == session.id ? knownArtifactIDs?.ids : nil
+        let newIDs = previousIDs.map { currentIDs.subtracting($0) } ?? []
+        knownArtifactIDs = KnownIDs(sessionID: session.id, ids: currentIDs)
 
         let kept = keepingSelection
             ? selectedArtifactID.flatMap { id in Self.scopedArtifacts(in: snapshot, session: session, scope: .all).first { $0.id == id } }
@@ -108,8 +108,8 @@ public struct ArtifactDisplayState: Equatable {
         // On either tab: the baseline holds only the viewed session's own artifacts, so a peer's never opens.
         let intent: ArtifactDisplayIntent
         if cleanPreferredSessionID == session.id,
-           previousPaths != nil,
-           let newestNewArtifact = artifacts.first(where: { newPaths.contains($0.path) }) {
+           previousIDs != nil,
+           let newestNewArtifact = artifacts.first(where: { newIDs.contains($0.id) }) {
             nextSelectedArtifactID = newestNewArtifact.id
             intent = .open(newestNewArtifact)
         } else {
@@ -178,7 +178,7 @@ public struct ArtifactDisplayState: Equatable {
             }
             return artifact.label.localizedCaseInsensitiveContains(cleanQuery)
                 || artifact.path.localizedCaseInsensitiveContains(cleanQuery)
-                || artifact.sessionID.localizedCaseInsensitiveContains(cleanQuery)
+                || artifact.sessionIDs.contains { $0.localizedCaseInsensitiveContains(cleanQuery) }
                 || artifact.projectID.localizedCaseInsensitiveContains(cleanQuery)
         }
     }
@@ -230,17 +230,17 @@ public struct ArtifactDisplayState: Equatable {
                 guard !session.repoIdentity.isEmpty else {
                     return []
                 }
-                return snapshot.repos.flatMap(\.sessions)
+                return uniqueArtifacts(snapshot.repos.flatMap(\.sessions)
                     .filter { $0.repoIdentity == session.repoIdentity }
-                    .flatMap(\.artifacts)
+                    .flatMap(\.artifacts))
             case .all:
-                return snapshot.repos.flatMap(\.sessions).flatMap(\.artifacts)
+                return uniqueArtifacts(snapshot.repos.flatMap(\.sessions).flatMap(\.artifacts))
             }
         }
 
         switch scope {
         case .session:
-            return snapshot.artifacts.filter { $0.sessionID == session.id }
+            return snapshot.artifacts.filter { $0.sessionIDs.contains(session.id) }
         case .project:
             guard !session.repoIdentity.isEmpty else {
                 return []
@@ -249,6 +249,11 @@ public struct ArtifactDisplayState: Equatable {
         case .all:
             return snapshot.artifacts
         }
+    }
+
+    private static func uniqueArtifacts(_ artifacts: [ArtifactReference]) -> [ArtifactReference] {
+        var seen = Set<String>()
+        return artifacts.filter { seen.insert($0.id).inserted }
     }
 
     public static func displayState(

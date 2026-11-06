@@ -787,14 +787,9 @@ func TestClaudePreLaunchSetup_UnsetsClaudeCode(t *testing.T) {
 		t.Fatalf("PreLaunchSetup: %v", err)
 	}
 
-	if len(client.unsetCalls) != 2 {
-		t.Fatalf("unset calls: got %d, want 2", len(client.unsetCalls))
-	}
-	if client.unsetCalls[0] != (unsetCall{session: "", key: "CLAUDECODE"}) {
-		t.Fatalf("global unset: got %+v", client.unsetCalls[0])
-	}
-	if client.unsetCalls[1] != (unsetCall{session: "qm-test", key: "CLAUDECODE"}) {
-		t.Fatalf("session unset: got %+v", client.unsetCalls[1])
+	want := []unsetCall{{session: "qm-test", key: "CLAUDECODE"}}
+	if !reflect.DeepEqual(client.unsetCalls, want) {
+		t.Fatalf("unset calls = %+v, want only the session's %+v", client.unsetCalls, want)
 	}
 }
 

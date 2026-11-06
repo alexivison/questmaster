@@ -32,7 +32,7 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "prune",
-		Short: "Remove stale session manifests and orphaned state directories",
+		Short: "Remove stale session manifests and orphaned state and runtime directories",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			result, err := pruneManifests(cmd.Context(), store, client, days, dryRun)
 			if err != nil {
@@ -47,12 +47,22 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 }
 
 func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client, maxDays int, dryRun bool) (pruneResult, error) {
+	legacyRoot := ""
+	if filepath.Clean(store.Root()) == filepath.Clean(state.StateRoot()) {
+		legacyRoot = "/tmp"
+	}
+	return pruneManifestsWithLegacyRoot(ctx, store, client, maxDays, dryRun, legacyRoot)
+}
+
+// legacyRoot is supplied by tests so they never scan or remove real /tmp paths.
+func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, client *tmux.Client, maxDays int, dryRun bool, legacyRoot string) (pruneResult, error) {
 	result := pruneResult{Days: maxDays, DryRun: dryRun}
 	live, err := client.ListSessions(ctx)
 	if err != nil {
 		return result, fmt.Errorf("list tmux sessions: %w", err)
 	}
 	liveSet := make(map[string]bool, len(live))
+	// If sessions move to dedicated tmux servers, collect liveness from every server before pruning.
 	for _, s := range live {
 		if state.IsValidSessionID(s) {
 			liveSet[s] = true
@@ -125,6 +135,7 @@ func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client
 			wouldDelete[sessionID] = true
 			result.Paths = append(result.Paths, path)
 			result.Pruned++
+			pruneRecordedRuntimeDir(&result, m, readErr, sessionID, legacyRoot, true)
 			continue
 		}
 
@@ -141,6 +152,42 @@ func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client
 		}
 		result.Paths = append(result.Paths, path)
 		result.Pruned++
+		pruneRecordedRuntimeDir(&result, m, readErr, sessionID, legacyRoot, false)
+	}
+	for _, parent := range []struct {
+		path   string
+		legacy bool
+	}{
+		{path: filepath.Join(root, "runtime")},
+		{path: legacyRoot, legacy: true},
+	} {
+		if parent.path == "" {
+			continue
+		}
+		var info os.FileInfo
+		if parent.legacy {
+			// /tmp is a symlink on macOS; only this parent may be followed.
+			info, err = os.Stat(parent.path)
+		} else {
+			info, err = os.Lstat(parent.path)
+		}
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		dirs, err := os.ReadDir(parent.path)
+		if err != nil {
+			return result, fmt.Errorf("read runtime dir %s: %w", parent.path, err)
+		}
+		for _, dir := range dirs {
+			id := dir.Name()
+			if !dir.IsDir() || !state.IsValidSessionID(id) || liveSet[id] {
+				continue
+			}
+			if _, err := os.Lstat(filepath.Join(root, id+".json")); !os.IsNotExist(err) {
+				continue
+			}
+			pruneRuntimePath(&result, filepath.Join(parent.path, id), dryRun)
+		}
 	}
 	result.DroppedWatches, err = state.DropPullRequestWatches(root, func(id string) bool {
 		if wouldDelete[id] {
@@ -176,4 +223,29 @@ func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client
 		result.Pruned += len(paths)
 	}
 	return result, nil
+}
+
+func pruneRecordedRuntimeDir(result *pruneResult, m state.Manifest, readErr error, sessionID, legacyRoot string, dryRun bool) {
+	if readErr != nil || m.SessionID != sessionID {
+		return
+	}
+	dir, err := m.RuntimeDirOrLegacy()
+	if err != nil {
+		return
+	}
+	if m.RuntimeDir == "" {
+		if legacyRoot == "" {
+			return
+		}
+		dir = filepath.Join(legacyRoot, sessionID)
+	}
+	pruneRuntimePath(result, dir, dryRun)
+}
+
+func pruneRuntimePath(result *pruneResult, path string, dryRun bool) {
+	removed, err := state.PruneRuntimeDir(path, dryRun)
+	if err == nil && removed {
+		result.Paths = append(result.Paths, path)
+		result.Pruned++
+	}
 }

@@ -61,13 +61,19 @@ type HookRunner struct {
 	// always appends ev, then conditionally writes state.json when mutate
 	// returns true. Hot-path handlers use this instead of an AppendEvent +
 	// Update pair to take one lock per event instead of two.
-	UpdateAndLog func(sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error
+	// A deadline on ctx bounds the wait for that lock.
+	UpdateAndLog func(ctx context.Context, sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error
 
 	// UpdateAndLogEvents applies and logs a group of related hook events under
 	// one state lock.
-	UpdateAndLogEvents func(sessionID string, events []*state.StateEvent, mutate func(*state.SessionState) bool) error
+	UpdateAndLogEvents func(ctx context.Context, sessionID string, events []*state.StateEvent, mutate func(*state.SessionState) bool) error
 
-	RecordToolDuration func(agent, tool, command string, duration time.Duration) error
+	RecordToolDuration func(ctx context.Context, agent, tool, command string, duration time.Duration) error
+
+	// LogHookError appends one line to the session's hook-errors.log. runHook
+	// sends every handler error there as well as to stderr, which agents
+	// discard.
+	LogHookError func(sessionID, text string) error
 }
 
 type completedTool struct {
@@ -92,7 +98,7 @@ type hookTmuxEnvironmentSetter interface {
 
 // defaultHookRunner wires HookRunner to the real internal/state package.
 func defaultHookRunner() *HookRunner {
-	return newHookRunner(state.OpenStore(state.StateRoot()), tmux.NewExecClient())
+	return newHookRunner(state.OpenStore(state.StateRoot()), tmux.NewClient(tmux.DefaultServer()))
 }
 
 func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *HookRunner {
@@ -106,17 +112,18 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		AppendEvent:        state.AppendStateEvent,
 		UpdateAndLog:       state.UpdateAndLogWithEvents,
 		UpdateAndLogEvents: state.UpdateAndLogBatch,
-		RecordToolDuration: func(agent, tool, command string, duration time.Duration) error {
-			return state.RecordToolDurationAt(state.StateRoot(), agent, tool, command, duration)
+		RecordToolDuration: func(ctx context.Context, agent, tool, command string, duration time.Duration) error {
+			return state.RecordToolDurationAt(ctx, state.StateRoot(), agent, tool, command, duration)
 		},
+		LogHookError: state.AppendHookError,
 	}
 }
 
-func (r *HookRunner) recordToolDuration(agent string, completed *completedTool, stderr io.Writer) {
+func (r *HookRunner) recordToolDuration(ctx context.Context, agent string, completed *completedTool, stderr io.Writer) {
 	if completed == nil || completed.waitedForInput || r.RecordToolDuration == nil || completed.duration <= 0 {
 		return
 	}
-	if err := r.RecordToolDuration(agent, completed.tool, completed.command, completed.duration); err != nil {
+	if err := r.RecordToolDuration(ctx, agent, completed.tool, completed.command, completed.duration); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook %s: record tool duration: %v\n", agent, err)
 	}
 }
@@ -166,7 +173,7 @@ func toolCommandFromInput(input interface{}) string {
 //
 // It returns the append and update errors separately so callers can keep
 // their agent-specific stderr messages.
-func (r *HookRunner) updateAndLog(sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool) (appendErr, updateErr error) {
+func (r *HookRunner) updateAndLog(ctx context.Context, sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool) (appendErr, updateErr error) {
 	var overflowEvents []*state.StateEvent
 	apply := func(ss *state.SessionState) bool {
 		changed := mutate(ss)
@@ -178,7 +185,7 @@ func (r *HookRunner) updateAndLog(sessionID string, ev *state.StateEvent, mutate
 			return nil
 		}
 		if r.UpdateAndLogEvents != nil {
-			return r.UpdateAndLogEvents(sessionID, overflowEvents, func(*state.SessionState) bool { return false })
+			return r.UpdateAndLogEvents(ctx, sessionID, overflowEvents, func(*state.SessionState) bool { return false })
 		}
 		if r.AppendEvent != nil {
 			var err error
@@ -192,7 +199,7 @@ func (r *HookRunner) updateAndLog(sessionID string, ev *state.StateEvent, mutate
 	if r.UpdateAndLog != nil {
 		// The combined path expands and logs all lines under the state lock;
 		// surface its single error as the update error.
-		return nil, r.UpdateAndLog(sessionID, ev, mutate, splitChatEvent)
+		return nil, r.UpdateAndLog(ctx, sessionID, ev, mutate, splitChatEvent)
 	}
 	if r.Update != nil {
 		updateErr = r.Update(sessionID, apply)
@@ -269,9 +276,9 @@ func splitChatEvent(event *state.StateEvent) []*state.StateEvent {
 	return result
 }
 
-func (r *HookRunner) updateAndLogEvents(sessionID string, events []*state.StateEvent, mutate func(*state.SessionState) bool) error {
+func (r *HookRunner) updateAndLogEvents(ctx context.Context, sessionID string, events []*state.StateEvent, mutate func(*state.SessionState) bool) error {
 	if r.UpdateAndLogEvents != nil {
-		return r.UpdateAndLogEvents(sessionID, events, mutate)
+		return r.UpdateAndLogEvents(ctx, sessionID, events, mutate)
 	}
 	var updateErr error
 	if r.Update != nil {
@@ -291,11 +298,12 @@ func (r *HookRunner) updateAndLogEvents(sessionID string, events []*state.StateE
 
 // hookOptions holds parsed CLI inputs.
 type hookOptions struct {
-	ctx     context.Context
-	agent   string
-	action  string
-	session string
-	stdin   []byte
+	ctx      context.Context
+	agent    string
+	action   string
+	session  string
+	stdin    []byte
+	stdinErr error
 }
 
 // newHookCmd builds `questmaster hook <agent> <action>`. The tmux/state
@@ -316,12 +324,7 @@ func newHookCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := hookOptions{ctx: cmd.Context(), agent: args[0], action: args[1], session: sessionFlag}
-			data, err := readStdinNonBlocking(cmd.InOrStdin())
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "questmaster hook: read stdin: %v\n", err)
-				return nil
-			}
-			opts.stdin = data
+			opts.stdin, opts.stdinErr = readStdinNonBlocking(cmd.InOrStdin())
 			runHook(newHookRunner(store, client), opts, cmd.ErrOrStderr())
 			return nil
 		},
@@ -330,21 +333,40 @@ func newHookCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	return cmd
 }
 
+// hookDeadline bounds one hook invocation. The wait for the state lock and
+// every tmux call share it, so a stuck lock holder or tmux server costs the
+// agent at most this long. It stays under the 1 s the Pi extension used to
+// allow a hook before killing it. The manifest lock is not bounded by it.
+const hookDeadline = 800 * time.Millisecond
+
 // runHook is the testable core. It never returns an error; all failures
-// are logged to stderr and otherwise swallowed so installed shell scripts
-// can `exec` this binary with no agent-visible side effect.
+// are logged to stderr and the session's hook-errors.log and otherwise
+// swallowed, so installed shell scripts can run this binary with no
+// agent-visible side effect.
 func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	if opts.ctx == nil {
 		opts.ctx = context.Background()
 	}
+	ctx, cancel := context.WithTimeout(opts.ctx, hookDeadline)
+	defer cancel()
+	opts.ctx = ctx
 	id := opts.session
 	if id == "" {
 		id = state.SessionIDFromEnv()
 	}
+	validID := state.IsValidSessionID(id)
+	if validID && r.LogHookError != nil {
+		tag := opts.agent + "/" + opts.action + " "
+		stderr = hookErrorWriter{stderr: stderr, log: func(text string) { _ = r.LogHookError(id, tag+text) }}
+	}
+	if opts.stdinErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook: read stdin: %v\n", opts.stdinErr)
+		return
+	}
 	if id == "" {
 		return
 	}
-	if !state.IsValidSessionID(id) {
+	if !validID {
 		fmt.Fprintf(stderr, "questmaster hook: invalid QUESTMASTER_SESSION %q\n", id)
 		return
 	}
@@ -363,6 +385,50 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	}
 }
 
+// hookErrorWriter writes each handler error to stderr and appends it to the
+// session's hook-errors.log, since agents discard a hook's stderr. Handlers
+// write one line per Fprintf, so each write is one log line.
+type hookErrorWriter struct {
+	stderr io.Writer
+	log    func(text string)
+}
+
+func (w hookErrorWriter) Write(p []byte) (int, error) {
+	w.log(string(p))
+	return w.stderr.Write(p)
+}
+
+// hookReorderWindow is how far behind the pane's last event a hook may have
+// started and still count as overtaken by a newer hook. A hook reads its
+// clock before it waits for the state lock, and that wait ends at
+// hookDeadline, so a wider gap means the wall clock stepped back. Treating
+// that as reordering would freeze the pane until the clock caught up.
+const hookReorderWindow = 10 * time.Second
+
+// overtaken reports whether a hook that started at startedAt reached the
+// state lock after a newer hook had already moved the pane to lastEvent.
+// Claude and Codex payloads carry no emission time, so a hook's start is its
+// emission time. Pi and OpenCode stamp their events, but LastEvent holds hook
+// start times, and both bridges run one hook at a time, so start order is
+// their emission order too.
+//
+// An overtaken event is still logged, marked "overtaken". It must not move
+// the plate back: an overtaken session or turn boundary changes nothing in
+// the pane (it would reset the newer turn), and any other overtaken event
+// keeps its own records, a running tool or a chat line, but leaves State,
+// Activity, Tool, LastKind, LastEvent and Seq to the newer event.
+func overtaken(startedAt, lastEvent time.Time) bool {
+	behind := lastEvent.Sub(startedAt)
+	return behind > 0 && behind <= hookReorderWindow
+}
+
+func markOvertaken(ev *state.StateEvent) {
+	if ev.Fields == nil {
+		ev.Fields = map[string]interface{}{}
+	}
+	ev.Fields["overtaken"] = true
+}
+
 var stdinLooksInteractive = func(r io.Reader) bool {
 	f, ok := r.(*os.File)
 	if !ok {
@@ -373,27 +439,6 @@ var stdinLooksInteractive = func(r io.Reader) bool {
 		return false
 	}
 	return info.Mode()&os.ModeCharDevice != 0
-}
-
-// readStdinNonBlocking reads up to 1 MiB from stdin when stdin is piped or
-// otherwise non-interactive. A real TTY must not be read: ReadAll would wait
-// for a line/EOF and hook invocations from an interactive shell would hang.
-func readStdinNonBlocking(r io.Reader) ([]byte, error) {
-	if r == nil {
-		return nil, nil
-	}
-	if stdinLooksInteractive(r) {
-		return nil, nil
-	}
-	const maxBytes = 1 << 20
-	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxBytes {
-		return nil, fmt.Errorf("stdin exceeds %d-byte limit", maxBytes)
-	}
-	return data, nil
 }
 
 // ---------------------------------------------------------------------
@@ -408,6 +453,7 @@ type claudePayload struct {
 	AgentID              string                 `json:"agent_id"`
 	AgentType            string                 `json:"agent_type"`
 	SessionID            string                 `json:"session_id"`
+	Source               string                 `json:"source"`
 	PromptID             string                 `json:"prompt_id"`
 	ToolName             string                 `json:"tool_name"`
 	ToolUseID            string                 `json:"tool_use_id"`
@@ -434,6 +480,16 @@ func decodeClaude(data []byte) claudePayload {
 	// last-known state.
 	_ = json.Unmarshal(data, &p)
 	return p
+}
+
+// sessionStartIsCompaction reports whether a SessionStart hook is the re-fire
+// Claude and Codex send when they compact a session. Compaction is not a
+// session start, and when the session was idle no Stop follows it, so letting
+// it set "starting" would hold PR alerts (sent only to idle and done panes)
+// indefinitely. An absent or unknown source still counts as a session start,
+// as it did before this check existed.
+func sessionStartIsCompaction(source string) bool {
+	return source == "compact"
 }
 
 // suppressSpuriousStartingRegression drops a "starting" transition when the
@@ -492,9 +548,12 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 
 	switch opts.action {
 	case "starting":
-		setState = "starting"
-		setActivity = "started"
 		lastKind = "SessionStart"
+		// A compaction keeps the pane's state and snippet.
+		if !sessionStartIsCompaction(payload.Source) {
+			setState = "starting"
+			setActivity = "started"
+		}
 	case "working":
 		// UserPromptSubmit marks the agent pane as working at turn start.
 		setState = "working"
@@ -600,6 +659,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		setState = ""
 		setActivity = ""
 	}
+	setActivity = redactCredentials(setActivity)
 	ev.State = setState
 	ev.Activity = setActivity
 	ev.Tool = setTool
@@ -612,10 +672,19 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	firstPrompt := false
 	suppressFinalMessage := false
 	var completed *completedTool
-	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(opts.ctx, sessionID, &ev, func(ss *state.SessionState) bool {
 		role := "agent"
-		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
+		isOvertaken := overtaken(now, pane.LastEvent)
+		if isOvertaken {
+			markOvertaken(&ev)
+			if opts.action == "starting" || opts.action == "working" || opts.action == "done" || opts.action == "stopped" {
+				return false
+			}
+			setState, setActivity, setTool, lastKind = "", "", "", ""
+			clearTool, clearStaleNotificationActivity = false, false
+		}
+		ss.SeenAt = now
 		if !exists {
 			pane = state.PaneState{Role: role, Agent: "claude"}
 		}
@@ -635,7 +704,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		prevSubagentWake := cloneSubagentWake(pane.SubagentWake)
 		prevClaude.ClaudeDisplayChunks = maps.Clone(pane.ClaudeDisplayChunks)
 		prevClaude.ClaudeOpenChatActions = slices.Clone(pane.ClaudeOpenChatActions)
-		if !isSubagent {
+		if !isSubagent && !isOvertaken {
 			if hasSubagentWake(pane) && setActivity == "" {
 				pane.Activity = pane.SubagentWake.Activity
 			}
@@ -767,7 +836,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// event. Once the parent has gone idle/done, a sub-agent's real
 		// activity must still be able to flip the border back to working.
 		restoreState, restoreActivity, restoreWake := "", "", false
-		if isSubagent && opts.action == "subagent_stop" {
+		if isSubagent && opts.action == "subagent_stop" && !isOvertaken {
 			restoreState, restoreActivity, restoreWake = finishSubagentWake(&pane, payload.AgentID)
 		} else if isSubagent && setState == "working" &&
 			(prev.State != "working" || hasSubagentWake(pane)) {
@@ -824,8 +893,10 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		if lastKind != "" {
 			pane.LastKind = lastKind
 		}
-		pane.LastEvent = now
-		pane.Seq = now.UnixNano()
+		if !isOvertaken {
+			pane.LastEvent = now
+			pane.Seq = now.UnixNano()
+		}
 		pane.Agent = "claude"
 		pane.Role = role
 		if opts.action == "subagent_start" || opts.action == "subagent_stop" {
@@ -886,7 +957,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook claude: update state: %v\n", mutateErr)
 	}
-	r.recordToolDuration("claude", completed, stderr)
+	r.recordToolDuration(opts.ctx, "claude", completed, stderr)
 
 	if firstPrompt {
 		maybeDeriveTitle(opts.ctx, r, sessionID, payload.Prompt, stderr)
@@ -1418,6 +1489,28 @@ func truncatePromptLine(s string) string {
 	return s
 }
 
+// Activity text is stored in state.json and state.jsonl and shown on the
+// plate, so credentials typed into a command are masked before it is stored:
+// an Authorization header's value, a Bearer token, and the value of an
+// assignment whose name says it holds a secret (GITHUB_TOKEN=, --password=).
+// This is best effort: a secret in any other shape passes through.
+var (
+	authorizationHeaderValue = regexp.MustCompile(`(?i)(\bauthorization\s*[:=]\s*)(?:(?:bearer|basic|token|digest)\s+)?[^\s"',;]+`)
+	bearerTokenValue         = regexp.MustCompile(`(?i)(\bbearer\s+)[^\s"',;]+`)
+	secretAssignmentValue    = regexp.MustCompile(`(?i)([A-Za-z0-9_.-]*(?:token|secret|passw(?:or)?d|api[_-]?key|access[_-]?key|private[_-]?key|credential)s?[A-Za-z0-9_.-]*=)(?:"[^"]*"?|'[^']*'?|[^\s"';&|]+)`)
+)
+
+const redactedValue = "[redacted]"
+
+func redactCredentials(s string) string {
+	if s == "" {
+		return s
+	}
+	s = authorizationHeaderValue.ReplaceAllString(s, "${1}"+redactedValue)
+	s = bearerTokenValue.ReplaceAllString(s, "${1}"+redactedValue)
+	return secretAssignmentValue.ReplaceAllString(s, "${1}"+redactedValue)
+}
+
 // stripLeadingEnvAssignments removes shell-style `KEY=value` prefixes
 // from a command line so Bash invocations like
 // `OPENAI_API_KEY=sk-... do-the-thing` don't leak into Activity.
@@ -1760,6 +1853,7 @@ type codexPayload struct {
 	Permission           string                 `json:"permission"`
 	Command              string                 `json:"command"`
 	SessionID            string                 `json:"session_id"`
+	Source               string                 `json:"source"`
 	ThreadID             string                 `json:"thread_id"`
 	ConversationID       string                 `json:"conversation_id"`
 	TranscriptPath       string                 `json:"transcript_path"`
@@ -1957,7 +2051,7 @@ func readCodexCommentary(path string, offset int64, skipping bool) ([]codexComme
 	return commentary, nextOffset, false, nil
 }
 
-func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time.Time, stderr io.Writer) bool {
+func retryCodexRollout(ctx context.Context, r *HookRunner, sessionID, transcriptPath string, now time.Time, stderr io.Writer) bool {
 	for attempt := 0; attempt < maxCodexRolloutRetries; attempt++ {
 		rollout, err := loadCodexRollout(r, sessionID, transcriptPath)
 		if err != nil {
@@ -1971,7 +2065,7 @@ func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time
 		ev := state.StateEvent{Ts: now, Agent: "codex", Role: "agent", Action: "rollout"}
 		conflict := false
 		committed := false
-		_, err = r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
+		_, err = r.updateAndLog(ctx, sessionID, &ev, func(ss *state.SessionState) bool {
 			pane, ok := ss.Panes["agent"]
 			if !ok {
 				pane = state.PaneState{Role: "agent", Agent: "codex"}
@@ -2002,10 +2096,10 @@ func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time
 	return true
 }
 
-func catchUpCodexRolloutUnderLock(r *HookRunner, sessionID, transcriptPath string, now time.Time, stderr io.Writer) {
+func catchUpCodexRolloutUnderLock(ctx context.Context, r *HookRunner, sessionID, transcriptPath string, now time.Time, stderr io.Writer) {
 	ev := state.StateEvent{Ts: now, Agent: "codex", Role: "agent", Action: "rollout"}
 	var readErr error
-	_, updateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
+	_, updateErr := r.updateAndLog(ctx, sessionID, &ev, func(ss *state.SessionState) bool {
 		pane, ok := ss.Panes["agent"]
 		if !ok {
 			pane = state.PaneState{Role: "agent", Agent: "codex"}
@@ -2078,9 +2172,12 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 
 	switch opts.action {
 	case "starting":
-		setState = "starting"
-		setActivity = "started"
 		lastKind = "SessionStart"
+		// A compaction keeps the pane's state and snippet.
+		if !sessionStartIsCompaction(payload.Source) {
+			setState = "starting"
+			setActivity = "started"
+		}
 	case "working":
 		setState = "working"
 		lastKind = "UserPromptSubmit"
@@ -2121,6 +2218,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		fmt.Fprintf(stderr, "questmaster hook codex: unknown action %q\n", opts.action)
 		return
 	}
+	setActivity = redactCredentials(setActivity)
 	ev.State = setState
 	ev.Activity = setActivity
 	ev.Tool = setTool
@@ -2133,10 +2231,19 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		commandKey = toolCommandKey("codex", payload.ToolName, payload.ToolInput)
 	}
 	var completed *completedTool
-	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(opts.ctx, sessionID, &ev, func(ss *state.SessionState) bool {
 		role := "agent"
-		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
+		isOvertaken := overtaken(now, pane.LastEvent)
+		if isOvertaken {
+			markOvertaken(&ev)
+			if opts.action == "starting" || opts.action == "working" || opts.action == "done" {
+				return false
+			}
+			setState, setActivity, setTool, lastKind = "", "", "", ""
+			clearTool = false
+		}
+		ss.SeenAt = now
 		if !exists {
 			pane = state.PaneState{Role: role, Agent: "codex"}
 		}
@@ -2154,13 +2261,13 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		prevRunningTools := slices.Clone(pane.RunningTools)
 		prevActiveSubagents := maps.Clone(pane.ActiveSubagents)
 		prevNarration := pane.Narration
-		if !isSubagent {
+		if !isSubagent && !isOvertaken {
 			if hasSubagentWake(pane) && setActivity == "" {
 				pane.Activity = pane.SubagentWake.Activity
 			}
 			clearSubagentWake(&pane)
 		}
-		clearStaleQuestionActivity := opts.action == "tool_end" &&
+		clearStaleQuestionActivity := !isOvertaken && opts.action == "tool_end" &&
 			isCodexRequestUserInputTool(pane.Tool) && strings.HasPrefix(pane.Activity, "Question: ")
 		if payload.AgentID == "" {
 			if opts.action == "working" || opts.action == "done" {
@@ -2193,7 +2300,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		firstPrompt = opts.action == "working" && prev.State == "starting"
 		setState = suppressSpuriousStartingRegression(setState, prev.State)
 		restoreState, restoreActivity, restoreWake := "", "", false
-		if isSubagent && opts.action == "subagent_stop" {
+		if isSubagent && opts.action == "subagent_stop" && !isOvertaken {
 			restoreState, restoreActivity, restoreWake = finishSubagentWake(&pane, payload.AgentID)
 		} else if isSubagent && setState == "working" &&
 			(prev.State != "working" || hasSubagentWake(pane)) {
@@ -2224,8 +2331,10 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		if lastKind != "" {
 			pane.LastKind = lastKind
 		}
-		pane.LastEvent = now
-		pane.Seq = now.UnixNano()
+		if !isOvertaken {
+			pane.LastEvent = now
+			pane.Seq = now.UnixNano()
+		}
 		pane.Agent = "codex"
 		pane.Role = role
 		if opts.action == "subagent_start" || opts.action == "subagent_stop" {
@@ -2278,10 +2387,10 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
 	}
-	r.recordToolDuration("codex", completed, stderr)
-	if rolloutConflict && mutateErr == nil && retryCodexRollout(r, sessionID, payload.TranscriptPath, now, stderr) {
+	r.recordToolDuration(opts.ctx, "codex", completed, stderr)
+	if rolloutConflict && mutateErr == nil && retryCodexRollout(opts.ctx, r, sessionID, payload.TranscriptPath, now, stderr) {
 		if opts.action == "done" {
-			catchUpCodexRolloutUnderLock(r, sessionID, payload.TranscriptPath, now, stderr)
+			catchUpCodexRolloutUnderLock(opts.ctx, r, sessionID, payload.TranscriptPath, now, stderr)
 		} else {
 			fmt.Fprintf(stderr, "questmaster hook codex: rollout offset changed during %d retries\n", maxCodexRolloutRetries)
 		}
@@ -2500,7 +2609,7 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		(strings.TrimSpace(manifest.Title) != "" && manifest.ExtraString(titleProvisionalExtraKey) == "") {
 		return
 	}
-	var paneTitleErr error
+	committed, agentPane := false, false
 	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 		// Re-check under the lock: a concurrent turn may have set it.
 		if m.ExtraString("title_locked") != "" ||
@@ -2510,22 +2619,23 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		m.Title = title
 		m.WindowName = ""
 		delete(m.Extra, titleProvisionalExtraKey)
-		if r.TmuxClient != nil && len(m.Agents) > 0 {
-			// Keep the tmux write inside the manifest lock so an explicit rename
-			// cannot be followed by this older first-prompt title.
-			pane, err := r.TmuxClient.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
-			if err != nil {
-				paneTitleErr = err
-				return
-			}
-			paneTitleErr = r.TmuxClient.SetManagedPaneTitle(ctx, pane, title)
-		}
+		committed = true
+		agentPane = len(m.Agents) > 0
 	}); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook: update title: %v\n", err)
 		return
 	}
-	if paneTitleErr != nil {
-		fmt.Fprintf(stderr, "questmaster hook: update pane title: %v\n", paneTitleErr)
+	if !committed || !agentPane || r.TmuxClient == nil {
+		return
+	}
+	// The pane write runs after the commit; WriteCommittedPaneTitle follows an
+	// explicit rename that commits meanwhile.
+	pane, err := r.TmuxClient.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
+	if err == nil {
+		err = state.WriteCommittedPaneTitle(ctx, r.Store, r.TmuxClient, sessionID, pane, title)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "questmaster hook: update pane title: %v\n", err)
 	}
 }
 
@@ -2697,7 +2807,7 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 			}
 			prepared = append(prepared, item)
 		}
-		applyPiBatch(r, sessionID, prepared, stderr, "pi")
+		applyPiBatch(opts.ctx, r, sessionID, prepared, stderr, "pi")
 		return
 	}
 	handlePiLike(r, sessionID, opts, stderr, "pi")
@@ -2710,12 +2820,12 @@ type preparedPiEvent struct {
 	recordCompleted func()
 }
 
-func applyPiBatch(r *HookRunner, sessionID string, prepared []preparedPiEvent, stderr io.Writer, agentName string) {
+func applyPiBatch(ctx context.Context, r *HookRunner, sessionID string, prepared []preparedPiEvent, stderr io.Writer, agentName string) {
 	events := make([]*state.StateEvent, len(prepared))
 	for i := range prepared {
 		events[i] = prepared[i].event
 	}
-	err := r.updateAndLogEvents(sessionID, events, func(ss *state.SessionState) bool {
+	err := r.updateAndLogEvents(ctx, sessionID, events, func(ss *state.SessionState) bool {
 		changed := false
 		for i := range prepared {
 			if prepared[i].mutate(ss) {
@@ -2745,7 +2855,7 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	if !ok {
 		return
 	}
-	appendErr, updateErr := r.updateAndLog(sessionID, prepared.event, prepared.mutate)
+	appendErr, updateErr := r.updateAndLog(opts.ctx, sessionID, prepared.event, prepared.mutate)
 	if appendErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook %s: append event: %v\n", agentName, appendErr)
 	}
@@ -2846,6 +2956,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		fmt.Fprintf(stderr, "questmaster hook %s: unknown action %q\n", agentName, opts.action)
 		return preparedPiEvent{}, false
 	}
+	setActivity = redactCredentials(setActivity)
 	var after func()
 	if opts.action == "session_start" || opts.action == "before_agent_start" {
 		piPrompt := payload.Prompt
@@ -2898,10 +3009,21 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		}
 		ev.Fields = fields
 	}
+	turnBoundary := opts.action == "session_start" || opts.action == "before_agent_start" || opts.action == "agent_start" ||
+		opts.action == "turn_end" || opts.action == "agent_end" || opts.action == "session_shutdown"
 	mutate := func(ss *state.SessionState) bool {
 		role := "agent"
-		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
+		isOvertaken := overtaken(now, pane.LastEvent)
+		if isOvertaken {
+			markOvertaken(ev)
+			if turnBoundary {
+				return false
+			}
+			setState, setActivity, setTool = "", "", ""
+			clearTool = false
+		}
+		ss.SeenAt = now
 		if !exists {
 			pane = state.PaneState{Role: role, Agent: agentName}
 		}
@@ -2916,8 +3038,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		prevRunningTools := slices.Clone(pane.RunningTools)
 		prevActiveSubagents := maps.Clone(pane.ActiveSubagents)
 		prevNarration := pane.Narration
-		if opts.action == "session_start" || opts.action == "before_agent_start" || opts.action == "agent_start" ||
-			opts.action == "turn_end" || opts.action == "agent_end" || opts.action == "session_shutdown" {
+		if turnBoundary {
 			state.ClearRunningTools(&pane)
 		}
 		if opts.action == "tool_execution_start" {
@@ -2930,7 +3051,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		}
 
 		preserveBlockedQuestion := opts.action == "tool_execution_start" && pane.State == "blocked" && pane.LastKind == "waiting_for_user"
-		clearStaleQuestionActivity := opts.action == "tool_execution_end" && pane.LastKind == "waiting_for_user" && strings.HasPrefix(pane.Activity, "Question: ")
+		clearStaleQuestionActivity := !isOvertaken && opts.action == "tool_execution_end" && pane.LastKind == "waiting_for_user" && strings.HasPrefix(pane.Activity, "Question: ")
 		if preserveBlockedQuestion {
 			setState = ""
 			setActivity = ""
@@ -2965,9 +3086,11 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		if piSessionID != "" {
 			pane.PiSessionID = piSessionID
 		}
-		pane.LastKind = lastKind
-		pane.LastEvent = now
-		pane.Seq = now.UnixNano()
+		if !isOvertaken {
+			pane.LastKind = lastKind
+			pane.LastEvent = now
+			pane.Seq = now.UnixNano()
+		}
 		pane.Agent = agentName
 		pane.Role = role
 		if opts.action == "subagent_start" || opts.action == "subagent_stop" {
@@ -3017,7 +3140,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 	}
 	return preparedPiEvent{
 		event: ev, mutate: mutate, after: after,
-		recordCompleted: func() { r.recordToolDuration(agentName, completed, stderr) },
+		recordCompleted: func() { r.recordToolDuration(opts.ctx, agentName, completed, stderr) },
 	}, true
 }
 
@@ -3303,7 +3426,7 @@ func cleanPiRecent(lines []string) []string {
 		if line == "" {
 			continue
 		}
-		clean = append(clean, line)
+		clean = append(clean, redactCredentials(line))
 	}
 	if len(clean) > limit {
 		clean = clean[len(clean)-limit:]

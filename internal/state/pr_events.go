@@ -2,6 +2,7 @@ package state
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -151,6 +152,8 @@ func PullRequestPendingAlerts(root, key, sessionID string) ([]PullRequestEvent, 
 	return selectPullRequestEvents(registry, key, sessionID, true, true)
 }
 
+// ReadPullRequestEvents reads a PR's events for a session. A read that shows the merge, or
+// whose cursor has passed it, ends that session's watch in the same locked write.
 func ReadPullRequestEvents(root, key, sessionID string, unread bool) ([]PullRequestEvent, error) {
 	var events []PullRequestEvent
 	_, err := mutatePullRequestRegistry(root, func(registry *pullRequestRegistry) (int, error) {
@@ -159,26 +162,81 @@ func ReadPullRequestEvents(root, key, sessionID string, unread bool) ([]PullRequ
 			return 0, err
 		}
 		events = selected
-		if !unread {
-			return 0, nil
+		changed := 0
+		if unread {
+			changed = advanceReadCursor(registry, key, sessionID, seq)
 		}
-		log := registry.EventLogs[key]
-		if log == nil {
-			return 0, nil
+		ended, err := readEndsWatch(root, *registry, key, sessionID, selected)
+		if err != nil || !ended {
+			return changed, err
 		}
-		if log.Cursors == nil {
-			log.Cursors = map[string]PullRequestEventCursor{}
-		}
-		cursor := log.Cursors[sessionID]
-		if seq <= cursor.ReadSeq {
-			return 0, nil
-		}
-		cursor.ReadSeq = seq
-		log.Cursors[sessionID] = cursor
-		trimPullRequestEvents(log, registryWatchers(registry.PullRequests, key))
+		removePullRequestWatcher(&registry.PullRequests, key, sessionID)
 		return 1, nil
 	})
 	return events, err
+}
+
+// advanceReadCursor moves a watcher's read cursor to seq and reports whether it moved.
+func advanceReadCursor(registry *pullRequestRegistry, key, sessionID string, seq int64) int {
+	log := registry.EventLogs[key]
+	if log == nil || seq <= log.Cursors[sessionID].ReadSeq {
+		return 0
+	}
+	if log.Cursors == nil {
+		log.Cursors = map[string]PullRequestEventCursor{}
+	}
+	cursor := log.Cursors[sessionID]
+	cursor.ReadSeq = seq
+	log.Cursors[sessionID] = cursor
+	trimPullRequestEvents(log, registryWatchers(registry.PullRequests, key))
+	return 1
+}
+
+// readEndsWatch reports whether a read by a watcher has reached the PR's merge. The merge
+// event decides when the log still holds it. Otherwise the PR status decides: a PR merged
+// before the watch began has no merge event for the watcher to read.
+func readEndsWatch(root string, registry pullRequestRegistry, key, sessionID string, returned []PullRequestEvent) (bool, error) {
+	if !isPullRequestWatcher(registry.PullRequests, key, sessionID) {
+		return false, nil
+	}
+	if slices.ContainsFunc(returned, isMergedEvent) {
+		return true, nil
+	}
+	log := registry.EventLogs[key]
+	if mergeSeq := mergedEventSeq(log); mergeSeq > 0 {
+		return log.Cursors[sessionID].ReadSeq >= mergeSeq, nil
+	}
+	statuses, err := LoadPullRequestStatuses(root)
+	if err != nil {
+		return false, err
+	}
+	return statuses[key].State == "merged", nil
+}
+
+func isMergedEvent(event PullRequestEvent) bool {
+	return event.Kind == "state" && event.State == "merged"
+}
+
+// mergedEventSeq returns the sequence number of the first retained merge event, or 0.
+func mergedEventSeq(log *PullRequestEventLog) int64 {
+	if log == nil {
+		return 0
+	}
+	for _, event := range log.Events {
+		if isMergedEvent(event) {
+			return event.Seq
+		}
+	}
+	return 0
+}
+
+func isPullRequestWatcher(prs []PullRequest, key, sessionID string) bool {
+	for _, watcher := range registryWatchers(prs, key) {
+		if watcher.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 func selectPullRequestEvents(registry pullRequestRegistry, key, sessionID string, alerts, unread bool) ([]PullRequestEvent, int64, error) {

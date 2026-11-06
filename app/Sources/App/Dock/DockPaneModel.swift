@@ -27,6 +27,7 @@ final class DockPaneModel: ObservableObject {
 
     var onShowArtifactListIntent: (() -> Void)?
     var onOpenArtifactIntent: ((String) -> Void)?
+    var onOpenArtifactExternal: ((ArtifactReference) -> Void)?
     var onSetArtifactScope: ((ArtifactScope) -> Void)?
     var onSelectedArtifactChange: ((String?) -> Void)?
     var onDeleteArtifacts: (([ArtifactReference]) -> Void)?
@@ -123,6 +124,9 @@ final class DockPaneModel: ObservableObject {
             return onControlDirection?(direction) == true
         }
         guard currentArtifactRoute == .list else {
+            if Keymap.matches(press, .openExternal) {
+                return openSelectedArtifactExternal()
+            }
             if Keymap.matches(press, .back) {
                 onShowArtifactListIntent?()
                 return true
@@ -167,6 +171,8 @@ final class DockPaneModel: ObservableObject {
             return moveArtifactScope(delta: 1)
         case .open:
             return openSelectedArtifact()
+        case .openExternal:
+            return openSelectedArtifactExternal()
         case .copy:
             return copySelectedArtifactPaths()
         case .toggleMark:
@@ -302,6 +308,7 @@ final class DockPaneModel: ObservableObject {
               let command = FilterFieldKey.command(
                 press,
                 showsSuggestions: !artifactModel.filterSuggestions.isEmpty,
+                arrowsMoveList: true,
                 queryIsEmpty: artifactFilterQuery.isEmpty,
                 hasChips: !artifactFilterTokens.isEmpty
               ) else {
@@ -457,6 +464,25 @@ final class DockPaneModel: ObservableObject {
             return false
         }
         onOpenArtifactIntent?(selectedArtifactID)
+        return true
+    }
+
+    private func openSelectedArtifactExternal() -> Bool {
+        let artifact: ArtifactReference?
+        if currentArtifactRoute == .viewer {
+            switch artifactModel.displayState {
+            case .viewing(let current), .missing(let current), .unsupported(let current):
+                artifact = current
+            case .noCurrentSession, .empty:
+                artifact = nil
+            }
+        } else {
+            artifact = selectedArtifactID.flatMap { id in artifactModel.artifacts.first { $0.id == id } }
+        }
+        guard let artifact else {
+            return false
+        }
+        onOpenArtifactExternal?(artifact)
         return true
     }
 
@@ -813,12 +839,9 @@ final class DockPaneModel: ObservableObject {
             }
             titlesByID[id] = titlesByID[id] ?? projectTitle(for: artifact, tracker: tracker)
         }
-        let options = titlesByID
-            .map { ArtifactFilterOption(id: $0.key, title: $0.value) }
-            .sorted { lhs, rhs in
-                lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-            }
-        return [ArtifactFilterOption(id: "", title: "All Projects")] + options
+        let options = titlesByID.map { ArtifactFilterOption(id: $0.key, title: $0.value) }
+        let ordered = ProjectOrder(projects: tracker.projects).sorted(options, id: \.id, title: \.title)
+        return [ArtifactFilterOption(id: "", title: "All Projects")] + ordered
     }
 
     private func typeFilterOptions(artifacts: [ArtifactReference]) -> [ArtifactFilterOption] {
@@ -841,9 +864,13 @@ final class DockPaneModel: ObservableObject {
     }
 
     private func projectTitle(for artifact: ArtifactReference, tracker: TrackerSnapshot) -> String {
-        if let projectID = Self.cleanName(artifact.projectID),
-           let repoName = repoTitle(forProjectID: projectID, tracker: tracker) {
-            return repoName
+        if let projectID = Self.cleanName(artifact.projectID) {
+            if let projectName = tracker.projects.first(where: { $0.id == projectID }).flatMap({ Self.cleanName($0.name) }) {
+                return projectName
+            }
+            if let repoName = repoTitle(forProjectID: projectID, tracker: tracker) {
+                return repoName
+            }
         }
         if let session = session(for: artifact, tracker: tracker),
            let repoName = Self.cleanName(session.repoName) {

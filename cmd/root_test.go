@@ -2,9 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -188,6 +193,34 @@ func TestVersionSubcommand_PrintsVersion(t *testing.T) {
 	}
 }
 
+// The app build stamps one version into the bundle's Info.plist and into qm; the installer
+// checks they match, so the link-time stamp must reach `version --json`.
+func TestVersionReportsLinkTimeStamp(t *testing.T) {
+	t.Parallel()
+
+	const stamp = "v9.9.9-stamp-test"
+	bin := filepath.Join(t.TempDir(), "qm")
+	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags=-X github.com/alexivison/questmaster/cmd.stampedVersion="+stamp, "-o", bin, "..")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	version := exec.Command(bin, "version", "--json")
+	version.Env = append(os.Environ(), "QUESTMASTER_STATE_ROOT="+t.TempDir())
+	out, err := version.Output()
+	if err != nil {
+		t.Fatalf("version --json: %v", err)
+	}
+	var got struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("decode %q: %v", out, err)
+	}
+	if got.Version != stamp {
+		t.Fatalf("version = %q, want %q", got.Version, stamp)
+	}
+}
+
 func TestDeprecatedLayoutFlagAccepted(t *testing.T) {
 	t.Parallel()
 
@@ -246,5 +279,21 @@ func TestStartModelAndReasoningEffortFlags(t *testing.T) {
 		if !strings.Contains(flag.Usage, want) {
 			t.Fatalf("start --reasoning-effort help missing %q: %q", want, flag.Usage)
 		}
+	}
+}
+
+// A CLI send may queue behind other senders to the same pane, so the CLI's
+// client gets the longer send timeout. The daemon keeps tmux's default: an alert
+// that fails to send is retried on the next tick.
+func TestSendTimeoutIsLongerForTheCLIThanForTheDaemon(t *testing.T) {
+	t.Parallel()
+	if got := newCLITmuxClient().SendTimeout; got != cliSendTimeout {
+		t.Errorf("CLI client SendTimeout = %s, want %s", got, cliSendTimeout)
+	}
+	if got := newDaemonTmuxClient().SendTimeout; got != tmux.DefaultSendTimeout {
+		t.Errorf("daemon client SendTimeout = %s, want the default %s", got, tmux.DefaultSendTimeout)
+	}
+	if cliSendTimeout <= tmux.DefaultSendTimeout {
+		t.Errorf("cliSendTimeout %s is not longer than the default %s", cliSendTimeout, tmux.DefaultSendTimeout)
 	}
 }

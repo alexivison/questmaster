@@ -3,16 +3,26 @@ import Foundation
 public struct ServeMutationRequest: Equatable {
     public let method: String
     public let data: [String: String]
+    /// List-valued fields, such as a reorder's project IDs, sent as JSON arrays.
+    public let lists: [String: [String]]
 
-    public init(method: String, data: [String: String] = [:]) {
+    public init(method: String, data: [String: String] = [:], lists: [String: [String]] = [:]) {
         self.method = method
         self.data = data.mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        self.lists = lists.mapValues { $0.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } }
     }
 
     public func jsonObject(id: String) -> [String: Any] {
         var object: [String: Any] = ["id": id, "method": method]
-        if !data.isEmpty {
-            object["data"] = data
+        var payload: [String: Any] = [:]
+        for (key, value) in data {
+            payload[key] = value
+        }
+        for (key, values) in lists {
+            payload[key] = values
+        }
+        if !payload.isEmpty {
+            object["data"] = payload
         }
         return object
     }
@@ -200,12 +210,43 @@ public enum ServeMutationRequests {
         ServeMutationRequest(method: "quest.delete", data: ["quest_id": try required("quest_id", questID)])
     }
 
-    public static func artifactDelete(path: String, sessionID: String) throws -> ServeMutationRequest {
-        var data = ["path": try required("path", path)]
-        if let sessionID = cleanOptional(sessionID) {
-            data["session_id"] = sessionID
+    public static func artifactDelete(id: String) throws -> ServeMutationRequest {
+        ServeMutationRequest(method: "artifact.delete", data: ["id": try required("id", id)])
+    }
+
+    /// Adds a folder as a project, or returns the project it already is. A nil or blank name or color adds none;
+    /// the backend applies a given one to the project either way.
+    public static func projectAdd(path: String, name: String? = nil, color: String? = nil) throws -> ServeMutationRequest {
+        var data: [String: String] = ["path": try required("path", path)]
+        if let name = cleanOptional(name) {
+            data["name"] = name
         }
-        return ServeMutationRequest(method: "artifact.delete", data: data)
+        if let color = cleanOptional(color) {
+            data["color"] = color.lowercased()
+        }
+        return ServeMutationRequest(method: "project.add", data: data)
+    }
+
+    /// Renames and/or recolors a project. A nil name or color leaves it unchanged; an empty one clears the override
+    /// (the name reverts to the folder's, the color to none), so an empty string is sent and a nil is omitted.
+    public static func projectUpdate(projectID: String, name: String? = nil, color: String? = nil) throws -> ServeMutationRequest {
+        var data: [String: String] = ["project_id": try required("project_id", projectID)]
+        if let name {
+            data["name"] = name
+        }
+        if let color {
+            data["color"] = color.lowercased()
+        }
+        return ServeMutationRequest(method: "project.update", data: data)
+    }
+
+    /// The projects in the order given. The backend keeps any project left out after them, in its current order.
+    public static func projectReorder(projectIDs: [String]) throws -> ServeMutationRequest {
+        let ids = try projectIDs.map { try required("project_ids", $0) }
+        guard !ids.isEmpty else {
+            throw ServeMutationRequestError.missing("project_ids")
+        }
+        return ServeMutationRequest(method: "project.reorder", lists: ["project_ids": ids])
     }
 
     public static func startFromQuests(

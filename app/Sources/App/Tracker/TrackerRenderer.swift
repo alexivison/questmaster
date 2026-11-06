@@ -34,7 +34,7 @@ struct TrackerRenderedRepo {
     let groups: [TrackerRenderGroup]
 }
 
-/// A shell row, with the repo it was listed under (the selected-session tag names it).
+/// A shell row, with the repo it was listed under (the selected-session panel names it).
 struct TrackerRenderedShell {
     let rendered: TrackerRenderedSession
     let repoName: String
@@ -51,13 +51,11 @@ enum TrackerRenderer {
 
     static func tracker(_ snapshot: RuntimeSnapshot, recolorPreview: TrackerInlineRecolorState? = nil) -> TrackerRenderedTracker {
         let snapshotRepos = snapshot.tracker.repos
-        // A repo's colour follows its place in the snapshot, so a repo left with only shells still counts in it.
-        let repos = snapshotRepos.enumerated().compactMap { repoIndex, repo -> TrackerRenderedRepo? in
-            let repoColor = color(for: repo, repoIndex: repoIndex, recolorPreview: recolorPreview)
+        let repos = snapshotRepos.compactMap { repo -> TrackerRenderedRepo? in
+            let repoColor = color(for: repo, recolorPreview: recolorPreview)
             let groups = renderGroups(
                 TrackerShellSection.plateSessions(in: repo),
                 repoColor: repoColor,
-                repoIndex: repoIndex,
                 repoIsUngrouped: isUngrouped(repo),
                 recolorPreview: recolorPreview
             )
@@ -68,7 +66,7 @@ enum TrackerRenderer {
                 rendered: TrackerRenderedSession(
                     session: row.session,
                     status: status(for: row.session),
-                    // The tag's bar colour when the shell is attached: its own colour, else the shell grey. A shell
+                    // The panel's project bar colour when the shell is attached: its own colour, else the shell grey. A shell
                     // never takes its repo's colour.
                     groupColor: shellTint(for: row.session) ?? AppPalette.muted,
                     recolorEditHint: nil
@@ -123,7 +121,6 @@ enum TrackerRenderer {
     private static func renderGroups(
         _ sessions: [TrackerSession],
         repoColor: NSColor,
-        repoIndex: Int,
         repoIsUngrouped: Bool,
         recolorPreview: TrackerInlineRecolorState?
     ) -> [TrackerRenderGroup] {
@@ -142,7 +139,6 @@ enum TrackerRenderer {
                 session,
                 workers: workersByParent[session.id] ?? [],
                 repoColor: repoColor,
-                repoIndex: repoIndex,
                 repoIsUngrouped: repoIsUngrouped,
                 recolorPreview: recolorPreview
             ))
@@ -154,14 +150,12 @@ enum TrackerRenderer {
         _ session: TrackerSession,
         workers: [TrackerSession],
         repoColor: NSColor,
-        repoIndex: Int,
         repoIsUngrouped: Bool,
         recolorPreview: TrackerInlineRecolorState?
     ) -> TrackerRenderGroup {
         let groupColor = displayColor(
             for: session,
             repoColor: repoColor,
-            repoIndex: repoIndex,
             repoIsUngrouped: repoIsUngrouped,
             recolorPreview: recolorPreview
         )
@@ -199,10 +193,11 @@ enum TrackerRenderer {
         }
     }
 
+    /// A session's colour: its own, else its project's. With neither, or ungrouped, it is the text grey, as Settings
+    /// shows a project with no colour.
     private static func displayColor(
         for session: TrackerSession,
         repoColor: NSColor,
-        repoIndex: Int,
         repoIsUngrouped: Bool,
         recolorPreview: TrackerInlineRecolorState?
     ) -> NSColor {
@@ -221,12 +216,11 @@ enum TrackerRenderer {
         if !session.repoColor.isEmpty {
             return repoColor
         }
-        return AppPalette.displayFallbacks[repoIndex % AppPalette.displayFallbacks.count]
+        return AppPalette.muted
     }
 
     private static func color(
         for repo: TrackerRepo,
-        repoIndex: Int,
         recolorPreview: TrackerInlineRecolorState?
     ) -> NSColor {
         if let recolorPreview,
@@ -235,7 +229,10 @@ enum TrackerRenderer {
            let color = AppPalette.displayColor(recolorPreview.previewColor) {
             return color
         }
-        return isUngrouped(repo) ? AppPalette.muted : AppPalette.repo(repo.color, index: repoIndex)
+        guard !isUngrouped(repo), let color = AppPalette.displayColor(repo.color) else {
+            return AppPalette.muted
+        }
+        return color
     }
 
     private static func previewColor(

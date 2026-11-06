@@ -1,5 +1,5 @@
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "type": "response",
   "id": "worker-feed-request",
   "ok": true,

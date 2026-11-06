@@ -93,6 +93,30 @@ func TestPiActivityQueueBatchesSlowHookCalls(t *testing.T) {
 	}
 }
 
+func TestPiActivityHookUsesQuestmasterBinAndWaitsForBoundedHook(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node is unavailable")
+	}
+	if err := exec.Command(node, "--experimental-strip-types", "-e", "").Run(); err != nil {
+		t.Skip("Node TypeScript type stripping is unavailable")
+	}
+	extension, err := filepath.Abs(filepath.Join("assets", "questmaster-pi-messaging.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(t.TempDir(), "qm")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, node, "--experimental-strip-types", filepath.Join("testdata", "pi_hook_bin.mjs"), extension, binary).CombinedOutput()
+	if err != nil {
+		t.Fatalf("Pi hook binary check: %v\n%s", err, out)
+	}
+}
+
 func newTestPiInstaller(t *testing.T) *PiInstaller {
 	t.Helper()
 	home := t.TempDir()

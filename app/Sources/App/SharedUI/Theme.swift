@@ -3,7 +3,7 @@ import QuestmasterCore
 
 enum AppPalette {
     static let window = NSColor(hex: 0x1c2128)
-    static let panel = NSColor(hex: 0x22272e)
+    static let panel = NSColor(hex: 0x252a31)
     static let item = StateColor.item.color
     static let artifactListColumn = panel
     static let artifactViewerBackground = artifactListColumn
@@ -11,11 +11,11 @@ enum AppPalette {
     static let line = StateColor.line.color
     static let lineSoftSubtle = StateColor.lineSoftSubtle.color
     static let controlBorder = StateColor.controlBorder.color
-    /// Text outside the lists (status views, the toast, panels, chat). List rows use the text steps and their looks.
-    static let text = NSColor(hex: 0xc4d0dc)
-    static let bright = NSColor(hex: 0xcdd9e5)
-    static let muted = StateColor.textMetaHighlighted.color
-    static let dim = NSColor(hex: 0x8d9aa8)
+    /// Text outside the lists (status views, the toast, panels, chat, Settings titles and labels), in the text steps:
+    /// `text` the selected step, `muted` the body step, `dim` the meta step. List rows use the steps through their looks.
+    static let text = StateColor.textSelected.color
+    static let muted = StateColor.textBody.color
+    static let dim = StateColor.textMeta.color
     /// "On", for toggles only (the action bar). Never selected or focused.
     static let brassActive = StateColor.brassActive.color
 
@@ -69,8 +69,7 @@ enum AppPalette {
     static let questLogButtonGold = NSColor(hex: 0xa27c2f)
     /// The pill tabs' Codex and OpenCode marks (Claude's and Pi's keep their own colours).
     static let agentMarkTint = NSColor(hex: 0xb8b8b8)
-    /// Settings (settings-models.svg): section titles and labels; descriptions. The compact picker is a field.
-    static let settingsText = NSColor(hex: 0xffffff)
+    /// Settings (settings-models.svg) descriptions; its section titles and labels are `text`. The compact picker is a field.
     static let settingsDescription = NSColor(hex: 0x69737c)
     static let questLogButtonDangerDeep = NSColor(hex: 0x703835)
     static let questLogButtonDanger = NSColor(hex: 0xb34640)
@@ -83,31 +82,6 @@ enum AppPalette {
     static let parchmentHighlight = NSColor(hex: 0xffffeb)
     static let parchmentHighlightWarm = NSColor(hex: 0xfffff0)
     static let parchmentWhite = NSColor.white
-
-    static let repoFallbacks = [
-        NSColor(hex: 0x58a6ff),
-        NSColor(hex: 0xd29922),
-        NSColor(hex: 0xbc8cff),
-        NSColor(hex: 0x2dd4bf),
-        NSColor(hex: 0xf778ba),
-    ]
-
-    static let displayFallbacks = [
-        NSColor(hex: 0x4d9bf0),
-        NSColor(hex: 0x57ab5a),
-        NSColor(hex: 0xd9a441),
-        NSColor(hex: 0xc578dd),
-        NSColor(hex: 0x4fb6c4),
-        NSColor(hex: 0xe5534b),
-        NSColor(hex: 0xe0883b),
-        NSColor(hex: 0xd7b13d),
-        NSColor(hex: 0x8cc265),
-        NSColor(hex: 0x2bb8a3),
-        NSColor(hex: 0x4cb3e6),
-        NSColor(hex: 0x7a7af0),
-        NSColor(hex: 0xb886e6),
-        NSColor(hex: 0xe57ab0),
-    ]
 
     static let displayColorNames: [String: NSColor] = [
         "none": inert,
@@ -182,12 +156,6 @@ enum AppPalette {
         return displayColorNames[name]
     }
 
-    static func repo(_ value: String, index: Int) -> NSColor {
-        if let color = displayColor(value) {
-            return color
-        }
-        return repoFallbacks[index % repoFallbacks.count]
-    }
 }
 
 /// How far a surface floats above what is under it, drawn as a drop shadow in `AppPalette.shadow`. A shadow comes from
@@ -199,10 +167,9 @@ struct Elevation {
     /// Points down.
     let drop: CGFloat
 
-    /// Tracker plates and dropdowns.
+    /// Everything that floats at panel level, kept tight for a flat look: the tracker's plates and discs, every
+    /// dropdown, the dock's panels, the action bar header and the toast.
     static let raised = Elevation(opacity: 0.35, blur: 4, drop: 1.5)
-    /// The dock's panels and the toast.
-    static let panel = Elevation(opacity: 0.3, blur: 12, drop: 4)
     /// Every in-window modal, the Quest Log included.
     static let modal = Elevation(opacity: 0.45, blur: 30, drop: 10)
 

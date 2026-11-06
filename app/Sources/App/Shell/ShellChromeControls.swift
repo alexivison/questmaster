@@ -22,6 +22,9 @@ struct ChromeIconButton: View {
     /// Hover tooltip text. Defaults to `accessibilityLabel`; pass a label+shortcut string
     /// (e.g. via Keymap.CommandBinding.displayGlyph) for controls with a keyboard shortcut.
     var tooltip: String?
+    /// The icon's colour in every state, for a mark that names its own colour (Settings' cancel and save). Nil takes
+    /// the row look's icon colour, rest or under the pointer.
+    var tint: NSColor?
     let action: () -> Void
     @State private var isHovered = false
 
@@ -29,7 +32,7 @@ struct ChromeIconButton: View {
         Button(action: action) {
             Image(systemName: symbolName)
                 .font(.system(size: ChromeMetrics.iconPointSize, weight: .medium))
-                .foregroundStyle(RowLook.pick(highlighted: isHovered, areaFocused: true).icon.color.swiftUI)
+                .foregroundStyle((tint ?? RowLook.pick(highlighted: isHovered, areaFocused: true).icon.color).swiftUI)
                 .frame(width: ChromeMetrics.iconWidth, height: ChromeMetrics.iconHeight)
                 .contentShape(Rectangle())
         }

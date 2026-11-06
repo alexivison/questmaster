@@ -11,8 +11,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/alexivison/questmaster/internal/repo"
 )
 
 type Quest struct {
@@ -27,10 +25,10 @@ type Quest struct {
 }
 
 // ResolveQuestProject gives a quest's project for a path, the way `quest add --project` does: "~" and a
-// leading "~/" expand to the home directory, the path is made absolute, and its git repo supplies the id
-// and name. When strict, the path must be an existing directory inside a repo; otherwise anything else
-// gives an empty project.
-func ResolveQuestProject(path string, strict bool) (id, absPath, name string, err error) {
+// leading "~/" expand to the home directory, the path is made absolute, and the project resolver under
+// stateRoot supplies the id and name. When strict, the path must be an existing directory inside a
+// project; otherwise anything else gives an empty project.
+func ResolveQuestProject(stateRoot, path string, strict bool) (id, absPath, name string, err error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", "", "", nil
@@ -44,14 +42,18 @@ func ResolveQuestProject(path string, strict bool) (id, absPath, name string, er
 			return "", "", "", fmt.Errorf("project path is not a directory: %s", path)
 		}
 	}
-	r, ok := repo.Resolve(abs)
+	reg, err := NewProjectStore(stateRoot).Load()
+	if err != nil {
+		return "", "", "", err
+	}
+	project, ok := NewProjectResolver().Resolve(reg, abs)
 	if !ok {
 		if strict {
-			return "", "", "", fmt.Errorf("project path is not in a git repo: %s", path)
+			return "", "", "", fmt.Errorf("project path is not in a git repo or an added project folder: %s", path)
 		}
 		return "", "", "", nil
 	}
-	return r.Identity, filepath.Clean(abs), r.Name, nil
+	return project.ID, filepath.Clean(abs), project.Name, nil
 }
 
 // ExpandHome expands "~" and a leading "~/" to the home directory. Other paths, "~user" included, are

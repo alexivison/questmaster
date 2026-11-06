@@ -165,10 +165,46 @@ func query(prs []state.PullRequest) string {
 	b.WriteString("query { rateLimit { cost remaining resetAt } viewer { login } ")
 	// shortcut: review pagination stops at 100 reviewers per PR; paginate if a PR reaches that count.
 	for i, pr := range prs {
-		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state closedAt mergedAt isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision latestOpinionatedReviews(last:100) { nodes { state } } commits(last:1) { nodes { commit { statusCheckRollup { state } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number)
+		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state closedAt mergedAt isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision latestOpinionatedReviews(last:100) { nodes { state } } commits(last:1) { nodes { commit { statusCheckRollup { state %s } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number, ciContextsQuery)
 	}
 	b.WriteByte('}')
 	return b.String()
+}
+
+// checkHead re-reads only the PR head when a pending alert contains CI.
+func checkHead(ctx context.Context, pr state.PullRequest, run Runner, now time.Time) (string, HostResult) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	query := fmt.Sprintf("query { rateLimit { cost remaining resetAt } p0: repository(owner:%s,name:%s) { pullRequest(number:%d) { headRefOid } } }", strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number)
+	stdout, stderr, runErr := run(ctx, pr.Host, query)
+	body, retry, reset := responseBody(stdout)
+	var response graphResponse
+	decodeErr := json.Unmarshal(body, &response)
+	rate := response.Data.RateLimit
+	if reset != "" {
+		rate = &RateLimit{Remaining: 0, ResetAt: reset}
+	}
+	message := strings.TrimSpace(string(stderr))
+	if message == "" {
+		message = response.Message
+	}
+	if message == "" && len(response.Errors) > 0 {
+		message = response.Errors[0].Message
+	}
+	if runErr != nil || decodeErr != nil || isWholeRequestError(response.Errors, message) {
+		result := detailFailure(now, retry, reset, rate, []byte(message), runErr)
+		result.RateLimit = rate
+		return "", result
+	}
+	var alias struct {
+		PullRequest *struct {
+			HeadSHA string `json:"headRefOid"`
+		} `json:"pullRequest"`
+	}
+	if err := json.Unmarshal(response.Data.Aliases["p0"], &alias); err != nil || alias.PullRequest == nil || alias.PullRequest.HeadSHA == "" {
+		return "", HostResult{Error: "invalid GitHub head response", RateLimit: rate, BackoffUntil: backoff(now, retry, rate, message)}
+	}
+	return alias.PullRequest.HeadSHA, HostResult{RateLimit: rate, BackoffUntil: backoff(now, retry, rate, message)}
 }
 
 type graphError struct {
@@ -233,11 +269,47 @@ type graphPR struct {
 		Nodes []struct {
 			Commit struct {
 				Rollup *struct {
-					State string `json:"state"`
+					State    string `json:"state"`
+					Contexts struct {
+						Nodes []ciContext `json:"nodes"`
+					} `json:"contexts"`
 				} `json:"statusCheckRollup"`
 			} `json:"commit"`
 		} `json:"nodes"`
 	} `json:"commits"`
+}
+
+// ciContextsQuery selects what dates the head commit's checks: a check run's finish, a commit status's last update.
+// ponytail: the newest 100 contexts cover ordinary PRs; paginate if a head SHA grows beyond 100 checks.
+const ciContextsQuery = "contexts(last:100) { nodes { __typename ... on CheckRun { completedAt } ... on StatusContext { state updatedAt } } }"
+
+type ciContext struct {
+	CompletedAt string `json:"completedAt"` // check runs; null until they finish
+	State       string `json:"state"`       // commit statuses
+	UpdatedAt   string `json:"updatedAt"`   // commit statuses
+}
+
+// ciCompletion returns when the newest check finished, and whether any check has not finished.
+func ciCompletion(contexts []ciContext) (string, bool) {
+	var latest time.Time
+	running := false
+	for _, check := range contexts {
+		at := check.CompletedAt
+		if at == "" && check.State != "PENDING" && check.State != "EXPECTED" {
+			at = check.UpdatedAt
+		}
+		if at == "" {
+			running = true // a check run without a finish time, or a commit status still pending
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339Nano, at); err == nil && t.After(latest) {
+			latest = t
+		}
+	}
+	if latest.IsZero() {
+		return "", running
+	}
+	return latest.UTC().Format(time.RFC3339Nano), running
 }
 
 func (pr graphPR) status(now time.Time) state.PullRequestStatus {
@@ -257,8 +329,10 @@ func (pr graphPR) status(now time.Time) state.PullRequestStatus {
 		}
 	}
 	ci := "none"
+	completedAt, running := "", false
 	if nodes := pr.Commits.Nodes; len(nodes) > 0 && nodes[len(nodes)-1].Commit.Rollup != nil {
-		switch nodes[len(nodes)-1].Commit.Rollup.State {
+		rollup := nodes[len(nodes)-1].Commit.Rollup
+		switch rollup.State {
 		case "SUCCESS":
 			ci = "success"
 		case "FAILURE", "ERROR":
@@ -266,8 +340,11 @@ func (pr graphPR) status(now time.Time) state.PullRequestStatus {
 		case "PENDING", "EXPECTED":
 			ci = "pending"
 		}
+		if ci == "success" || ci == "failure" {
+			completedAt, running = ciCompletion(rollup.Contexts.Nodes)
+		}
 	}
-	return state.PullRequestStatus{Title: pr.Title, URL: pr.URL, State: stateName, Draft: pr.Draft, HeadSHA: pr.HeadSHA, UpdatedAt: pr.UpdatedAt, Additions: pr.Additions, Deletions: pr.Deletions, Comments: pr.Comments, Review: review, CI: ci, ChangedAt: now.UTC().Format(time.RFC3339)}
+	return state.PullRequestStatus{Title: pr.Title, URL: pr.URL, State: stateName, Draft: pr.Draft, HeadSHA: pr.HeadSHA, UpdatedAt: pr.UpdatedAt, Additions: pr.Additions, Deletions: pr.Deletions, Comments: pr.Comments, Review: review, CI: ci, CICompletedAt: completedAt, CIRunning: running, ChangedAt: now.UTC().Format(time.RFC3339)}
 }
 
 func reviewState(value string) string {

@@ -2,14 +2,6 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-func isBackendStartingMessage(_ message: String?) -> Bool {
-    let normalized = message?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    return normalized == "connecting to backend..."
-        || normalized == "backend not connected - retrying"
-        || normalized == "backend not connected - reconnecting"
-        || normalized == "backend finishing a previous operation"
-}
-
 final class TrackerKeyboardBridge {
     var handler: ((NSEvent) -> Bool)?
     var editSessionHandler: ((String) -> Bool)?
@@ -320,18 +312,18 @@ struct TrackerRootView: View {
         let areaFocused = navigation.hasKeys(.tracker)
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
         let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
-
-        let tagContent = SelectedSessionTagContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
-        let showsShells = !tracker.shells.isEmpty && !isBackendStartingMessage(snapshot.serviceStateMessage)
-        // The first plate's crown reaches a few points above its disc, so the column's top never cuts it: at least `spacing` down.
-        let firstPlateTop = max(TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: headerAlignment.cellHeight), TrackerListMetrics.spacing)
+        let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
+        let connection = snapshot.connection
+        let showsShells = !tracker.shells.isEmpty && !connection.awaitsFirstTracker
+        // The plates' list scrolls only to a plate: a cursor on a shell is not its row.
+        let plateCursorID = TrackerShellSection.plateCursorID(selectedID, in: rows)
         let list = Group {
-            if isBackendStartingMessage(snapshot.serviceStateMessage) {
+            if connection.awaitsFirstTracker {
                 TrackerSkeletonPlaceholder()
             } else {
                 if rows.isEmpty {
                     // A backend that doesn't fit says so; otherwise there is just nothing to list.
-                    if let message = snapshot.serviceStateMessage {
+                    if let message = connection.blockingMessage {
                         StatusMessagePane(
                             message: message,
                             alignment: .center,
@@ -342,9 +334,8 @@ struct TrackerRootView: View {
                         EmptyState()
                     }
                 } else {
-                    // The plates and the shells are one list, so the shells scroll with the plates, and the list brings the cursor's
-                    // row (the viewed session's, unless the keys moved it) into view when it appears.
-                    SectionedList(selectedID: selectedID, scrollOnAppear: true) {
+                    // The plates scroll independently of the pinned shell section and avatar slot.
+                    SectionedList(selectedID: plateCursorID) {
                         ForEach(Array(repos.enumerated()), id: \.offset) { index, repo in
                             TrackerRepoSection(
                                 repo: repo,
@@ -360,74 +351,58 @@ struct TrackerRootView: View {
                                 onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
-                            .padding(.top, index == 0 ? firstPlateTop : TrackerListMetrics.spacing)
-                        }
-                        if showsShells {
-                            TrackerShellRows(
-                                shells: tracker.shells,
-                                topInset: repos.isEmpty ? firstPlateTop : TrackerListMetrics.shellGap,
-                                selectedID: selectedID,
-                                viewedID: TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID),
-                                areaFocused: areaFocused,
-                                shortcutNumbers: shortcutNumbers,
-                                commandLongPressIsActive: commandLongPressIsActive,
-                                onSelect: select(_:),
-                                onActivate: activate(_:),
-                                onEditSession: presentEditSession(_:)
-                            )
-                            .rows
-                            .padding(.leading, TrackerListMetrics.sidePadding)
+                            .padding(.top, index == 0 ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.spacing)
+                            .padding(.bottom, index == repos.count - 1 && !showsShells ? TrackerListMetrics.verticalPadding : 0)
                         }
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The list takes the height left above the avatar block, so the block's fixed height alone decides where the list stops.
-        // Nothing below the list moves when the attached class changes.
+        // The plate list ends above the avatar and pinned shell section.
+        .padding(.bottom, showsShells ? TrackerListMetrics.shellClearance : 0)
         return VStack(alignment: .leading, spacing: 0) {
+            SelectedSessionPanel(content: panelContent, onCopyID: copySessionID)
+                .padding(.leading, TrackerListMetrics.sidePadding)
+                .padding(.top, TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: headerAlignment.cellHeight))
             list
-            // Top-aligned: the block's content is shorter than its frame, and a centred frame would drop the slot and the tag by half the slack.
-            avatarBlock(tagContent: tagContent)
-                .frame(height: TrackerAvatarMetrics.avatarBlockHeight, alignment: .top)
+            if !connection.awaitsFirstTracker {
+                avatarBlock()
+            }
+            if showsShells {
+                TrackerShellRows(
+                    shells: tracker.shells,
+                    selectedID: selectedID,
+                    viewedID: TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID),
+                    areaFocused: areaFocused,
+                    shortcutNumbers: shortcutNumbers,
+                    commandLongPressIsActive: commandLongPressIsActive,
+                    onSelect: select(_:),
+                    onActivate: activate(_:),
+                    onEditSession: presentEditSession(_:)
+                )
+                .padding(.leading, TrackerListMetrics.sidePadding)
+                .padding(.bottom, TrackerListMetrics.verticalPadding)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The last tracker from a dropped connection stays, dimmed, until a fresh one arrives.
+        .opacity(connection.showsLastTracker ? Token.Opacity.dimmed : 1)
     }
 
-    /// The avatar slot and the selected-session tag over it, in one block. The slot keeps its reserved height and stands on the
-    /// block's bottom margin. The tag's top follows the attached class's idle figure (`TrackerTagLayout`), and it draws in front of
-    /// the avatar, since a pose taller than idle may reach the tag's gap.
-    private func avatarBlock(tagContent: SelectedSessionTagContent) -> some View {
-        ZStack(alignment: .topLeading) {
-            TrackerAvatarSlot(
-                pose: avatarStage.pose,
-                sprites: avatarStage.sprites,
-                fidget: avatarStage.fidgetFrame,
-                beat: avatarStage.beat,
-                finish: avatarStage.finish,
-                enter: avatarStage.enter,
-                handle: avatarStage.avatar
-            )
-                .padding(.top, slotOffset)
-            SelectedSessionTag(content: tagContent, onCopyID: copySessionID)
-                .frame(width: TrackerAvatarMetrics.slotWidth)
-                .padding(.top, tagOffset)
-        }
+    /// The avatar keeps its reserved slot between the scrollable plates and the shell section pinned to the tracker column's bottom.
+    private func avatarBlock() -> some View {
+        TrackerAvatarSlot(
+            pose: avatarStage.pose,
+            sprites: avatarStage.sprites,
+            fidget: avatarStage.fidgetFrame,
+            beat: avatarStage.beat,
+            finish: avatarStage.finish,
+            enter: avatarStage.enter,
+            handle: avatarStage.avatar
+        )
         .padding(.leading, TrackerListMetrics.sidePadding)
-    }
-
-    /// How far the slot's top sits below the block's top: its reserved height stands on the bottom margin.
-    private var slotOffset: CGFloat {
-        TrackerAvatarMetrics.avatarBlockHeight - TrackerListMetrics.verticalPadding - TrackerAvatarMetrics.slotHeight
-    }
-
-    /// How far the tag's top sits below the list: the attached class's figure, or the tallest's with no class.
-    private var tagOffset: CGFloat {
-        CGFloat(TrackerTagLayout.offsetBelowList(
-            figureHeight: avatarStage.sprites?.idleFigureHeight,
-            tallestFigure: TrackerAvatarMetrics.tallestFigureHeight,
-            listGap: Int(TrackerListMetrics.selectedTagGap)
-        ))
+        .padding(.bottom, TrackerListMetrics.verticalPadding)
     }
 
     private func copySessionID(_ sessionID: String) {
@@ -870,7 +845,7 @@ private struct TrackerCollapsedCircle<Content: View>: View {
                 )
             }
             Canvas { context, _ in
-                context.stroke(circle, with: .color(AppPalette.line.swiftUI), lineWidth: stroke)
+                context.stroke(circle, with: .color(AppPalette.lineSoftSubtle.swiftUI), lineWidth: stroke)
             }
             .frame(width: side, height: side)
             content
@@ -971,7 +946,7 @@ enum TrackerNameplateRole: Equatable {
 }
 
 enum TrackerNameplateColor {
-    /// Every coloured bar in the tracker (the plates' project bars, the selected-session tag's, and the cast bar's
+    /// Every coloured bar in the tracker (the plates' project bars, the selected-session panel's, and the cast bar's
     /// amber fill) ships at this fraction of its colour's brightness: full brightness reads too loud against the flat
     /// terminal chrome (90% from 2026-10-02, 80% from 2026-10-21). Hue and saturation are untouched.
     static let barBrightness: CGFloat = 0.8
@@ -1058,8 +1033,8 @@ private struct TrackerPlateArt: View {
                 context.fill(tab, with: .color(AppPalette.panel.swiftUI))
             }
             context.fillDropShadow(artwork.body, .raised)
-            context.fill(artwork.body, with: .color(AppPalette.line.swiftUI))
-            context.fill(artwork.titleStrip, with: .color(AppPalette.item.swiftUI))
+            context.fill(artwork.body, with: .color(AppPalette.lineSoftSubtle.swiftUI))
+            context.fill(artwork.titleStrip, with: .color(AppPalette.panel.swiftUI))
             context.fillInnerShadow(artwork.titleStrip, .strip)
             if let bar = artwork.bar {
                 context.fill(bar, with: .color(AppPalette.panel.swiftUI))
@@ -1106,7 +1081,7 @@ private struct TrackerPortraitOutline: View {
             context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             context.drawLayer { ring in
                 ring.clip(to: artwork.discRing)
-                ring.stroke(artwork.disc, with: .color(AppPalette.line.swiftUI), lineWidth: artwork.discStroke)
+                ring.stroke(artwork.disc, with: .color(AppPalette.lineSoftSubtle.swiftUI), lineWidth: artwork.discStroke)
                 ring.fillInnerShadow(artwork.discEdge, .discInner)
             }
             for ornament in artwork.ornaments {
@@ -1118,7 +1093,8 @@ private struct TrackerPortraitOutline: View {
 
     private func color(for role: TrackerPlateShapes.Role) -> Color {
         switch role {
-        case .outline: AppPalette.line.swiftUI
+        case .outline: AppPalette.lineSoftSubtle.swiftUI
+        case .panel: AppPalette.panel.swiftUI
         case .project: barColor.swiftUI
         }
     }
@@ -1614,13 +1590,13 @@ struct TrackerShortcutNumber: View {
                 .frame(width: side, height: side)
             Text("\(number)")
                 .font(AppFonts.monoBold.swiftUI)
-                .foregroundStyle(AppPalette.bright.swiftUI)
+                .foregroundStyle(AppPalette.text.swiftUI)
         }
         .frame(width: diameter, height: diameter)
     }
 }
 
-/// The agent's badge at a portrait's bottom-left, from `Portrait.svg`: the disc's fill, a 1pt `line` border and the
+/// The agent's badge at a portrait's bottom-left, from `Portrait.svg`: the disc's fill, a 1pt `lineSoftSubtle` border and the
 /// agent's logo in the mark tint (Claude's and Pi's keep their own colours).
 private struct TrackerAgentBadge: View {
     let agent: String
@@ -1630,7 +1606,7 @@ private struct TrackerAgentBadge: View {
             Circle()
                 .fill(AppPalette.panel.swiftUI)
             Circle()
-                .strokeBorder(AppPalette.line.swiftUI, lineWidth: Token.Size.divider)
+                .strokeBorder(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Token.Size.divider)
             if let image = TrackerAgentMark.image(for: agent, side: TrackerPlateDesign.badgeLogoSide, tint: AppPalette.agentMarkTint) {
                 Image(nsImage: image)
             }
@@ -1666,7 +1642,7 @@ struct TrackerAgentMark: View {
         .frame(width: diameter, height: diameter)
     }
 
-    static func image(for agentName: String, side: CGFloat = 12, tint: NSColor = AppPalette.bright) -> NSImage? {
+    static func image(for agentName: String, side: CGFloat = 12, tint: NSColor = AppPalette.text) -> NSImage? {
         let canvasSize = NSSize(width: side, height: side)
         switch AgentKind(name: agentName) {
         case .claude:
@@ -1751,18 +1727,18 @@ private struct TrackerSkeletonPlaceholder: View {
 
     var body: some View {
         SkeletonPulse(from: Metrics.pulseFrom, to: Metrics.pulseTo) {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
                 VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
                     plate(role: .master)
                     plate(role: .worker)
                     plate(role: .worker)
                 }
+                Spacer(minLength: TrackerListMetrics.shellClearance)
                 shellRow
-                    .padding(.top, TrackerListMetrics.shellGap)
             }
-            // Where the real list will put its first plate and its first shell.
+            // Where the real list will put its first plate and its pinned shell section.
             .padding(.leading, TrackerListMetrics.sidePadding)
-            .padding(.top, TrackerListMetrics.spacing)
+            .padding(.top, TrackerListMetrics.selectedPanelGap)
             .padding(.bottom, TrackerListMetrics.verticalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }

@@ -24,6 +24,10 @@ struct DestructiveConfirmationRequest: Identifiable {
     let onDecision: (Bool) -> Void
 }
 
+private enum DestructiveConfirmationMetrics {
+    static let maxMessageHeight = ControlHeight.row * 4
+}
+
 struct DestructiveConfirmationSheetView: View {
     static let width: CGFloat = 420
     let spec: DestructiveConfirmation
@@ -42,19 +46,31 @@ struct DestructiveConfirmationSheetView: View {
         ) {
             // The header leaves 10 above the message; 10 more under it and the footer's own 10 make the 20 between
             // blocks.
-            Text(spec.message)
-                .font(AppFonts.body.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Space.section)
+            if spec.action == .deleteArtifacts {
+                ScrollView {
+                    messageText
+                }
+                .frame(maxHeight: DestructiveConfirmationMetrics.maxMessageHeight)
                 .padding(.bottom, Space.item)
+            } else {
+                messageText
+                    .padding(.bottom, Space.item)
+            }
         }
         .frame(width: Self.width)
         .scoopedPanel()
         .background(SheetKeyEventMonitor(onKeyDown: ModalKeyActions(
-            context: { ModalKeyContext(focus: nil, fieldCount: 0, submitting: false, submits: true) },
+            context: { ModalKeyContext(focus: nil, fieldCount: 0, hasTextFields: false, submitting: false, submits: true) },
             submit: { onDecision(true) },
             cancel: { onDecision(false) }
         ).handle))
+    }
+
+    private var messageText: some View {
+        Text(spec.message)
+            .font(AppFonts.body.swiftUI)
+            .foregroundStyle(AppPalette.muted.swiftUI)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Space.section)
     }
 }

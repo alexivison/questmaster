@@ -24,7 +24,7 @@ type Job struct {
 	Tmux             *tmux.Client
 	RunGH            Runner
 	RunREST          Runner
-	SendAlert        func(context.Context, string, string) (bool, error)
+	SendAlert        func(context.Context, string, string) (message.Delivery, error)
 	Now              func() time.Time
 	Tick             <-chan time.Time // injected by tests; production ticks every five seconds
 	mu               sync.Mutex
@@ -303,7 +303,7 @@ func (j *Job) step(ctx context.Context) error {
 				continue
 			}
 			prior, hadPrior := statuses[pr.Key]
-			if current.UpdatedAt == prior.UpdatedAt && current.Comments == prior.Comments && current.Review == prior.Review && current.State == prior.State && current.HeadSHA == prior.HeadSHA && current.CI == prior.CI {
+			if current.UpdatedAt == prior.UpdatedAt && current.Comments == prior.Comments && current.Review == prior.Review && current.State == prior.State && current.HeadSHA == prior.HeadSHA && current.CI == prior.CI && !ciRerunFinished(prior, current) {
 				continue
 			}
 			if limited[pr.Host] {
@@ -453,14 +453,50 @@ func (j *Job) deliverPending(ctx context.Context) error {
 		send = message.NewService(state.OpenStore(j.Root), j.Tmux).Notify
 	}
 	active := make(map[string]bool, len(alerts))
+	var statuses map[string]state.PullRequestStatus
 	for _, alert := range alerts {
 		if !live[alert.SessionID] {
 			continue
 		}
 		key := alert.PullRequest.Key + "\x00" + alert.SessionID
 		active[key] = true
-		text := alertText(alert.PullRequest, alert.Events)
-		delivered, err := send(ctx, alert.SessionID, text)
+		events := alert.Events
+		if hasCIEvent(events) {
+			if statuses == nil {
+				statuses, err = state.LoadPullRequestStatuses(j.Root)
+				if err != nil {
+					return err
+				}
+			}
+			head := statuses[alert.PullRequest.Key].HeadSHA
+			if !j.Now().Before(j.blocked[alert.PullRequest.Host]) && j.RunGH != nil {
+				checked, result := checkHead(ctx, alert.PullRequest, j.RunGH, j.Now())
+				if result.BackoffUntil != "" {
+					if until, parseErr := time.Parse(time.RFC3339, result.BackoffUntil); parseErr == nil {
+						j.blocked[alert.PullRequest.Host] = until
+					}
+				}
+				if result.RateLimit != nil {
+					last := j.last[alert.PullRequest.Host]
+					last.RateLimit = mergeRateLimit(last.RateLimit, result.RateLimit)
+					last.BackoffUntil = result.BackoffUntil
+					j.last[alert.PullRequest.Host] = last
+				}
+				if checked != "" {
+					head = checked
+				}
+			}
+			events = currentHeadEvents(events, head)
+			if len(events) == 0 {
+				delete(j.alertErrorLogged, key)
+				if err := state.AdvancePullRequestAlert(j.Root, alert.PullRequest.Key, alert.SessionID, alert.Seq); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		text := alertText(alert.PullRequest, events)
+		delivery, err := send(ctx, alert.SessionID, text)
 		if err != nil {
 			if ctx.Err() == nil && j.Now().Sub(j.alertErrorLogged[key]) >= time.Minute {
 				fmt.Fprintf(os.Stderr, "daemon job pr-status: alert %s to %s: %v\n", alert.PullRequest.Key, alert.SessionID, err)
@@ -468,7 +504,7 @@ func (j *Job) deliverPending(ctx context.Context) error {
 			}
 			continue // transport failures are retried on the next tick
 		}
-		if delivered {
+		if delivery != "" {
 			delete(j.alertErrorLogged, key)
 			if err := state.AdvancePullRequestAlert(j.Root, alert.PullRequest.Key, alert.SessionID, alert.Seq); err != nil {
 				return err
@@ -481,6 +517,25 @@ func (j *Job) deliverPending(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func hasCIEvent(events []state.PullRequestEvent) bool {
+	for _, event := range events {
+		if event.Kind == "ci" {
+			return true
+		}
+	}
+	return false
+}
+
+func currentHeadEvents(events []state.PullRequestEvent, head string) []state.PullRequestEvent {
+	kept := make([]state.PullRequestEvent, 0, len(events))
+	for _, event := range events {
+		if event.Kind != "ci" || event.HeadSHA == "" || head == "" || event.HeadSHA == head {
+			kept = append(kept, event)
+		}
+	}
+	return kept
 }
 
 var _ interface {

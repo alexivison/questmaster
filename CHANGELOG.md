@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** New agent sessions now default to a single primary pane instead of
   auto-splitting a companion shell pane. Use `questmaster start --shell` for a
   plain terminal session, or split panes manually as needed.
+- **Breaking:** `questmaster send` no longer prints `"submitted": true`. A direct or
+  report send prints `"delivery": "accepted"` when a native socket took the message,
+  or `"delivery": "submitted"` when tmux typed it. `send all` prints `accepted` and
+  `submitted` counts. Scripts that checked `submitted` must check `delivery`.
+  Worker sessions started before this change still carry the old prompt and check
+  `"submitted": true`; restart them so they check `delivery`.
 
 ### Removed
 
@@ -19,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands, `questmaster spawn --quest`, quest-backed session metadata, auto-gate
   loop, merge-back flow, serve board/quest payloads, and native app quest
   board/detail UI are gone. Use normal sessions and HTML artifacts instead.
+
+## [0.3.53] - 2026-11-02
+
+### Security
+
+- Retracted v0.3.11 and v0.3.44 through v0.3.52. Those published versions contained content that was removed in a repository history cleanup. Use v0.3.53 or later.
 
 ## [0.3.34] - 2026-06-19
 

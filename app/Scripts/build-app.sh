@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Builds Questmaster.app, stamps it with the git version, and hands it to install-app.sh, which
+# stages, verifies and swaps it in. --isolated is for test runs; see install-app.sh.
 INSTALL_PATH="${QUESTMASTER_INSTALL_PATH:-/Applications/Questmaster.app}"
+INSTALL_ARGS=()
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -9,8 +12,12 @@ while [ "$#" -gt 0 ]; do
       INSTALL_PATH="${2:?missing value for --install-path}"
       shift 2
       ;;
+    --isolated)
+      INSTALL_ARGS+=(--isolated)
+      shift
+      ;;
     *)
-      echo "usage: $0 [--install-path /Applications/Questmaster.app]" >&2
+      echo "usage: $0 [--install-path /Applications/Questmaster.app] [--isolated]" >&2
       exit 2
       ;;
   esac
@@ -29,6 +36,10 @@ if [ ! -f "$ICNS_PATH" ]; then
   exit 1
 fi
 
+# One version for the whole bundle: Info.plist and the bundled qm report the same string, and
+# install-app.sh refuses a bundle where they differ.
+VERSION="$(git -C "$REPO_ROOT" describe --tags --always --dirty --match 'v[0-9]*')"
+
 swift build -c release --package-path "$APP_DIR"
 BIN_DIR="$(swift build -c release --package-path "$APP_DIR" --show-bin-path)"
 SWIFTPM_RESOURCE_BUNDLE="$(find "$BIN_DIR" -maxdepth 1 \( -name "Questmaster_Questmaster.bundle" -o -name "Questmaster_Questmaster.resources" \) -print -quit)"
@@ -41,6 +52,7 @@ rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/Contents/MacOS" "$BUNDLE_DIR/Contents/Resources" "$BUNDLE_DIR/Contents/Frameworks"
 
 cp "$INFO_PLIST" "$BUNDLE_DIR/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$BUNDLE_DIR/Contents/Info.plist"
 cp "$ICNS_PATH" "$BUNDLE_DIR/Contents/Resources/Questmaster.icns"
 ditto "$SWIFTPM_RESOURCE_BUNDLE" "$BUNDLE_DIR/Contents/Resources/$(basename "$SWIFTPM_RESOURCE_BUNDLE")"
 cp "$BIN_DIR/Questmaster" "$BUNDLE_DIR/Contents/MacOS/Questmaster"
@@ -70,7 +82,7 @@ fi
 ditto "$GHOSTTY_FRAMEWORK" "$BUNDLE_DIR/Contents/Frameworks/CGhosttyKitBinary.framework"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$BUNDLE_DIR/Contents/MacOS/Questmaster" 2>/dev/null || true
 
-(cd "$REPO_ROOT" && go build -buildvcs=false -o "$BUNDLE_DIR/Contents/Resources/qm" .)
+(cd "$REPO_ROOT" && go build -buildvcs=false -ldflags "-X github.com/alexivison/questmaster/cmd.stampedVersion=$VERSION" -o "$BUNDLE_DIR/Contents/Resources/qm" .)
 chmod 755 "$BUNDLE_DIR/Contents/Resources/qm"
 
 if [ ! -x "$BUNDLE_DIR/Contents/Resources/qm" ]; then
@@ -95,15 +107,6 @@ if [ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$BUNDLE_DIR/
 fi
 
 codesign --force --deep --sign - "$BUNDLE_DIR"
-rm -rf "$INSTALL_PATH"
-ditto "$BUNDLE_DIR" "$INSTALL_PATH"
-codesign --verify --deep --strict "$INSTALL_PATH"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$INSTALL_PATH"
+echo "Built $BUNDLE_DIR ($VERSION)"
 
-mkdir -p "$HOME/.local/bin"
-ln -sf "$INSTALL_PATH/Contents/Resources/qm" "$HOME/.local/bin/questmaster"
-"$INSTALL_PATH/Contents/Resources/qm" daemon check-upgrade || true
-
-echo "Built $BUNDLE_DIR"
-echo "Installed $INSTALL_PATH"
-echo "Linked $HOME/.local/bin/questmaster -> $INSTALL_PATH/Contents/Resources/qm"
+"$SCRIPT_DIR/install-app.sh" --install-path "$INSTALL_PATH" --expect-version "$VERSION" ${INSTALL_ARGS[@]+"${INSTALL_ARGS[@]}"} "$BUNDLE_DIR"

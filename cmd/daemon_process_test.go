@@ -696,6 +696,9 @@ func TestDaemonDevBuildFromStablePath(t *testing.T) {
 	if first["jobs"] != false {
 		t.Fatalf("dev daemon took jobs without --jobs: %v", first)
 	}
+	if _, err := os.Lstat(filepath.Join(h.root, "bin", "current", "qm")); !os.IsNotExist(err) {
+		t.Fatalf("development daemon created the stable link: %v", err)
+	}
 	dev := first["executable"].(string)
 	if !strings.Contains(dev, "/daemon/bin/dev-") || !strings.HasSuffix(dev, "/exe/qm") {
 		t.Fatalf("unstable dev executable: %s", dev)
@@ -1232,9 +1235,17 @@ func TestDaemonEnvironmentFromPollutedPaneReachesBothSessionMutations(t *testing
 	prefix := filepath.Join(h.root, "daemon", "bin", "canonical")
 	if startEnv["SSH_AUTH_SOCK"] != "/tmp/agent.sock" || startEnv["CODEX_HOME"] != codexHome ||
 		startEnv["QUESTMASTER_APP"] != "1" || startEnv["QUESTMASTER_STATE_ROOT"] != h.root ||
-		startEnv["QUESTMASTER_PATH_PREFIX"] != prefix || startEnv["QUESTMASTER_BIN"] != helper ||
+		startEnv["QUESTMASTER_PATH_PREFIX"] != prefix || startEnv["QUESTMASTER_BIN"] != filepath.Join(h.root, "bin", "current", "qm") ||
 		startEnv["zoxide"] != filepath.Join(bin, "zoxide") || startEnv["codex"] != filepath.Join(bin, "codex") {
 		t.Fatalf("captured child environment=%+v", startEnv)
+	}
+	wantHelper, err := filepath.EvalSymlinks(helper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stableBin, _ := startEnv["QUESTMASTER_BIN"].(string)
+	if got, err := filepath.EvalSymlinks(stableBin); err != nil || got != wantHelper {
+		t.Fatalf("QUESTMASTER_BIN resolves to %q (%v), want the daemon executable %q", got, err, wantHelper)
 	}
 	for _, key := range []string{"CLAUDECODE", "TMUX", "TERM", "QUESTMASTER_SESSION", "QUESTMASTER_QM"} {
 		if startEnv[key] != "" {
@@ -1245,8 +1256,8 @@ func TestDaemonEnvironmentFromPollutedPaneReachesBothSessionMutations(t *testing
 		t.Fatalf("child PATH=%q", path)
 	}
 	shims, err := os.ReadFile(filepath.Join(prefix, "qm"))
-	if err != nil || !strings.Contains(string(shims), helper) {
-		t.Fatalf("canonical shim does not target daemon binary: %q %v", shims, err)
+	if err != nil || !strings.Contains(string(shims), filepath.Join(h.root, "bin", "current", "qm")) {
+		t.Fatalf("canonical shim does not target the stable executable: %q %v", shims, err)
 	}
 	suggest := call("dir_suggest", map[string]any{"query": "project"})
 	if !strings.Contains(fmt.Sprint(suggest["suggestions"]), project) {

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
-	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -83,12 +82,12 @@ type sessionIndex struct {
 }
 
 // NewLiveSessionFetcher creates a SessionFetcher backed by shared services.
-// The repo-resolution cache and repo-color store are created once and captured
-// by the returned closure so they persist across refresh ticks (a session's
-// cwd does not change repos within a run, and repo colors only change on a C).
-func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionFetcher {
-	repoCache := repo.NewCache()
+// The project resolver and repo-color store are owned by the caller and
+// captured by the returned closure, so their memo tables persist across
+// refresh ticks (a session's cwd does not change projects within a run).
+func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store, projects *state.ProjectResolver) SessionFetcher {
 	repoColors := state.NewRepoColorStore(store.Root())
+	projectRegistry := state.NewProjectStore(store.Root())
 	return func(current SessionInfo) (TrackerSnapshot, error) {
 		manifests, err := store.DiscoverSessions()
 		if err != nil {
@@ -101,9 +100,11 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 		ctx := context.Background()
 		observedAt := time.Now()
 		index := buildSessionIndex(ctx, tmuxClient)
-		// Graceful degradation: a missing/unreadable store leaves a nil map,
-		// which reads as "no repo colors" rather than failing the refresh.
+		// Graceful degradation: a missing or unreadable store reads as "no repo
+		// colors" or "no project settings" rather than failing the refresh.
 		repoColorMap, _ := repoColors.Load()
+		registry, _ := projectRegistry.Load()
+		lookup := projectLookup{resolver: projects, registry: registry, colors: repoColorMap}
 		rows := make([]SessionRow, 0, len(manifests))
 		manifestByID := make(map[string]state.Manifest, len(manifests))
 		for _, manifest := range manifests {
@@ -121,14 +122,14 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 				row.Agent = resolvedAgent.Name()
 			}
 
-			resolveRepoColor(&row, manifest, repoCache, repoColorMap)
+			lookup.resolveRow(&row, manifest)
 			rows = append(rows, row)
 		}
 		inheritWorkerDisplayColors(rows)
 		InheritWorkerClasses(rows)
 
 		return TrackerSnapshot{
-			Sessions:   GroupRowsByRepo(OrderSessionRows(rows)),
+			Sessions:   GroupRowsByRepo(OrderSessionRows(rows), state.NewProjectOrder(registry.Order)),
 			Current:    buildCurrentSessionDetail(current, manifestByID),
 			ObservedAt: observedAt,
 		}, nil
@@ -220,14 +221,14 @@ func OrderSessionRows(rows []SessionRow) []SessionRow {
 	return ordered
 }
 
-// GroupRowsByRepo regroups already-tree-ordered rows into repo sections:
-// alphabetical by repo name with the ungrouped section (cwd not in a repo)
+// GroupRowsByRepo regroups already-tree-ordered rows into project sections in
+// the user's project order, with the ungrouped section (cwd not in a project)
 // last, while preserving each section's existing within-section order. A
 // master and its nested workers move together as one unit, so a tree is never
-// split across sections; the unit's section is the top-level row's repo, and
-// that repo is propagated onto its workers so they group and recolor under
+// split across sections; the unit's section is the top-level row's project, and
+// that project is propagated onto its workers so they group and recolor under
 // their master.
-func GroupRowsByRepo(rows []SessionRow) []SessionRow {
+func GroupRowsByRepo(rows []SessionRow, order state.ProjectOrder) []SessionRow {
 	type unit struct {
 		identity string
 		name     string
@@ -254,7 +255,7 @@ func GroupRowsByRepo(rows []SessionRow) []SessionRow {
 	}
 
 	sort.SliceStable(units, func(a, b int) bool {
-		return lessRepoSection(units[a].identity, units[a].name, units[b].identity, units[b].name)
+		return lessRepoSection(order, units[a].identity, units[a].name, units[b].identity, units[b].name)
 	})
 
 	ordered := make([]SessionRow, 0, len(rows))
@@ -264,28 +265,37 @@ func GroupRowsByRepo(rows []SessionRow) []SessionRow {
 	return ordered
 }
 
-// resolveRepoColor resolves a row's parent repo and folds the repo color into
-// its effective (last-write-wins) DisplayColor. Worker rows are left for
+// projectLookup carries what row resolution needs. The tracker loads it once
+// per refresh, so resolving a row costs no file reads.
+type projectLookup struct {
+	resolver *state.ProjectResolver
+	registry state.ProjectRegistry
+	colors   map[string]state.RepoColor
+}
+
+// resolveRow resolves a row's project and folds the project color into its
+// effective (last-write-wins) DisplayColor. Worker rows are left for
 // inheritWorkerDisplayColors, which copies their master's effective color.
-func resolveRepoColor(row *SessionRow, manifest state.Manifest, cache *repo.Cache, repoColorMap map[string]state.RepoColor) {
-	r, ok := cache.Resolve(manifest.Cwd)
+func (l projectLookup) resolveRow(row *SessionRow, manifest state.Manifest) {
+	project, ok := l.resolver.Resolve(l.registry, manifest.Cwd)
 	if !ok {
 		return
 	}
-	// Every row (workers included) gets its own resolved repo. For a worker
+	// Every row (workers included) gets its own resolved project. For a worker
 	// with a live master, GroupRowsByRepo later re-propagates the master's
-	// repo so the tree groups as one; this own-cwd value is what an orphan
-	// worker (master deleted) keeps, so it still lands in its repo's section.
-	row.RepoIdentity = r.Identity
-	row.RepoName = r.Name
+	// project so the tree groups as one; this own-cwd value is what an orphan
+	// worker (master deleted) keeps, so it still lands in its project's section.
+	row.RepoIdentity = project.ID
+	row.RepoName = project.Name
 
-	rc, hasRepoColor := repoColorMap[r.Identity]
+	rc, hasRepoColor := l.colors[project.ID]
 	if hasRepoColor {
 		row.RepoColor = rc.Color
 	}
-	// Workers take their master's effective color via inheritWorkerDisplayColors;
-	// only non-workers resolve last-write-wins against the repo color here.
-	if row.SessionType == "worker" {
+	// Workers take their master's effective color via inheritWorkerDisplayColors.
+	// Shells keep only a color of their own: a project color never tints them.
+	// Masters resolve last-write-wins against the project color here.
+	if row.SessionType == "worker" || row.SessionType == "shell" {
 		return
 	}
 
@@ -373,24 +383,18 @@ func buildCurrentSessionDetail(current SessionInfo, manifestByID map[string]stat
 	return detail
 }
 
-// lessRepoSection orders repo sections alphabetically by name with the
-// ungrouped section (empty identity) always last; equal names break ties by
-// identity so same-named clones stay deterministically grouped.
-func lessRepoSection(aID, aName, bID, bName string) bool {
+// lessRepoSection orders project sections by the user's project order, with the
+// ungrouped section (empty identity) always last.
+func lessRepoSection(order state.ProjectOrder, aID, aName, bID, bName string) bool {
 	aUngrouped := aID == ""
 	bUngrouped := bID == ""
 	switch {
-	case aUngrouped && bUngrouped:
-		return false
 	case aUngrouped:
 		return false
 	case bUngrouped:
 		return true
 	}
-	if aName != bName {
-		return aName < bName
-	}
-	return aID < bID
+	return order.Less(aID, aName, bID, bName)
 }
 
 func manifestAgentName(manifest state.Manifest, role agent.Role) string {

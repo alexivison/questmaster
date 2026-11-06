@@ -22,6 +22,42 @@ public struct DaemonRecord: Decodable, Equatable {
     }
 }
 
+/// The daemon binary's hash, kept while the file keeps its path, size and modification time, so a record miss (after
+/// every dropped connection) doesn't read and hash the whole binary again.
+public struct BinaryHashCache {
+    public struct Fingerprint: Equatable {
+        public let path: String
+        public let size: UInt64
+        public let modified: Date
+
+        public init(path: String, size: UInt64, modified: Date) {
+            self.path = path
+            self.size = size
+            self.modified = modified
+        }
+    }
+
+    private var cached: (fingerprint: Fingerprint, hash: String)?
+
+    public init() {}
+
+    /// The hash of the file `fingerprint` describes, from `compute` only when it differs from the last file hashed. A
+    /// file that can't be read (no fingerprint, or no hash) has no hash, and nothing is kept for it.
+    public mutating func hash(of fingerprint: Fingerprint?, compute: () -> String?) -> String? {
+        guard let fingerprint else {
+            return nil
+        }
+        if let cached, cached.fingerprint == fingerprint {
+            return cached.hash
+        }
+        guard let hash = compute() else {
+            return nil
+        }
+        cached = (fingerprint, hash)
+        return hash
+    }
+}
+
 public struct DaemonHandshake: Decodable {
     public let root: String
     public let identity: String
@@ -41,11 +77,5 @@ public struct DaemonHandshake: Decodable {
         guard accepting else {
             throw ServeClientError.protocolError("backend finishing a previous operation")
         }
-    }
-}
-
-public enum DaemonWaitingStatus {
-    public static func message(after seconds: TimeInterval) -> String {
-        seconds >= 5 ? "backend finishing a previous operation" : "connecting to backend..."
     }
 }
