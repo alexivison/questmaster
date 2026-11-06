@@ -47,6 +47,7 @@ enum RenderPreview {
         render(newSessionView(.classRandom), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-class-random.png")
         render(newSessionView(.classChosen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-class-cleric.png")
         render(classPlatesView(), size: CGSize(width: 340, height: 360), to: "\(outputDir)/class-plates.png")
+        render(trackerAllClassPlatesView(), size: CGSize(width: 580, height: 1240), to: "\(outputDir)/tracker-all-class-plates.png")
         render(classTrackerView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/class-tracker.png")
         render(trackerAvatarView(state: "idle"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-idle.png")
         render(trackerAvatarView(state: "working", tool: "Bash"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-channelling.png")
@@ -1447,6 +1448,205 @@ enum RenderPreview {
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
         .background(AppPalette.window.swiftUI)
+    }
+
+    /// Every bundled class as a master plate, an expanded familiar, and three collapsed worker circles, beside a pair of
+    /// selected-session panels. The master and familiar artwork, worker circles, badge marks, and panels are production views.
+    @MainActor
+    private static func trackerAllClassPlatesView() -> some View {
+        let classes: [SessionClass] = [.cleric, .rogue, .paladin, .wizard, .barbarian, .druid, .bard]
+        let sessions = classes.flatMap { sessionClass -> [TrackerSession] in
+            let masterID = "class-\(sessionClass.rawValue)"
+            let master = TrackerSession(
+                id: masterID,
+                title: "\(sessionClass.displayName) session",
+                repoName: "Questmaster",
+                displayColor: "indigo",
+                sessionClass: sessionClass.rawValue,
+                agent: "codex",
+                role: "master",
+                state: "idle",
+                snippet: "Checking portrait details"
+            )
+            let workers = (0..<4).map { index in
+                TrackerSession(
+                    id: "\(masterID)-w\(index)",
+                    title: index == 0 ? "Expanded familiar" : "Collapsed worker \(index)",
+                    repoName: "Questmaster",
+                    displayColor: "indigo",
+                    sessionClass: sessionClass.rawValue,
+                    agent: "claude",
+                    role: "worker",
+                    state: "idle",
+                    snippet: "Reviewing the class art",
+                    parentID: masterID
+                )
+            }
+            return [master] + workers
+        }
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "preview")
+        snapshot.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "questmaster", name: "Questmaster", color: "indigo", sessions: sessions),
+        ])))
+        let groups = TrackerRenderer.tracker(snapshot).repos.flatMap(\.groups)
+
+        return HStack(alignment: .top, spacing: Space.section) {
+            VStack(alignment: .leading, spacing: Space.group) {
+                Text("Tracker plates")
+                    .font(AppFonts.trackerTitle.swiftUI)
+                    .foregroundStyle(AppPalette.accent.swiftUI)
+                VStack(alignment: .leading, spacing: Space.section) {
+                    ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                        VStack(alignment: .leading, spacing: Space.row) {
+                            Text(SessionClass(id: group.root.session.sessionClass)?.displayName ?? "Class")
+                                .font(AppFonts.monoSmall.swiftUI)
+                                .foregroundStyle(AppPalette.textMeta.swiftUI)
+                            VStack(alignment: .leading, spacing: Space.row) {
+                                classPlateFixtureRow(
+                                    group.root,
+                                    role: .master,
+                                    collapsedWorkers: Array(group.workers.dropFirst())
+                                )
+                                if let familiar = group.workers.first {
+                                    classPlateFixtureRow(familiar, role: .worker)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: Space.group) {
+                Text("Selected session panel")
+                    .font(AppFonts.trackerTitle.swiftUI)
+                    .foregroundStyle(AppPalette.accent.swiftUI)
+                selectedSessionPortraitPanel(
+                    .master(.cleric),
+                    title: "Cleric session",
+                    id: "qm-cleric"
+                )
+                selectedSessionPortraitPanel(
+                    .familiar(.wizard),
+                    title: "Wizard familiar",
+                    id: "qm-wizard-worker"
+                )
+            }
+            .frame(width: SelectedSessionPanel.canvasSize.width, alignment: .leading)
+        }
+        .padding(Space.section)
+        .frame(width: 580, height: 1240, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// One production tracker plate with its portrait badge and, for a collapsed master, the real worker-circle row.
+    @MainActor
+    private static func classPlateFixtureRow(
+        _ rendered: TrackerRenderedSession,
+        role: TrackerNameplateRole,
+        collapsedWorkers: [TrackerRenderedSession] = []
+    ) -> some View {
+        let session = rendered.session
+        let portrait = SessionPortrait(session: session)
+        let hasCollapsedWorkers = role.isMaster && !collapsedWorkers.isEmpty
+        return ZStack(alignment: .topLeading) {
+            TrackerNameplateBackground(
+                role: role,
+                color: rendered.groupColor,
+                showsCursor: false,
+                isRecoloring: false,
+                statusColor: nil,
+                ring: .none,
+                portrait: portrait,
+                text: EmptyView()
+            )
+            classPlateFixtureText(rendered, role: role)
+            if portrait != nil {
+                classPlateFixtureBadge(agent: session.agent)
+                    .offset(x: role.badgeOrigin.x, y: role.badgeOrigin.y)
+            }
+            if hasCollapsedWorkers {
+                TrackerWorkerSummaryRow(workers: collapsedWorkers)
+                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height)
+            }
+        }
+        .frame(
+            width: role.canvasSize.width,
+            height: role.rowHeight(showsCircles: hasCollapsedWorkers),
+            alignment: .topLeading
+        )
+    }
+
+    @MainActor
+    private static func classPlateFixtureText(_ rendered: TrackerRenderedSession, role: TrackerNameplateRole) -> some View {
+        let session = rendered.session
+        let title = session.title.isEmpty ? session.id : session.title
+        let snippet = TrackerRenderer.snippet(for: session)
+        return ZStack(alignment: .topLeading) {
+            if role.isMaster {
+                TrackerPlateLine(
+                    text: "Questmaster",
+                    font: AppFonts.monoSmall,
+                    color: TrackerNameplateColor.barLightness(rendered.groupColor),
+                    x: TrackerNameplateRole.topLevelTextX,
+                    width: role.textRightEdge - TrackerNameplateRole.topLevelTextX,
+                    baseline: TrackerPlateDesign.topLevelProjectBaseline
+                )
+            }
+            TrackerPlateLine(
+                text: title,
+                font: AppFonts.trackerTitle,
+                color: AppPalette.text,
+                x: role.titleX,
+                width: role.titleWidth(time: ""),
+                baseline: role.titleBaseline,
+                castsShadow: true
+            )
+            if !snippet.isEmpty {
+                TrackerPlateLine(
+                    text: snippet,
+                    font: AppFonts.trackerSummary,
+                    color: AppPalette.textMeta,
+                    x: role.snippetX,
+                    width: role.textRightEdge - role.snippetX,
+                    baseline: role.snippetBaseline,
+                    castsShadow: true
+                )
+            }
+        }
+    }
+
+    @MainActor
+    private static func classPlateFixtureBadge(agent: String) -> some View {
+        ZStack {
+            Circle().fill(AppPalette.panel.swiftUI)
+            Circle().strokeBorder(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Token.Size.divider)
+            if let image = TrackerAgentMark.image(
+                for: agent,
+                side: TrackerPlateDesign.badgeLogoSide,
+                tint: AppPalette.agentMarkTint
+            ) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: TrackerPlateDesign.badgeLogoSide, height: TrackerPlateDesign.badgeLogoSide)
+                    .clipShape(Circle())
+            }
+        }
+        .frame(width: TrackerPlateDesign.badgeDiameter, height: TrackerPlateDesign.badgeDiameter)
+    }
+
+    @MainActor
+    private static func selectedSessionPortraitPanel(_ portrait: SessionPortrait, title: String, id: String) -> some View {
+        SelectedSessionPanel(
+            content: SelectedSessionPanelContent(
+                title: title,
+                id: id,
+                projectName: "Questmaster",
+                projectColor: NSColor(hex: 0x7A7AF0),
+                portrait: portrait
+            ),
+            onCopyID: { _ in }
+        )
+        .frame(width: SelectedSessionPanel.canvasSize.width, height: SelectedSessionPanel.canvasSize.height)
     }
 
     /// The shell row in each state: rest, under the pointer, the keyboard cursor (an outline), the attached shell (filled and
