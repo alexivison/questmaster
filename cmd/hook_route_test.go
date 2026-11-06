@@ -22,6 +22,7 @@ func TestHookEnvAbsentIsLegacy(t *testing.T) {
 	if err := store.Create(state.Manifest{SessionID: "qm-old", TmuxServer: "default"}); err != nil {
 		t.Fatal(err)
 	}
+	mustSessionStateDir(t, root, "qm-old")
 	var stderr bytes.Buffer
 	if handled, err := executeHookFastPath([]string{"--session", "qm-old", "codex", "tool_start"}, strings.NewReader(`{"tool_name":"Edit"}`), &stderr); err != nil || !handled {
 		t.Fatalf("hook handled=%t err=%v stderr=%q", handled, err, stderr.String())
@@ -40,6 +41,7 @@ func TestHookStaleOriginMakesNoWrites(t *testing.T) {
 			if err := store.Create(state.Manifest{SessionID: "qm-new", TmuxServer: "questmaster"}); err != nil {
 				t.Fatal(err)
 			}
+			mustSessionStateDir(t, root, "qm-new")
 			payload := strings.NewReader(`{"tool_name":"Edit"}`)
 			var stderr bytes.Buffer
 			if path == "fast" {
@@ -84,6 +86,7 @@ func TestHookLegacyContinuesAfterRouterSetupError(t *testing.T) {
 	if err := store.Create(state.Manifest{SessionID: "qm-old"}); err != nil {
 		t.Fatal(err)
 	}
+	mustSessionStateDir(t, root, "qm-old")
 	var stderr bytes.Buffer
 	if handled, err := executeHookFastPath([]string{"--session", "qm-old", "codex", "tool_start"}, strings.NewReader(`{"tool_name":"Edit"}`), &stderr); err != nil || !handled {
 		t.Fatalf("hook handled=%t err=%v", handled, err)
@@ -105,6 +108,7 @@ func TestHookNamedStopsAfterRouterSetupError(t *testing.T) {
 	if err := store.Create(state.Manifest{SessionID: "qm-new", TmuxServer: "questmaster"}); err != nil {
 		t.Fatal(err)
 	}
+	mustSessionStateDir(t, root, "qm-new")
 	var stderr bytes.Buffer
 	if handled, err := executeHookFastPath([]string{"--session", "qm-new", "codex", "tool_start"}, strings.NewReader(`{"tool_name":"Edit"}`), &stderr); err != nil || !handled {
 		t.Fatalf("hook handled=%t err=%v", handled, err)
@@ -125,6 +129,7 @@ func TestHookWritesRecipientServer(t *testing.T) {
 	if err := store.Create(state.Manifest{SessionID: "qm-new", TmuxServer: "questmaster", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
+	mustSessionStateDir(t, root, "qm-new")
 	legacyCalls, namedCalls := 0, 0
 	runner := func(calls *int) *mockRunner {
 		return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
@@ -143,5 +148,15 @@ func TestHookWritesRecipientServer(t *testing.T) {
 	runHook(r, hookOptions{agent: "codex", action: "tool_start", session: "qm-new", stdin: []byte(`{"tool_name":"Edit","tool_use_id":"call-1"}`)}, &stderr)
 	if legacyCalls != 0 || namedCalls == 0 {
 		t.Fatalf("tmux writes: legacy=%d named=%d stderr=%q", legacyCalls, namedCalls, stderr.String())
+	}
+}
+
+// mustSessionStateDir creates the session's state directory, which a live
+// session always has: hook errors are logged only into an existing directory
+// (a deleted session's late hooks must not recreate it).
+func mustSessionStateDir(t *testing.T, root, id string) {
+	t.Helper()
+	if err := os.MkdirAll(state.SessionStateDir(root, id), 0o700); err != nil {
+		t.Fatal(err)
 	}
 }
