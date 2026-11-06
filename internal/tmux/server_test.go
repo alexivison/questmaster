@@ -131,3 +131,76 @@ func TestServerEnvDropsOnlyTheRoutingVariables(t *testing.T) {
 		t.Fatalf("serverEnv = %q, want %q", got, want)
 	}
 }
+
+func TestNamedServerArgsAndEnv(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "questmaster")
+	named, err := NamedServer("/tmp/user.conf", "/tmp/enforced.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMUX", "hostile")
+	t.Setenv("TMUX_PANE", "%1")
+	t.Setenv("TMUX_TMPDIR", "/tmp/hostile")
+	t.Setenv("QUESTMASTER_SESSION", "qm-hostile")
+	t.Setenv("QUESTMASTER_TMUX_SERVER", "hostile")
+	t.Setenv("QUESTMASTER_RUNTIME_DIR", "/tmp/hostile")
+	t.Setenv("QM_KEEP", "yes")
+	for _, tc := range []struct {
+		name   string
+		server Server
+		want   []string
+	}{
+		{"named", named, []string{"-L", "questmaster", "-f", "/tmp/user.conf", "-f", "/tmp/enforced.conf", "list-sessions"}},
+		{"default", DefaultServer(), []string{"-L", "default", "list-sessions"}},
+	} {
+		cmd := tc.server.Command(t.Context(), "list-sessions")
+		if !slices.Equal(cmd.Args[1:], tc.want) {
+			t.Errorf("%s args = %q, want %q", tc.name, cmd.Args[1:], tc.want)
+		}
+		if cmd.Dir != "/" {
+			t.Errorf("%s Dir = %q", tc.name, cmd.Dir)
+		}
+		for _, key := range []string{"TMUX", "TMUX_PANE", "TMUX_TMPDIR", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_RUNTIME_DIR"} {
+			for _, kv := range cmd.Env {
+				if strings.HasPrefix(kv, key+"=") {
+					t.Errorf("%s inherited %s", tc.name, key)
+				}
+			}
+		}
+		if !slices.Contains(cmd.Env, "QM_KEEP=yes") {
+			t.Errorf("%s dropped unrelated env", tc.name)
+		}
+	}
+}
+
+func TestNamedServerLabelOverride(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_1")
+	server, err := NamedServer("/tmp/user.conf", "/tmp/enforced.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := server.Command(t.Context(), "list-sessions").Args[1:3]; !slices.Equal(got, []string{"-L", "dev_1"}) {
+		t.Fatalf("selector = %q", got)
+	}
+	if err := os.Unsetenv("QUESTMASTER_TMUX_LABEL"); err != nil {
+		t.Fatal(err)
+	}
+	server, err = NamedServer("/tmp/user.conf", "/tmp/enforced.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := server.Command(t.Context(), "list-sessions").Args[1:3]; !slices.Equal(got, []string{"-L", "questmaster"}) {
+		t.Fatalf("default selector = %q", got)
+	}
+}
+
+func TestNamedServerRejectsInvalidLabel(t *testing.T) {
+	for _, label := range []string{"", "default", "Upper", strings.Repeat("a", 33), "a/b", "has space"} {
+		t.Run(label, func(t *testing.T) {
+			t.Setenv("QUESTMASTER_TMUX_LABEL", label)
+			if _, err := NamedServer("/tmp/user.conf", "/tmp/enforced.conf"); err == nil {
+				t.Fatalf("accepted label %q", label)
+			}
+		})
+	}
+}

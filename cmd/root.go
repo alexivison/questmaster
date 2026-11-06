@@ -119,6 +119,7 @@ When invoked with no subcommand, it shows help.`,
 	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newRepoCmd(o.store))
 	root.AddCommand(newDaemonCmd(o.store))
+	root.AddCommand(newTmuxCmd(o.store))
 
 	return root
 }
