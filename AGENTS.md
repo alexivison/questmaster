@@ -73,6 +73,15 @@ covers the installer.
 
 State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 
+For branch testing, run `QUESTMASTER_TMUX_LABEL=dev_example swift run --package-path app Questmaster`
+from a `feat/tmux-server` worktree. `--state-root` or `QUESTMASTER_STATE_ROOT`
+can isolate its state. The non-bundle app starts a worktree-built daemon with its
+own identity, socket and shims; it does not replace the installed build. The
+label override is validated at daemon start, carried into the daemon's
+environment and identity, and passed to managed dev panes so CLI spawns stay
+on the same label. A build that
+predates two-server routing must not run `prune` while named sessions exist.
+
 ## Go backend architecture
 
 - `main.go` → `cmd.Execute()`. Each `cmd/*.go` is a cobra command factory with
@@ -107,10 +116,13 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 Invariants that aren't obvious from the code:
 
 - **Every tmux call names its server and its session exactly.** New sessions
-  still use `tmux.DefaultServer()` (`-L default`); existing sessions use the
-  `tmux_server` recorded in their manifests through `tmuxroute.Router` (an absent
-  value means the legacy default server). Commands run without TMUX, TMUX_PANE
-  and TMUX_TMPDIR, which describe the caller's own server. Session targets are
+  use `tmux.DefaultServer()` (`-L questmaster`, or the validated development
+  label); existing sessions use the `tmux_server` recorded in their manifests
+  through `tmuxroute.Router`. An absent field means the legacy default server,
+  regardless of the creation selector or current override. Commands run without
+  TMUX, TMUX_PANE and TMUX_TMPDIR, which describe the caller's own server.
+  Session panes receive their recorded label as `QUESTMASTER_TMUX_SERVER`; dev
+  panes also receive `QUESTMASTER_TMUX_LABEL` for new CLI creations. Session targets are
   `tmux.SessionTarget` (`=name:`),
   never a bare name, which tmux matches by prefix. A session's pane is targeted
   by the ID `NewSession` reports, never by index: nothing assumes window or pane
@@ -122,11 +134,18 @@ Invariants that aren't obvious from the code:
   session carries it as `QUESTMASTER_RUNTIME_DIR` for the Pi extension; readers
   take the path from one of the two, never from the ID. Legacy per-session
   cleanup relies on the `<state root>/runtime/<id>` shape: tmux may run another
-  live session's hook, which finds the closed session's script by name. Named
-  servers use a global hook whose Go handler holds the lifecycle lock and skips
-  a recreated or moved session. A manifest
+  live session's hook, which finds the closed session's script by name. The
+  dedicated server loads a global `session-closed` hook from the regenerated
+  `<state root>/tmux/enforced.conf`; its Go handler holds the lifecycle lock
+  and skips a recreated or moved session. That file also enforces the root
+  ownership marker and server lifetime settings after the user-editable
+  `questmaster.conf`. A manifest
   without the field predates it and keeps its old path until the session stops
   (`Manifest.RuntimeDirOrLegacy`, the one legacy branch).
+- Keep the legacy route until `qm tmux audit` finds no live legacy managed
+  sessions, orphans or unknown ownership, stopped manifests are backfilled,
+  and the user explicitly approves removal. Rolling back creation keeps named
+  sessions reachable through their recorded routes.
 - The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
   not any single Go type — version it deliberately.
 - **No model or reasoning-effort list is hardcoded.** Each harness declares its

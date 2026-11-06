@@ -94,7 +94,7 @@ func TestHookLegacyContinuesAfterRouterSetupError(t *testing.T) {
 	if _, err := os.Stat(state.SessionStatePath(root, "qm-old")); err != nil {
 		t.Fatal(err)
 	}
-	if lines := strings.Split(strings.TrimSpace(hookErrorLog(t, root, "qm-old")), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "route") {
+	if lines := strings.Split(strings.TrimSpace(hookErrorLog(t, root, "qm-old")), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "QUESTMASTER_TMUX_LABEL") {
 		t.Fatalf("hook error lines = %q", lines)
 	}
 }

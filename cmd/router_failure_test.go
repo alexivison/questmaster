@@ -78,3 +78,16 @@ func TestRootReadersRejectInvalidNamedLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestRootDefaultClientRejectsInvalidNamedLabel(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "bad label")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(state.StateRootEnv, t.TempDir())
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"list"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "QUESTMASTER_TMUX_LABEL") {
+		t.Fatalf("invalid override error = %v", err)
+	}
+}

@@ -76,6 +76,7 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 			return []byte(`{"started":true}`), nil
 		}),
 	}
+	runtime.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(runtimeTmuxRunner{})}, func() string { return "default" }, nil)
 	s := &server{
 		config:  Config{Root: root, PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second},
 		runtime: runtime, id: "canonical", record: Record{Root: root, Identity: "canonical", Accepting: true, Generation: 1},

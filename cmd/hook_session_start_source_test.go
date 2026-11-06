@@ -8,6 +8,7 @@ import (
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 const compactActivity = "Final answer before compaction"
@@ -150,7 +151,9 @@ func TestHookClaudeCompactionWhileDoneStillReceivesAlert(t *testing.T) {
 	}
 
 	runner := &notifyTmuxRunner{}
-	got, err := message.NewService(store, tmux.NewClient(runner)).Notify(context.Background(), sessionID, "[PR owner/repo#12] approved")
+	client := tmux.NewClient(runner)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	got, err := message.NewServiceWithRouter(store, router).Notify(context.Background(), sessionID, "[PR owner/repo#12] approved")
 	if err != nil {
 		t.Fatalf("notify: %v", err)
 	}

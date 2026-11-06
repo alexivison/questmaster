@@ -287,10 +287,10 @@ func TestStartModelAndReasoningEffortFlags(t *testing.T) {
 // that fails to send is retried on the next tick.
 func TestSendTimeoutIsLongerForTheCLIThanForTheDaemon(t *testing.T) {
 	t.Parallel()
-	if got := newCLITmuxClient().SendTimeout; got != cliSendTimeout {
+	if got := newCLITmuxClient(t.TempDir()).SendTimeout; got != cliSendTimeout {
 		t.Errorf("CLI client SendTimeout = %s, want %s", got, cliSendTimeout)
 	}
-	if got := newDaemonTmuxClient().SendTimeout; got != tmux.DefaultSendTimeout {
+	if got := newDaemonTmuxClient(t.TempDir()).SendTimeout; got != tmux.DefaultSendTimeout {
 		t.Errorf("daemon client SendTimeout = %s, want the default %s", got, tmux.DefaultSendTimeout)
 	}
 	if cliSendTimeout <= tmux.DefaultSendTimeout {

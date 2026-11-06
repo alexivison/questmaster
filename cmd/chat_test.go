@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
@@ -212,11 +214,18 @@ func TestChatCommandReportsPartialWorkerFailure(t *testing.T) {
 	}
 }
 
-func TestChatCommandDiscoversCurrentMaster(t *testing.T) {
+func TestChatCommandUsesDiscoveredLegacyMaster(t *testing.T) {
 	t.Setenv(state.SessionEnv, "")
 	store := setupStore(t)
 	createFeedManifests(t, store, "qm-master", "qm-w1")
-	out := runCmd(t, store, displayRunner(t, "qm-master"), "chat")
+	runner := displayRunner(t, "qm-master")
+	client := tmux.NewClient(runner)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "questmaster" }, nil)
+	id, err := discoverMasterSessionRouted(t.Context(), store, router)
+	if err != nil || id != "qm-master" {
+		t.Fatalf("discovered master = %q, %v", id, err)
+	}
+	out := runCmd(t, store, runner, "chat", id)
 	var page workerfeed.HistoryPage
 	if err := json.Unmarshal([]byte(out), &page); err != nil {
 		t.Fatal(err)

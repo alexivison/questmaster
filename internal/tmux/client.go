@@ -85,9 +85,10 @@ const defaultServerLabel = "default"
 // TMUX_TMPDIR: they describe the caller's own server, which need not be this
 // one. Build one with DefaultServer or SocketServer.
 type Server struct {
-	flag        string // "-L" names a label in tmux's socket directory; "-S" a socket path
-	name        string
-	configFiles []string
+	flag         string // "-L" names a label in tmux's socket directory; "-S" a socket path
+	name         string
+	configFiles  []string
+	selectionErr error
 }
 
 // Label returns the selected -L name, or the private socket path for -S tests.
@@ -95,12 +96,18 @@ func (s Server) Label() string { return s.name }
 
 var _ Runner = Server{}
 
-// DefaultServer is the server Questmaster's sessions run on. It is the one
-// place production picks a server. "-L default" is the socket tmux falls back
-// to when no flag, TMUX or TMUX_TMPDIR selects another, /tmp/tmux-<uid>/default,
-// which is also the socket the app's own tmux calls reach.
-func DefaultServer() Server {
-	return LegacyServer()
+// DefaultServer is the server new Questmaster sessions run on. Callers must
+// supply both startup config paths so any direct client can safely start it.
+func DefaultServer(config, enforced string) Server {
+	label, err := EffectiveLabel()
+	if err != nil {
+		return Server{flag: "-L", name: "invalid", selectionErr: err}
+	}
+	server, err := NamedServerLabel(label, config, enforced)
+	if err != nil {
+		return Server{flag: "-L", name: label, selectionErr: err}
+	}
+	return server
 }
 
 // LegacyServer selects the user's default socket independently of the
@@ -138,7 +145,7 @@ func ValidateNamedLabel(label string) error {
 }
 
 // NamedServer selects Questmaster's dedicated server with the user config
-// followed by the enforced settings. No production caller uses it yet.
+// followed by the enforced settings.
 func NamedServer(config, enforced string) (Server, error) {
 	label, err := EffectiveLabel()
 	if err != nil {
@@ -152,6 +159,9 @@ func NamedServer(config, enforced string) (Server, error) {
 func NamedServerLabel(label, config, enforced string) (Server, error) {
 	if err := ValidateNamedLabel(label); err != nil {
 		return Server{}, err
+	}
+	if config == "" || enforced == "" {
+		return Server{}, fmt.Errorf("named tmux server requires both config files")
 	}
 	return Server{flag: "-L", name: label, configFiles: []string{config, enforced}}, nil
 }
@@ -168,6 +178,25 @@ func SocketServerWithConfig(socket string, files ...string) Server {
 	return Server{flag: "-S", name: socket, configFiles: append([]string(nil), files...)}
 }
 
+func (s Server) validationError() error {
+	if s.selectionErr != nil {
+		return s.selectionErr
+	}
+	if s.flag != "-L" {
+		return nil
+	}
+	if s.name == defaultServerLabel {
+		return nil
+	}
+	if err := ValidateNamedLabel(s.name); err != nil {
+		return err
+	}
+	if len(s.configFiles) != 2 || s.configFiles[0] == "" || s.configFiles[1] == "" {
+		return fmt.Errorf("named tmux server %q requires both config files", s.name)
+	}
+	return nil
+}
+
 // Command returns a tmux command on this server. Run uses it; attach runs one
 // directly so tmux gets the terminal.
 func (s Server) Command(ctx context.Context, args ...string) *exec.Cmd {
@@ -176,7 +205,10 @@ func (s Server) Command(ctx context.Context, args ...string) *exec.Cmd {
 		argv = append(argv, "-f", file)
 	}
 	cmd := exec.CommandContext(ctx, "tmux", append(argv, args...)...)
-	if testing.Testing() && s.flag == "-L" {
+	if err := s.validationError(); err != nil {
+		cmd.Err = err
+		cmd.Path = "/questmaster-invalid-tmux-server-selection"
+	} else if testing.Testing() && s.flag == "-L" {
 		cmd.Path = "/questmaster-test-binary-refuses-named-tmux-server"
 	}
 	cmd.Dir = "/"
@@ -188,6 +220,9 @@ func (s Server) Command(ctx context.Context, args ...string) *exec.Cmd {
 // Wraps non-zero exits as *ExitError (with stderr) so callers can distinguish
 // "session not found" from transport errors.
 func (s Server) Run(ctx context.Context, args ...string) (string, error) {
+	if err := s.validationError(); err != nil {
+		return "", err
+	}
 	if testing.Testing() && s.flag == "-L" {
 		return "", fmt.Errorf("tmux -L %s is forbidden in a test binary; use tmuxtest private -S sockets or an injected runner", s.name)
 	}
@@ -212,7 +247,7 @@ func serverEnv(environ []string) []string {
 	env := make([]string, 0, len(environ))
 	for _, kv := range environ {
 		switch key, _, _ := strings.Cut(kv, "="); key {
-		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_RUNTIME_DIR":
+		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_TMUX_LABEL", "QUESTMASTER_RUNTIME_DIR":
 			continue
 		}
 		env = append(env, kv)

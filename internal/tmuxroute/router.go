@@ -106,16 +106,15 @@ func NewProduction(store *state.Store, defaultClient *tmux.Client) (*Router, err
 	if err != nil {
 		return nil, err
 	}
-	if tmux.DefaultServer().Label() != "default" {
-		defaultClient = tmux.NewClient(tmux.LegacyServer())
-	}
 	paths := tmuxconfig.Paths(root)
 	files := []string{paths.Config, paths.Enforced}
+	// The injected client now selects creation; legacy manifests need default.
+	defaultClient = tmux.NewClient(tmux.LegacyServer())
 	named, err := tmux.NamedServerLabel(label, files[0], files[1])
 	if err != nil {
 		return nil, err
 	}
-	r := New(state.OpenStore(root), map[string]*tmux.Client{"default": defaultClient, label: tmux.NewClient(named)}, func() string { return tmux.DefaultServer().Label() }, files)
+	r := New(state.OpenStore(root), map[string]*tmux.Client{"default": defaultClient, label: tmux.NewClient(named)}, func() string { return label }, files)
 	r.factory = func(recorded string) (*tmux.Client, error) {
 		server, err := tmux.NamedServerLabel(recorded, files[0], files[1])
 		if err != nil {
