@@ -36,12 +36,19 @@ var errNoSocket = errors.New("tmuxtest: tmux call without -S <socket>; refusing 
 
 // Runner runs tmux commands on one private server socket. It satisfies tmux.Runner.
 type Runner struct {
-	socket string
+	socket      string
+	configFiles []string
 }
 
 // NewRunner returns a Runner on a fresh private socket. On cleanup it kills the
 // server and removes the socket directory.
 func NewRunner(t testing.TB) *Runner {
+	return NewRunnerWithConfig(t)
+}
+
+// NewRunnerWithConfig starts a private server with the given config files in
+// order. Every tmux call still names the private -S socket explicitly.
+func NewRunnerWithConfig(t testing.TB, files ...string) *Runner {
 	t.Helper()
 	// Not t.TempDir: its path carries the test name and can exceed the socket limit.
 	dir, err := os.MkdirTemp("", "qmt")
@@ -56,7 +63,7 @@ func NewRunner(t testing.TB) *Runner {
 	if err := checkSocketPath(socket, os.Getuid()); err != nil {
 		t.Fatal(err)
 	}
-	return &Runner{socket: socket}
+	return &Runner{socket: socket, configFiles: append([]string(nil), files...)}
 }
 
 // Socket returns the private socket path.
@@ -70,7 +77,11 @@ func (r *Runner) Run(ctx context.Context, args ...string) (string, error) {
 	if len(args) > 0 && isServerSelector(args[0]) {
 		return "", fmt.Errorf("tmuxtest: %s in the command position would select another server", args[0])
 	}
-	return runTmux(ctx, r.socket, append([]string{"-S", r.socket}, args...))
+	argv := []string{"-S", r.socket}
+	for _, file := range r.configFiles {
+		argv = append(argv, "-f", file)
+	}
+	return runTmux(ctx, r.socket, append(argv, args...))
 }
 
 // RequireIntegration skips t unless QUESTMASTER_TMUX_INTEGRATION=1. With the

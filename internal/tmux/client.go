@@ -84,8 +84,9 @@ const defaultServerLabel = "default"
 // TMUX_TMPDIR: they describe the caller's own server, which need not be this
 // one. Build one with DefaultServer or SocketServer.
 type Server struct {
-	flag string // "-L" names a label in tmux's socket directory; "-S" a socket path
-	name string
+	flag        string // "-L" names a label in tmux's socket directory; "-S" a socket path
+	name        string
+	configFiles []string
 }
 
 var _ Runner = Server{}
@@ -98,16 +99,56 @@ func DefaultServer() Server {
 	return Server{flag: "-L", name: defaultServerLabel}
 }
 
+// EffectiveLabel resolves the dedicated server label. The override is for
+// isolated development and tests; an invalid value is always an error.
+func EffectiveLabel() (string, error) {
+	label, set := os.LookupEnv("QUESTMASTER_TMUX_LABEL")
+	if !set {
+		return "questmaster", nil
+	}
+	if label == "default" || len(label) == 0 || len(label) > 32 {
+		return "", fmt.Errorf("invalid QUESTMASTER_TMUX_LABEL %q", label)
+	}
+	for i := 0; i < len(label); i++ {
+		c := label[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return "", fmt.Errorf("invalid QUESTMASTER_TMUX_LABEL %q", label)
+		}
+	}
+	return label, nil
+}
+
+// NamedServer selects Questmaster's dedicated server with the user config
+// followed by the enforced settings. No production caller uses it yet.
+func NamedServer(config, enforced string) (Server, error) {
+	label, err := EffectiveLabel()
+	if err != nil {
+		return Server{}, err
+	}
+	return Server{flag: "-L", name: label, configFiles: []string{config, enforced}}, nil
+}
+
 // SocketServer selects the server listening on socket. Tests use it with a
 // private socket.
 func SocketServer(socket string) Server {
 	return Server{flag: "-S", name: socket}
 }
 
+// SocketServerWithConfig selects a private socket with startup config files.
+// It is useful when validating a configuration without selecting a named server.
+func SocketServerWithConfig(socket string, files ...string) Server {
+	return Server{flag: "-S", name: socket, configFiles: append([]string(nil), files...)}
+}
+
 // Command returns a tmux command on this server. Run uses it; attach runs one
 // directly so tmux gets the terminal.
 func (s Server) Command(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "tmux", append([]string{s.flag, s.name}, args...)...)
+	argv := []string{s.flag, s.name}
+	for _, file := range s.configFiles {
+		argv = append(argv, "-f", file)
+	}
+	cmd := exec.CommandContext(ctx, "tmux", append(argv, args...)...)
+	cmd.Dir = "/"
 	cmd.Env = serverEnv(os.Environ())
 	return cmd
 }
@@ -137,7 +178,7 @@ func serverEnv(environ []string) []string {
 	env := make([]string, 0, len(environ))
 	for _, kv := range environ {
 		switch key, _, _ := strings.Cut(kv, "="); key {
-		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR":
+		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_RUNTIME_DIR":
 			continue
 		}
 		env = append(env, kv)

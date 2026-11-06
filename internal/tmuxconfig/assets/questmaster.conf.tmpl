@@ -1,0 +1,125 @@
+# Questmaster tmux config (template v1).
+# Written once by Questmaster from its built-in template, migrated from a personal
+# ~/.tmux.conf on 2026-11-06. It is yours: Questmaster never rewrites this file.
+# Delete it to get the current template back at the next server start.
+# Questmaster's must-have settings live in enforced.conf, loaded after this file.
+# tmux reads this file only when the Questmaster server starts. prefix R reloads
+# it into a running server; removed lines and new-pane options need a restart.
+
+# Save the current pane's full scrollback to a file
+bind-key S run-shell 'tmux capture-pane -S - -p > "#{pane_current_path}/tmux-capture-$(date +%s).txt"' \; display "Saved to #{pane_current_path}"
+
+# Prefix key
+unbind C-b
+unbind C-Space
+unbind C-@
+set-option -g prefix C-s
+bind-key C-s send-prefix
+
+# Pane navigation
+bind-key -n M-Left select-pane -L
+bind-key -n M-Right select-pane -R
+bind-key Left select-pane -L
+bind-key Right select-pane -R
+
+# Pane resize
+bind-key -r h resize-pane -L 5
+bind-key -r j resize-pane -D 5
+bind-key -r k resize-pane -U 5
+bind-key -r l resize-pane -R 5
+
+# Window and session controls
+bind-key -n C-x kill-pane
+bind-key -n C-S-Left previous-window
+bind-key -n C-S-Right next-window
+bind-key n next-window
+bind-key p previous-window
+
+# Reload this file, then Questmaster's enforced settings, into the running server
+bind-key R source-file {{CONFIG}} \; source-file {{ENFORCED}} \; display "Questmaster tmux config reloaded"
+
+# Pane splits
+unbind '"'
+unbind %
+unbind =
+bind '"' split-window -v -c "#{pane_current_path}"
+bind = select-layout even-horizontal
+bind - split-window -h -c "#{pane_current_path}"
+
+# Core interaction
+set-option -g focus-events on
+set-option -g mouse on
+set-option -sa terminal-overrides ",xterm*:Tc,xterm*:Ss=\\E[%p1%d q:Se=\\E[2 q"
+set-option -g xterm-keys on
+set -g extended-keys on
+set -g extended-keys-format csi-u
+set-option -s terminal-features[3] "xterm*:extkeys"
+set-option -s terminal-features[4] "screen*:extkeys"
+set-option -s terminal-features[5] "tmux*:extkeys"
+setw -g mode-keys vi
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy"
+set-option -g monitor-activity off
+set-option -g visual-activity off
+# exit-empty, detach-on-destroy and destroy-unattached are set by Questmaster in
+# enforced.conf, which loads after this file.
+
+# Lock pane/window naming
+set-option -g allow-rename off
+set-option -g automatic-rename off
+set-option -g set-titles off
+
+# Status bar
+set-option -g status on
+set-option -g status-position top
+set-option -g status-interval 5
+set-option -g status-justify left
+set-option -g status-left-length 100
+set-option -g status-right-length 140
+
+# From tmux-sensible: the one setting it adds that this server needs.
+# Keeps agent panes' scrollback at today's 50,000 lines (tmux default: 2,000).
+set-option -g history-limit 50000
+# Also from tmux-sensible, not needed by Questmaster. Uncomment to keep them.
+# set-option -g display-time 4000
+# set-option -g status-keys emacs
+# set-window-option -g aggressive-resize on
+# bind-key C-p previous-window
+# bind-key C-n next-window
+
+# From vim-tmux-navigator: its tmux-side bindings, inlined (no TPM needed).
+# The Vim-side plugin in your editor is unchanged.
+%hidden is_vim="ps -o state= -o comm= -t '#{pane_tty}' | grep -iqE '^[^TXZ ]+ +(\\S+/)?g?\\.?(view|l?n?vim?x?|fzf)(diff)?(-wrapped)?$'"
+bind-key -n C-h if-shell "$is_vim" "send-keys 'C-h'" "select-pane -L"
+bind-key -n C-j if-shell "$is_vim" "send-keys 'C-j'" "select-pane -D"
+bind-key -n C-k if-shell "$is_vim" "send-keys 'C-k'" "select-pane -U"
+bind-key -n C-l if-shell "$is_vim" "send-keys 'C-l'" "select-pane -R"
+bind-key -n 'C-\' if-shell "$is_vim" "send-keys 'C-\\'" "select-pane -l"
+bind-key -T copy-mode-vi C-h select-pane -L
+bind-key -T copy-mode-vi C-j select-pane -D
+bind-key -T copy-mode-vi C-k select-pane -U
+bind-key -T copy-mode-vi C-l select-pane -R
+bind-key -T copy-mode-vi 'C-\' select-pane -l
+bind-key C-l send-keys C-l
+
+# Status bar theme (GitHub Dark Dimmed)
+#   BAR_BG=terminal  BORDER=#768390  SOFT_BORDER=#373e47
+#   TEXT=#adbac7  ACCENT=#539bf5  GREEN=#5aa75f  DIM=#64707d  GOLD=#d0a647  RED=#e7716b
+set-option -g status-style 'bg=terminal,fg=#adbac7'
+set-option -g status-left "#[fg=#{?client_prefix,#1c2128,#64707d},bg=#{?client_prefix,#5aa75f,terminal},bold] C-s #[fg=#373e47,bg=terminal,nobold]・ #[default]"
+set-option -g status-right "#({{STATUS_SCRIPT}} #{pane_current_path})"
+set-option -g window-status-separator " "
+set-option -g window-status-format "#[fg=#64707d,bg=terminal,nobold]#I "
+set-option -g window-status-current-format "#[fg=#539bf5,bg=terminal,bold]#I "
+set-option -g window-status-style "fg=#adbac7,bg=terminal"
+set-option -g window-status-activity-style "fg=#adbac7,bg=terminal"
+set-option -g window-status-bell-style "fg=#d0a647,bg=terminal"
+set-option -g window-status-last-style "fg=#adbac7,bg=terminal"
+set-option -g message-style 'fg=#539bf5,bg=default'
+set-option -g window-style 'fg=#adbac7,bg=terminal'
+set-option -g window-active-style 'fg=#adbac7,bg=terminal'
+
+# Pane borders. Questmaster sets pane-border-status per agent window
+# (internal/session/layout.go); the format reads its @party_role pane option.
+set-option -g pane-border-style 'fg=#373e47'
+set-option -g pane-active-border-style 'fg=#768390'
+set-option -g pane-border-format '#{?pane_active,#[fg=#539bf5] #{?#{==:#{@party_role},tracker},Tracker,#{?#{==:#{@party_role},shell},Shell,#{pane_title}}} ,#[fg=#768390] #{?#{==:#{@party_role},tracker},Tracker,#{?#{==:#{@party_role},shell},Shell,#{pane_title}}} }'
