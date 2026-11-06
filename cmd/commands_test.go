@@ -753,10 +753,10 @@ func TestList_StaleSortedByMtime(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Corrupt manifests may hide the only route to a live session.
+// Prune can remove an old corrupt manifest when the server view is complete.
 // ---------------------------------------------------------------------------
 
-func TestPrunePreservesCorruptManifests(t *testing.T) {
+func TestPruneRemovesStaleCorruptManifest(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 
@@ -771,12 +771,16 @@ func TestPrunePreservesCorruptManifests(t *testing.T) {
 		t.Fatalf("age corrupt: %v", err)
 	}
 
-	_, err := pruneManifestsWithLegacyRoot(t.Context(), store, nil, 7, false, "", testPruneRouter(store, tmux.NewClient(sessionsRunner())))
-	if err == nil {
-		t.Fatal("prune proceeded with an unreadable manifest")
+	out := runCmd(t, store, sessionsRunner(), "prune")
+	var pruned pruneResult
+	if err := json.Unmarshal([]byte(out), &pruned); err != nil {
+		t.Fatalf("prune output is not JSON: %v\n%s", err, out)
 	}
-	if _, err := os.Stat(corrupt); err != nil {
-		t.Fatalf("corrupt manifest was removed: %v", err)
+	if pruned.Pruned != 1 {
+		t.Fatalf("pruned = %d, want 1", pruned.Pruned)
+	}
+	if _, err := os.Stat(corrupt); !os.IsNotExist(err) {
+		t.Fatalf("corrupt manifest should be removed: %v", err)
 	}
 }
 

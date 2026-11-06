@@ -3,6 +3,7 @@ package tmuxroute
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/alexivison/questmaster/internal/state"
@@ -109,6 +110,30 @@ func TestLiveIDsRejectsLabelRecordedAfterRouterCreation(t *testing.T) {
 	}
 	if _, err := r.LiveIDs(t.Context()); err == nil {
 		t.Fatal("destructive inventory treated an unrouteable recorded label as absent")
+	}
+}
+
+func TestProductionRouterKeepsManifestRoutesWithUnreadableLabelRecord(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_current")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "tmux-servers.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewProduction(state.OpenStore(root), tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) { return "", nil })))
+	if err != nil {
+		t.Fatalf("construct router for hooks and sends: %v", err)
+	}
+	for _, label := range []state.TmuxServer{"", "dev_current", "dev_previous"} {
+		handle, err := r.Route(state.Manifest{TmuxServer: label})
+		if err != nil {
+			t.Fatalf("route manifest for hooks and sends: %v", err)
+		}
+		if label != "" && handle.Label() != string(label) {
+			t.Fatalf("manifest route = %q, want %q", handle.Label(), label)
+		}
+	}
+	if _, err := r.LiveIDs(t.Context()); err == nil {
+		t.Fatal("destructive inventory accepted unreadable labels")
 	}
 }
 

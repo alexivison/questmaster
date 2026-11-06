@@ -12,7 +12,7 @@ import (
 const tmuxServersFile = "tmux-servers.json"
 
 // ReadTmuxServerLabels returns labels this state root has created sessions on.
-// Routers load it once at construction, so inventory does not reread the file.
+// Routers load it at construction; destructive inventory refreshes it.
 func ReadTmuxServerLabels(root string) ([]string, error) {
 	data, err := os.ReadFile(filepath.Join(root, tmuxServersFile))
 	if os.IsNotExist(err) {
@@ -52,7 +52,7 @@ func RecordTmuxServerLabel(root, label string) error {
 
 	labels, err := ReadTmuxServerLabels(root)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w; repair or remove %s", err, filepath.Join(root, tmuxServersFile))
 	}
 	for _, existing := range labels {
 		if existing == label {

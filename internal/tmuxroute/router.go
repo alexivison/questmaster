@@ -77,14 +77,15 @@ type cacheEntry struct {
 // Router has one client per label. Production's factory creates a client for
 // a recorded dev label without consulting today's environment override.
 type Router struct {
-	store     *state.Store
-	creation  func() string
-	paths     []string
-	refreshMu sync.Mutex
-	mu        sync.Mutex
-	clients   map[string]*tmux.Client
-	cache     map[string]cacheEntry
-	factory   func(string) (*tmux.Client, error)
+	store          *state.Store
+	creation       func() string
+	paths          []string
+	refreshMu      sync.Mutex
+	mu             sync.Mutex
+	clients        map[string]*tmux.Client
+	cache          map[string]cacheEntry
+	factory        func(string) (*tmux.Client, error)
+	labelRecordErr error
 }
 
 func New(store *state.Store, clients map[string]*tmux.Client, creation func() string, namedConfigFiles []string) *Router {
@@ -128,26 +129,25 @@ func NewProduction(store *state.Store, defaultClient *tmux.Client) (*Router, err
 		}
 		return newClient(server), nil
 	}
-	if err := r.refreshPersistedLabels(); err != nil {
-		return nil, err
-	}
+	r.refreshPersistedLabels()
 	return r, nil
 }
 
-func (r *Router) refreshPersistedLabels() error {
+func (r *Router) refreshPersistedLabels() {
 	if r.store == nil {
-		return nil
+		return
 	}
 	labels, err := state.ReadTmuxServerLabels(r.store.Root())
-	if err != nil {
-		return err
-	}
-	for _, label := range labels {
-		if _, err := r.handle(label); err != nil {
-			return err
+	if err == nil {
+		for _, label := range labels {
+			if _, err = r.handle(label); err != nil {
+				break
+			}
 		}
 	}
-	return nil
+	r.mu.Lock()
+	r.labelRecordErr = err
+	r.mu.Unlock()
 }
 
 func (r *Router) handle(label string) (Handle, error) {
@@ -279,8 +279,12 @@ func (r *Router) Invalidate() {
 func (r *Router) LiveIDs(ctx context.Context) (map[string]bool, error) {
 	// Destructive cleanup gets a fresh label set even when this router was
 	// constructed before another process created a development session.
-	if err := r.refreshPersistedLabels(); err != nil {
-		return nil, err
+	r.refreshPersistedLabels()
+	r.mu.Lock()
+	recordErr := r.labelRecordErr
+	r.mu.Unlock()
+	if recordErr != nil {
+		return nil, recordErr
 	}
 	inv := r.Inventory(ctx)
 	for _, server := range inv.Servers {

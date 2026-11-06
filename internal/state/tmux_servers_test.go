@@ -3,6 +3,7 @@ package state
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -55,8 +56,8 @@ func TestTmuxServerLabelsDoNotOverwriteUnreadableRecord(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordTmuxServerLabel(root, "dev_new"); err == nil {
-		t.Fatal("recording over corrupt labels succeeded")
+	if err := RecordTmuxServerLabel(root, "dev_new"); err == nil || !strings.Contains(err.Error(), "repair or remove "+path) {
+		t.Fatalf("recording over corrupt labels error = %v", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil || string(data) != "{" {
