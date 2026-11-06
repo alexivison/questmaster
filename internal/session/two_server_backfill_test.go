@@ -27,11 +27,20 @@ func TestClassBackfillSeesBothServers(t *testing.T) {
 	legacy := tmux.NewClient(backfillViewRunner(func(context.Context, ...string) (string, error) { return "qm-one", nil }))
 	named := tmux.NewClient(backfillViewRunner(func(context.Context, ...string) (string, error) { return "qm-two", nil }))
 	router := tmuxroute.New(store, map[string]*tmux.Client{"default": legacy, "questmaster": named}, func() string { return "default" }, nil)
-	live, classes, err := liveMasterClasses(t.Context(), store, legacy, router)
+	live, classes, err := routedLiveMasterClasses(t.Context(), store, router)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(live) != 2 || len(classes) != 2 {
 		t.Fatalf("live=%v classes=%v", live, classes)
+	}
+}
+
+func TestClassBackfillRequiresRouter(t *testing.T) {
+	store := state.OpenStore(t.TempDir())
+	createClassBackfillMaster(t, store, "qm-named", "")
+	client := tmux.NewClient(backfillViewRunner(func(context.Context, ...string) (string, error) { t.Fatal("tmux was called"); return "", nil }))
+	if err := NewClassBackfillJob(store, client, nil).runPass(t.Context()); err == nil {
+		t.Fatal("nil router backfilled from one server")
 	}
 }

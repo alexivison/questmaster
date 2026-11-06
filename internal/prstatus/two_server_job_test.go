@@ -84,3 +84,11 @@ func TestPRJobRequiresWatcherOnRecordedServer(t *testing.T) {
 		t.Fatalf("delivery called=%v err=%v", called, err)
 	}
 }
+
+func TestPRJobRequiresRouter(t *testing.T) {
+	client := tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) { t.Fatal("tmux was called"); return "", nil }))
+	job := NewJob(t.TempDir(), client, nil)
+	if _, err := job.liveIDs(t.Context(), []string{"qm-named"}); err == nil {
+		t.Fatal("nil router used a default-only view")
+	}
+}

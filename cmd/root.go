@@ -107,10 +107,10 @@ When invoked with no subcommand, it shows help.`,
 	}
 
 	root.AddCommand(newVersionCmd())
-	root.AddCommand(newListCmd(o.store, o.client, router))
-	root.AddCommand(newSessionsCmd(o.store, o.client, router))
+	root.AddCommand(newListCmd(o.store, o.client, router, routerErr))
+	root.AddCommand(newSessionsCmd(o.store, o.client, router, routerErr))
 	root.AddCommand(newStatusCmd(o.store, o.client, router))
-	root.AddCommand(newPruneCmd(o.store, o.client, router))
+	root.AddCommand(newPruneCmd(o.store, o.client, router, routerErr))
 	root.AddCommand(newStartCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newContinueCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newDeleteCmd(o.store, o.client, o.repoRoot))

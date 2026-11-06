@@ -94,7 +94,9 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store, projects
 		router = routers[0]
 	}
 	if router == nil {
-		router = tmuxroute.New(store, map[string]*tmux.Client{"default": tmuxClient}, func() string { return "default" }, nil)
+		return func(SessionInfo) (TrackerSnapshot, error) {
+			return TrackerSnapshot{}, fmt.Errorf("tmux router is required for tracker")
+		}
 	}
 	lastStatus := map[string]string{}
 	var fetchMu sync.Mutex

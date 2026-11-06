@@ -72,6 +72,9 @@ func (j *ClassBackfillJob) Run(ctx context.Context) error {
 }
 
 func (j *ClassBackfillJob) runPass(ctx context.Context) error {
+	if j.router == nil {
+		return fmt.Errorf("tmux router is required for class backfill")
+	}
 	manifests, err := j.store.DiscoverSessions()
 	if err != nil {
 		return fmt.Errorf("discover sessions for class backfill: %w", err)
@@ -87,7 +90,7 @@ func (j *ClassBackfillJob) runPass(ctx context.Context) error {
 		return nil
 	}
 	j.hasWork.Store(true)
-	liveSessions, activeClasses, err := liveMasterClasses(ctx, j.store, j.tmuxClient, j.router)
+	liveSessions, activeClasses, err := routedLiveMasterClasses(ctx, j.store, j.router)
 	if err != nil {
 		return fmt.Errorf("list live sessions for class backfill: %w", err)
 	}
@@ -116,19 +119,22 @@ func (j *ClassBackfillJob) runPass(ctx context.Context) error {
 	return nil
 }
 
-func liveMasterClasses(ctx context.Context, store *state.Store, tmuxClient *tmux.Client, routers ...*tmuxroute.Router) (map[string]struct{}, []string, error) {
+// liveMasterClasses is the explicit creation-server-only class-balancing path.
+// It does not delete state or decide whether any existing session is stopped.
+func liveMasterClasses(ctx context.Context, store *state.Store, tmuxClient *tmux.Client) (map[string]struct{}, []string, error) {
+	if tmuxClient == nil {
+		return nil, nil, fmt.Errorf("tmux client is required")
+	}
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmuxClient}, func() string { return "default" }, nil)
+	return routedLiveMasterClasses(ctx, store, router)
+}
+
+func routedLiveMasterClasses(ctx context.Context, store *state.Store, router *tmuxroute.Router) (map[string]struct{}, []string, error) {
 	if store == nil {
 		return nil, nil, fmt.Errorf("state store is required")
 	}
-	var router *tmuxroute.Router
-	if len(routers) > 0 {
-		router = routers[0]
-	}
 	if router == nil {
-		if tmuxClient == nil {
-			return nil, nil, fmt.Errorf("tmux client is required")
-		}
-		router = tmuxroute.New(store, map[string]*tmux.Client{"default": tmuxClient}, func() string { return "default" }, nil)
+		return nil, nil, fmt.Errorf("tmux router is required for class backfill")
 	}
 	inv := router.Inventory(ctx)
 	for _, server := range inv.Servers {

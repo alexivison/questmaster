@@ -61,3 +61,14 @@ func TestTrackerUnavailableServerKeepsRows(t *testing.T) {
 		t.Fatalf("second = %+v, %v", second, err)
 	}
 }
+
+func TestTrackerRequiresRouter(t *testing.T) {
+	store := state.OpenStore(t.TempDir())
+	if err := store.Create(state.Manifest{SessionID: "qm-named", TmuxServer: "questmaster"}); err != nil {
+		t.Fatal(err)
+	}
+	client := tmux.NewClient(inventoryRunner(func(context.Context, ...string) (string, error) { t.Fatal("tmux was called"); return "", nil }))
+	if _, err := NewLiveSessionFetcher(client, store, state.NewProjectResolver(), nil)(SessionInfo{}); err == nil {
+		t.Fatal("nil router marked a named session stopped")
+	}
+}

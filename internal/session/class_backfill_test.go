@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 type classBackfillRunner struct {
@@ -29,6 +30,11 @@ func (r *classBackfillRunner) Run(_ context.Context, _ ...string) (string, error
 		return "", r.failErr
 	}
 	return r.sessions, r.err
+}
+
+func classBackfillJobForTest(store *state.Store, client *tmux.Client) *ClassBackfillJob {
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	return NewClassBackfillJob(store, client, router)
 }
 
 func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
@@ -69,7 +75,7 @@ func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 	liveIDs = append(liveIDs, worker.SessionID, shell.SessionID)
 
 	runner := &classBackfillRunner{sessions: strings.Join(liveIDs, "\n")}
-	job := NewClassBackfillJob(store, tmux.NewClient(runner))
+	job := classBackfillJobForTest(store, tmux.NewClient(runner))
 	job.randomIndex = func(int) int { return 0 }
 	if !job.HasWork() {
 		t.Fatal("HasWork() = false before classless masters are backfilled")
@@ -156,7 +162,7 @@ func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	job := NewClassBackfillJob(store, tmux.NewClient(&classBackfillRunner{sessions: "qm-later"}))
+	job := classBackfillJobForTest(store, tmux.NewClient(&classBackfillRunner{sessions: "qm-later"}))
 	job.randomIndex = func(int) int { return 0 }
 	job.rescanInterval = 200 * time.Millisecond
 	if !job.HasWork() {
@@ -225,7 +231,7 @@ func TestClassBackfillJobSkipsTmuxForEmptyRescans(t *testing.T) {
 		failOnCall: 2,
 		failErr:    &tmux.ExitError{Code: 1, Stderr: "tmux unavailable"},
 	}
-	job := NewClassBackfillJob(store, tmux.NewClient(runner))
+	job := classBackfillJobForTest(store, tmux.NewClient(runner))
 	job.rescanInterval = 20 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -310,7 +316,7 @@ func TestClassBackfillJobFailures(t *testing.T) {
 				defer os.RemoveAll(blockedPath)
 			}
 			runner := &classBackfillRunner{sessions: strings.Join(ids, "\n"), err: tt.runnerError}
-			job := NewClassBackfillJob(store, tmux.NewClient(runner))
+			job := classBackfillJobForTest(store, tmux.NewClient(runner))
 			job.randomIndex = func(int) int { return 0 }
 			if !job.HasWork() {
 				t.Fatal("HasWork() = false before failed pass")

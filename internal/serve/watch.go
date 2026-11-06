@@ -86,7 +86,7 @@ type FileChangeSource struct {
 // drives only elapsed/runtime clock fields; state changes are watcher-driven.
 func NewFileChangeSource(ctx context.Context, snapshotter *Snapshotter, clockInterval time.Duration) (*FileChangeSource, error) {
 	if snapshotter == nil {
-		snapshotter = NewSnapshotter(nil, nil, nil)
+		return nil, fmt.Errorf("snapshotter with tmux router is required")
 	}
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {

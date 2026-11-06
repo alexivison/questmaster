@@ -44,3 +44,11 @@ func TestSnapshotListsEachServerOncePerRefresh(t *testing.T) {
 		t.Fatalf("after lifecycle = %d, %d", defaultCalls, namedCalls)
 	}
 }
+
+func TestSnapshotRequiresRouter(t *testing.T) {
+	env := seedServeFixture(t)
+	client := tmux.NewClient(snapshotRunner(func(context.Context, ...string) (string, error) { t.Fatal("tmux was called"); return "", nil }))
+	if _, err := NewSnapshotter(env.store, client, time.Now, nil).TrackerForChange(Change{}); err == nil {
+		t.Fatal("nil router produced a tracker snapshot")
+	}
+}

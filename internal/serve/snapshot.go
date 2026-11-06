@@ -43,12 +43,6 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 	if len(routers) > 0 {
 		router = routers[0]
 	}
-	if router == nil {
-		if tmuxClient == nil {
-			tmuxClient = tmux.NewClient(tmux.DefaultServer())
-		}
-		router = tmuxroute.New(store, map[string]*tmux.Client{"default": tmuxClient}, func() string { return "default" }, nil)
-	}
 	if now == nil {
 		now = time.Now
 	}

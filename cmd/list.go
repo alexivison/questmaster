@@ -23,12 +23,15 @@ type listJSONOutput struct {
 	Resumable []listSessionJSON `json:"resumable"`
 }
 
-func newListCmd(store *state.Store, client *tmux.Client, routers ...*tmuxroute.Router) *cobra.Command {
+func newListCmd(store *state.Store, client *tmux.Client, router *tmuxroute.Router, routerErr error) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List questmaster sessions (active and resumable)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result, err := collectList(cmd.Context(), store, client, routers...)
+			if routerErr != nil {
+				return fmt.Errorf("tmux router: %w", routerErr)
+			}
+			result, err := collectList(cmd.Context(), store, client, router)
 			if err != nil {
 				return err
 			}
@@ -48,7 +51,7 @@ func collectList(ctx context.Context, store *state.Store, client *tmux.Client, r
 		router = routers[0]
 	}
 	if router == nil {
-		router = tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+		return listResult{}, fmt.Errorf("tmux router is required for list")
 	}
 	inv := router.Inventory(ctx)
 	for _, server := range inv.Servers {

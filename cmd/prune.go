@@ -25,7 +25,7 @@ type pruneResult struct {
 	Paths          []string `json:"paths,omitempty"`
 }
 
-func newPruneCmd(store *state.Store, client *tmux.Client, routers ...*tmuxroute.Router) *cobra.Command {
+func newPruneCmd(store *state.Store, client *tmux.Client, router *tmuxroute.Router, routerErr error) *cobra.Command {
 	var (
 		days   int
 		dryRun bool
@@ -35,7 +35,10 @@ func newPruneCmd(store *state.Store, client *tmux.Client, routers ...*tmuxroute.
 		Use:   "prune",
 		Short: "Remove stale session manifests and orphaned state and runtime directories",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result, err := pruneManifests(cmd.Context(), store, client, days, dryRun, routers...)
+			if routerErr != nil {
+				return fmt.Errorf("tmux router: %w", routerErr)
+			}
+			result, err := pruneManifests(cmd.Context(), store, client, days, dryRun, router)
 			if err != nil {
 				return err
 			}
@@ -48,6 +51,9 @@ func newPruneCmd(store *state.Store, client *tmux.Client, routers ...*tmuxroute.
 }
 
 func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client, maxDays int, dryRun bool, routers ...*tmuxroute.Router) (pruneResult, error) {
+	if len(routers) == 0 || routers[0] == nil {
+		return pruneResult{Days: maxDays, DryRun: dryRun}, fmt.Errorf("tmux router is required for prune")
+	}
 	legacyRoot := ""
 	if filepath.Clean(store.Root()) == filepath.Clean(state.StateRoot()) {
 		legacyRoot = "/tmp"
@@ -63,7 +69,7 @@ func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, clien
 		router = routers[0]
 	}
 	if router == nil {
-		router = tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+		return result, fmt.Errorf("tmux router is required for prune")
 	}
 	// Prune needs a fresh, complete view before its first mutation.
 	router.Invalidate()

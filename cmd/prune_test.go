@@ -15,12 +15,17 @@ import (
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
+
+func testPruneRouter(store *state.Store, client *tmux.Client) *tmuxroute.Router {
+	return tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+}
 
 func TestPruneHelpDoesNotMentionArtifacts(t *testing.T) {
 	t.Parallel()
 
-	cmd := newPruneCmd(nil, nil)
+	cmd := newPruneCmd(nil, nil, nil, nil)
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
@@ -121,7 +126,7 @@ func TestClassBackfillPreservesOldManifestRecencyForPrune(t *testing.T) {
 	}
 
 	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{}})
-	job := session.NewClassBackfillJob(store, client)
+	job := session.NewClassBackfillJob(store, client, testPruneRouter(store, client))
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- job.Run(ctx) }()
@@ -165,7 +170,7 @@ func TestClassBackfillPreservesOldManifestRecencyForPrune(t *testing.T) {
 		t.Fatalf("manifest mtime = %v, want preserved %v", afterInfo.ModTime(), beforeInfo.ModTime())
 	}
 
-	result, err := pruneManifests(t.Context(), store, client, 7, true)
+	result, err := pruneManifests(t.Context(), store, client, 7, true, testPruneRouter(store, client))
 	if err != nil {
 		t.Fatalf("prune old manifest: %v", err)
 	}
@@ -207,7 +212,7 @@ func TestPrune_DeregistersFromParent(t *testing.T) {
 	}
 	writeManifestFile(t, root, "qm-old-worker", workerData, 10*24*time.Hour)
 
-	result, err := pruneManifests(t.Context(), store, client, 7, false)
+	result, err := pruneManifests(t.Context(), store, client, 7, false, testPruneRouter(store, client))
 	if err != nil {
 		t.Fatalf("prune: %v", err)
 	}
@@ -249,7 +254,7 @@ func TestRunPrune_SkipsLiveSessionManifests(t *testing.T) {
 		"cwd":        "/tmp",
 	}, 10*24*time.Hour)
 
-	result, err := pruneManifests(t.Context(), store, client, 7, false)
+	result, err := pruneManifests(t.Context(), store, client, 7, false, testPruneRouter(store, client))
 	if err != nil {
 		t.Fatalf("prune: %v", err)
 	}
@@ -289,7 +294,7 @@ func TestRunPrune_DryRunPreviewsManifestAndPreservesState(t *testing.T) {
 	}
 	writeManifestFile(t, root, "qm-old-worker", workerData, 10*24*time.Hour)
 
-	result, err := pruneManifests(t.Context(), store, client, 7, true)
+	result, err := pruneManifests(t.Context(), store, client, 7, true, testPruneRouter(store, client))
 	if err != nil {
 		t.Fatalf("prune: %v", err)
 	}
@@ -349,7 +354,7 @@ func TestPruneOrphanDirectories(t *testing.T) {
 	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{"qm-live": true}})
 	orphan := filepath.Join(root, "qm-orphan")
 	for _, dryRun := range []bool{true, false} {
-		result, err := pruneManifests(t.Context(), store, client, 7, dryRun)
+		result, err := pruneManifests(t.Context(), store, client, 7, dryRun, testPruneRouter(store, client))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -402,7 +407,7 @@ func TestPruneRuntimeDirectories(t *testing.T) {
 	orphan := state.NewRuntimeDir(root, "qm-orphan")
 	legacyRoot := filepath.Join(t.TempDir(), "legacy")
 	for _, dryRun := range []bool{true, false} {
-		result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, dryRun, legacyRoot)
+		result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, dryRun, legacyRoot, testPruneRouter(store, client))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -444,7 +449,7 @@ func TestPruneStaleManifestRemovesRecordedRuntimeDir(t *testing.T) {
 	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{}})
 	legacyRoot := filepath.Join(t.TempDir(), "legacy")
 	for _, dryRun := range []bool{true, false} {
-		result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, dryRun, legacyRoot)
+		result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, dryRun, legacyRoot, testPruneRouter(store, client))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -493,7 +498,7 @@ func TestPruneLegacyRuntimeDirectories(t *testing.T) {
 	writeManifestFile(t, root, "qm-stale", map[string]any{"session_id": "qm-stale", "cwd": "/tmp"}, 10*24*time.Hour)
 	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{"qm-live": true}})
 	for _, dryRun := range []bool{true, false} {
-		result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, dryRun, legacyRoot)
+		result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, dryRun, legacyRoot, testPruneRouter(store, client))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -552,7 +557,7 @@ func TestPruneLegacyRuntimeParentSymlinkToFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{}})
-	result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, false, legacyRoot)
+	result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, false, legacyRoot, testPruneRouter(store, client))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,7 +589,7 @@ func TestPruneRuntimeParentSymlinkIsSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{}})
-	result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, false, "")
+	result, err := pruneManifestsWithLegacyRoot(t.Context(), store, client, 7, false, "", testPruneRouter(store, client))
 	if err != nil {
 		t.Fatal(err)
 	}

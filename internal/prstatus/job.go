@@ -51,46 +51,38 @@ func NewJob(root string, client *tmux.Client, run Runner, routers ...*tmuxroute.
 	return &Job{Root: root, Tmux: client, TmuxRouter: router, RunGH: run, RunREST: GHREST, Now: time.Now, forced: map[string]bool{}, waiters: map[string][]refreshWaiter{}, signal: make(chan struct{}, 1), next: map[string]time.Time{}, blocked: map[string]time.Time{}, last: map[string]HostResult{}, failures: map[string]int{}, done: map[string]time.Time{}, seen: map[string]bool{}, alertErrorLogged: map[string]time.Time{}}
 }
 func (j *Job) liveIDs(ctx context.Context, ids []string) (map[string]bool, error) {
-	if j.TmuxRouter != nil {
-		inv := j.TmuxRouter.Inventory(ctx)
-		for _, server := range inv.Servers {
-			if server.Outcome == tmuxroute.Unavailable {
-				return nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
-			}
-		}
-		observed := make(map[string]bool, len(inv.Rows))
-		for _, row := range inv.Rows {
-			observed[row.Label+"\x00"+row.ID] = true
-		}
-		store := state.OpenStore(j.Root)
-		live := make(map[string]bool, len(ids))
-		seen := make(map[string]bool, len(ids))
-		for _, id := range ids {
-			if seen[id] {
-				continue
-			}
-			seen[id] = true
-			manifest, err := store.Read(id)
-			if err != nil {
-				continue
-			}
-			handle, err := j.TmuxRouter.Route(manifest)
-			if err != nil {
-				return nil, err
-			}
-			if observed[handle.Label()+"\x00"+manifest.SessionID] {
-				live[manifest.SessionID] = true
-			}
-		}
-		return live, nil
+	if j.TmuxRouter == nil {
+		return nil, fmt.Errorf("tmux router is required for PR polling")
 	}
-	sessions, err := j.Tmux.ListSessions(ctx)
-	if err != nil {
-		return nil, err
+	inv := j.TmuxRouter.Inventory(ctx)
+	for _, server := range inv.Servers {
+		if server.Outcome == tmuxroute.Unavailable {
+			return nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+		}
 	}
-	live := make(map[string]bool, len(sessions))
-	for _, id := range sessions {
-		live[id] = true
+	observed := make(map[string]bool, len(inv.Rows))
+	for _, row := range inv.Rows {
+		observed[row.Label+"\x00"+row.ID] = true
+	}
+	store := state.OpenStore(j.Root)
+	live := make(map[string]bool, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		manifest, err := store.Read(id)
+		if err != nil {
+			continue
+		}
+		handle, err := j.TmuxRouter.Route(manifest)
+		if err != nil {
+			return nil, err
+		}
+		if observed[handle.Label()+"\x00"+manifest.SessionID] {
+			live[manifest.SessionID] = true
+		}
 	}
 	return live, nil
 }
@@ -502,11 +494,7 @@ func (j *Job) deliverPending(ctx context.Context) error {
 	}
 	send := j.SendAlert
 	if send == nil {
-		if j.TmuxRouter != nil {
-			send = message.NewServiceWithRouter(state.OpenStore(j.Root), j.TmuxRouter).Notify
-		} else {
-			send = message.NewService(state.OpenStore(j.Root), j.Tmux).Notify
-		}
+		send = message.NewServiceWithRouter(state.OpenStore(j.Root), j.TmuxRouter).Notify
 	}
 	active := make(map[string]bool, len(alerts))
 	var statuses map[string]state.PullRequestStatus

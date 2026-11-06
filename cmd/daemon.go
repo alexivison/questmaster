@@ -5,6 +5,7 @@ package cmd
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -177,6 +178,9 @@ func newDaemonConfig(store *state.Store, tmuxClient *tmux.Client) (daemon.Config
 }
 
 func newDaemonConfigWithRouter(store *state.Store, tmuxClient *tmux.Client, router *tmuxroute.Router) (daemon.Config, error) {
+	if router == nil {
+		return daemon.Config{}, fmt.Errorf("tmux router is required for daemon")
+	}
 	root, err := filepath.Abs(store.Root())
 	if err != nil {
 		return daemon.Config{}, err

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"time"
 
@@ -24,7 +25,7 @@ type sessionsJSONRow struct {
 	Cwd           string `json:"cwd,omitempty"`
 }
 
-func newSessionsCmd(store *state.Store, client *tmux.Client, routers ...*tmuxroute.Router) *cobra.Command {
+func newSessionsCmd(store *state.Store, client *tmux.Client, router *tmuxroute.Router, routerErr error) *cobra.Command {
 	return &cobra.Command{
 		Use:   "sessions",
 		Short: "Emit live questmaster sessions as JSON for integrations",
@@ -36,12 +37,18 @@ reported active=true when its agent pane state is "working", and
 active=false otherwise. The session is always emitted regardless of the
 active flag, so consumers can render idle sessions too.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSessions(cmd.OutOrStdout(), store, client, routers...)
+			if routerErr != nil {
+				return fmt.Errorf("tmux router: %w", routerErr)
+			}
+			return runSessions(cmd.OutOrStdout(), store, client, router)
 		},
 	}
 }
 
 func runSessions(w io.Writer, store *state.Store, client *tmux.Client, routers ...*tmuxroute.Router) error {
+	if len(routers) == 0 || routers[0] == nil {
+		return fmt.Errorf("tmux router is required for sessions")
+	}
 	snapshot, err := tracker.NewLiveSessionFetcher(client, store, state.NewProjectResolver(), routers...)(tracker.SessionInfo{})
 	if err != nil {
 		return err
