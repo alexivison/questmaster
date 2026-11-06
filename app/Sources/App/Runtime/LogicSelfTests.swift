@@ -5759,7 +5759,7 @@ enum LogicSelfTests {
         try expect(client.sentRequests.count == 2 && client.sentRequests[1].data["class"] == "wizard", "a chosen class is sent by its id")
     }
 
-    /// The portraits' bundle names are flattened (`class-<id>`, `familiar-<id>`, `random`): each resolves to its own raster,
+    /// The portraits' bundle names are flattened (`class-<id>`, `familiar-<class-id>`, `random`): each resolves to its own raster,
     /// the class portraits and Random at 150px and the familiars at 120px (3x their 50 and 40pt discs), so a misnamed or
     /// missing file shows here instead of as an empty disc.
     private static func testEveryPortraitIsBundledUnderItsOwnName() throws {

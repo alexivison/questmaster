@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var sessionClassNames = []string{"paladin", "wizard", "druid", "barbarian", "rogue", "cleric", "bard"}
+var sessionClassNames = []string{"paladin", "wizard", "druid", "barbarian", "rogue", "cleric", "bard", "ranger", "necromancer", "sorcerer", "fighter"}
 
 var sessionClassSet = func() map[string]struct{} {
 	set := make(map[string]struct{}, len(sessionClassNames))

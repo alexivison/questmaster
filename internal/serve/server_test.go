@@ -2032,8 +2032,8 @@ func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
 				SessionID: "qm-class-invalid",
 				Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 			},
-			class:   "ranger",
-			wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard",
+			class:   "unknown",
+			wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard, ranger, necromancer, sorcerer, fighter",
 		},
 	}
 	for _, tt := range tests {

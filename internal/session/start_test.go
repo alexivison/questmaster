@@ -117,15 +117,15 @@ func TestStartAssignsOrPersistsSessionClass(t *testing.T) {
 		want  string
 	}{
 		{name: "automatic", index: 6, want: "bard"},
-		{name: "explicit", class: " Wizard ", want: "wizard"},
+		{name: "explicit", class: " Ranger ", want: "ranger"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			svc, _ := setupService(t)
 			svc.RandClassIndex = func(n int) int {
-				if n != 7 {
-					t.Fatalf("random class choices = %d, want 7", n)
+				if n != 11 {
+					t.Fatalf("random class choices = %d, want 11", n)
 				}
 				return tt.index
 			}
@@ -171,8 +171,8 @@ func TestStartDefaultClassCountsOnlyLiveMasters(t *testing.T) {
 		}
 	}
 	svc.RandClassIndex = func(n int) int {
-		if n != 5 {
-			t.Fatalf("least-used classes = %d, want 5", n)
+		if n != 9 {
+			t.Fatalf("least-used classes = %d, want 9", n)
 		}
 		return 1
 	}
@@ -198,7 +198,7 @@ func TestStartRejectsInvalidOrInapplicableSessionClass(t *testing.T) {
 		opts    StartOpts
 		wantErr string
 	}{
-		{name: "invalid", opts: StartOpts{Class: "ranger"}, wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard"},
+		{name: "invalid", opts: StartOpts{Class: "unknown"}, wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard, ranger, necromancer, sorcerer, fighter"},
 		{name: "shell", opts: StartOpts{Shell: true, Class: "wizard"}, wantErr: "shell sessions"},
 		{name: "worker", opts: StartOpts{MasterID: "qm-master", Class: "wizard"}, wantErr: "workers inherit"},
 	}

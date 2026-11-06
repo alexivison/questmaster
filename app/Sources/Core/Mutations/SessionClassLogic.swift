@@ -10,6 +10,10 @@ public enum SessionClass: String, CaseIterable, Equatable, Sendable {
     case rogue
     case cleric
     case bard
+    case ranger
+    case necromancer
+    case sorcerer
+    case fighter
 
     /// New Session's default: no class is sent, and the backend picks one.
     public static let randomLabel = "Random"
@@ -22,13 +26,30 @@ public enum SessionClass: String, CaseIterable, Equatable, Sendable {
         rawValue.capitalized
     }
 
+    /// The familiar that represents a worker of this class.
+    public var familiarName: String {
+        switch self {
+        case .paladin: "Clockwork Construct"
+        case .wizard: "Fire Elemental"
+        case .druid: "Treant"
+        case .barbarian: "Bear"
+        case .rogue: "Raven"
+        case .cleric: "Light Spirit"
+        case .bard: "Imp"
+        case .ranger: "Hawk"
+        case .necromancer: "Skeleton"
+        case .sorcerer: "Lightning Elemental"
+        case .fighter: "War Hound"
+        }
+    }
+
     /// The class after this one, wrapping to the first.
     public var next: SessionClass {
         let all = Self.allCases
         return all[((all.firstIndex(of: self) ?? 0) + 1) % all.count]
     }
 
-    /// New Session's cycle, with Random (nil) as the slot after the last class: Random, paladin, …, bard, Random.
+    /// New Session's cycle, with Random (nil) as the slot after the last class: Random, paladin, …, fighter, Random.
     public static func next(after choice: SessionClass?) -> SessionClass? {
         guard let choice else {
             return allCases.first
@@ -127,7 +148,7 @@ public enum EditSessionPortrait: Equatable {
         case .choosing:
             return label.map { "Class \($0)" }
         case .familiar(let sessionClass):
-            return "\(sessionClass.displayName) familiar"
+            return "\(sessionClass.familiarName) familiar"
         case .none:
             return nil
         }
