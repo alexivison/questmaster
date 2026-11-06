@@ -20,6 +20,7 @@ timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("ServeRecoveryPolicyTests") { ServeRecoveryPolicyTests.run() }
         timed("DaemonConnectionTests") { DaemonConnectionTests.run() }
         timed("ConnectionStateTests") { ConnectionStateTests.run() }
+        timed("AttachGenerationTests") { AttachGenerationTests.run() }
         timed("NewSessionLogicTests") { NewSessionLogicTests.run() }
         timed("SessionClassLogicTests") { SessionClassLogicTests.run() }
         timed("ColorFieldTests") { ColorFieldTests.run() }

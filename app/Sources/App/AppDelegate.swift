@@ -552,12 +552,30 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openArtifactExternally(_ artifact: ArtifactReference) {
+        let attachedSessionID = runtimeStore.currentTerminalSessionID
+        let tmuxPath = resolveExecutable("tmux")
+        let environment = appChildProcessEnvironment()
+        if ArtifactExternalRoute.classify(path: artifact.path) == .editor {
+            ArtifactExternalOpener.dispatchEditorWindow { [weak self] in
+                do {
+                    try ArtifactExternalOpener.open(
+                        artifact: artifact,
+                        attachedSessionID: attachedSessionID,
+                        tmuxPath: tmuxPath,
+                        environment: environment
+                    )
+                } catch {
+                    DispatchQueue.main.async { self?.errorPresenter.showTransientError(error.localizedDescription) }
+                }
+            }
+            return
+        }
         do {
             try ArtifactExternalOpener.open(
                 artifact: artifact,
-                attachedSessionID: runtimeStore.currentTerminalSessionID,
-                tmuxPath: resolveExecutable("tmux"),
-                environment: appChildProcessEnvironment()
+                attachedSessionID: attachedSessionID,
+                tmuxPath: tmuxPath,
+                environment: environment
             )
         } catch {
             errorPresenter.showTransientError(error.localizedDescription)

@@ -20,6 +20,9 @@ final class TerminalSessionController {
     private let onFocusRequested: () -> Void
 
     private var pendingTerminalAttachments: [PendingTerminalAttachment] = []
+    private var attachGeneration = AttachGeneration()
+    private var hasPendingAttach = false
+    private var inFlightCompletion: ((Bool) -> Void)?
     private(set) var terminalHost: TerminalPaneHosting?
     private(set) var activeTmuxSession: String?
 
@@ -59,6 +62,9 @@ final class TerminalSessionController {
     }
 
     func installTerminalHost() {
+        attachGeneration.stop()
+        hasPendingAttach = false
+        cancelInFlightCompletion()
         let terminalHost: TerminalPaneHosting
         var terminalEngineFailureMessage: String?
         do {
@@ -91,6 +97,21 @@ final class TerminalSessionController {
         }
         configureCallbacks(terminalHost)
 
+        if terminalEngineFailureMessage == nil && pendingTerminalAttachments.isEmpty {
+            if let activeTmuxSession, !config.disableTmux {
+                attachEmbeddedTerminal(to: activeTmuxSession)
+            } else {
+                terminalHost.connect(to: TerminalLaunchConfig(
+                    tmuxSession: nil, disableTmux: config.disableTmux,
+                    workingDirectory: config.workingDirectory
+                )) { [weak self] result in
+                    if case .failure(let error) = result {
+                        self?.showMutationError("terminal start", error)
+                    }
+                }
+            }
+        }
+
         if let terminalEngineFailureMessage {
             DispatchQueue.main.async { [weak self] in
                 self?.showTerminalEngineFailure(terminalEngineFailureMessage)
@@ -103,6 +124,12 @@ final class TerminalSessionController {
     }
 
     func stop() {
+        attachGeneration.stop()
+        hasPendingAttach = false
+        cancelInFlightCompletion()
+        let pending = pendingTerminalAttachments
+        pendingTerminalAttachments.removeAll()
+        for attachment in pending { attachment.completion?(false) }
         terminalHost?.stop()
     }
 
@@ -114,14 +141,19 @@ final class TerminalSessionController {
             return
         }
 
-        switch TerminalSessionActivationDecision.action(
+        let decision = TerminalSessionActivationDecision.action(
             disableTmux: config.disableTmux,
             embeddedTmuxSessionID: terminalHost?.tmuxSessionID,
             targetSessionID: sessionID
-        ) {
+        )
+        switch decision {
         case .attachEmbeddedTerminal:
             attachEmbeddedTerminal(to: sessionID, completion: completion)
         case .focusAttachedTerminal:
+            if hasPendingAttach {
+                attachEmbeddedTerminal(to: sessionID, completion: completion)
+                return
+            }
             runtimeStore.setCurrentTerminalSessionID(sessionID)
             terminalShell()?.clearEnded()
             focusTerminal()
@@ -155,36 +187,47 @@ final class TerminalSessionController {
 
         if let deferredTerminalHost = terminalHost as? DeferredTerminalHost,
            !deferredTerminalHost.isInstalled {
-            pendingTerminalAttachments.append(PendingTerminalAttachment(sessionID: sessionID, completion: completion))
+            let previous = pendingTerminalAttachments
+            pendingTerminalAttachments = [PendingTerminalAttachment(sessionID: sessionID, completion: completion)]
+            for attachment in previous { attachment.completion?(false) }
             // Until the terminal environment is ready the pane shows the placeholder's attach veil, which nothing covers.
             terminalShell()?.clearEnded()
             render()
             return
         }
 
-        do {
-            try terminalHost.connect(to: TerminalLaunchConfig(
-                tmuxSession: sessionID,
-                disableTmux: config.disableTmux,
-                workingDirectory: config.workingDirectory
-            ))
-            guard TerminalSessionChipResolver.cleanSessionID(terminalHost.tmuxSessionID) == sessionID else {
-                showMutationFailure("switch \(sessionID)", "embedded terminal did not attach to the tmux session")
-                render()
+        cancelInFlightCompletion()
+        inFlightCompletion = completion
+        let request = attachGeneration.request()
+        hasPendingAttach = true
+        terminalHost.connect(to: TerminalLaunchConfig(
+            tmuxSession: sessionID,
+            disableTmux: config.disableTmux,
+            workingDirectory: config.workingDirectory
+        )) { [weak self] result in
+            guard let self, self.attachGeneration.accepts(request) else { return }
+            self.hasPendingAttach = false
+            self.inFlightCompletion = nil
+            switch result {
+            case .success(let attachedSessionID):
+                guard TerminalSessionChipResolver.cleanSessionID(attachedSessionID) == sessionID else {
+                    self.showMutationFailure("switch \(sessionID)", "embedded terminal did not attach to the tmux session")
+                    self.render()
+                    completion?(false)
+                    return
+                }
+                terminalHost.start()
+                self.activeTmuxSession = sessionID
+                self.runtimeStore.setCurrentTerminalSessionID(sessionID)
+                self.terminalShell()?.clearEnded()
+                self.focusTerminal()
+                self.render()
+                completion?(true)
+            case .failure(let error):
+                self.showMutationError("switch \(sessionID)", error)
+                self.render()
                 completion?(false)
-                return
             }
-            terminalHost.start()
-            runtimeStore.setCurrentTerminalSessionID(sessionID)
-            // Same turn as the connect, which raises the attach veil when it builds a surface, so no frame has the icon over it.
-            terminalShell()?.clearEnded()
-            focusTerminal()
-            render()
-            completion?(true)
-        } catch {
-            showMutationError("switch \(sessionID)", error)
-            render()
-            completion?(false)
         }
     }
 
@@ -196,8 +239,17 @@ final class TerminalSessionController {
     }
 
     private func handleEmbeddedDetach() {
+        attachGeneration.detach()
+        hasPendingAttach = false
+        cancelInFlightCompletion()
         activeTmuxSession = nil
         runtimeStore.setCurrentTerminalSessionID(nil)
         render()
+    }
+
+    private func cancelInFlightCompletion() {
+        let completion = inFlightCompletion
+        inFlightCompletion = nil
+        completion?(false)
     }
 }

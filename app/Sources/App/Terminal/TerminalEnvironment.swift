@@ -450,6 +450,10 @@ final class LoginShellEnvironmentCache {
             startLoad()
         }
 
+        if Thread.isMainThread {
+            return [:]
+        }
+
         condition.lock()
         while true {
             if case .loaded(let environment) = state {
@@ -492,38 +496,13 @@ private func loadLoginShellEnvironment() -> [String: String] {
         return [:]
     }
 
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: shell)
-    process.arguments = ["-l", "-c", "env"]
     var environment = base
     environment["HOME"] = nonEmpty(environment["HOME"]) ?? NSHomeDirectory()
     environment["PATH"] = normalizedExecutablePath(environment["PATH"], home: environment["HOME"])
-    process.environment = environment
-
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = Pipe()
-
-    do {
-        try process.run()
-    } catch {
-        return [:]
-    }
-
-    let deadline = Date().addingTimeInterval(2)
-    while process.isRunning && Date() < deadline {
-        Thread.sleep(forTimeInterval: 0.05)
-    }
-    if process.isRunning {
-        process.terminate()
-        return [:]
-    }
-    guard process.terminationStatus == 0 else {
-        return [:]
-    }
-
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    guard let output = String(data: data, encoding: .utf8) else {
+    guard let processResult = try? BoundedProcess.run(
+        executable: shell, arguments: ["-l", "-c", "env"], environment: environment
+    ), processResult.outcome == .exit(0),
+    let output = String(data: processResult.stdout, encoding: .utf8) else {
         return [:]
     }
 

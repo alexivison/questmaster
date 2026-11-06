@@ -34,6 +34,14 @@ enum LogicSelfTests {
         ("testArtifactViewerLoadsThePageOnceTheBlockerCompiles", testArtifactViewerLoadsThePageOnceTheBlockerCompiles),
         ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
         ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
+        ("testBoundedProcessDrainsBothPipesPastCapacity", testBoundedProcessDrainsBothPipesPastCapacity),
+        ("testBoundedProcessCapsOutput", testBoundedProcessCapsOutput),
+        ("testBoundedProcessTimesOutAChildIgnoringTerm", testBoundedProcessTimesOutAChildIgnoringTerm),
+        ("testBoundedProcessReapsWithHeldOpenPipe", testBoundedProcessReapsWithHeldOpenPipe),
+        ("testConnectReturnsToMainPromptlyWithBlockedRunner", testConnectReturnsToMainPromptlyWithBlockedRunner),
+        ("testOutOfOrderConnectsOnlyNewestMutates", testOutOfOrderConnectsOnlyNewestMutates),
+        ("testEditorWindowOpensOffMain", testEditorWindowOpensOffMain),
+        ("testLoginEnvironmentNeverBlocksUI", testLoginEnvironmentNeverBlocksUI),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testShellRowsLeaveTheRepoGroupsForTheirOwnSection", testShellRowsLeaveTheRepoGroupsForTheirOwnSection),
         ("testAnAttachedShellsPanelBarFollowsItsOwnColour", testAnAttachedShellsPanelBarFollowsItsOwnColour),
@@ -3088,7 +3096,7 @@ enum LogicSelfTests {
             func start() {}
             func stop() {}
             func focus(in window: NSWindow?) { window?.makeFirstResponder(view) }
-            func connect(to config: TerminalLaunchConfig) throws {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) { completion(.success(config.tmuxSession)) }
         }
         for start in [NewSessionField.prompt, .agent] {
             let stack = InWindowModalStack()
@@ -3204,7 +3212,7 @@ enum LogicSelfTests {
             func start() {}
             func stop() {}
             func focus(in window: NSWindow?) { window?.makeFirstResponder(view) }
-            func connect(to config: TerminalLaunchConfig) throws {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) { completion(.success(config.tmuxSession)) }
         }
         let stack = InWindowModalStack()
         let window = HeadlessWindow(size: CGSize(width: 1000, height: 600))
@@ -7971,6 +7979,161 @@ enum LogicSelfTests {
 
     private final class Counter {
         var value = 0
+    }
+
+    private static func testBoundedProcessDrainsBothPipesPastCapacity() throws {
+        let result = try BoundedProcess.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "head -c 1200000 /dev/zero; head -c 1200000 /dev/zero >&2"],
+            environment: [:]
+        )
+        try expect(result.outcome == .capped, "both streams must drain past the cap without deadlocking")
+        try expect(result.stdout.count == BoundedProcess.streamLimit && result.stderr.count == BoundedProcess.streamLimit,
+                   "each stream must keep at most its own cap")
+    }
+
+    private static func testBoundedProcessCapsOutput() throws {
+        let result = try BoundedProcess.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "head -c 1200000 /dev/zero"],
+            environment: [:]
+        )
+        try expect(result.outcome == .capped && result.stdout.count == BoundedProcess.streamLimit,
+                   "an overlong stdout must have a typed capped result")
+    }
+
+    private static func testBoundedProcessTimesOutAChildIgnoringTerm() throws {
+        let started = ProcessInfo.processInfo.systemUptime
+        let result = try BoundedProcess.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "trap '' TERM; while :; do :; done"],
+            environment: [:], deadline: 0.15
+        )
+        try expect(result.outcome == .timeout, "the child must time out after TERM and KILL")
+        try expect(ProcessInfo.processInfo.systemUptime - started < 1.5, "the timed out child must be reaped promptly")
+    }
+
+    private static func testBoundedProcessReapsWithHeldOpenPipe() throws {
+        let started = ProcessInfo.processInfo.systemUptime
+        let result = try BoundedProcess.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "sleep 3 & exit 0"],
+            environment: [:]
+        )
+        try expect(result.outcome == .exit(0), "the direct child must exit successfully")
+        try expect(ProcessInfo.processInfo.systemUptime - started < 1, "a grandchild holding the pipe must not delay reap")
+    }
+
+    private static func testConnectReturnsToMainPromptlyWithBlockedRunner() throws {
+        let release = DispatchSemaphore(value: 0)
+        let entered = DispatchSemaphore(value: 0)
+        let attach = AsyncTerminalAttach<String>()
+        let started = ProcessInfo.processInfo.systemUptime
+        attach.request(work: { entered.signal(); release.wait(); return .success("ready") }, completion: { _ in })
+        let elapsed = ProcessInfo.processInfo.systemUptime - started
+        try expect(elapsed < 0.1, "connect request must return to the main actor within 100 ms")
+        try expect(entered.wait(timeout: .now() + 1) == .success, "the fake runner must start")
+        release.signal()
+    }
+
+    private static func testOutOfOrderConnectsOnlyNewestMutates() throws {
+        let release = DispatchSemaphore(value: 0)
+        let entered = DispatchSemaphore(value: 0)
+        var calls = 0
+        var applied: [String] = []
+        let attach = AsyncTerminalAttach<String>()
+        let work: () -> Result<String, Error> = {
+            calls += 1
+            if calls == 1 { entered.signal(); release.wait() }
+            return .success("result-\(calls)")
+        }
+        attach.request(work: work) { result in if case .success(let value) = result { applied.append(value) } }
+        try expect(entered.wait(timeout: .now() + 1) == .success, "the first runner must be blocked")
+        attach.request(work: work) { result in if case .success(let value) = result { applied.append(value) } }
+        release.signal()
+        try expect(waitUntil { applied.count == 1 }, "the newest completion must arrive")
+        try expect(applied == ["result-2"], "only the newest result may mutate visible state")
+
+        final class FakeHost: TerminalPaneHosting {
+            let view = NSView()
+            var tmuxSessionID: String? { nil }
+            var onFocusRequested: (() -> Void)?
+            var onDetach: (() -> Void)?
+            var cellMetrics: TerminalCellMetrics { .unavailable }
+            var onCellMetricsChanged: (() -> Void)?
+            var pending: [(Result<String?, Error>) -> Void] = []
+            var starts = 0
+            func start() { starts += 1 }
+            func stop() {}
+            func focus(in window: NSWindow?) {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+                pending.append(completion)
+            }
+        }
+        let config = LaunchConfiguration(
+            daemonSocketOverride: nil, startDaemon: false, tmuxSession: nil,
+            shouldAutoDetectTmuxSession: false, disableTmux: false,
+            workingDirectory: "/tmp", backend: AppBackend(
+                stateRoot: "/tmp/example-state", executablePath: "", source: .unresolved,
+                workingDirectory: "/tmp", devWorktree: nil
+            )
+        )
+        let runtime = RuntimeStore(sourceLabel: "test")
+        let fake = FakeHost()
+        let controller = TerminalSessionController(
+            config: config, runtimeStore: runtime, terminalShell: { nil },
+            updateWindowTitle: { _ in }, focusTerminal: {}, render: {},
+            showMutationFailure: { _, _ in }, showMutationError: { _, _ in },
+            showTerminalEngineFailure: { _ in }, onFocusRequested: {}
+        )
+        controller.installPlaceholder(fake)
+        var completions: [Bool] = []
+        controller.switchTerminal(to: "qm-old") { completions.append($0) }
+        controller.switchTerminal(to: "qm-new") { completions.append($0) }
+        try expect(fake.pending.count == 2, "the fake host must hold both attach completions")
+        fake.pending[1](.success("qm-new"))
+        fake.pending[0](.success("qm-old"))
+        try expect(runtime.currentTerminalSessionID == "qm-new" && fake.starts == 1,
+                   "the controller must apply only the newest attach result")
+        try expect(completions == [false, true], "a superseded activation must finish false and the newest true")
+
+        controller.switchTerminal(to: "qm-detach") { completions.append($0) }
+        fake.onDetach?()
+        fake.pending[2](.success("qm-detach"))
+        try expect(runtime.currentTerminalSessionID == nil && completions.last == false,
+                   "detach must discard a pending attach")
+
+        controller.switchTerminal(to: "qm-stop") { completions.append($0) }
+        controller.stop()
+        fake.pending[3](.success("qm-stop"))
+        try expect(runtime.currentTerminalSessionID == nil && fake.starts == 1 && completions.last == false,
+                   "stop must discard a pending attach")
+    }
+
+    private static func testEditorWindowOpensOffMain() throws {
+        let done = DispatchSemaphore(value: 0)
+        var ranOnMain = true
+        let started = ProcessInfo.processInfo.systemUptime
+        ArtifactExternalOpener.dispatchEditorWindow(run: {
+            ranOnMain = Thread.isMainThread
+            done.signal()
+        })
+        try expect(ProcessInfo.processInfo.systemUptime - started < 0.1, "editor dispatch must return to the UI promptly")
+        try expect(done.wait(timeout: .now() + 1) == .success && !ranOnMain, "editor tmux work must run off main")
+    }
+
+    private static func testLoginEnvironmentNeverBlocksUI() throws {
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let cache = LoginShellEnvironmentCache(load: { entered.signal(); release.wait(); return ["PATH": "/test"] })
+        cache.preload()
+        try expect(entered.wait(timeout: .now() + 1) == .success, "the login probe must begin")
+        let started = ProcessInfo.processInfo.systemUptime
+        let pending = cache.environment()
+        try expect(ProcessInfo.processInfo.systemUptime - started < 0.1 && pending.isEmpty,
+                   "a UI caller must use the current environment while the login probe loads")
+        release.signal()
+        try expect(waitUntil { cache.environment()["PATH"] == "/test" }, "the loaded login environment must become available")
     }
 }
 
