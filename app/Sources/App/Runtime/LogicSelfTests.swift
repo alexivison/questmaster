@@ -72,7 +72,8 @@ enum LogicSelfTests {
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testBundledPaladinSpritesReadTheirAnimationFile", testBundledPaladinSpritesReadTheirAnimationFile),
         ("testBundledClericSpritesReadTheirAnimationFile", testBundledClericSpritesReadTheirAnimationFile),
-        ("testTheBubbleStaysInTheAvatarSlot", testTheBubbleStaysInTheAvatarSlot),
+        ("testTheBubbleStaysInTheSlotAndUnderTheTag", testTheBubbleStaysInTheSlotAndUnderTheTag),
+        ("testTallAvatarDrawsOverTheSelectedSessionPanelWithoutChangingTheSlot", testTallAvatarDrawsOverTheSelectedSessionPanelWithoutChangingTheSlot),
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
@@ -2000,14 +2001,92 @@ enum LogicSelfTests {
         try expect(missing.isEmpty, "every frame the cleric's file plays should have its art, missing: \(missing)")
     }
 
-    /// The shared bubble stays inside the avatar slot. Every bundled class with an anchor is checked, and a fixture with one covers the path until a class ships one.
+    /// The shared bubble stays inside the avatar slot and below the tag, one avatar gap above the class's idle figure. Every bundled
+    /// class with an anchor is checked, and a fixture with one covers the path until a class ships one.
     @MainActor
-    private static func testTheBubbleStaysInTheAvatarSlot() throws {
+    private static func testTheBubbleStaysInTheSlotAndUnderTheTag() throws {
         for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key })
         where sprites.animation.animation(for: .callingOut)?.bubble != nil {
             try expectBubbleClear(of: sprites, named: classID)
         }
         try expectBubbleClear(of: try bubbleFixture(), named: "the bubble fixture")
+    }
+
+    /// A synthetic calling-out pose taller than its idle figure reaches out of the fixed slot and draws above the selected-session panel.
+    @MainActor
+    private static func testTallAvatarDrawsOverTheSelectedSessionPanelWithoutChangingTheSlot() throws {
+        let fixture = try TrackerAvatarOverflowFixture.make()
+        defer { try? FileManager.default.removeItem(at: fixture.folder) }
+        guard let idleFigureHeight = fixture.sprites.idleFigureHeight,
+              let pose = fixture.sprites.animation.animation(for: .callingOut),
+              let image = fixture.sprites.frame(.callingOut, .character, 1),
+              let rows = TrackerAvatarSprites.opaqueRows(of: image) else {
+            throw TestFailure("the synthetic tall pose should have a readable frame and idle figure")
+        }
+        let poseHeight = TrackerTagLayout.figureHeight(topRow: rows.lowerBound, footRow: pose.footRow)
+        try expect(idleFigureHeight == 160, "the synthetic idle should be 160 px tall, got \(idleFigureHeight)")
+        try expect(CGFloat(poseHeight) > TrackerAvatarMetrics.slotHeight, "the synthetic pose should extend above the reserved slot")
+        try expect(SelectedSessionPanel.canvasSize == CGSize(width: TrackerAvatarMetrics.slotWidth, height: 75),
+                   "the selected-session panel should keep its 260 x 75 frame")
+        try expect(TrackerAvatarMetrics.slotHeight == 175, "the avatar slot should keep its reserved height")
+
+        let scale: CGFloat = 2
+        let tagHeight = SelectedSessionPanel.canvasSize.height
+        let slotTop = TrackerAvatarOverflowFixture.slotTop
+        let size = TrackerAvatarOverflowFixture.canvas
+        let content = SelectedSessionPanelContent(
+            title: "Tall Pose Preview", id: "qm-preview", projectName: "preview", projectColor: NSColor(hex: 0x3434A8)
+        )
+        let host = NSHostingView(rootView: ZStack(alignment: .topLeading) {
+            SelectedSessionPanel(content: content, onCopyID: { _ in })
+                .frame(width: TrackerAvatarMetrics.slotWidth, height: tagHeight)
+            TrackerAvatarSlot(pose: .callingOut, sprites: fixture.sprites)
+                .offset(y: slotTop)
+                .zIndex(1)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI))
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size, scale: scale)
+        defer { window.close() }
+        window.contentView = host
+        window.show()
+
+        let overflow = CGFloat(poseHeight) - TrackerAvatarMetrics.slotHeight
+        let bandHeight = Int(overflow * scale)
+        let columns = Int(90 * scale)..<Int(170 * scale)
+        let topBandStart = Int((slotTop - overflow) * scale)
+        let topBandEnd = Int(slotTop * scale)
+        let topBand = topBandStart..<topBandEnd
+        func showsPose(_ bitmap: NSBitmapImageRep, in rows: Range<Int>) -> Bool {
+            rows.contains { y in
+                columns.contains { x in
+                    guard let pixel = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+                    return pixel.alphaComponent > 0.9 && pixel.redComponent > 0.8 && pixel.greenComponent < 0.2 && pixel.blueComponent < 0.15
+                }
+            }
+        }
+        var bitmap: NSBitmapImageRep?
+        var view: TrackerAvatarView?
+        try expect(waitUntil {
+            bitmap = try? snapshot(host, size: size, scale: scale)
+            view = ([host] + host.subviews.flatMap { descendants(of: $0) }).compactMap { $0 as? TrackerAvatarView }.first
+            guard let bitmap else { return false }
+            let oppositeTopBand = (bitmap.pixelsHigh - topBand.upperBound)..<(bitmap.pixelsHigh - topBand.lowerBound)
+            return view != nil && (showsPose(bitmap, in: topBand) || showsPose(bitmap, in: oppositeTopBand))
+        }, "the pose's top rows should draw in the tag-covered strip above the slot, over the tag")
+        try expect(bitmap != nil, "the overlapping panel and avatar should render to a bitmap")
+        try expect(view?.bounds.size == CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight),
+                   "the avatar view should retain its reserved slot frame")
+        try expect(view?.layer?.masksToBounds == false, "the avatar layer should leave its overflow visible")
+        try expect(view?.hitTest(NSPoint(x: view?.bounds.midX ?? 0, y: view?.bounds.midY ?? 0)) == nil,
+                   "the avatar should keep taking no clicks")
+
+        try expect(bandHeight > 0, "the synthetic pose should have top rows outside the slot")
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { descendants(of: $0) }
     }
 
     /// The cleric's sprites with a bubble anchor beside his head on the right, read the way a class's file would carry one.
@@ -2027,10 +2106,11 @@ enum LogicSelfTests {
         return TrackerAvatarSprites(classID: "cleric", animation: animation, folder: folder)
     }
 
-    /// Checks the bubble the calling-out rig places for `sprites`, as the slot sees it (top left origin): it lies inside the slot.
+    /// Checks the bubble the calling-out rig places for `sprites`, as the slot sees it (top left origin): inside the slot and under the tag.
     @MainActor
     private static func expectBubbleClear(of sprites: TrackerAvatarSprites, named name: String) throws {
         guard let placement = sprites.animation.animation(for: .callingOut),
+              let idleFigureHeight = sprites.idleFigureHeight,
               sprites.bubble != nil, let rig = TrackerAvatarFrameRig(pose: .callingOut, placement: placement, sprites: sprites) else {
             throw TestFailure("\(name) should draw its calling out with the shared bubble")
         }
@@ -2041,9 +2121,11 @@ enum LogicSelfTests {
         let bubble = rig.bubble.frame.offsetBy(dx: rig.root.frame.minX, dy: rig.root.frame.minY)
         let bubbleTop = slot.height - bubble.maxY
         let bubbleBottom = slot.height - bubble.minY
+        let tagBottom = slot.height - CGFloat(idleFigureHeight) - Space.section
         try expect(bubble.width > 0 && bubble.height > 0, "\(name)'s bubble should have a frame")
         try expect(bubble.minX >= slot.minX && bubble.maxX <= slot.maxX && bubbleTop >= slot.minY && bubbleBottom <= slot.maxY,
                    "\(name)'s bubble should sit inside the slot, got \(bubble)")
+        try expect(bubbleTop >= tagBottom, "\(name)'s bubble should stay below the tag's bottom at \(tagBottom), got its top at \(bubbleTop)")
     }
 
     /// Each bundled class's idle figure is measured from its own art, against its foot line, and the slot reserves the tallest one

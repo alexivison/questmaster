@@ -403,6 +403,8 @@ struct TrackerRootView: View {
         )
         .padding(.leading, TrackerListMetrics.sidePadding)
         .padding(.bottom, TrackerListMetrics.verticalPadding)
+        // Poses may extend above the reserved slot into earlier tracker content, including the selected-session panel.
+        .zIndex(1)
     }
 
     private func copySessionID(_ sessionID: String) {

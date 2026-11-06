@@ -51,6 +51,10 @@ enum RenderPreview {
         render(trackerAvatarView(state: "idle"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-idle.png")
         render(trackerAvatarView(state: "working", tool: "Bash"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-channelling.png")
         render(trackerAvatarView(state: "blocked"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-calling-out.png")
+        if let fixture = try? TrackerAvatarOverflowFixture.make() {
+            render(trackerAvatarFrontView(sprites: fixture.sprites), size: TrackerAvatarFrontPreviewMetrics.canvas, to: "\(outputDir)/tracker-avatar-front.png")
+            try? FileManager.default.removeItem(at: fixture.folder)
+        }
         render(trackerAvatarView(state: "idle", sessionClass: "wizard"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-no-avatar.png")
         render(trackerAvatarView(state: "idle", sessionClass: "bard"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-bard.png")
         render(trackerAvatarView(state: "idle", sessionClass: "wizard"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-wizard.png")
@@ -1628,6 +1632,23 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// The selected-session panel and a synthetic pose whose top rows reach out of the fixed slot, to check their real layer order.
+    @MainActor
+    private static func trackerAvatarFrontView(sprites: TrackerAvatarSprites) -> some View {
+        let content = SelectedSessionPanelContent(
+            title: "Tall Pose Preview", id: "qm-preview", projectName: "preview", projectColor: NSColor(hex: 0x3434A8)
+        )
+        return ZStack(alignment: .topLeading) {
+            SelectedSessionPanel(content: content, onCopyID: { _ in })
+                .frame(width: TrackerAvatarMetrics.slotWidth, height: SelectedSessionPanel.canvasSize.height)
+            TrackerAvatarSlot(pose: .callingOut, sprites: sprites)
+                .offset(y: TrackerAvatarFrontPreviewMetrics.slotTop)
+                .zIndex(1)
+        }
+        .frame(width: TrackerAvatarFrontPreviewMetrics.canvas.width, height: TrackerAvatarFrontPreviewMetrics.canvas.height, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
     /// A real tracker column with a master attached and shells at the bottom: selected-session panel, plates, avatar slot and
     /// pinned shell section. `state` and `tool` set the pose; a class other than bard leaves the slot empty.
     @MainActor
@@ -2572,6 +2593,12 @@ enum RenderPreview {
         static let markerSide: CGFloat = 4
         static let shellStandIn: CGFloat = 43
         static let outlineWidth: CGFloat = 1
+    }
+
+    @MainActor
+    private enum TrackerAvatarFrontPreviewMetrics {
+        static var slotTop: CGFloat { TrackerAvatarOverflowFixture.slotTop }
+        static var canvas: CGSize { TrackerAvatarOverflowFixture.canvas }
     }
 
     @MainActor

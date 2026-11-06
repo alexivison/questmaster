@@ -796,6 +796,8 @@ final class TrackerAvatarView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        // Pose layers are anchored at the slot's baseline and may draw above its fixed bounds.
+        layer?.masksToBounds = false
     }
 
     @available(*, unavailable)
