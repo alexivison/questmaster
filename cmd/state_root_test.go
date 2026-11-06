@@ -15,7 +15,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	code := m.Run()
-	for _, build := range []*cachedDaemonBuild{&cachedDaemonCLI, &cachedDaemonHelper} {
+	for _, build := range []*cachedDaemonBuild{&cachedDaemonCLI, &cachedDaemonHelper, &cachedDaemonReplacement} {
 		if build.path != "" {
 			_ = os.RemoveAll(filepath.Dir(build.path))
 		}

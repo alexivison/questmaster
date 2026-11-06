@@ -331,7 +331,6 @@ func TestCatalogURLEnvDisablesFetch(t *testing.T) {
 // (a request with no cached catalog answers within about 2 s), not the
 // production constant, so the test fails if the production wait grows.
 const (
-	staleServeLimit    = 100 * time.Millisecond
 	coldCacheWaitLimit = 2 * time.Second
 	coldCacheSlack     = 500 * time.Millisecond
 	asyncDeadline      = 5 * time.Second
@@ -491,8 +490,8 @@ func TestHTTPFetcherRefusesPlainHTTP(t *testing.T) {
 }
 
 // TestLoadCatalogServesStaleCacheAtOnceAndRefreshesOnce: a stale cache answers
-// under staleServeLimit while one background refresh runs, and repeated calls
-// during that refresh start no second one.
+// while one background refresh remains blocked, and repeated calls during
+// that refresh start no second one.
 func TestLoadCatalogServesStaleCacheAtOnceAndRefreshesOnce(t *testing.T) {
 	t.Parallel()
 
@@ -512,9 +511,6 @@ func TestLoadCatalogServesStaleCacheAtOnceAndRefreshesOnce(t *testing.T) {
 	first := loadCatalogWithin(t, asyncDeadline, opts)
 	if first.err != nil {
 		t.Errorf("stale load: %v", first.err)
-	}
-	if first.elapsed >= staleServeLimit {
-		t.Errorf("stale cache answered after %s, want under %s while the refresh runs", first.elapsed, staleServeLimit)
 	}
 	if models := first.catalog.Models("example"); len(models) != 1 || models[0].ID != "example-model-stale" {
 		t.Fatalf("stale load = %+v, want the cached catalog", first.catalog)
@@ -672,9 +668,8 @@ func TestResolveBackgroundServesStaleCatalogAtOnce(t *testing.T) {
 	}
 	fetch := newBlockingFetcher(t)
 
-	answered := make(chan time.Duration, 1)
+	answered := make(chan struct{}, 1)
 	go func() {
-		start := time.Now()
 		Resolve(context.Background(), ResolveOptions{
 			Agent:      "claude",
 			Role:       agent.RoleMaster,
@@ -684,15 +679,12 @@ func TestResolveBackgroundServesStaleCatalogAtOnce(t *testing.T) {
 			NoProbe:    true,
 			Background: true,
 		})
-		answered <- time.Since(start)
+		answered <- struct{}{}
 	}()
 	select {
-	case elapsed := <-answered:
-		if elapsed >= staleServeLimit {
-			t.Errorf("Resolve answered after %s, want under %s while the refresh runs", elapsed, staleServeLimit)
-		}
+	case <-answered:
 	case <-time.After(asyncDeadline):
-		t.Fatalf("Resolve did not return within %s", asyncDeadline)
+		t.Fatalf("Resolve did not return stale catalog while refresh was blocked within %s", asyncDeadline)
 	}
 
 	fetch.awaitStarted(t)
