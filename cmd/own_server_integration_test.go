@@ -180,6 +180,12 @@ func TestIntegrationDevPaneCLISpawnKeepsOverride(t *testing.T) {
 		paths := tmuxconfig.Paths(os.Getenv(state.StateRootEnv))
 		return tmux.DefaultServer(paths.Config, paths.Enforced).Label()
 	})
+	t.Setenv("CLAUDE_BIN", f.cli)
+	shimDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(shimDir, "questmaster"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	f.svc.Now = func() int64 { return time.Now().Add(-time.Minute).Unix() }
 	master, err := f.svc.Start(t.Context(), session.StartOpts{Title: "Master", Cwd: f.store.Root()})
 	if err != nil {
