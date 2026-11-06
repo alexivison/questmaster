@@ -1446,8 +1446,10 @@ func appendRotatingJSONL(path string, ev StateEvent) error {
 
 // AppendHookError appends one timestamped line to the session's
 // hook-errors.log. Agents discard a hook's stderr, so this file is where a
-// failed hook leaves its trace. It takes no state lock, so a hook that timed
-// out waiting for that lock can still log, and it rotates like state.jsonl.
+// failed hook leaves its trace when the session state directory exists. It
+// does not create that directory, which may have been deleted with the session.
+// It takes no state lock, so a hook that timed out waiting for that lock can
+// still log, and it rotates like state.jsonl.
 func AppendHookError(id, text string) error {
 	return AppendHookErrorAt(StateRoot(), id, text)
 }
@@ -1460,9 +1462,6 @@ func AppendHookErrorAt(root, id, text string) error {
 	}
 	if root == "" {
 		return errors.New("no state root resolved")
-	}
-	if err := ensureSessionStateDir(root, id); err != nil {
-		return err
 	}
 	line := time.Now().UTC().Format(time.RFC3339Nano) + " " + strings.TrimRight(text, "\n") + "\n"
 	return appendRotatingLine(SessionHookErrorLogPath(root, id), []byte(line))

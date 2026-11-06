@@ -172,6 +172,25 @@ func hangUntilDeadline(runner *mockRunner, cmd string, hanging *atomic.Bool) {
 	}
 }
 
+type controlledDeadline struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func (d *controlledDeadline) Done() <-chan struct{} { return d.done }
+
+func (d *controlledDeadline) Err() error {
+	select {
+	case <-d.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (d *controlledDeadline) expire() { d.once.Do(func() { close(d.done) }) }
+
 // A tmux server that stops answering holds a session's lifecycle lock only
 // until the lifecycle deadline.
 func TestLifecycleDeadlineReleasesTheLockWhenTmuxHangs(t *testing.T) {
@@ -204,14 +223,38 @@ func TestLifecycleDeadlineReleasesTheLockWhenTmuxHangs(t *testing.T) {
 func TestContinueRollbackRunsAfterTheDeadline(t *testing.T) {
 	setTestStateRoot(t, t.TempDir())
 	svc, runner := setupService(t)
-	svc.lifecycleTimeout = 100 * time.Millisecond
+	svc.lifecycleTimeout = 30 * time.Second
 	const id = "qm-late-rollback"
 	createTestManifest(t, svc.Store, id, "late", t.TempDir(), "")
-	var hanging atomic.Bool
-	hanging.Store(true)
-	hangUntilDeadline(runner, "set-environment", &hanging)
+	deadline := &controlledDeadline{Context: t.Context(), done: make(chan struct{})}
+	defer deadline.expire()
+	reachedLaunch := make(chan struct{}, 1)
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if len(args) > 0 && args[0] == "set-environment" {
+			reachedLaunch <- struct{}{}
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+	continued := make(chan error, 1)
+	go func() {
+		_, err := svc.Continue(deadline, id)
+		continued <- err
+	}()
+	select {
+	case <-reachedLaunch:
+		deadline.expire()
+	case err := <-continued:
+		t.Fatalf("Continue ended before the launch step: %v", err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("timed out waiting for Continue to reach set-environment")
+	}
 
-	if _, err := svc.Continue(t.Context(), id); !errors.Is(err, context.DeadlineExceeded) {
+	if err := <-continued; !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Continue error = %v, want the lifecycle deadline", err)
 	}
 

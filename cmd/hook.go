@@ -356,9 +356,9 @@ func newHookCmd(store *state.Store, client *tmux.Client, routes ...*tmuxroute.Ro
 const hookDeadline = 800 * time.Millisecond
 
 // runHook is the testable core. It never returns an error; all failures
-// are logged to stderr and the session's hook-errors.log and otherwise
-// swallowed, so installed shell scripts can run this binary with no
-// agent-visible side effect.
+// are logged to stderr and, when the session directory exists, its
+// hook-errors.log; they are otherwise swallowed so installed shell scripts
+// can run this binary with no agent-visible side effect.
 func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	if opts.ctx == nil {
 		opts.ctx = context.Background()
@@ -419,6 +419,13 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	if !validID {
 		fmt.Fprintf(stderr, "questmaster hook: invalid QUESTMASTER_SESSION %q\n", id)
 		return
+	}
+	// A final hook can arrive after deletion has removed the manifest and state.
+	// Do not recreate the deleted session just to record that late event.
+	if r.Store != nil {
+		if _, err := r.Store.Read(id); errors.Is(err, os.ErrNotExist) {
+			return
+		}
 	}
 
 	switch opts.agent {

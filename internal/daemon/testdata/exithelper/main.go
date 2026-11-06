@@ -101,7 +101,16 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	root := os.Getenv("QUESTMASTER_STATE_ROOT")
-	if err := daemon.Run(ctx, daemon.Config{Root: root, Home: os.Getenv("HOME"), IdleGrace: 500 * time.Millisecond, PollInterval: 10 * time.Millisecond, Jobs: []daemon.Job{drainJob{root}}, Runtime: &serve.Server{MutationRunner: mutationRunner{root}}}, false); err != nil {
+	var loginRunner daemon.LoginEnvironmentRunner
+	if path := os.Getenv("QUESTMASTER_TEST_LOGIN_ENV_FILE"); path != "" {
+		captured, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		loginRunner = func(context.Context, string, []string) ([]byte, error) { return captured, nil }
+	}
+	if err := daemon.Run(ctx, daemon.Config{Root: root, Home: os.Getenv("HOME"), IdleGrace: 500 * time.Millisecond, PollInterval: 10 * time.Millisecond, Jobs: []daemon.Job{drainJob{root}}, Runtime: &serve.Server{MutationRunner: mutationRunner{root}}, LoginEnvironmentRunner: loginRunner}, false); err != nil {
 		os.Exit(1)
 	}
 }
