@@ -53,19 +53,7 @@ enum ArtifactExternalOpener {
         let url = URL(fileURLWithPath: path)
         switch ArtifactExternalRoute.classify(path: path) {
         case .editor:
-            guard let attachedRoute else {
-                throw ArtifactExternalOpenError.missingSession
-            }
-            guard let tmuxPath else {
-                throw ArtifactExternalOpenError.missingTmux
-            }
-            try TerminalTmuxClientProcess.openEditorWindow(
-                tmuxPath: tmuxPath,
-                route: attachedRoute,
-                path: path,
-                shell: environment["SHELL"] ?? "/bin/zsh",
-                environment: environment
-            )
+            try openEditor(path: path, attachedRoute: attachedRoute, tmuxPath: tmuxPath, environment: environment)
         case .browser:
             let webURL = URL(string: "https://localhost/")!
             guard let browser = NSWorkspace.shared.urlForApplication(toOpen: webURL) else {
@@ -82,6 +70,16 @@ enum ArtifactExternalOpener {
                 throw ArtifactExternalOpenError.openFailed(path)
             }
         }
+    }
+
+    static func openEditor(path: String, attachedRoute: TmuxRoute?, tmuxPath: String?, environment: [String: String]) throws {
+        guard let attachedRoute else { throw ArtifactExternalOpenError.missingSession }
+        guard let tmuxPath else { throw ArtifactExternalOpenError.missingTmux }
+        guard FileManager.default.fileExists(atPath: path) else { throw ArtifactExternalOpenError.missingFile(path) }
+        try TerminalTmuxClientProcess.openEditorWindow(
+            tmuxPath: tmuxPath, route: attachedRoute, path: path,
+            shell: environment["SHELL"] ?? "/bin/zsh", environment: environment
+        )
     }
 
     private static func open(_ url: URL, with application: URL) {
