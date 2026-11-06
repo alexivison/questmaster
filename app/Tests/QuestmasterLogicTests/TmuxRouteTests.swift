@@ -38,11 +38,24 @@ struct TmuxRouteTests {
         case .failure: break
         }
         let moved = try TmuxRoute(sessionID: legacy.sessionID, label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: legacy.createdUnix)
+        try expect(TmuxRoute.replacement(for: legacy, in: [named, moved]) == moved,
+                   "a failed attach may retry only the changed route for its own session")
+        try expect(TmuxRoute.replacement(for: legacy, in: [named, legacy]) == nil,
+                   "the same route does not justify a retry")
+        try expect(TmuxRoute.replacement(for: legacy, in: [named]) == nil,
+                   "another session's route cannot be used for an attach")
         switch cache.resolve(for: legacy.sessionID, result: .success([moved])) {
         case .success(let route): try expect(route == moved, "fetch should return the new route")
         case .failure: throw Failure("route change should resolve")
         }
         try expect(cache.lookup(legacy.sessionID) == .cached(moved), "route change should replace the cached route")
+        cache.invalidate(legacy.sessionID)
+        try expect(cache.lookup(legacy.sessionID) == .fetch, "reappearing session must discard its old route")
+        cache.remember([legacy])
+        switch cache.resolve(for: legacy.sessionID, result: .failure(TmuxRouteError.invalidResponse), useCachedRouteOnFailure: false) {
+        case .success: throw Failure("a reappearing session must not use a cached route after a failed fetch")
+        case .failure: break
+        }
         if case .unknownMethod(let method) = ServeClientError.responseError("unknown method \"tmux.routes\"") {
             try expect(method == "tmux.routes", "unknown method should keep its name")
         } else {
