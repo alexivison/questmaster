@@ -50,11 +50,11 @@ var enforcedMarker = regexp.MustCompile(`(?m)^set -g @questmaster_enforced ([0-9
 
 // Status reads files and a running server without creating either one.
 func Status(ctx context.Context, client *tmux.Client, root string) (StatusResult, error) {
-	paths := Paths(root)
 	label, err := tmux.EffectiveLabel()
 	if err != nil {
 		return StatusResult{}, err
 	}
+	paths := PathsForLabel(root, label)
 	result := StatusResult{Config: paths.Config, Enforced: paths.Enforced, EffectiveLabel: label}
 	result.BuiltinTemplateVersion = headerVersion(string(template))
 	result.TemplateVersion, err = fileHeaderVersion(paths.Config)
@@ -146,33 +146,57 @@ func isNoServer(err error) bool {
 		(strings.Contains(exit.Stderr, "error connecting") && strings.Contains(exit.Stderr, "No such file or directory"))
 }
 
-// Reload applies both files in order. Source errors are data so the caller can
-// show every tmux diagnostic; the enforced file is sourced even if the user
-// file has errors.
+// Reload sources one wrapper, so tmux processes the user file and enforcement
+// in the same command queue. Source diagnostics are returned as data.
 func Reload(ctx context.Context, client *tmux.Client, root string) (ReloadResult, error) {
-	_, _, running, err := serverState(ctx, client)
+	running, err := requireOwnedServer(ctx, client, root)
 	if err != nil || !running {
 		return ReloadResult{Running: running, Errors: []string{}}, err
 	}
-	paths := Paths(root)
 	result := ReloadResult{Running: true, Errors: []string{}}
-	for _, path := range []string{paths.Config, paths.Enforced} {
-		_, err := client.RunBatch(ctx, []string{"source-file", path})
-		if err == nil {
-			continue
-		}
-		var exit *tmux.ExitError
-		if !errors.As(err, &exit) {
-			return result, err
-		}
-		result.Errors = append(result.Errors, configErrors(exit.Stderr, err)...)
+	if err := WriteEnforced(root); err != nil {
+		return result, err
 	}
+	paths := Paths(root)
+	_, err = client.RunBatch(ctx, []string{"source-file", paths.Reload})
+	if err == nil {
+		return result, nil
+	}
+	var exit *tmux.ExitError
+	if !errors.As(err, &exit) {
+		return result, err
+	}
+	result.Errors = append(result.Errors, configErrors(exit.Stderr, err)...)
 	return result, nil
+}
+
+// An unmarked server is treated as foreign. Its owner cannot be established,
+// and sourcing our config would overwrite its marker and cleanup hook.
+func requireOwnedServer(ctx context.Context, client *tmux.Client, root string) (bool, error) {
+	label, err := tmux.EffectiveLabel()
+	if err != nil {
+		return false, err
+	}
+	marker, err := client.RunBatch(ctx, []string{"show-options", "-gqv", "@questmaster_root"})
+	if isNoServer(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read named tmux server ownership: %w", err)
+	}
+	if !OwnsRoot(strings.TrimSpace(marker), root, label) {
+		return true, fmt.Errorf("tmux server %q is unmarked or belongs to another state root; use a different QUESTMASTER_TMUX_LABEL", label)
+	}
+	return true, nil
 }
 
 // RestartIfEmpty asks tmux to test the session count and kill the server in
 // one command. The else branch prints the count from that same decision.
-func RestartIfEmpty(ctx context.Context, client *tmux.Client) (RestartResult, error) {
+func RestartIfEmpty(ctx context.Context, client *tmux.Client, root string) (RestartResult, error) {
+	running, err := requireOwnedServer(ctx, client, root)
+	if err != nil || !running {
+		return RestartResult{}, err
+	}
 	out, err := client.RunBatch(ctx, []string{"if-shell", "-F", "#{==:#{server_sessions},0}", "kill-server", `display-message -p -F "#{server_sessions}"`})
 	if isNoServer(err) {
 		return RestartResult{}, nil

@@ -26,9 +26,9 @@ func configServer(t *testing.T) (*tmuxtest.Runner, *tmux.Client, string) {
 
 func TestIntegrationRestartRefusedWithSessions(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
-	r, client, _ := configServer(t)
+	r, client, root := configServer(t)
 	mustTmux(t, r, "new-session", "-d", "-s", "test", "sleep 60")
-	result, err := tmuxconfig.RestartIfEmpty(t.Context(), client)
+	result, err := tmuxconfig.RestartIfEmpty(t.Context(), client, root)
 	if err != nil || result.Restarted || !result.Refused || result.Sessions != 1 {
 		t.Fatalf("restart with session: %+v, %v", result, err)
 	}
@@ -42,7 +42,7 @@ func TestIntegrationRestartWhenEmpty(t *testing.T) {
 	r, client, root := configServer(t)
 	mustTmux(t, r, "new-session", "-d", "-s", "test", "sleep 60")
 	mustTmux(t, r, "kill-session", "-t", tmux.SessionTarget("test"))
-	result, err := tmuxconfig.RestartIfEmpty(t.Context(), client)
+	result, err := tmuxconfig.RestartIfEmpty(t.Context(), client, root)
 	if err != nil || !result.Restarted || result.Refused || result.Sessions != 0 {
 		t.Fatalf("restart empty: %+v, %v", result, err)
 	}

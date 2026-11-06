@@ -262,7 +262,7 @@ func serveContractFixtures() []contractFixture {
 		{name: "tmux_config_request.json", value: Request{ID: json.RawMessage(`"tmux-config-request"`), Method: "tmux.config", ProtocolVersion: ServeProtocolVersion}},
 		{name: "tmux_config_response_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion, Type: "response", ID: json.RawMessage(`"tmux-config-request"`), OK: boolPtr(true), Topic: "tmux.config",
-			Data: tmuxconfig.StatusResult{Config: "/tmp/example/tmux/questmaster.conf", Enforced: "/tmp/example/tmux/enforced.conf", EffectiveLabel: "questmaster", Running: true, StartedUnix: 100, Sessions: 1, EditedSinceStart: true, TemplateVersion: 1, BuiltinTemplateVersion: 1},
+			Data: tmuxconfig.StatusResult{Config: "/tmp/example/tmux/questmaster.conf", Enforced: "/tmp/example/tmux/enforced.questmaster.conf", EffectiveLabel: "questmaster", Running: true, StartedUnix: 100, Sessions: 1, EditedSinceStart: true, TemplateVersion: 2, BuiltinTemplateVersion: 2},
 		}},
 		{name: "tmux_config_check_request.json", value: Request{ID: json.RawMessage(`"tmux-config-check-request"`), Method: "tmux.config.check", ProtocolVersion: ServeProtocolVersion}},
 		{name: "tmux_config_check_response_envelope.json", value: Envelope{

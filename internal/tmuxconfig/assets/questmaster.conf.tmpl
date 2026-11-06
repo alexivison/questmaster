@@ -1,8 +1,8 @@
-# Questmaster tmux config (template v1).
+# Questmaster tmux config (template v2).
 # Written once by Questmaster from its built-in template, migrated from a personal
 # ~/.tmux.conf on 2026-11-06. It is yours: Questmaster never rewrites this file.
 # Delete it to get the current template back at the next server start.
-# Questmaster's must-have settings live in enforced.conf, loaded after this file.
+# Questmaster's must-have settings live in the generated per-label enforced file.
 # tmux reads this file only when the Questmaster server starts. prefix R reloads
 # it into a running server; removed lines and new-pane options need a restart.
 
@@ -35,8 +35,9 @@ bind-key -n C-S-Right next-window
 bind-key n next-window
 bind-key p previous-window
 
-# Reload this file, then Questmaster's enforced settings, into the running server
-bind-key R source-file {{CONFIG}} \; source-file {{ENFORCED}} \; display "Questmaster tmux config reloaded"
+# Reload both files in one tmux command. The generated enforced file sets the
+# label-specific path and renews this binding for older user configs too.
+bind-key R source-file -F '#{@questmaster_reload_file}' \; display "Questmaster tmux config reloaded"
 
 # Pane splits
 unbind '"'
@@ -61,7 +62,7 @@ bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pb
 set-option -g monitor-activity off
 set-option -g visual-activity off
 # exit-empty, detach-on-destroy and destroy-unattached are set by Questmaster in
-# enforced.conf, which loads after this file.
+# the generated enforced file, which loads after this file.
 
 # Lock pane/window naming
 set-option -g allow-rename off

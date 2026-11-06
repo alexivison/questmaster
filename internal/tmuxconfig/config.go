@@ -28,15 +28,27 @@ var statusScript []byte
 //go:embed assets/enforced-block.conf
 var enforcedBlock string
 
-// FilePaths names the three files under a state root.
+// FilePaths names the shared user files and label-specific generated files.
 type FilePaths struct {
 	Config       string `json:"config"`
 	Enforced     string `json:"enforced"`
+	Reload       string `json:"reload"`
 	StatusScript string `json:"status_script"`
 }
 
-// Paths returns absolute paths for a state root without creating anything.
+// Paths returns paths for the effective label without creating anything. Writers
+// validate the label before using the generated paths.
 func Paths(root string) FilePaths {
+	label, err := tmux.EffectiveLabel()
+	if err != nil {
+		label = "questmaster"
+	}
+	return PathsForLabel(root, label)
+}
+
+// PathsForLabel keeps recorded session routes independent of the current
+// creation label. Callers must pass a validated named label.
+func PathsForLabel(root, label string) FilePaths {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		abs = filepath.Clean(root)
@@ -44,7 +56,8 @@ func Paths(root string) FilePaths {
 	dir := filepath.Join(abs, "tmux")
 	return FilePaths{
 		Config:       filepath.Join(dir, "questmaster.conf"),
-		Enforced:     filepath.Join(dir, "enforced.conf"),
+		Enforced:     filepath.Join(dir, "enforced."+label+".conf"),
+		Reload:       filepath.Join(dir, "reload."+label+".conf"),
 		StatusScript: filepath.Join(dir, "git-status.sh"),
 	}
 }
@@ -53,8 +66,6 @@ func Paths(root string) FilePaths {
 func Template(root string) string {
 	paths := Paths(root)
 	replacer := strings.NewReplacer(
-		"{{CONFIG}}", quotePath(paths.Config),
-		"{{ENFORCED}}", quotePath(paths.Enforced),
 		"{{STATUS_SCRIPT}}", quotePath(paths.StatusScript),
 	)
 	return replacer.Replace(string(template))
@@ -83,12 +94,9 @@ func WriteEnforced(root string) error {
 	if err != nil {
 		return err
 	}
-	paths := Paths(root)
+	paths := PathsForLabel(root, label)
 	dir := filepath.Dir(paths.Enforced)
 	if err := ensureDir(dir); err != nil {
-		return err
-	}
-	if err := validateExisting(paths.Enforced); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	block := enforcedBlock
@@ -107,16 +115,54 @@ func WriteEnforced(root string) error {
 	shellCommand := qm + " tmux session-closed --server " + config.ShellQuote(label) + " -- #{q:hook_session_name}"
 	hook := `run-shell -b "` + tmuxQuoted(shellCommand) + `"`
 	block += "set-hook -g session-closed \"" + tmuxQuoted(hook) + "\"\n"
-	f, err := os.CreateTemp(dir, ".enforced-*")
+	// The binding in an existing user config may still name the old shared
+	// enforced.conf. Regenerating it here also upgrades that binding in memory.
+	block += "set -g @questmaster_reload_file " + quotePath(paths.Reload) + "\n"
+	block += "bind-key R source-file -F '#{@questmaster_reload_file}' \\; display-message 'Questmaster tmux config reloaded'\n"
+	if err := replaceGenerated(paths.Enforced, block); err != nil {
+		return err
+	}
+	return replaceGenerated(paths.Reload, reloadScript(paths))
+}
+
+// EnsureGenerated creates missing generated files for a label when an older
+// installation has only the shared enforced.conf. Existing files are checked
+// but left intact so config check can diagnose edits to them.
+func EnsureGenerated(root string) error {
+	label, err := tmux.EffectiveLabel()
 	if err != nil {
-		return fmt.Errorf("create enforced temp file: %w", err)
+		return err
+	}
+	paths := PathsForLabel(root, label)
+	for _, path := range []string{paths.Enforced, paths.Reload} {
+		if err := validateExisting(path); errors.Is(err, os.ErrNotExist) {
+			return WriteEnforced(root)
+		} else if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func reloadScript(paths FilePaths) string {
+	return "source-file " + quotePath(paths.Config) + "\nsource-file " + quotePath(paths.Enforced) + "\n"
+}
+
+func replaceGenerated(path, content string) error {
+	dir := filepath.Dir(path)
+	if err := validateExisting(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".generated-*")
+	if err != nil {
+		return fmt.Errorf("create generated config temp file: %w", err)
 	}
 	defer os.Remove(f.Name())
 	if err := f.Chmod(0o600); err != nil {
 		f.Close()
 		return err
 	}
-	if _, err := f.WriteString(block); err != nil {
+	if _, err := f.WriteString(content); err != nil {
 		f.Close()
 		return err
 	}
@@ -127,8 +173,8 @@ func WriteEnforced(root string) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(f.Name(), paths.Enforced); err != nil {
-		return fmt.Errorf("replace enforced config: %w", err)
+	if err := os.Rename(f.Name(), path); err != nil {
+		return fmt.Errorf("replace generated config: %w", err)
 	}
 	return nil
 }
@@ -140,7 +186,7 @@ func tmuxQuoted(s string) string {
 // RootMarker binds a state root to one dedicated tmux label. The value carries
 // the label and the SHA-256 of the cleaned absolute root.
 func RootMarker(root, label string) string {
-	paths := Paths(root)
+	paths := PathsForLabel(root, label)
 	absoluteRoot := filepath.Dir(filepath.Dir(paths.Config))
 	return fmt.Sprintf("%s:%x", label, sha256.Sum256([]byte(absoluteRoot)))
 }
@@ -152,6 +198,9 @@ func OwnsRoot(marker, root, label string) bool {
 
 // Prepare creates user files if needed and regenerates enforced settings.
 func Prepare(root string) error {
+	if _, err := tmux.EffectiveLabel(); err != nil {
+		return err
+	}
 	if err := EnsureUserFiles(root); err != nil {
 		return err
 	}
@@ -216,10 +265,17 @@ func ownedByCurrentUser(info os.FileInfo) bool {
 // Check validates a file on a throwaway private tmux socket. It first parses
 // the file, then sources it to expose runtime errors. Reported config errors
 // are returned as strings; setup failures are returned as errors.
-func Check(ctx context.Context, file string) ([]string, error) {
+func Check(ctx context.Context, file string, enforced ...string) ([]string, error) {
 	absoluteFile, err := filepath.Abs(file)
 	if err != nil {
 		return nil, err
+	}
+	var enforcedFile string
+	if len(enforced) > 0 {
+		enforcedFile, err = filepath.Abs(enforced[0])
+		if err != nil {
+			return nil, err
+		}
 	}
 	dir, err := os.MkdirTemp("/tmp", "qmcheck-")
 	if err != nil {
@@ -237,6 +293,16 @@ func Check(ctx context.Context, file string) ([]string, error) {
 	}
 	if output, err := runSource(ctx, server, "source-file", "-n", absoluteFile); err != nil {
 		return configErrors(output, err), nil
+	}
+	if enforcedFile != "" {
+		if output, err := runSource(ctx, server, "source-file", "-n", enforcedFile); err != nil {
+			return configErrors(output, err), nil
+		}
+		wrapper := filepath.Join(dir, "reload.conf")
+		if err := os.WriteFile(wrapper, []byte(reloadScript(FilePaths{Config: absoluteFile, Enforced: enforcedFile})), 0o600); err != nil {
+			return nil, err
+		}
+		absoluteFile = wrapper
 	}
 	if output, err := runSource(ctx, server, "source-file", absoluteFile); err != nil {
 		return configErrors(output, err), nil

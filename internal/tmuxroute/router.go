@@ -77,14 +77,15 @@ type cacheEntry struct {
 // Router has one client per label. Production's factory creates a client for
 // a recorded dev label without consulting today's environment override.
 type Router struct {
-	store     *state.Store
-	creation  func() string
-	paths     []string
-	refreshMu sync.Mutex
-	mu        sync.Mutex
-	clients   map[string]*tmux.Client
-	cache     map[string]cacheEntry
-	factory   func(string) (*tmux.Client, error)
+	store      *state.Store
+	creation   func() string
+	paths      []string
+	configRoot string // nonempty only for production's per-label config paths
+	refreshMu  sync.Mutex
+	mu         sync.Mutex
+	clients    map[string]*tmux.Client
+	cache      map[string]cacheEntry
+	factory    func(string) (*tmux.Client, error)
 }
 
 func New(store *state.Store, clients map[string]*tmux.Client, creation func() string, namedConfigFiles []string) *Router {
@@ -106,7 +107,7 @@ func NewProduction(store *state.Store, defaultClient *tmux.Client) (*Router, err
 	if err != nil {
 		return nil, err
 	}
-	paths := tmuxconfig.Paths(root)
+	paths := tmuxconfig.PathsForLabel(root, label)
 	files := []string{paths.Config, paths.Enforced}
 	// The injected client now selects creation; legacy manifests need default.
 	defaultClient = tmux.NewClient(tmux.LegacyServer())
@@ -115,8 +116,10 @@ func NewProduction(store *state.Store, defaultClient *tmux.Client) (*Router, err
 		return nil, err
 	}
 	r := New(state.OpenStore(root), map[string]*tmux.Client{"default": defaultClient, label: tmux.NewClient(named)}, func() string { return label }, files)
+	r.configRoot = root
 	r.factory = func(recorded string) (*tmux.Client, error) {
-		server, err := tmux.NamedServerLabel(recorded, files[0], files[1])
+		recordedPaths := tmuxconfig.PathsForLabel(root, recorded)
+		server, err := tmux.NamedServerLabel(recorded, recordedPaths.Config, recordedPaths.Enforced)
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +150,12 @@ func (r *Router) handle(label string) (Handle, error) {
 	}
 	h := Handle{label: label, client: client}
 	if label != "default" {
-		h.configFiles = append([]string(nil), r.paths...)
+		if r.configRoot != "" {
+			paths := tmuxconfig.PathsForLabel(r.configRoot, label)
+			h.configFiles = []string{paths.Config, paths.Enforced}
+		} else {
+			h.configFiles = append([]string(nil), r.paths...)
+		}
 	}
 	return h, nil
 }

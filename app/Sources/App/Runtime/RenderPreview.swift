@@ -2064,7 +2064,7 @@ enum RenderPreview {
             dismiss: {}
         )
         model.tmux.details = TmuxSettingsModel(status: TmuxConfigStatus(
-            config: "/tmp/example/tmux/questmaster.conf", enforced: "/tmp/example/tmux/enforced.conf",
+            config: "/tmp/example/tmux/questmaster.conf", enforced: "/tmp/example/tmux/enforced.questmaster.conf",
             effectiveLabel: "questmaster", running: true, startedUnix: 1_793_872_800, sessions: 1,
             editedSinceStart: true, enforcedPending: true, templateVersion: 1, builtinTemplateVersion: 2
         ))

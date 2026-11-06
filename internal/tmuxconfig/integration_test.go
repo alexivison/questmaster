@@ -48,7 +48,8 @@ func TestIntegrationRenderQuotesPaths(t *testing.T) {
 	if err := tmuxconfig.Prepare(root); err != nil {
 		t.Fatal(err)
 	}
-	errors, err := tmuxconfig.Check(t.Context(), tmuxconfig.Paths(root).Config)
+	paths := tmuxconfig.Paths(root)
+	errors, err := tmuxconfig.Check(t.Context(), paths.Config, paths.Enforced)
 	if err != nil || len(errors) != 0 {
 		t.Fatalf("Check: errors %q, err %v", errors, err)
 	}
@@ -61,12 +62,12 @@ func TestIntegrationEnforcedWinsOverEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)
-	if err := os.WriteFile(paths.Config, []byte("set -s exit-empty on\nset -g destroy-unattached on\n"), 0o600); err != nil {
+	if err := os.WriteFile(paths.Config, []byte("set -s exit-empty on\nset -s exit-unattached on\nset -g destroy-unattached on\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r := tmuxtest.NewRunnerWithConfig(t, paths.Config, paths.Enforced)
 	mustTmux(t, r, "new-session", "-d", "-s", "test", "sleep 60")
-	for opt := range map[string]bool{"exit-empty": true, "destroy-unattached": true} {
+	for opt := range map[string]bool{"exit-empty": true, "exit-unattached": true, "destroy-unattached": true} {
 		if got := mustTmux(t, r, "show-options", "-gv", opt); got != "off" {
 			t.Errorf("%s = %q", opt, got)
 		}
