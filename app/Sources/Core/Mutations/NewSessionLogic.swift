@@ -311,7 +311,7 @@ public struct NewSessionFormModel: Equatable {
         sessionClass?.displayName ?? SessionClass.randomLabel
     }
 
-    /// Cycles the class through Random and the seven classes, independent of focus (see `SessionClassKey`).
+    /// Cycles the class through Random and all classes, independent of focus (see `SessionClassKey`).
     public mutating func cycleSessionClass() {
         guard !submitting else {
             return

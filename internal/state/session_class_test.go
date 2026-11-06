@@ -18,10 +18,10 @@ func TestChooseSessionClass(t *testing.T) {
 		want        string
 		wantChoices int
 	}{
-		{name: "empty", index: 2, want: "druid", wantChoices: 7},
-		{name: "partial unused first", active: []string{"paladin", "paladin", "wizard"}, index: 1, want: "barbarian", wantChoices: 5},
-		{name: "all used", active: []string{"paladin", "wizard", "druid", "barbarian", "rogue", "cleric", "bard", "paladin"}, index: 2, want: "barbarian", wantChoices: 6},
-		{name: "lowest count tie", active: []string{"paladin", "paladin", "wizard", "druid", "barbarian", "barbarian", "rogue", "rogue", "cleric", "cleric", "bard", "bard"}, index: 1, want: "druid", wantChoices: 2},
+		{name: "empty", index: 2, want: "druid", wantChoices: 11},
+		{name: "partial unused first", active: []string{"paladin", "paladin", "wizard"}, index: 1, want: "barbarian", wantChoices: 9},
+		{name: "all used", active: []string{"paladin", "wizard", "druid", "barbarian", "rogue", "cleric", "bard", "paladin"}, index: 2, want: "sorcerer", wantChoices: 4},
+		{name: "lowest count tie", active: []string{"paladin", "paladin", "wizard", "druid", "barbarian", "barbarian", "rogue", "rogue", "cleric", "cleric", "bard", "bard"}, index: 1, want: "necromancer", wantChoices: 4},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,7 +42,7 @@ func TestChooseSessionClass(t *testing.T) {
 func TestValidateSessionClass(t *testing.T) {
 	t.Parallel()
 
-	want := []string{"paladin", "wizard", "druid", "barbarian", "rogue", "cleric", "bard"}
+	want := []string{"paladin", "wizard", "druid", "barbarian", "rogue", "cleric", "bard", "ranger", "necromancer", "sorcerer", "fighter"}
 	for _, class := range want {
 		if got, err := ValidateSessionClass(class); err != nil || got != class {
 			t.Fatalf("ValidateSessionClass(%q) = %q, %v", class, got, err)
@@ -51,8 +51,8 @@ func TestValidateSessionClass(t *testing.T) {
 	if got, err := ValidateSessionClass(" Wizard "); err != nil || got != "wizard" {
 		t.Fatalf("ValidateSessionClass() = %q, %v; want wizard", got, err)
 	}
-	if _, err := ValidateSessionClass("ranger"); err == nil || !strings.Contains(err.Error(), strings.Join(want, ", ")) {
-		t.Fatalf("ValidateSessionClass(ranger) error = %v, want valid ids", err)
+	if _, err := ValidateSessionClass("unknown"); err == nil || !strings.Contains(err.Error(), strings.Join(want, ", ")) {
+		t.Fatalf("ValidateSessionClass(unknown) error = %v, want valid ids", err)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestStoreSetSessionClassOnlyAllowsMasters(t *testing.T) {
 		},
 		{name: "worker", manifest: Manifest{SessionID: "qm-worker", Agents: []AgentManifest{{Name: "codex", Role: "agent"}}, Extra: map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)}}, class: "bard", wantErrPart: "workers inherit"},
 		{name: "shell", manifest: Manifest{SessionID: "qm-shell"}, class: "bard", wantErrPart: "shell sessions"},
-		{name: "invalid class", manifest: Manifest{SessionID: "qm-invalid", Agents: []AgentManifest{{Name: "codex", Role: "agent"}}}, class: "ranger", wantErrPart: "paladin, wizard, druid, barbarian, rogue, cleric, bard"},
+		{name: "invalid class", manifest: Manifest{SessionID: "qm-invalid", Agents: []AgentManifest{{Name: "codex", Role: "agent"}}}, class: "unknown", wantErrPart: "paladin, wizard, druid, barbarian, rogue, cleric, bard, ranger, necromancer, sorcerer, fighter"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

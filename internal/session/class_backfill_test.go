@@ -116,7 +116,7 @@ func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 
 	for id, want := range map[string]string{
 		"qm-live-missing":   "bard",
-		"qm-stopped-old":    "paladin",
+		"qm-stopped-old":    "ranger",
 		"qm-master-paladin": "paladin",
 	} {
 		manifest, err := store.Read(id)
