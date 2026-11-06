@@ -49,6 +49,7 @@ type callRecord struct {
 }
 
 type mockRunner struct {
+	ownerMarker string
 	calls       []callRecord
 	fn          func(ctx context.Context, args ...string) (string, error)
 	sessions    map[string]bool
@@ -94,6 +95,8 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 	}
 	switch args[0] {
+	case "show-options":
+		return m.ownerMarker, nil
 	case "has-session":
 		session := m.targetKey(flagVal(args, "-t"))
 		if m.sessions[session] {

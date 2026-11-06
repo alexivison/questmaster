@@ -57,6 +57,7 @@ func routedService(t *testing.T) (*Service, *mockRunner, *mockRunner) {
 	tmuxtest.StubQuestmaster(t)
 	svc, legacy := setupService(t)
 	named := newMockRunner()
+	named.ownerMarker = tmuxconfig.RootMarker(svc.Store.Root(), "test_named")
 	svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{
 		"default": svc.Client, "test_named": tmux.NewClient(named),
 	}, func() string { return "test_named" }, nil)

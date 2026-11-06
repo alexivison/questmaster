@@ -87,7 +87,6 @@ func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, clien
 		}
 		return result, fmt.Errorf("read state dir: %w", err)
 	}
-
 	cutoff := time.Now().Add(-time.Duration(maxDays) * 24 * time.Hour)
 	wouldDelete := map[string]bool{}
 
@@ -133,7 +132,7 @@ func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, clien
 			continue
 		}
 
-		// Try to parse manifest for master-with-workers guard; skip on parse failure (prune it).
+		// A corrupt manifest can be removed once the server view is complete.
 		m, readErr := store.Read(sessionID)
 		if readErr == nil && m.AgentSessionType() == "master" && len(m.Workers) > 0 {
 			continue

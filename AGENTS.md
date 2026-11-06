@@ -128,6 +128,12 @@ Invariants that aren't obvious from the code:
   by the ID `NewSession` reports, never by index: nothing assumes window or pane
   index 0, since a server may set base-index or pane-base-index. The caller's
   own pane counts only when TMUX names this server (`callerSession`).
+- `tmux-servers.json` under the state root records every named label used for
+  creation before `new-session`. Production routers load these labels on
+  construction, so a corrupt manifest cannot hide a former dev server from
+  prune. Prune refreshes the labels and refuses cleanup if the record is
+  unreadable or a recorded server is unavailable; with a complete server view,
+  it can remove old corrupt manifests.
 - **A session's runtime files live in its manifest's `runtime_dir`**, an
   owner-only `<state root>/runtime/<id>` (`state.NewRuntimeDir`,
   `state.EnsureRuntimeDir`, files through `state.WriteRuntimeFile`). The tmux

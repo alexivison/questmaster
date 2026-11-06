@@ -128,10 +128,13 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 	}
 	pane, err := s.Client.NewSession(ctx, sessionID, "", cwd)
 	if err != nil {
-		return ContinueResult{}, s.continueRollback(ctx, sessionID, false, fmt.Errorf("create tmux session: %w", err))
+		return ContinueResult{}, fmt.Errorf("create tmux session: %w", err)
 	}
 	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) { m2.TmuxServer = state.TmuxServer(creation.Label()) }); err != nil {
-		return ContinueResult{}, s.continueRollback(ctx, sessionID, true, err)
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, previousServer, creation.Label(), false, err)
+	}
+	if err := s.verifyCreationOwnership(ctx, creation); err != nil {
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, previousServer, creation.Label(), true, err)
 	}
 
 	isMaster := roleForManifest(m) == roleMaster
@@ -150,15 +153,11 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		agents:      launch.agents,
 		agentResume: launch.agentResume,
 	}); err != nil {
-		err = s.continueRollback(ctx, sessionID, true, err)
-		_ = s.Store.Update(sessionID, func(m2 *state.Manifest) { m2.TmuxServer = previousServer })
-		return ContinueResult{}, err
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, previousServer, creation.Label(), true, err)
 	}
 
 	if err := s.recordResume(sessionID, launch, ""); err != nil {
-		err = s.continueRollback(ctx, sessionID, true, err)
-		_ = s.Store.Update(sessionID, func(m2 *state.Manifest) { m2.TmuxServer = previousServer })
-		return ContinueResult{}, err
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, previousServer, creation.Label(), true, err)
 	}
 
 	// Re-register with parent master if this is a child worker
@@ -459,19 +458,24 @@ func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, session
 	return s.refreshAppOwnedSessionEnvironment(ctx, sessionID)
 }
 
-// continueRollback best-effort kills a partially launched tmux session after a
-// Continue failure, but only one this call created: a failed new-session can
-// mean another caller owns a session by that name. Unlike Start's rollback
-// (startRollbackError), it MUST preserve the manifest and runtime/state dirs:
-// Continue reconstructs from a pre-existing manifest, so a later retry depends
-// on that manifest surviving.
-func (s *Service) continueRollback(ctx context.Context, sessionID string, created bool, cause error) error {
-	if !created {
-		return cause
-	}
+// continueRollback preserves the manifest and runtime for a later retry.
+// The prior route is restored only after the new container is gone.
+func (s *Service) continueRollback(ctx context.Context, sessionID string, previousServer state.TmuxServer, newServer string, routeRecorded bool, cause error) error {
 	ctx, cancel := rollbackContext(ctx)
 	defer cancel()
-	_ = s.Client.KillSession(ctx, sessionID)
+	if err := s.Client.KillSession(ctx, sessionID); err != nil {
+		if !routeRecorded {
+			if recordErr := s.Store.Update(sessionID, func(m *state.Manifest) { m.TmuxServer = state.TmuxServer(newServer) }); recordErr != nil {
+				return errors.Join(cause, fmt.Errorf("rollback kill failed: %w", err), fmt.Errorf("record live tmux server: %w", recordErr))
+			}
+		}
+		return errors.Join(cause, fmt.Errorf("rollback kill failed: %w", err))
+	}
+	if routeRecorded {
+		if err := s.Store.Update(sessionID, func(m *state.Manifest) { m.TmuxServer = previousServer }); err != nil {
+			return errors.Join(cause, fmt.Errorf("restore previous tmux server: %w", err))
+		}
+	}
 	return cause
 }
 

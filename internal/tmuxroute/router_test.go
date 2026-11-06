@@ -3,6 +3,7 @@ package tmuxroute
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/alexivison/questmaster/internal/state"
@@ -82,6 +83,63 @@ func TestProductionRouteUsesRecordedLabel(t *testing.T) {
 	legacy, err := r.Route(state.Manifest{})
 	if err != nil || legacy.Label() != "default" {
 		t.Fatalf("absent manifest route = %q, %v", legacy.Label(), err)
+	}
+}
+
+func TestProductionRouterInventoriesPersistedLabels(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_current")
+	root := t.TempDir()
+	if err := state.RecordTmuxServerLabel(root, "dev_previous"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewProduction(state.OpenStore(root), tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) { return "", nil })))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handles, err := r.KnownHandles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(handles) != 3 || handles[0].Label() != "default" || handles[1].Label() != "dev_current" || handles[2].Label() != "dev_previous" {
+		t.Fatalf("known handles = %v", handles)
+	}
+}
+
+func TestLiveIDsRejectsLabelRecordedAfterRouterCreation(t *testing.T) {
+	root := t.TempDir()
+	r := New(state.OpenStore(root), map[string]*tmux.Client{"default": tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) {
+		t.Fatal("inventory ran before checking the new label")
+		return "", nil
+	}))}, func() string { return "default" }, nil)
+	if err := state.RecordTmuxServerLabel(root, "dev_previous"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.LiveIDs(t.Context()); err == nil {
+		t.Fatal("destructive inventory treated an unrouteable recorded label as absent")
+	}
+}
+
+func TestProductionRouterKeepsManifestRoutesWithUnreadableLabelRecord(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_current")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "tmux-servers.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewProduction(state.OpenStore(root), tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) { return "", nil })))
+	if err != nil {
+		t.Fatalf("construct router for hooks and sends: %v", err)
+	}
+	for _, label := range []state.TmuxServer{"", "dev_current", "dev_previous"} {
+		handle, err := r.Route(state.Manifest{TmuxServer: label})
+		if err != nil {
+			t.Fatalf("route manifest for hooks and sends: %v", err)
+		}
+		if label != "" && handle.Label() != string(label) {
+			t.Fatalf("manifest route = %q, want %q", handle.Label(), label)
+		}
+	}
+	if _, err := r.LiveIDs(t.Context()); err == nil {
+		t.Fatal("destructive inventory accepted unreadable labels")
 	}
 }
 

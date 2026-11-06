@@ -753,10 +753,10 @@ func TestList_StaleSortedByMtime(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Regression: prune removes corrupt manifest files (F3)
+// Prune can remove an old corrupt manifest when the server view is complete.
 // ---------------------------------------------------------------------------
 
-func TestPrune_RemovesCorruptManifests(t *testing.T) {
+func TestPruneRemovesStaleCorruptManifest(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 
@@ -779,8 +779,8 @@ func TestPrune_RemovesCorruptManifests(t *testing.T) {
 	if pruned.Pruned != 1 {
 		t.Fatalf("pruned = %d, want 1", pruned.Pruned)
 	}
-	if _, err := os.Stat(corrupt); err == nil {
-		t.Fatal("corrupt manifest should have been removed")
+	if _, err := os.Stat(corrupt); !os.IsNotExist(err) {
+		t.Fatalf("corrupt manifest should be removed: %v", err)
 	}
 }
 
