@@ -25,6 +25,34 @@ struct TmuxRouteTests {
         let newest = try TmuxRoute(sessionID: "qm-new", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: legacy.createdUnix + 1)
         try expect(TmuxRoute.startupChoice(preferred: legacy.sessionID, routes: [stopped, newest, legacy]) == legacy, "startup should keep a live preference")
         try expect(TmuxRoute.startupChoice(preferred: stopped.sessionID, routes: [stopped, newest, legacy]) == newest, "startup should choose newest live route across servers")
+        var cache = TmuxRouteCache()
+        try expect(cache.lookup("qm-example") == .fetch, "cache miss should wait for a route fetch")
+        cache.remember([legacy])
+        try expect(cache.lookup("qm-example") == .cached(legacy), "cache hit should attach immediately")
+        switch cache.resolve(for: legacy.sessionID, result: .failure(TmuxRouteError.invalidResponse)) {
+        case .success(let route): try expect(route == legacy, "fetch failure should retain a cached route")
+        case .failure: throw Failure("cached route should survive a fetch failure")
+        }
+        switch cache.resolve(for: "qm-missing", result: .failure(TmuxRouteError.invalidResponse)) {
+        case .success: throw Failure("uncached fetch failure should fail")
+        case .failure: break
+        }
+        let moved = try TmuxRoute(sessionID: legacy.sessionID, label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: legacy.createdUnix)
+        switch cache.resolve(for: legacy.sessionID, result: .success([moved])) {
+        case .success(let route): try expect(route == moved, "fetch should return the new route")
+        case .failure: throw Failure("route change should resolve")
+        }
+        try expect(cache.lookup(legacy.sessionID) == .cached(moved), "route change should replace the cached route")
+        if case .unknownMethod(let method) = ServeClientError.responseError("unknown method \"tmux.routes\"") {
+            try expect(method == "tmux.routes", "unknown method should keep its name")
+        } else {
+            throw Failure("known backend error should decode as unknownMethod")
+        }
+        if case .protocolError = ServeClientError.responseError("unknown method tmux.routes") {
+            // A different message does not claim to be the backend's known format.
+        } else {
+            throw Failure("unrecognized backend error should stay a protocol error")
+        }
         print("TmuxRouteTests: all tests passed")
     }
 

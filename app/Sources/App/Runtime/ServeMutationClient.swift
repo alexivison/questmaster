@@ -166,7 +166,7 @@ final class UnixSocketMutationClient: ServeMutationSending {
             CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0 as? Int
         })
         if object["type"] as? String == "response", object["ok"] as? Bool == false {
-            throw ServeClientError.protocolError(object["error"] as? String ?? "mutation failed")
+            throw ServeClientError.responseError(object["error"] as? String ?? "mutation failed")
         }
         guard object["type"] as? String == "response", object["ok"] as? Bool == true else {
             throw ServeClientError.protocolError("mutation response was not an ok response")
@@ -302,13 +302,17 @@ extension UnixSocketMutationClient {
                 ], connection: connection)
                 completion(.success(try ack.decoded([TmuxRoute].self)))
             } catch {
-                if error.localizedDescription.contains("unknown method") && error.localizedDescription.contains("tmux.routes") {
-                    completion(.failure(ServeClientError.protocolError("Cannot attach: this daemon does not support tmux.routes. Update the backend.")))
-                } else {
-                    completion(.failure(error))
-                }
+                completion(.failure(Self.tmuxRouteError(error)))
             }
         }
+    }
+
+    static func tmuxRouteError(_ error: Error) -> Error {
+        if let serveError = error as? ServeClientError,
+           case .unknownMethod("tmux.routes") = serveError {
+            return TmuxRouteError.unsupportedDaemon
+        }
+        return error
     }
 }
 

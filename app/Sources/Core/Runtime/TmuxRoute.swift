@@ -95,6 +95,8 @@ public enum TmuxRouteError: LocalizedError {
     case invalidLabel(String)
     case invalidConfigPath
     case invalidResponse
+    case missingSession(String)
+    case unsupportedDaemon
 
     public var errorDescription: String? {
         switch self {
@@ -102,6 +104,8 @@ public enum TmuxRouteError: LocalizedError {
         case .invalidLabel(let label): "invalid tmux server label: \(label)"
         case .invalidConfigPath: "tmux route has a non-absolute config path"
         case .invalidResponse: "invalid tmux.routes response"
+        case .missingSession(let sessionID): "Session \(sessionID) is unavailable"
+        case .unsupportedDaemon: "Cannot attach: this daemon does not support tmux.routes. Update the backend."
         }
     }
 }

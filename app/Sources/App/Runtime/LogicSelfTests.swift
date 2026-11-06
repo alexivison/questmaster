@@ -33,6 +33,7 @@ enum LogicSelfTests {
         ("testCrossServerSwitchCreatesSurface", testCrossServerSwitchCreatesSurface),
         ("testSameServerSwitchReusesClient", testSameServerSwitchReusesClient),
         ("testUnknownMethodFailsAttach", testUnknownMethodFailsAttach),
+        ("testCachedRouteAttachesBeforeRefresh", testCachedRouteAttachesBeforeRefresh),
         ("testStartupChoiceAcrossServers", testStartupChoiceAcrossServers),
         ("testEditorWindowUsesAttachedRoute", testEditorWindowUsesAttachedRoute),
         ("testNavigationTogglesKeepFocusAndHideToTerminal", testNavigationTogglesKeepFocusAndHideToTerminal),
@@ -1552,12 +1553,20 @@ enum LogicSelfTests {
 
     private static func testUnknownMethodFailsAttach() throws {
         let response = #"{"protocol_version":3,"type":"response","ok":false,"error":"unknown method \"tmux.routes\""}"#
-        let routeError: Error
+        let decodedError: Error
         do {
             _ = try UnixSocketMutationClient.decodeAck(Data(response.utf8))
             throw TestFailure("older daemon should fail route lookup")
         } catch {
-            routeError = error
+            decodedError = error
+        }
+        guard let serveError = decodedError as? ServeClientError,
+              case .unknownMethod("tmux.routes") = serveError else {
+            throw TestFailure("unknown-method response should decode as a typed error")
+        }
+        let routeError = UnixSocketMutationClient.tmuxRouteError(decodedError)
+        guard case TmuxRouteError.unsupportedDaemon = routeError else {
+            throw TestFailure("tmux route lookup should map an older daemon to an explicit attach error")
         }
         final class FailingRoutes: ServeTmuxRouting {
             let error: Error
@@ -1602,6 +1611,59 @@ enum LogicSelfTests {
         try expect(waitUntil { shownError != nil }, "route error should reach attach UI")
         try expect(shownError?.contains("tmux.routes") == true && host.routedConnects == 0 && host.connects == 1,
                    "older daemon should show an attach error and open the local shell without guessing a server")
+    }
+
+    private static func testCachedRouteAttachesBeforeRefresh() throws {
+        final class Routes: ServeTmuxRouting {
+            var pending: [(Result<[TmuxRoute], Error>) -> Void] = []
+            func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+                pending.append(completion)
+            }
+        }
+        final class Host: TerminalPaneHosting {
+            let view = NSView()
+            var tmuxSessionID: String? { nil }
+            var onFocusRequested: (() -> Void)?
+            var onDetach: (() -> Void)?
+            var cellMetrics: TerminalCellMetrics { .unavailable }
+            var onCellMetricsChanged: (() -> Void)?
+            var labels: [String] = []
+            func start() {}
+            func stop() {}
+            func focus(in window: NSWindow?) {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+                labels.append(config.route?.label ?? "local")
+                completion(.success(config.tmuxSession))
+            }
+        }
+        let config = LaunchConfiguration(
+            daemonSocketOverride: nil, startDaemon: false, tmuxSession: nil,
+            disableTmux: false, workingDirectory: "/tmp",
+            backend: AppBackend(stateRoot: "/tmp/example-state", executablePath: "", source: .unresolved,
+                                workingDirectory: "/tmp", devWorktree: nil)
+        )
+        let routes = Routes()
+        let host = Host()
+        let controller = TerminalSessionController(
+            config: config, runtimeStore: RuntimeStore(sourceLabel: "test"), routeClient: routes,
+            terminalShell: { nil }, updateWindowTitle: { _ in }, focusTerminal: {}, render: {},
+            showMutationFailure: { _, _ in }, showMutationError: { _, _ in },
+            showTerminalEngineFailure: { _ in }, onFocusRequested: {}
+        )
+        controller.installPlaceholder(host)
+        let legacy = try TmuxRoute(sessionID: "qm-example", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let named = try TmuxRoute(sessionID: "qm-example", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 1)
+        controller.rememberRoutes([legacy])
+        controller.switchTerminal(to: legacy.sessionID)
+        try expect(host.labels == ["default"] && routes.pending.count == 1, "cached route should attach before refresh completes")
+        routes.pending[0](.failure(ServeClientError.connect("daemon restarting")))
+        pump(0.02)
+        controller.switchTerminal(to: legacy.sessionID)
+        try expect(host.labels == ["default", "default"] && routes.pending.count == 2, "refresh failure should retain the cached route")
+        routes.pending[1](.success([named]))
+        pump(0.02)
+        controller.switchTerminal(to: named.sessionID)
+        try expect(host.labels == ["default", "default", "questmaster"], "route refresh should replace the cached label")
     }
 
     private static func testStartupChoiceAcrossServers() throws {

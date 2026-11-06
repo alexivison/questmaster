@@ -108,7 +108,7 @@ private struct ServeEnvelope: Decodable {
         let type = try container.decodeIfPresent(String.self, forKey: .type)
         if type == "response", try container.decodeIfPresent(Bool.self, forKey: .ok) == false {
             let message = try container.decodeIfPresent(String.self, forKey: .error) ?? "unknown serve error"
-            throw ServeClientError.protocolError(message)
+            throw ServeClientError.responseError(message)
         }
         guard let topic = try container.decodeIfPresent(String.self, forKey: .topic),
               container.contains(.data) else {
@@ -143,6 +143,7 @@ private struct ObservedPayload: Decodable {
 public enum ServeClientError: LocalizedError {
     case connect(String)
     case protocolError(String)
+    case unknownMethod(String)
     /// The backend speaks another protocol version.
     case protocolMismatch(String)
     case write(String)
@@ -151,6 +152,20 @@ public enum ServeClientError: LocalizedError {
         switch self {
         case .connect(let message), .protocolError(let message), .protocolMismatch(let message), .write(let message):
             return message
+        case .unknownMethod(let method):
+            return "unknown method \"\(method)\""
         }
+    }
+
+    public static func responseError(_ message: String) -> ServeClientError {
+        let prefix = "unknown method \""
+        guard message.hasPrefix(prefix), message.hasSuffix("\"") else {
+            return .protocolError(message)
+        }
+        let method = String(message.dropFirst(prefix.count).dropLast())
+        guard !method.isEmpty, !method.contains("\"") else {
+            return .protocolError(message)
+        }
+        return .unknownMethod(method)
     }
 }

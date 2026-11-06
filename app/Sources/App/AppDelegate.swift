@@ -343,7 +343,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let self else { return }
                     switch result {
                     case .success(let routes):
+                        self.terminalSessionController.rememberRoutes(routes)
                         let selected = TmuxRoute.startupChoice(preferred: preferred, routes: routes)
+                        if let selected { self.terminalSessionController.rememberRoutes([selected]) }
                         if explicit != nil && selected?.sessionID != explicit {
                             self.errorPresenter.showMutationFailure(label: "terminal start", errorDescription: "Selected session is unavailable")
                             finishStartup(nil)
@@ -351,7 +353,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                             finishStartup(selected?.sessionID)
                         }
                     case .failure(let error):
-                        if error.localizedDescription.contains("tmux.routes") {
+                        if case TmuxRouteError.unsupportedDaemon = error {
                             self.errorPresenter.showMutationFailure(label: "terminal start", error: error)
                         }
                         finishStartup(nil)

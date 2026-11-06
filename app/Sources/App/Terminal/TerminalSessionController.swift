@@ -26,6 +26,7 @@ final class TerminalSessionController {
     private var hasConnectedSurface = false
     private var inFlightCompletion: ((Bool) -> Void)?
     private var reappearedSessionIDs: Set<String> = []
+    private var routeCache = TmuxRouteCache()
     private(set) var terminalHost: TerminalPaneHosting?
     private(set) var activeTmuxSession: String?
     private(set) var attachedRoute: TmuxRoute?
@@ -69,6 +70,10 @@ final class TerminalSessionController {
 
     func setRouteClient(_ client: ServeTmuxRouting) {
         routeClient = client
+    }
+
+    func rememberRoutes(_ routes: [TmuxRoute]) {
+        routeCache.remember(routes)
     }
 
     func markSessionReappeared(_ sessionID: String) {
@@ -203,33 +208,50 @@ final class TerminalSessionController {
         inFlightCompletion = completion
         let request = attachGeneration.request()
         hasPendingAttach = true
+        if case .cached(let route) = routeCache.lookup(sessionID) {
+            // A daemon re-exec must not hold up an attach to a known server.
+            connect(terminalHost, to: route, request: request, completion: completion)
+            refreshCachedRoute(sessionID)
+            return
+        }
         guard let routeClient else {
             finishAttachFailure("switch \(sessionID)", error: ServeClientError.protocolError("tmux route client is unavailable"), completion: completion)
             return
         }
+        // The daemon briefly caches liveness; the routed exact has-session check
+        // in the terminal host verifies whether this session is present now.
         routeClient.fetchTmuxRoutes(sessionIDs: [sessionID], live: false) { [weak self] routeResult in
             DispatchQueue.main.async {
-                guard let self, self.attachGeneration.accepts(request) else { return }
-                switch routeResult {
+                guard let self else { return }
+                let resolved = self.routeCache.resolve(for: sessionID, result: routeResult)
+                guard self.attachGeneration.accepts(request) else { return }
+                switch resolved {
+                case .success(let route):
+                    self.connect(terminalHost, to: route, request: request, completion: completion)
                 case .failure(let error):
                     self.finishAttachFailure("switch \(sessionID)", error: error, completion: completion)
-                case .success(let routes):
-                    guard routes.count == 1, let route = routes.first,
-                          route.sessionID == sessionID else {
-                        self.finishAttachFailure("switch \(sessionID)", error: ServeClientError.protocolError("Session \(sessionID) is unavailable"), completion: completion)
-                        return
-                    }
-                    terminalHost.connect(to: TerminalLaunchConfig(
-                        tmuxSession: sessionID,
-                        disableTmux: self.config.disableTmux,
-                        workingDirectory: self.config.workingDirectory,
-                        route: route,
-                        sessionReappeared: self.reappearedSessionIDs.contains(sessionID)
-                    )) { [weak self] result in
-                        self?.finishAttach(result, route: route, sessionID: sessionID, request: request, completion: completion)
-                    }
                 }
             }
+        }
+    }
+
+    private func refreshCachedRoute(_ sessionID: String) {
+        routeClient?.fetchTmuxRoutes(sessionIDs: [sessionID], live: false) { [weak self] result in
+            DispatchQueue.main.async {
+                _ = self?.routeCache.resolve(for: sessionID, result: result)
+            }
+        }
+    }
+
+    private func connect(_ terminalHost: TerminalPaneHosting, to route: TmuxRoute, request: UInt64, completion: ((Bool) -> Void)?) {
+        terminalHost.connect(to: TerminalLaunchConfig(
+            tmuxSession: route.sessionID,
+            disableTmux: config.disableTmux,
+            workingDirectory: config.workingDirectory,
+            route: route,
+            sessionReappeared: reappearedSessionIDs.contains(route.sessionID)
+        )) { [weak self] result in
+            self?.finishAttach(result, route: route, sessionID: route.sessionID, request: request, completion: completion)
         }
     }
 
