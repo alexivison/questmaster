@@ -101,8 +101,11 @@ func (c Config) daemonEnvironment(id string) map[string]string {
 	if env["XDG_CONFIG_HOME"] == "" {
 		env["XDG_CONFIG_HOME"] = filepath.Join(env["HOME"], ".config")
 	}
-	for _, key := range []string{"QUESTMASTER_HOME", "QUESTMASTER_QM", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_RUNTIME_DIR", "TERM", "COLORTERM"} {
+	for _, key := range []string{"QUESTMASTER_HOME", "QUESTMASTER_QM", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_TMUX_LABEL", "QUESTMASTER_RUNTIME_DIR", "TERM", "COLORTERM"} {
 		delete(env, key)
+	}
+	if label, set := os.LookupEnv("QUESTMASTER_TMUX_LABEL"); set {
+		env["QUESTMASTER_TMUX_LABEL"] = label
 	}
 	prefix := filepath.Join(c.Root, "daemon", "bin", id)
 	env["QUESTMASTER_STATE_ROOT"] = c.Root

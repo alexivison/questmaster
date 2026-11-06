@@ -78,6 +78,7 @@ func TestRenamePaneWriteLosesToRenameCommittedMeanwhile(t *testing.T) {
 	env := seedServeFixture(t)
 	runner := &paneTitleRunner{}
 	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv.TmuxRouter = srv.Snapshotter.router
 	renamed := make(chan error, 1)
 	runner.onFirstWrite = func() {
 		go func() {
@@ -118,6 +119,7 @@ func TestRenamePaneWriteDoesNotHoldTheManifestLock(t *testing.T) {
 		<-release
 	}}
 	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv.TmuxRouter = srv.Snapshotter.router
 
 	renamed := make(chan error, 1)
 	go func() {

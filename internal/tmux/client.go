@@ -95,12 +95,11 @@ func (s Server) Label() string { return s.name }
 
 var _ Runner = Server{}
 
-// DefaultServer is the server Questmaster's sessions run on. It is the one
-// place production picks a server. "-L default" is the socket tmux falls back
-// to when no flag, TMUX or TMUX_TMPDIR selects another, /tmp/tmux-<uid>/default,
-// which is also the socket the app's own tmux calls reach.
+// DefaultServer is the server new Questmaster sessions run on. Command setup
+// validates the label before using the returned server.
 func DefaultServer() Server {
-	return LegacyServer()
+	label, _ := EffectiveLabel()
+	return Server{flag: "-L", name: label}
 }
 
 // LegacyServer selects the user's default socket independently of the
@@ -138,7 +137,7 @@ func ValidateNamedLabel(label string) error {
 }
 
 // NamedServer selects Questmaster's dedicated server with the user config
-// followed by the enforced settings. No production caller uses it yet.
+// followed by the enforced settings.
 func NamedServer(config, enforced string) (Server, error) {
 	label, err := EffectiveLabel()
 	if err != nil {
@@ -212,7 +211,7 @@ func serverEnv(environ []string) []string {
 	env := make([]string, 0, len(environ))
 	for _, kv := range environ {
 		switch key, _, _ := strings.Cut(kv, "="); key {
-		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_RUNTIME_DIR":
+		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_TMUX_LABEL", "QUESTMASTER_RUNTIME_DIR":
 			continue
 		}
 		env = append(env, kv)

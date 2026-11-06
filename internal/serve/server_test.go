@@ -2343,6 +2343,7 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 		ClockInterval: time.Hour,
 		ChangeSource:  changes,
 	}
+	srv.TmuxRouter = tmuxroute.New(env.store, map[string]*tmux.Client{"default": srv.TmuxClient}, func() string { return "default" }, nil)
 	errc := serveInBackground(t, ctx, srv, socketPath)
 
 	conn, enc, dec := dialServe(t, socketPath)
@@ -2407,6 +2408,7 @@ func TestRenameMutationUpdatesAgentPaneTitle(t *testing.T) {
 			}
 			runner := &recordingTmuxRunner{}
 			srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
+			srv.TmuxRouter = srv.Snapshotter.router
 			if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "New session title"}); err != nil {
 				t.Fatalf("rename: %v", err)
 			}
@@ -2432,6 +2434,7 @@ func TestRenameMutationTargetsAdoptedAgentPane(t *testing.T) {
 	}
 	runner := &adoptedPaneTmuxRunner{}
 	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv.TmuxRouter = srv.Snapshotter.router
 	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Adopted agent"}); err != nil {
 		t.Fatalf("rename: %v", err)
 	}
@@ -2450,6 +2453,7 @@ func TestRenameMutationDuringContinueBeforeRoleTag(t *testing.T) {
 		env := seedServeFixture(t)
 		runner := &untaggedPaneTmuxRunner{pane: pane}
 		srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
+		srv.TmuxRouter = srv.Snapshotter.router
 		if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Renamed during continue"}); err != nil {
 			t.Fatalf("rename while pane %s has no role tag: %v", pane, err)
 		}
@@ -2496,6 +2500,7 @@ func TestRenameMutationKeepsStoppedSessionTitle(t *testing.T) {
 	client := tmux.NewClient(stoppedTmuxRunner{})
 	// A stopped session has no pane to title, but its manifest still takes the rename.
 	srv := &Server{Snapshotter: testSnapshotter(env.store, client, nil)}
+	srv.TmuxRouter = srv.Snapshotter.router
 	_, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Next title"})
 	if err != nil {
 		t.Fatalf("rename: %v", err)

@@ -107,6 +107,7 @@ func TestServerRunsEveryCommandOnItsSelection(t *testing.T) {
 }
 
 func TestServerCommandKeepsTheRestOfTheEnvironment(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "questmaster")
 	t.Setenv("TMUX", "/tmp/qm-elsewhere/default,4242,0")
 	t.Setenv("TMUX_EXTRA", "kept")
 
@@ -115,8 +116,21 @@ func TestServerCommandKeepsTheRestOfTheEnvironment(t *testing.T) {
 	if !slices.Contains(cmd.Env, "TMUX_EXTRA=kept") {
 		t.Errorf("env dropped an unrelated variable: %q", cmd.Env)
 	}
-	if want := []string{"-L", "default", "list-sessions"}; !slices.Equal(cmd.Args[1:], want) {
+	if want := []string{"-L", "questmaster", "list-sessions"}; !slices.Equal(cmd.Args[1:], want) {
 		t.Errorf("args = %q, want tmux %q", cmd.Args, want)
+	}
+}
+
+func TestDefaultServerIsNamed(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_test")
+	if got := DefaultServer().Command(t.Context(), "list-sessions").Args[1:3]; !slices.Equal(got, []string{"-L", "dev_test"}) {
+		t.Fatalf("creation selector = %q", got)
+	}
+	if err := os.Unsetenv("QUESTMASTER_TMUX_LABEL"); err != nil {
+		t.Fatal(err)
+	}
+	if got := DefaultServer().Command(t.Context(), "list-sessions").Args[1:3]; !slices.Equal(got, []string{"-L", "questmaster"}) {
+		t.Fatalf("unset creation selector = %q", got)
 	}
 }
 
@@ -150,7 +164,7 @@ func TestNamedServerArgsAndEnv(t *testing.T) {
 		want   []string
 	}{
 		{"named", named, []string{"-L", "questmaster", "-f", "/tmp/user.conf", "-f", "/tmp/enforced.conf", "list-sessions"}},
-		{"default", DefaultServer(), []string{"-L", "default", "list-sessions"}},
+		{"default", DefaultServer(), []string{"-L", "questmaster", "list-sessions"}},
 	} {
 		cmd := tc.server.Command(t.Context(), "list-sessions")
 		if !slices.Equal(cmd.Args[1:], tc.want) {
@@ -159,7 +173,7 @@ func TestNamedServerArgsAndEnv(t *testing.T) {
 		if cmd.Dir != "/" {
 			t.Errorf("%s Dir = %q", tc.name, cmd.Dir)
 		}
-		for _, key := range []string{"TMUX", "TMUX_PANE", "TMUX_TMPDIR", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_RUNTIME_DIR"} {
+		for _, key := range []string{"TMUX", "TMUX_PANE", "TMUX_TMPDIR", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_RUNTIME_DIR", "QUESTMASTER_TMUX_LABEL"} {
 			for _, kv := range cmd.Env {
 				if strings.HasPrefix(kv, key+"=") {
 					t.Errorf("%s inherited %s", tc.name, key)

@@ -16,6 +16,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/serve"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 const ProtocolVersion = serve.ServeProtocolVersion
@@ -64,6 +65,12 @@ func (c Config) resolve() (Config, string, string, error) {
 	id, err := Identity(c.Root, c.Home, c.Executable)
 	if err != nil {
 		return c, "", "", err
+	}
+	if label, set := os.LookupEnv("QUESTMASTER_TMUX_LABEL"); set {
+		if _, err := tmux.EffectiveLabel(); err != nil {
+			return c, "", "", err
+		}
+		id += "-tmux-" + label
 	}
 	socket, err := SocketPath(c.Root, id)
 	if c.IdleGrace <= 0 {

@@ -70,8 +70,12 @@ func TestProductionRouteUsesRecordedLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if creation.Label() != "default" {
+	if creation.Label() != "dev_current" {
 		t.Fatalf("creation label = %q", creation.Label())
+	}
+	legacy, err := r.Route(state.Manifest{})
+	if err != nil || legacy.Label() != "default" {
+		t.Fatalf("absent manifest route = %q, %v", legacy.Label(), err)
 	}
 }
 
