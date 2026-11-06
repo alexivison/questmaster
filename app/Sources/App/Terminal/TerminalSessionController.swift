@@ -10,6 +10,7 @@ private struct PendingTerminalAttachment {
 final class TerminalSessionController {
     private let config: LaunchConfiguration
     private let runtimeStore: RuntimeStore
+    private var routeClient: ServeTmuxRouting?
     private let terminalShell: () -> TerminalShellView?
     private let updateWindowTitle: (String) -> Void
     private let focusTerminal: () -> Void
@@ -22,13 +23,17 @@ final class TerminalSessionController {
     private var pendingTerminalAttachments: [PendingTerminalAttachment] = []
     private var attachGeneration = AttachGeneration()
     private var hasPendingAttach = false
+    private var hasConnectedSurface = false
     private var inFlightCompletion: ((Bool) -> Void)?
+    private var reappearedSessionIDs: Set<String> = []
     private(set) var terminalHost: TerminalPaneHosting?
     private(set) var activeTmuxSession: String?
+    private(set) var attachedRoute: TmuxRoute?
 
     init(
         config: LaunchConfiguration,
         runtimeStore: RuntimeStore,
+        routeClient: ServeTmuxRouting? = nil,
         terminalShell: @escaping () -> TerminalShellView?,
         updateWindowTitle: @escaping (String) -> Void,
         focusTerminal: @escaping () -> Void,
@@ -40,6 +45,7 @@ final class TerminalSessionController {
     ) {
         self.config = config
         self.runtimeStore = runtimeStore
+        self.routeClient = routeClient
         self.terminalShell = terminalShell
         self.updateWindowTitle = updateWindowTitle
         self.focusTerminal = focusTerminal
@@ -61,9 +67,18 @@ final class TerminalSessionController {
         runtimeStore.setCurrentTerminalSessionID(TerminalSessionChipResolver.cleanSessionID(sessionID))
     }
 
+    func setRouteClient(_ client: ServeTmuxRouting) {
+        routeClient = client
+    }
+
+    func markSessionReappeared(_ sessionID: String) {
+        reappearedSessionIDs.insert(sessionID)
+    }
+
     func installTerminalHost() {
         attachGeneration.stop()
         hasPendingAttach = false
+        hasConnectedSurface = false
         cancelInFlightCompletion()
         let terminalHost: TerminalPaneHosting
         var terminalEngineFailureMessage: String?
@@ -105,7 +120,10 @@ final class TerminalSessionController {
                     tmuxSession: nil, disableTmux: config.disableTmux,
                     workingDirectory: config.workingDirectory
                 )) { [weak self] result in
-                    if case .failure(let error) = result {
+                    switch result {
+                    case .success:
+                        self?.hasConnectedSurface = true
+                    case .failure(let error):
                         self?.showMutationError("terminal start", error)
                     }
                 }
@@ -131,6 +149,7 @@ final class TerminalSessionController {
         pendingTerminalAttachments.removeAll()
         for attachment in pending { attachment.completion?(false) }
         terminalHost?.stop()
+        hasConnectedSurface = false
     }
 
     func switchTerminal(to sessionID: String, completion: ((Bool) -> Void)? = nil) {
@@ -141,29 +160,13 @@ final class TerminalSessionController {
             return
         }
 
-        let decision = TerminalSessionActivationDecision.action(
-            disableTmux: config.disableTmux,
-            embeddedTmuxSessionID: terminalHost?.tmuxSessionID,
-            targetSessionID: sessionID
-        )
-        switch decision {
-        case .attachEmbeddedTerminal:
-            attachEmbeddedTerminal(to: sessionID, completion: completion)
-        case .focusAttachedTerminal:
-            if hasPendingAttach {
-                attachEmbeddedTerminal(to: sessionID, completion: completion)
-                return
-            }
-            runtimeStore.setCurrentTerminalSessionID(sessionID)
-            terminalShell()?.clearEnded()
-            focusTerminal()
-            render()
-            completion?(true)
-        case .tmuxDisabled:
+        guard !config.disableTmux else {
             showMutationFailure("switch \(sessionID)", "tmux is disabled for this app window")
             render()
             completion?(false)
+            return
         }
+        attachEmbeddedTerminal(to: sessionID, completion: completion)
     }
 
     func drainPendingTerminalAttachments() {
@@ -200,34 +203,90 @@ final class TerminalSessionController {
         inFlightCompletion = completion
         let request = attachGeneration.request()
         hasPendingAttach = true
-        terminalHost.connect(to: TerminalLaunchConfig(
-            tmuxSession: sessionID,
-            disableTmux: config.disableTmux,
+        guard let routeClient else {
+            finishAttachFailure("switch \(sessionID)", error: ServeClientError.protocolError("tmux route client is unavailable"), completion: completion)
+            return
+        }
+        routeClient.fetchTmuxRoutes(sessionIDs: [sessionID], live: false) { [weak self] routeResult in
+            DispatchQueue.main.async {
+                guard let self, self.attachGeneration.accepts(request) else { return }
+                switch routeResult {
+                case .failure(let error):
+                    self.finishAttachFailure("switch \(sessionID)", error: error, completion: completion)
+                case .success(let routes):
+                    guard routes.count == 1, let route = routes.first,
+                          route.sessionID == sessionID else {
+                        self.finishAttachFailure("switch \(sessionID)", error: ServeClientError.protocolError("Session \(sessionID) is unavailable"), completion: completion)
+                        return
+                    }
+                    terminalHost.connect(to: TerminalLaunchConfig(
+                        tmuxSession: sessionID,
+                        disableTmux: self.config.disableTmux,
+                        workingDirectory: self.config.workingDirectory,
+                        route: route,
+                        sessionReappeared: self.reappearedSessionIDs.contains(sessionID)
+                    )) { [weak self] result in
+                        self?.finishAttach(result, route: route, sessionID: sessionID, request: request, completion: completion)
+                    }
+                }
+            }
+        }
+    }
+
+    private func finishAttachFailure(_ label: String, error: Error, completion: ((Bool) -> Void)?) {
+        hasPendingAttach = false
+        inFlightCompletion = nil
+        showMutationError(label, error)
+        showLocalShellAfterFailedInitialAttach()
+        render()
+        completion?(false)
+    }
+
+    private func showLocalShellAfterFailedInitialAttach() {
+        guard !hasConnectedSurface else { return }
+        activeTmuxSession = nil
+        runtimeStore.setCurrentTerminalSessionID(nil)
+        terminalHost?.connect(to: TerminalLaunchConfig(
+            tmuxSession: nil, disableTmux: config.disableTmux,
             workingDirectory: config.workingDirectory
         )) { [weak self] result in
-            guard let self, self.attachGeneration.accepts(request) else { return }
-            self.hasPendingAttach = false
-            self.inFlightCompletion = nil
             switch result {
-            case .success(let attachedSessionID):
-                guard TerminalSessionChipResolver.cleanSessionID(attachedSessionID) == sessionID else {
-                    self.showMutationFailure("switch \(sessionID)", "embedded terminal did not attach to the tmux session")
-                    self.render()
-                    completion?(false)
-                    return
-                }
-                terminalHost.start()
-                self.activeTmuxSession = sessionID
-                self.runtimeStore.setCurrentTerminalSessionID(sessionID)
-                self.terminalShell()?.clearEnded()
-                self.focusTerminal()
-                self.render()
-                completion?(true)
+            case .success:
+                self?.hasConnectedSurface = true
             case .failure(let error):
-                self.showMutationError("switch \(sessionID)", error)
-                self.render()
-                completion?(false)
+                self?.showMutationError("terminal start", error)
             }
+        }
+    }
+
+    private func finishAttach(_ result: Result<String?, Error>, route: TmuxRoute, sessionID: String, request: UInt64, completion: ((Bool) -> Void)?) {
+        guard attachGeneration.accepts(request) else { return }
+        hasPendingAttach = false
+        inFlightCompletion = nil
+        switch result {
+        case .success(let attachedSessionID):
+            guard TerminalSessionChipResolver.cleanSessionID(attachedSessionID) == sessionID else {
+                showMutationFailure("switch \(sessionID)", "embedded terminal did not attach to the tmux session")
+                showLocalShellAfterFailedInitialAttach()
+                render()
+                completion?(false)
+                return
+            }
+            terminalHost?.start()
+            activeTmuxSession = sessionID
+            hasConnectedSurface = true
+            attachedRoute = route
+            reappearedSessionIDs.remove(sessionID)
+            runtimeStore.setCurrentTerminalSessionID(sessionID)
+            terminalShell()?.clearEnded()
+            focusTerminal()
+            render()
+            completion?(true)
+        case .failure(let error):
+            showMutationError("switch \(sessionID)", error)
+            showLocalShellAfterFailedInitialAttach()
+            render()
+            completion?(false)
         }
     }
 
@@ -243,6 +302,7 @@ final class TerminalSessionController {
         hasPendingAttach = false
         cancelInFlightCompletion()
         activeTmuxSession = nil
+        attachedRoute = nil
         runtimeStore.setCurrentTerminalSessionID(nil)
         render()
     }

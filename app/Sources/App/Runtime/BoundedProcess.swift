@@ -20,12 +20,16 @@ enum BoundedProcess {
         executable: String,
         arguments: [String],
         environment: [String: String],
-        deadline: TimeInterval = 2
+        deadline: TimeInterval = 2,
+        workingDirectory: String? = nil
     ) throws -> BoundedProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         process.environment = environment
+        if let workingDirectory {
+            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+        }
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout

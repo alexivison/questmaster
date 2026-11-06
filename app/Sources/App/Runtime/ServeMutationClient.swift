@@ -75,6 +75,10 @@ protocol ServeReasoningEffortSuggesting: AnyObject {
     )
 }
 
+protocol ServeTmuxRouting: AnyObject {
+    func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void)
+}
+
 final class UnixSocketMutationClient: ServeMutationSending {
     private let connection: DaemonConnection
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient")
@@ -286,6 +290,29 @@ extension UnixSocketMutationClient: ServeReasoningEffortSuggesting {
         }
     }
 }
+
+extension UnixSocketMutationClient {
+    func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+        queue.async { [connection] in
+            do {
+                let ack = try Self.sendObject([
+                    "id": UUID().uuidString,
+                    "method": "tmux.routes",
+                    "data": ["session_ids": sessionIDs, "live": live],
+                ], connection: connection)
+                completion(.success(try ack.decoded([TmuxRoute].self)))
+            } catch {
+                if error.localizedDescription.contains("unknown method") && error.localizedDescription.contains("tmux.routes") {
+                    completion(.failure(ServeClientError.protocolError("Cannot attach: this daemon does not support tmux.routes. Update the backend.")))
+                } else {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+}
+
+extension UnixSocketMutationClient: ServeTmuxRouting {}
 
 extension UnixSocketMutationClient {
     func fetchWorkerFeed(_ request: WorkerFeedRequest, completion: @escaping (Result<WorkerFeedPayload, Error>) -> Void) {
