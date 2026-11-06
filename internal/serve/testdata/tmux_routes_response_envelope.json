@@ -1,0 +1,16 @@
+{
+  "protocol_version": 3,
+  "type": "response",
+  "id": "tmux-routes-request",
+  "ok": true,
+  "topic": "tmux.routes",
+  "data": [
+    {
+      "session_id": "qm-example",
+      "server": "default",
+      "config_files": [],
+      "live": true,
+      "created_unix": 1767225600
+    }
+  ]
+}

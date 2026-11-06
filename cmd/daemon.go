@@ -14,9 +14,11 @@ import (
 
 	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/prstatus"
+	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
@@ -26,11 +28,14 @@ func newDaemonTmuxClient() *tmux.Client {
 	return tmux.NewClient(tmux.DefaultServer())
 }
 
-func newDaemonCmd(store *state.Store) *cobra.Command {
+func newDaemonCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *cobra.Command {
 	parent := &cobra.Command{Use: "daemon", Short: "Manage the on-demand backend", Args: cobra.NoArgs}
 	var buildFrom string
 	config := func() (daemon.Config, error) {
-		c, err := newDaemonConfig(store, newDaemonTmuxClient())
+		if routerErr != nil {
+			return daemon.Config{}, routerErr
+		}
+		c, err := newDaemonConfigWithRouter(store, newDaemonTmuxClient(), router)
 		if err != nil {
 			return daemon.Config{}, err
 		}
@@ -165,12 +170,21 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 }
 
 func newDaemonConfig(store *state.Store, tmuxClient *tmux.Client) (daemon.Config, error) {
+	router, err := tmuxroute.NewProduction(store, tmuxClient)
+	if err != nil {
+		return daemon.Config{}, err
+	}
+	return newDaemonConfigWithRouter(store, tmuxClient, router)
+}
+
+func newDaemonConfigWithRouter(store *state.Store, tmuxClient *tmux.Client, router *tmuxroute.Router) (daemon.Config, error) {
 	root, err := filepath.Abs(store.Root())
 	if err != nil {
 		return daemon.Config{}, err
 	}
 	return daemon.Config{
-		Root: root,
-		Jobs: []daemon.Job{session.NewClassBackfillJob(state.OpenStore(root), tmuxClient)},
+		Root:    root,
+		Jobs:    []daemon.Job{session.NewClassBackfillJob(state.OpenStore(root), tmuxClient)},
+		Runtime: &serve.Server{TmuxRouter: router},
 	}, nil
 }

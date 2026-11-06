@@ -7,11 +7,35 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
-func newTmuxCmd(store *state.Store) *cobra.Command {
+func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *cobra.Command {
 	tmuxCmd := &cobra.Command{Use: "tmux", Short: "Inspect Questmaster tmux configuration"}
+	var live bool
+	routesCmd := &cobra.Command{Use: "routes [session-id...]", Short: "Report recorded tmux routes", RunE: func(cmd *cobra.Command, ids []string) error {
+		if routerErr != nil {
+			return routerErr
+		}
+		routes, err := router.Routes(cmd.Context(), ids, live)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(routes)
+	}}
+	routesCmd.Flags().BoolVar(&live, "live", false, "include only live sessions")
+	tmuxCmd.AddCommand(routesCmd)
+	tmuxCmd.AddCommand(&cobra.Command{Use: "audit", Short: "Audit both tmux servers without changing them", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if routerErr != nil {
+			return routerErr
+		}
+		audit, err := router.Audit(cmd.Context())
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(audit)
+	}})
 	configCmd := &cobra.Command{Use: "config", Short: "Inspect Questmaster tmux config files"}
 	configCmd.AddCommand(&cobra.Command{
 		Use: "path", Short: "Print config file paths", Args: cobra.NoArgs,
