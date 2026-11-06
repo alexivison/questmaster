@@ -42,7 +42,7 @@ enum ArtifactExternalOpener {
 
     static func open(
         artifact: ArtifactReference,
-        attachedSessionID: String?,
+        attachedRoute: TmuxRoute?,
         tmuxPath: String?,
         environment: [String: String]
     ) throws {
@@ -53,7 +53,7 @@ enum ArtifactExternalOpener {
         let url = URL(fileURLWithPath: path)
         switch ArtifactExternalRoute.classify(path: path) {
         case .editor:
-            guard let attachedSessionID, !attachedSessionID.isEmpty else {
+            guard let attachedRoute else {
                 throw ArtifactExternalOpenError.missingSession
             }
             guard let tmuxPath else {
@@ -61,7 +61,7 @@ enum ArtifactExternalOpener {
             }
             try TerminalTmuxClientProcess.openEditorWindow(
                 tmuxPath: tmuxPath,
-                sessionID: attachedSessionID,
+                route: attachedRoute,
                 path: path,
                 shell: environment["SHELL"] ?? "/bin/zsh",
                 environment: environment

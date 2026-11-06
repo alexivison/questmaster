@@ -21,11 +21,21 @@ enum LogicSelfTests {
         ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
         ("testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges", testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
-        ("testTmuxStartupScriptRespawnsTheCreatedPaneByID", testTmuxStartupScriptRespawnsTheCreatedPaneByID),
+        ("testTmuxStartupScriptNeverRespawnsPlaceholder", testTmuxStartupScriptNeverRespawnsPlaceholder),
         ("testTmuxStartupScriptTargetsOnlyTheExactSession", testTmuxStartupScriptTargetsOnlyTheExactSession),
         ("testTmuxStartupScriptWritesNoGlobalEnvironment", testTmuxStartupScriptWritesNoGlobalEnvironment),
-        ("testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment", testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment),
+        ("testTmuxStartupScriptDoesNotStartServer", testTmuxStartupScriptDoesNotStartServer),
         ("testTmuxClientCallsTargetTheExactSession", testTmuxClientCallsTargetTheExactSession),
+        ("testStartupScriptPrefixesEveryTmuxCall", testStartupScriptPrefixesEveryTmuxCall),
+        ("testStartupScriptNeverCreatesSessions", testStartupScriptNeverCreatesSessions),
+        ("testStartupScriptQuotesConfigPaths", testStartupScriptQuotesConfigPaths),
+        ("testTmuxClientCallsUseRoute", testTmuxClientCallsUseRoute),
+        ("testCrossServerSwitchCreatesSurface", testCrossServerSwitchCreatesSurface),
+        ("testSameServerSwitchReusesClient", testSameServerSwitchReusesClient),
+        ("testUnknownMethodFailsAttach", testUnknownMethodFailsAttach),
+        ("testCachedRouteAttachesBeforeRefresh", testCachedRouteAttachesBeforeRefresh),
+        ("testStartupChoiceAcrossServers", testStartupChoiceAcrossServers),
+        ("testEditorWindowUsesAttachedRoute", testEditorWindowUsesAttachedRoute),
         ("testNavigationTogglesKeepFocusAndHideToTerminal", testNavigationTogglesKeepFocusAndHideToTerminal),
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
@@ -1437,170 +1447,238 @@ enum LogicSelfTests {
     }
 
     private static func testTmuxStartupScriptScopesAppBackendEnvironmentToSession() throws {
-        let fixture = try appBackendFixture()
-        let backend = LaunchConfiguration.load(
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            bundle: fixture.bundle
-        ).backend
-        let env = [
-            "HOME": fixture.root.appendingPathComponent("home", isDirectory: true).path,
-            "SHELL": "/tmp/custom shell/zsh",
-            "PATH": "/test/prefix:/usr/bin",
-            "QUESTMASTER_APP": "1",
-            "QUESTMASTER_STATE_ROOT": backend.stateRoot,
-            "QUESTMASTER_BIN": backend.executablePath,
-            "QUESTMASTER_PATH_PREFIX": "/test/prefix",
-        ]
-        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: env)
-        let createIndex = try substringIndex(in: script, "\"$tmux\" new-session -d -P -F '#{pane_id}' -s \"$session\" sleep 2147483647")
-
-        try expect(!script.contains("exec \"$tmux\" attach-session"), "startup script should not exec tmux attach")
-        let attachIndex = try substringIndex(in: script, "\"$tmux\" attach-session -t \"=$session\" || true")
+        let route = try TmuxRoute(sessionID: "qm-test", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let env = ["SHELL": "/tmp/custom shell/zsh", "PATH": "/usr/bin", "QUESTMASTER_APP": "1"]
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: env)
+        let checkIndex = try substringIndex(in: script, "qm_tmux has-session -t \"=$session\"")
+        let syncIndex = try substringIndex(in: script, "qm_tmux set-environment -t \"=$session\" 'QUESTMASTER_APP'")
+        let attachIndex = try substringIndex(in: script, "qm_tmux attach-session -t \"=$session\"")
         let markerIndex = try substringIndex(in: script, "printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")
-        let unsetIndex = try substringIndex(in: script, "unset QUESTMASTER_SESSION TMUX TMUX_PANE || true")
-        let shellExecIndex = try substringIndex(in: script, "exec '/tmp/custom shell/zsh' -l")
-        try expect(attachIndex < markerIndex, "startup script should mark detach after attach returns")
-        try expect(markerIndex < unsetIndex, "startup script should clear session env after marker")
-        try expect(unsetIndex < shellExecIndex, "startup script should exec shell after clearing session env")
-
-        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX"] {
-            try expect(!script.contains("set-environment -g '\(key)'"), "startup script should not globally sync \(key)")
-            try expect(script.contains("set-environment -t \"=$session\" '\(key)'"), "startup script should session-sync \(key)")
-            let syncIndex = try substringIndex(in: script, "set-environment -t \"=$session\" '\(key)'")
-            try expect(createIndex < syncIndex, "startup script should create session before syncing \(key)")
-        }
-        try expect(script.contains("set-environment -t \"=$session\" -r 'QUESTMASTER_HOME'"), "startup script should clear session quest home")
-        let respawnIndex = try substringIndex(in: script, "\"$tmux\" respawn-pane -k -t \"$pane\"")
-        try expect(createIndex < respawnIndex, "startup script should respawn created panes after env sync")
-        let respawnLines = script.split(separator: "\n").map(String.init)
-        let respawnLine = respawnLines[try lineIndex(in: respawnLines, containing: "respawn-pane -k -t \"$pane\"")]
-        try expect(respawnLines.last == "exec '/tmp/custom shell/zsh' -l", "startup script should end by execing the login shell")
-        try expect(
-            !respawnLine.contains("respawn-pane -k -t \"$pane\" || true"),
-            "startup script should not respawn the placeholder without an explicit shell command"
-        )
-        try expect(respawnLine.contains("/tmp/custom shell/zsh"), "startup script should respawn using the configured shell")
-        try expect(respawnLine.contains("-l"), "startup script should start a login shell")
-
-        var fallbackEnv = env
-        fallbackEnv.removeValue(forKey: "SHELL")
-        let fallbackScript = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: fallbackEnv)
-        let fallbackLines = fallbackScript.split(separator: "\n").map(String.init)
-        let fallbackRespawnLine = fallbackLines[try lineIndex(in: fallbackLines, containing: "respawn-pane -k -t \"$pane\"")]
-        try expect(fallbackRespawnLine.contains("/bin/zsh"), "startup script should fall back to /bin/zsh")
-        try expect(fallbackRespawnLine.contains("-l"), "fallback shell should be a login shell")
+        let unsetIndex = try substringIndex(in: script, "unset QUESTMASTER_SESSION TMUX TMUX_PANE TMUX_TMPDIR || true")
+        try expect(checkIndex < syncIndex && syncIndex < attachIndex && attachIndex < markerIndex && markerIndex < unsetIndex, "script should check, sync, attach, mark detach, then clear env")
+        try expect(script.contains("exec '/tmp/custom shell/zsh' -l"), "detach should start configured login shell")
+        try expect(!script.contains("set-environment -g"), "startup should not write global environment")
+        let fallback = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(fallback.contains("exec '/bin/zsh' -l"), "missing shell should fall back to zsh")
     }
 
     private static func testTmuxStartupScriptTargetsOnlyTheExactSession() throws {
-        // qm-123 is a prefix of qm-123-456. tmux resolves a bare name to the sibling
-        // when no session is named qm-123, so session targets need the exact-match "=".
-        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: [
-            "HOME": "/Users/example",
-            "PATH": "/usr/bin",
-            "QUESTMASTER_BIN": "/Applications/example/qm",
-        ])
-        try expect(script.contains("session='qm-123'"), "startup script should name the session it was built for")
+        let route = try TmuxRoute(sessionID: "qm-123", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(script.contains("session='qm-123'"), "startup script should name its session")
         let targetLines = script.split(separator: "\n").filter { $0.contains(" -t ") }
         try expect(!targetLines.isEmpty, "startup script should address tmux sessions with -t")
         for line in targetLines {
-            let target = line.contains("respawn-pane") ? "\"$pane\"" : "\"=$session\""
-            try expect(line.contains(" -t \(target)"), "startup script should use an exact target: \(line)")
+            try expect(line.contains(" -t \"=$session\""), "startup script should use exact targets: \(line)")
         }
     }
 
-    private static func testTmuxStartupScriptRespawnsTheCreatedPaneByID() throws {
-        let tmuxPath = ProcessInfo.processInfo.environment["QUESTMASTER_TEST_TMUX_WRAPPER"] ?? "/usr/bin/tmux"
-        let script = tmuxStartupScript(tmuxPath: tmuxPath, session: "qm-123", environment: [
-            "HOME": "/tmp",
-            "PATH": "/usr/bin:/bin",
-            "SHELL": "/bin/sh",
-        ])
-        try expect(!script.contains(":0.0"), "startup script should not assume window and pane index zero")
-        try expect(!script.contains("-t \"=$session\":0"), "startup script should not target window index zero")
-        try expect(script.contains("new-session -d -P -F '#{pane_id}' -s \"$session\""),
-                   "startup script should capture the created pane ID")
-        try expect(script.contains("respawn-pane -k -t \"$pane\""),
-                   "startup script should respawn the pane by its captured ID")
-        try expect(script.contains("if [ \"$created\" = 1 ] && [ -n \"$pane\" ]; then"),
-                   "startup script should not respawn without a captured pane ID")
+    private static func testTmuxStartupScriptNeverRespawnsPlaceholder() throws {
+        let route = try TmuxRoute(sessionID: "qm-123", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: ["SHELL": "/bin/sh"])
+        try expect(!script.contains("new-session") && !script.contains("respawn-pane"), "startup script should not create or respawn a session")
+        try expect(script.contains("exit 1; fi"), "missing selected session should fail")
         if let path = ProcessInfo.processInfo.environment["QUESTMASTER_TEST_STARTUP_SCRIPT_DUMP"] {
             try script.write(toFile: path, atomically: true, encoding: .utf8)
         }
     }
 
     private static func testTmuxStartupScriptWritesNoGlobalEnvironment() throws {
-        let environment = [
-            "HOME": "/Users/example",
-            "XDG_CONFIG_HOME": "/Users/example/.config",
-            "SHELL": "/bin/zsh",
-            "LANG": "en_US.UTF-8",
-            "USER": "example",
-            "TMPDIR": "/private/tmp/example/",
-            "PATH": "/test/prefix:/usr/bin",
-            "QUESTMASTER_APP": "1",
-            "QUESTMASTER_STATE_ROOT": "/Users/example/.questmaster-state",
-            "QUESTMASTER_BIN": "/test/prefix/qm",
-            "QUESTMASTER_PATH_PREFIX": "/test/prefix",
-        ]
-        for values in [environment, [:]] {
-            let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: values)
+        let route = try TmuxRoute(sessionID: "qm-123", label: "default", configFiles: [], live: true, createdUnix: 1)
+        for values in [["HOME": "/tmp/example", "QUESTMASTER_APP": "1"], [:]] {
+            let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: values)
             try expect(!script.contains("set-environment -g"), "startup script should write no global tmux environment")
         }
     }
 
-    private static func testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment() throws {
-        // A server the script starts copies its starting environment into the global one,
-        // so the script starts it without Questmaster's keys and without the shim directory on PATH.
-        let environment = [
-            "HOME": "/Users/example",
-            "PATH": "/Users/example/shim:/usr/bin:/bin",
-            "QUESTMASTER_APP": "1",
-            "QUESTMASTER_STATE_ROOT": "/Users/example/.questmaster-state",
-            "QUESTMASTER_BIN": "/Users/example/shim/qm",
-            "QUESTMASTER_PATH_PREFIX": "/Users/example/shim",
-            "QUESTMASTER_DAEMON_SOCKET": "/Users/example/.questmaster-state/daemon.sock",
-        ]
-        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: environment)
-        let lines = script.split(separator: "\n").map(String.init)
-        let newSessionLine = lines[try lineIndex(in: lines, containing: "new-session -d -P -F '#{pane_id}' -s")]
-
-        try expect(newSessionLine.contains("/usr/bin/env -u QUESTMASTER_APP "), "new server should start through env without Questmaster keys")
-        for key in [
-            "QUESTMASTER_APP",
-            "QUESTMASTER_STATE_ROOT",
-            "QUESTMASTER_HOME",
-            "QUESTMASTER_BIN",
-            "QUESTMASTER_PATH_PREFIX",
-            "QUESTMASTER_DAEMON_SOCKET",
-            "QUESTMASTER_TMUX_STARTUP_SCRIPT",
-            "QUESTMASTER_SESSION",
-        ] {
-            try expect(newSessionLine.contains("-u \(key) "), "new server should start without \(key)")
-        }
-        try expect(newSessionLine.contains("PATH=\"$server_path\" \"$tmux\" new-session"), "new server should start with the scrubbed PATH")
-        try expect(script.contains("shim_prefix='/Users/example/shim'"), "startup script should name the shim directory it removes from PATH")
-        let scrubIndex = try substringIndex(in: script, "server_path=")
-        let hasSessionIndex = try substringIndex(in: script, "has-session -t \"=$session\"")
-        try expect(scrubIndex < hasSessionIndex, "startup script should scrub PATH before starting a server")
+    private static func testTmuxStartupScriptDoesNotStartServer() throws {
+        let route = try TmuxRoute(sessionID: "qm-123", label: "questmaster", configFiles: ["/tmp/user.conf"], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(!script.contains("new-session") && !script.contains("server_path="), "startup script should not start a server")
+        try expect(script.contains("(cd / && '/usr/bin/tmux' -L 'questmaster' -f '/tmp/user.conf'"), "script should run routed tmux from root")
+        try expect(script.contains("unset TMUX TMUX_PANE TMUX_TMPDIR"), "script should clear caller's tmux env")
     }
 
     private static func testTmuxClientCallsTargetTheExactSession() throws {
-        let sessionID = "qm-123"
-        let syncArguments = TerminalTmuxClientProcess.sessionEnvironmentSyncArguments(
-            sessionID: sessionID,
-            environment: ["HOME": "/Users/example", "QUESTMASTER_BIN": ""]
-        )
+        let route = try TmuxRoute(sessionID: "qm-123", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let syncArguments = TerminalTmuxClientProcess.sessionEnvironmentSyncArguments(route: route, environment: ["HOME": "/tmp/example"])
         let syncTargets = zip(syncArguments, syncArguments.dropFirst()).filter { $0.0 == "-t" }.map(\.1)
-        try expect(!syncTargets.isEmpty, "environment sync should address the session with -t")
-        try expect(syncTargets.allSatisfy { $0 == "=\(sessionID)" }, "environment sync should target the session exactly: \(syncTargets)")
-        try expect(!syncArguments.contains("-g"), "environment sync should write no global tmux environment")
+        try expect(!syncTargets.isEmpty && syncTargets.allSatisfy { $0 == "=qm-123" }, "environment sync should target exact session")
+        try expect(!syncArguments.contains("-g"), "environment sync should not write global env")
+        let switchArguments = TerminalTmuxClientProcess.switchClientArguments(route: route, clientName: "/dev/ttys001")
+        try expect(Array(switchArguments.suffix(2)) == ["-t", "=qm-123"], "switch-client should target exact session")
+        let editorArguments = TerminalTmuxClientProcess.editorWindowArguments(route: route, path: "/tmp/a.md", shell: "/bin/zsh")
+        try expect(Array(editorArguments[2...4]) == ["new-window", "-t", "=qm-123"], "editor should target exact session")
+    }
 
-        let switchArguments = TerminalTmuxClientProcess.switchClientArguments(clientName: "/dev/ttys001", targetSessionID: sessionID)
-        try expect(Array(switchArguments.suffix(2)) == ["-t", "=\(sessionID)"], "switch-client should target the session exactly")
+    private static func testStartupScriptPrefixesEveryTmuxCall() throws {
+        let route = try TmuxRoute(sessionID: "qm-test", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(script.contains("qm_tmux()"), "startup script should define a routed tmux function")
+        try expect(script.contains("'/usr/bin/tmux' -L 'questmaster' -f '/tmp/config.conf' \"$@\""), "function should pass route arguments separately")
+        for line in script.split(separator: "\n") where line.contains("has-session") || line.contains("set-environment") || line.contains("show-environment") || line.contains("attach-session") {
+            try expect(line.contains("qm_tmux "), "startup tmux call should use its routed function: \(line)")
+        }
+    }
 
-        let editorArguments = TerminalTmuxClientProcess.editorWindowArguments(sessionID: sessionID, path: "/tmp/a.md", shell: "/bin/zsh")
-        try expect(Array(editorArguments.prefix(3)) == ["new-window", "-t", "=\(sessionID)"], "editor window should target the session exactly")
+    private static func testStartupScriptNeverCreatesSessions() throws {
+        let route = try TmuxRoute(sessionID: "qm-test", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(!script.contains("new-session") && !script.contains("respawn-pane") && !script.contains("sleep 2147483647"), "attach must not create a placeholder")
+        try expect(script.contains("has-session") && script.contains("exit 1"), "missing session should fail visibly")
+    }
+
+    private static func testStartupScriptQuotesConfigPaths() throws {
+        let route = try TmuxRoute(sessionID: "qm-test", label: "questmaster", configFiles: ["/tmp/a b'c.conf"], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(script.contains("-f '/tmp/a b'\\''c.conf'"), "config path should be quoted as one shell word")
+    }
+
+    private static func testTmuxClientCallsUseRoute() throws {
+        let route = try TmuxRoute(sessionID: "qm-test", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 1)
+        let prefix = ["-L", "questmaster", "-f", "/tmp/config.conf"]
+        try expect(TerminalTmuxClientProcess.listClientsArguments(route: route).starts(with: prefix), "list-clients should use route")
+        try expect(TerminalTmuxClientProcess.sessionEnvironmentSyncArguments(route: route, environment: [:]).starts(with: prefix), "environment sync should use route")
+        try expect(TerminalTmuxClientProcess.switchClientArguments(route: route, clientName: "/dev/ttys001").starts(with: prefix), "switch-client should use route")
+        try expect(TerminalTmuxClientProcess.editorWindowArguments(route: route, path: "/tmp/a.md", shell: "/bin/zsh").starts(with: prefix), "editor should use route")
+    }
+
+    private static func testCrossServerSwitchCreatesSurface() throws {
+        try expect(TmuxRoute.surfaceDecision(attachedLabel: "default", targetLabel: "questmaster", clientAttached: true, sessionReappeared: false) == .newSurface, "cross-server switch should replace surface")
+    }
+
+    private static func testSameServerSwitchReusesClient() throws {
+        try expect(TmuxRoute.surfaceDecision(attachedLabel: "default", targetLabel: "default", clientAttached: true, sessionReappeared: false) == .reuseClient, "same-server switch should reuse client")
+    }
+
+    private static func testUnknownMethodFailsAttach() throws {
+        let response = #"{"protocol_version":3,"type":"response","ok":false,"error":"unknown method \"tmux.routes\""}"#
+        let decodedError: Error
+        do {
+            _ = try UnixSocketMutationClient.decodeAck(Data(response.utf8))
+            throw TestFailure("older daemon should fail route lookup")
+        } catch {
+            decodedError = error
+        }
+        guard let serveError = decodedError as? ServeClientError,
+              case .unknownMethod("tmux.routes") = serveError else {
+            throw TestFailure("unknown-method response should decode as a typed error")
+        }
+        let routeError = UnixSocketMutationClient.tmuxRouteError(decodedError)
+        guard case TmuxRouteError.unsupportedDaemon = routeError else {
+            throw TestFailure("tmux route lookup should map an older daemon to an explicit attach error")
+        }
+        final class FailingRoutes: ServeTmuxRouting {
+            let error: Error
+            init(_ error: Error) { self.error = error }
+            func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+                completion(.failure(error))
+            }
+        }
+        final class CountingHost: TerminalPaneHosting {
+            let view = NSView()
+            var tmuxSessionID: String? { nil }
+            var onFocusRequested: (() -> Void)?
+            var onDetach: (() -> Void)?
+            var cellMetrics: TerminalCellMetrics { .unavailable }
+            var onCellMetricsChanged: (() -> Void)?
+            var connects = 0
+            var routedConnects = 0
+            func start() {}
+            func stop() {}
+            func focus(in window: NSWindow?) {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+                connects += 1
+                if config.route != nil { routedConnects += 1 }
+            }
+        }
+        let config = LaunchConfiguration(
+            daemonSocketOverride: nil, startDaemon: false, tmuxSession: nil,
+            disableTmux: false, workingDirectory: "/tmp",
+            backend: AppBackend(stateRoot: "/tmp/example-state", executablePath: "", source: .unresolved,
+                                workingDirectory: "/tmp", devWorktree: nil)
+        )
+        let host = CountingHost()
+        var shownError: String?
+        let controller = TerminalSessionController(
+            config: config, runtimeStore: RuntimeStore(sourceLabel: "test"), routeClient: FailingRoutes(routeError),
+            terminalShell: { nil }, updateWindowTitle: { _ in }, focusTerminal: {}, render: {},
+            showMutationFailure: { _, _ in }, showMutationError: { _, error in shownError = error.localizedDescription },
+            showTerminalEngineFailure: { _ in }, onFocusRequested: {}
+        )
+        controller.installPlaceholder(host)
+        controller.switchTerminal(to: "qm-example")
+        try expect(waitUntil { shownError != nil }, "route error should reach attach UI")
+        try expect(shownError?.contains("tmux.routes") == true && host.routedConnects == 0 && host.connects == 1,
+                   "older daemon should show an attach error and open the local shell without guessing a server")
+    }
+
+    private static func testCachedRouteAttachesBeforeRefresh() throws {
+        final class Routes: ServeTmuxRouting {
+            var pending: [(Result<[TmuxRoute], Error>) -> Void] = []
+            func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+                pending.append(completion)
+            }
+        }
+        final class Host: TerminalPaneHosting {
+            let view = NSView()
+            var tmuxSessionID: String? { nil }
+            var onFocusRequested: (() -> Void)?
+            var onDetach: (() -> Void)?
+            var cellMetrics: TerminalCellMetrics { .unavailable }
+            var onCellMetricsChanged: (() -> Void)?
+            var labels: [String] = []
+            func start() {}
+            func stop() {}
+            func focus(in window: NSWindow?) {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+                labels.append(config.route?.label ?? "local")
+                completion(.success(config.tmuxSession))
+            }
+        }
+        let config = LaunchConfiguration(
+            daemonSocketOverride: nil, startDaemon: false, tmuxSession: nil,
+            disableTmux: false, workingDirectory: "/tmp",
+            backend: AppBackend(stateRoot: "/tmp/example-state", executablePath: "", source: .unresolved,
+                                workingDirectory: "/tmp", devWorktree: nil)
+        )
+        let routes = Routes()
+        let host = Host()
+        let controller = TerminalSessionController(
+            config: config, runtimeStore: RuntimeStore(sourceLabel: "test"), routeClient: routes,
+            terminalShell: { nil }, updateWindowTitle: { _ in }, focusTerminal: {}, render: {},
+            showMutationFailure: { _, _ in }, showMutationError: { _, _ in },
+            showTerminalEngineFailure: { _ in }, onFocusRequested: {}
+        )
+        controller.installPlaceholder(host)
+        let legacy = try TmuxRoute(sessionID: "qm-example", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let named = try TmuxRoute(sessionID: "qm-example", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 1)
+        controller.rememberRoutes([legacy])
+        controller.switchTerminal(to: legacy.sessionID)
+        try expect(host.labels == ["default"] && routes.pending.count == 1, "cached route should attach before refresh completes")
+        routes.pending[0](.failure(ServeClientError.connect("daemon restarting")))
+        pump(0.02)
+        controller.switchTerminal(to: legacy.sessionID)
+        try expect(host.labels == ["default", "default"] && routes.pending.count == 2, "refresh failure should retain the cached route")
+        routes.pending[1](.success([named]))
+        pump(0.02)
+        controller.switchTerminal(to: named.sessionID)
+        try expect(host.labels == ["default", "default", "questmaster"], "route refresh should replace the cached label")
+    }
+
+    private static func testStartupChoiceAcrossServers() throws {
+        let legacy = try TmuxRoute(sessionID: "qm-old", label: "default", configFiles: [], live: true, createdUnix: 100)
+        let named = try TmuxRoute(sessionID: "qm-new", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 300)
+        let stopped = try TmuxRoute(sessionID: "qm-stopped", label: "default", configFiles: [], live: false, createdUnix: 500)
+        try expect(TmuxRoute.startupChoice(preferred: "qm-old", routes: [legacy, named, stopped]) == legacy, "live preferred session should win across servers")
+        try expect(TmuxRoute.startupChoice(preferred: "qm-stopped", routes: [legacy, named, stopped]) == named, "newest live route should win")
+    }
+
+    private static func testEditorWindowUsesAttachedRoute() throws {
+        let attached = try TmuxRoute(sessionID: "qm-attached", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 1)
+        let args = TerminalTmuxClientProcess.editorWindowArguments(route: attached, path: "/tmp/a.md", shell: "/bin/zsh")
+        try expect(Array(args.prefix(4)) == ["-L", "questmaster", "-f", "/tmp/config.conf"], "Markdown editor should use attached route")
+        try expect(args.contains("=qm-attached"), "Markdown editor should target attached session")
     }
 
     private static func testNavigationTogglesKeepFocusAndHideToTerminal() throws {
@@ -1767,7 +1845,7 @@ enum LogicSelfTests {
             addedAt: ""
         )
         do {
-            try ArtifactExternalOpener.open(artifact: missing, attachedSessionID: "qm-a", tmuxPath: "/usr/bin/tmux", environment: [:])
+            try ArtifactExternalOpener.open(artifact: missing, attachedRoute: nil, tmuxPath: "/usr/bin/tmux", environment: [:])
             throw TestFailure("missing artifact should fail before launching an app")
         } catch ArtifactExternalOpenError.missingFile {
             // Expected.
@@ -1776,12 +1854,13 @@ enum LogicSelfTests {
 
     private static func testArtifactEditorWindowKeepsPathSeparate() throws {
         let path = "/tmp/report ' with spaces; $(touch danger).md"
-        let args = TerminalTmuxClientProcess.editorWindowArguments(sessionID: "qm-a", path: path, shell: "/bin/zsh")
-        try expect(Array(args.prefix(5)) == ["new-window", "-t", "=qm-a", "-n", "Artifact"], "editor should open a new tmux window")
-        try expect(args[6] == "/tmp", "editor window should start beside the artifact")
-        try expect(args[7].contains("artifact_path=$1"), "editor script should read the path as an argument")
-        try expect(args[7].hasSuffix("'/tmp/report '\\'' with spaces; $(touch danger).md'"), "path should be shell quoted as one positional argument")
-        try expect(args[7].contains("eval \"set -- $EDITOR\""), "editor command should allow arguments")
+        let route = try TmuxRoute(sessionID: "qm-a", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let args = TerminalTmuxClientProcess.editorWindowArguments(route: route, path: path, shell: "/bin/zsh")
+        try expect(Array(args.prefix(7)) == ["-L", "default", "new-window", "-t", "=qm-a", "-n", "Artifact"], "editor should open a new tmux window")
+        try expect(args[8] == "/tmp", "editor window should start beside the artifact")
+        try expect(args[9].contains("artifact_path=$1"), "editor script should read the path as an argument")
+        try expect(args[9].hasSuffix("'/tmp/report '\\'' with spaces; $(touch danger).md'"), "path should be shell quoted as one positional argument")
+        try expect(args[9].contains("eval \"set -- $EDITOR\""), "editor command should allow arguments")
     }
 
     private static func testLocalMarkdownImageURLFiltering() throws {
@@ -4921,23 +5000,13 @@ enum LogicSelfTests {
     }
 
     private static func testStartupTmuxSessionChoice() throws {
-        let sessions = [(created: 100, name: "qm-100"), (created: 300, name: "qm-300"), (created: 200, name: "qm-200")]
-        try expect(
-            LaunchConfiguration.startupTmuxSession(preferred: "qm-100", sessions: sessions) == "qm-100",
-            "a remembered session that is still alive should win"
-        )
-        try expect(
-            LaunchConfiguration.startupTmuxSession(preferred: "qm-999", sessions: sessions) == "qm-300",
-            "a dead remembered session should fall back to newest-created"
-        )
-        try expect(
-            LaunchConfiguration.startupTmuxSession(preferred: nil, sessions: sessions) == "qm-300",
-            "no remembered session should pick newest-created"
-        )
-        try expect(
-            LaunchConfiguration.startupTmuxSession(preferred: "qm-100", sessions: []) == nil,
-            "no live sessions should return nil"
-        )
+        let routes = try [100, 300, 200].map { value in
+            try TmuxRoute(sessionID: "qm-\(value)", label: "default", configFiles: [], live: true, createdUnix: Int64(value))
+        }
+        try expect(TmuxRoute.startupChoice(preferred: "qm-100", routes: routes)?.sessionID == "qm-100", "remembered live route should win")
+        try expect(TmuxRoute.startupChoice(preferred: "qm-999", routes: routes)?.sessionID == "qm-300", "stale preference should use newest route")
+        try expect(TmuxRoute.startupChoice(preferred: nil, routes: routes)?.sessionID == "qm-300", "no preference should use newest route")
+        try expect(TmuxRoute.startupChoice(preferred: "qm-100", routes: []) == nil, "no live routes should return nil")
     }
 
     private static func testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck() throws {
@@ -8070,9 +8139,15 @@ enum LogicSelfTests {
                 pending.append(completion)
             }
         }
+        final class FakeRoutes: ServeTmuxRouting {
+            var pending: [(Result<[TmuxRoute], Error>) -> Void] = []
+            func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+                pending.append(completion)
+            }
+        }
         let config = LaunchConfiguration(
             daemonSocketOverride: nil, startDaemon: false, tmuxSession: nil,
-            shouldAutoDetectTmuxSession: false, disableTmux: false,
+            disableTmux: false,
             workingDirectory: "/tmp", backend: AppBackend(
                 stateRoot: "/tmp/example-state", executablePath: "", source: .unresolved,
                 workingDirectory: "/tmp", devWorktree: nil
@@ -8080,8 +8155,9 @@ enum LogicSelfTests {
         )
         let runtime = RuntimeStore(sourceLabel: "test")
         let fake = FakeHost()
+        let routes = FakeRoutes()
         let controller = TerminalSessionController(
-            config: config, runtimeStore: runtime, terminalShell: { nil },
+            config: config, runtimeStore: runtime, routeClient: routes, terminalShell: { nil },
             updateWindowTitle: { _ in }, focusTerminal: {}, render: {},
             showMutationFailure: { _, _ in }, showMutationError: { _, _ in },
             showTerminalEngineFailure: { _ in }, onFocusRequested: {}
@@ -8090,22 +8166,28 @@ enum LogicSelfTests {
         var completions: [Bool] = []
         controller.switchTerminal(to: "qm-old") { completions.append($0) }
         controller.switchTerminal(to: "qm-new") { completions.append($0) }
-        try expect(fake.pending.count == 2, "the fake host must hold both attach completions")
-        fake.pending[1](.success("qm-new"))
-        fake.pending[0](.success("qm-old"))
+        try expect(routes.pending.count == 2, "the route client must hold both lookups")
+        routes.pending[1](.success([try TmuxRoute(sessionID: "qm-new", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        try expect(waitUntil { fake.pending.count == 1 }, "newest route should reach host")
+        routes.pending[0](.success([try TmuxRoute(sessionID: "qm-old", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        fake.pending[0](.success("qm-new"))
         try expect(runtime.currentTerminalSessionID == "qm-new" && fake.starts == 1,
                    "the controller must apply only the newest attach result")
         try expect(completions == [false, true], "a superseded activation must finish false and the newest true")
 
         controller.switchTerminal(to: "qm-detach") { completions.append($0) }
+        routes.pending[2](.success([try TmuxRoute(sessionID: "qm-detach", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        try expect(waitUntil { fake.pending.count == 2 }, "detach target should reach host")
         fake.onDetach?()
-        fake.pending[2](.success("qm-detach"))
+        fake.pending[1](.success("qm-detach"))
         try expect(runtime.currentTerminalSessionID == nil && completions.last == false,
                    "detach must discard a pending attach")
 
         controller.switchTerminal(to: "qm-stop") { completions.append($0) }
+        routes.pending[3](.success([try TmuxRoute(sessionID: "qm-stop", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        try expect(waitUntil { fake.pending.count == 3 }, "stop target should reach host")
         controller.stop()
-        fake.pending[3](.success("qm-stop"))
+        fake.pending[2](.success("qm-stop"))
         try expect(runtime.currentTerminalSessionID == nil && fake.starts == 1 && completions.last == false,
                    "stop must discard a pending attach")
     }

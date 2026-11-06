@@ -15,17 +15,17 @@ final class RuntimeConnectionController {
         self.render = render
     }
 
-    func start(onInitialAttemptComplete: @escaping () -> Void) {
+    func start(onInitialAttemptComplete: @escaping (Bool) -> Void) {
         guard runtimeClient == nil else { return }
         // Connecting starts here, with the daemon record, before the client's own loop does.
         runtimeStore.apply(RuntimeUpdate(connection: .connecting))
         scheduleCoalescedRender()
         DispatchQueue.global(qos: .userInitiated).async { [connection, weak self] in
-            _ = try? connection.record()
+            let daemonReady = (try? connection.record()) != nil
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.startRuntimeClient()
-                onInitialAttemptComplete()
+                onInitialAttemptComplete(daemonReady)
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + ConnectionState.waitingWindow) { [weak self] in

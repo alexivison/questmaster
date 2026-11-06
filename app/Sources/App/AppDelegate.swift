@@ -198,6 +198,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             toggleVersionControlDock: .anywhere { [weak self] in self?.toggleVersionControlDock() }
         ))
         let serveMutationClient = UnixSocketMutationClient(connection: daemonConnection)
+        terminalSessionController.setRouteClient(serveMutationClient)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
         modelSuggestionClient = serveMutationClient
@@ -305,38 +306,59 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startEnvironmentDependentServicesWhenReady() {
-        let shouldAutoDetect = config.shouldAutoDetectTmuxSession
-        let preferredSessionID = shouldAutoDetect ? LastSessionPreference.read() : nil
         whenLoginShellEnvironmentReady {
-            DispatchQueue.global(qos: .userInitiated).async {
-                let detectedTmuxSession = shouldAutoDetect
-                    ? LaunchConfiguration.detectStartupTmuxSession(preferredSessionID: preferredSessionID)
-                    : nil
-                DispatchQueue.main.async { [weak self] in
-                    self?.startEnvironmentDependentServices(detectedTmuxSession: detectedTmuxSession)
-                }
+            DispatchQueue.main.async { [weak self] in
+                self?.startEnvironmentDependentServices()
             }
         }
     }
 
-    private func startEnvironmentDependentServices(detectedTmuxSession: String?) {
+    private func startEnvironmentDependentServices() {
         guard !didStartEnvironmentDependentServices else {
             return
         }
         didStartEnvironmentDependentServices = true
 
-        if config.shouldAutoDetectTmuxSession {
-            terminalSessionController.setAutoDetectedSession(detectedTmuxSession)
-        }
-
-        runtimeConnectionController.start { [weak self] in
+        runtimeConnectionController.start { [weak self] daemonReady in
             guard let self else { return }
-            self.terminalSessionController.installTerminalHost()
-            self.terminalSessionController.start()
-            self.terminalSessionController.drainPendingTerminalAttachments()
-            self.renderSnapshot()
-            if self.navigation.focusedRegion == .terminal {
-                self.focusCoordinator.focusCurrentRegion()
+            let finishStartup = { [weak self] (sessionID: String?) in
+                guard let self else { return }
+                self.terminalSessionController.setAutoDetectedSession(sessionID)
+                self.terminalSessionController.installTerminalHost()
+                self.terminalSessionController.start()
+                self.terminalSessionController.drainPendingTerminalAttachments()
+                self.renderSnapshot()
+                if self.navigation.focusedRegion == .terminal {
+                    self.focusCoordinator.focusCurrentRegion()
+                }
+            }
+            guard daemonReady, !self.config.disableTmux, let routeClient = self.workerFeedClient else {
+                finishStartup(nil)
+                return
+            }
+            let explicit = self.config.tmuxSession
+            let preferred = explicit ?? LastSessionPreference.read()
+            routeClient.fetchTmuxRoutes(sessionIDs: explicit.map { [$0] } ?? [], live: true) { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    switch result {
+                    case .success(let routes):
+                        self.terminalSessionController.rememberRoutes(routes)
+                        let selected = TmuxRoute.startupChoice(preferred: preferred, routes: routes)
+                        if let selected { self.terminalSessionController.rememberRoutes([selected]) }
+                        if explicit != nil && selected?.sessionID != explicit {
+                            self.errorPresenter.showMutationFailure(label: "terminal start", errorDescription: "Selected session is unavailable")
+                            finishStartup(nil)
+                        } else {
+                            finishStartup(selected?.sessionID)
+                        }
+                    case .failure(let error):
+                        if case TmuxRouteError.unsupportedDaemon = error {
+                            self.errorPresenter.showMutationFailure(label: "terminal start", error: error)
+                        }
+                        finishStartup(nil)
+                    }
+                }
             }
         }
     }
@@ -552,7 +574,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openArtifactExternally(_ artifact: ArtifactReference) {
-        let attachedSessionID = runtimeStore.currentTerminalSessionID
+        let attachedRoute = terminalSessionController.attachedRoute
         let tmuxPath = resolveExecutable("tmux")
         let environment = appChildProcessEnvironment()
         if ArtifactExternalRoute.classify(path: artifact.path) == .editor {
@@ -560,7 +582,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 do {
                     try ArtifactExternalOpener.open(
                         artifact: artifact,
-                        attachedSessionID: attachedSessionID,
+                        attachedRoute: attachedRoute,
                         tmuxPath: tmuxPath,
                         environment: environment
                     )
@@ -573,7 +595,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try ArtifactExternalOpener.open(
                 artifact: artifact,
-                attachedSessionID: attachedSessionID,
+                attachedRoute: attachedRoute,
                 tmuxPath: tmuxPath,
                 environment: environment
             )
@@ -887,6 +909,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 render: { [weak self] in
                     self?.renderSnapshot()
+                },
+                didContinueSession: { [weak self] sessionID in
+                    self?.terminalSessionController.markSessionReappeared(sessionID)
                 }
             )
         )

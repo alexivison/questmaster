@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import QuestmasterCore
 
 struct TerminalTmuxClient: Equatable {
     let name: String
@@ -28,12 +29,25 @@ enum TerminalTmuxClientProcess {
     private static var didLogListClientsFailure = false
     private static let logLock = NSLock()
 
-    static func listClients(tmuxPath: String, environment: [String: String]? = nil) -> [TerminalTmuxClient] {
+    static func listClients(tmuxPath: String, route: TmuxRoute, environment: [String: String]? = nil) -> [TerminalTmuxClient] {
         do {
-            return parseClientList(try run(executable: tmuxPath, arguments: ["list-clients", "-F", clientListFormat], environment: environment))
+            return parseClientList(try run(executable: tmuxPath, arguments: listClientsArguments(route: route), environment: environment))
         } catch {
             logListClientsFailure(tmuxPath: tmuxPath, error: error)
             return []
+        }
+    }
+
+    static func listClientsArguments(route: TmuxRoute) -> [String] {
+        route.arguments(for: ["list-clients", "-F", clientListFormat])
+    }
+
+    static func sessionExists(tmuxPath: String, route: TmuxRoute, environment: [String: String]) throws -> Bool {
+        do {
+            _ = try run(executable: tmuxPath, arguments: route.arguments(for: ["has-session", "-t", exactSessionTarget(route.sessionID)]), environment: environment)
+            return true
+        } catch let error as TerminalTmuxCommandError where error.status == 1 {
+            return false
         }
     }
 
@@ -56,7 +70,7 @@ enum TerminalTmuxClientProcess {
             }
     }
 
-    static func syncSessionEnvironment(tmuxPath: String, sessionID: String, environment: [String: String]) throws {
+    static func syncSessionEnvironment(tmuxPath: String, route: TmuxRoute, environment: [String: String]) throws {
         var processEnvironment = environment
         // The old shell script did `unset TMUX TMUX_PANE` before calling tmux;
         // strip them from the subprocess env for the same reason (never let the
@@ -67,14 +81,14 @@ enum TerminalTmuxClientProcess {
         // not fail the switch.
         _ = try? run(
             executable: tmuxPath,
-            arguments: sessionEnvironmentSyncArguments(sessionID: sessionID, environment: environment),
+            arguments: sessionEnvironmentSyncArguments(route: route, environment: environment),
             environment: processEnvironment
         )
     }
 
     /// One argv for the whole sync: tmux treats a literal ";" argument as a
     /// command separator, so sequential subprocess spawns become one.
-    static func sessionEnvironmentSyncArguments(sessionID: String, environment: [String: String]) -> [String] {
+    static func sessionEnvironmentSyncArguments(route: TmuxRoute, environment: [String: String]) -> [String] {
         let keys = [
             "HOME",
             "XDG_CONFIG_HOME",
@@ -94,7 +108,7 @@ enum TerminalTmuxClientProcess {
             "QUESTMASTER_BIN",
             "QUESTMASTER_PATH_PREFIX",
         ]
-        let target = exactSessionTarget(sessionID)
+        let target = exactSessionTarget(route.sessionID)
         var args: [String] = []
         func add(_ command: [String]) {
             if !args.isEmpty { args.append(";") }
@@ -107,10 +121,10 @@ enum TerminalTmuxClientProcess {
                 add(["set-environment", "-t", target, "-r", key])
             }
         }
-        for key in ["ZDOTDIR", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "TMUX", "TMUX_PANE"] {
+        for key in ["ZDOTDIR", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "TMUX", "TMUX_PANE", "TMUX_TMPDIR"] {
             add(["set-environment", "-t", target, "-r", key])
         }
-        return args
+        return route.arguments(for: args)
     }
 
     /// tmux matches a bare session name by prefix, so "qm-123" reaches "qm-123-456"
@@ -121,24 +135,24 @@ enum TerminalTmuxClientProcess {
 
     static func switchClient(
         tmuxPath: String,
+        route: TmuxRoute,
         clientName: String,
-        targetSessionID: String,
         environment: [String: String]? = nil
     ) throws {
         _ = try run(
             executable: tmuxPath,
-            arguments: switchClientArguments(clientName: clientName, targetSessionID: targetSessionID),
+            arguments: switchClientArguments(route: route, clientName: clientName),
             environment: environment
         )
     }
 
-    static func switchClientArguments(clientName: String, targetSessionID: String) -> [String] {
-        ["switch-client", "-c", clientName, "-t", exactSessionTarget(targetSessionID)]
+    static func switchClientArguments(route: TmuxRoute, clientName: String) -> [String] {
+        route.arguments(for: ["switch-client", "-c", clientName, "-t", exactSessionTarget(route.sessionID)])
     }
 
     static func openEditorWindow(
         tmuxPath: String,
-        sessionID: String,
+        route: TmuxRoute,
         path: String,
         shell: String,
         environment: [String: String]
@@ -149,12 +163,12 @@ enum TerminalTmuxClientProcess {
         }
         _ = try run(
             executable: tmuxPath,
-            arguments: editorWindowArguments(sessionID: sessionID, path: path, shell: shell),
+            arguments: editorWindowArguments(route: route, path: path, shell: shell),
             environment: processEnvironment
         )
     }
 
-    static func editorWindowArguments(sessionID: String, path: String, shell: String) -> [String] {
+    static func editorWindowArguments(route: TmuxRoute, path: String, shell: String) -> [String] {
         // The path is a separate positional argument to the login shell. It is
         // never interpolated into the script that expands the user's EDITOR.
         let script = """
@@ -167,7 +181,7 @@ enum TerminalTmuxClientProcess {
         exec "$@" "$artifact_path"
         """
         let command = [shell, "-lic", script, "_", path].map(editorShellQuote).joined(separator: " ")
-        return ["new-window", "-t", exactSessionTarget(sessionID), "-n", "Artifact", "-c", URL(fileURLWithPath: path).deletingLastPathComponent().path, command]
+        return route.arguments(for: ["new-window", "-t", exactSessionTarget(route.sessionID), "-n", "Artifact", "-c", URL(fileURLWithPath: path).deletingLastPathComponent().path, command])
     }
 
     private static func editorShellQuote(_ value: String) -> String {
@@ -186,7 +200,8 @@ enum TerminalTmuxClientProcess {
         let result = try BoundedProcess.run(
             executable: executable,
             arguments: arguments,
-            environment: processEnvironment
+            environment: processEnvironment,
+            workingDirectory: "/"
         )
         let stdout = String(decoding: result.stdout, as: UTF8.self)
         let stderr = String(decoding: result.stderr, as: UTF8.self)

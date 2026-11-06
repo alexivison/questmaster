@@ -18,6 +18,7 @@ final class SessionCoordinator {
         let showTerminalEnded: () -> Void
         /// Drives the dock / terminal chrome / navigation refresh.
         let render: () -> Void
+        var didContinueSession: (String) -> Void = { _ in }
     }
 
     private let store: RuntimeStore
@@ -68,6 +69,9 @@ final class SessionCoordinator {
             DispatchQueue.main.async {
                 switch result {
                 case .success:
+                    if request.method == "continue", let sessionID = request.data["session_id"] {
+                        self?.dependencies.didContinueSession(sessionID)
+                    }
                     if let switchToSessionID {
                         self?.dependencies.switchTerminal(switchToSessionID, nil)
                     }
@@ -105,6 +109,7 @@ final class SessionCoordinator {
                     DispatchQueue.main.async {
                         switch result {
                         case .success:
+                            self?.dependencies.didContinueSession(sessionID)
                             self?.dependencies.switchTerminal(sessionID, completion)
                         case .failure(let error):
                             self?.dependencies.showMutationFailure("continue \(sessionID)", error.localizedDescription)
