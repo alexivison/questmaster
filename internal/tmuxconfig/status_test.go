@@ -39,7 +39,7 @@ func TestStatusEditedSinceStart(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now().Truncate(time.Second)

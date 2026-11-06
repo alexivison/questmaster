@@ -101,6 +101,17 @@ func RequireIntegration(t testing.TB) {
 	t.Logf("tmux -V: %s", version)
 }
 
+// StubQuestmaster gives generated tmux hooks a harmless command in tests.
+// Without it, the os.Executable fallback would point at the Go test binary.
+func StubQuestmaster(t testing.TB) {
+	t.Helper()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "questmaster"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write questmaster hook stub: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 // runTmux runs tmux with argv, which must begin with -S <socket>. It is the one
 // place this package starts tmux against a server.
 func runTmux(ctx context.Context, socket string, argv []string) (string, error) {

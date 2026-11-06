@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/tmux/tmuxtest"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
 )
 
@@ -69,7 +70,7 @@ func TestEnsureUserFilesRefusesSymlinkAndForeignType(t *testing.T) {
 
 func TestRenderQuotesPaths(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "it's a space")
-	if err := tmuxconfig.Prepare(root); err != nil {
+	if err := prepareConfig(t, root); err != nil {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)
@@ -87,6 +88,7 @@ func TestRenderQuotesPaths(t *testing.T) {
 
 func TestWriteEnforcedAtomicOwnerOnly(t *testing.T) {
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "questmaster")
+	tmuxtest.StubQuestmaster(t)
 	root := filepath.Join(t.TempDir(), "root", "..", "root")
 	if err := tmuxconfig.WriteEnforced(root); err != nil {
 		t.Fatal(err)
@@ -137,6 +139,7 @@ func TestOwnershipMarkerRefusesForeignRootPerLabel(t *testing.T) {
 	other := t.TempDir()
 	marker := tmuxconfig.RootMarker(root, "dev_1")
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_1")
+	tmuxtest.StubQuestmaster(t)
 	if err := tmuxconfig.WriteEnforced(root); err != nil {
 		t.Fatal(err)
 	}
@@ -155,6 +158,14 @@ func TestOwnershipMarkerRefusesForeignRootPerLabel(t *testing.T) {
 	}
 	if !strings.HasPrefix(marker, "dev_1:") || len(marker) != len("dev_1:")+64 {
 		t.Fatalf("marker = %q", marker)
+	}
+}
+
+func TestWriteEnforcedRefusesGoTestBinaryAsHook(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	err := tmuxconfig.WriteEnforced(t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "set a questmaster stub on PATH in this test") {
+		t.Fatalf("WriteEnforced without a hook stub: %v", err)
 	}
 }
 

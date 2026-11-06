@@ -19,6 +19,7 @@ func TestServeTmuxConfigGoldens(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_1")
+	tmuxtest.StubQuestmaster(t)
 	if err := tmuxconfig.Prepare(root); err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +91,7 @@ func TestIntegrationServeTmuxConfigCheck(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_1")
+	tmuxtest.StubQuestmaster(t)
 	if err := tmuxconfig.Prepare(root); err != nil {
 		t.Fatal(err)
 	}

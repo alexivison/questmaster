@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"testing"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/config"
@@ -110,6 +111,9 @@ func WriteEnforced(root string) error {
 		exe, exeErr := os.Executable()
 		if exeErr != nil {
 			return fmt.Errorf("resolve cleanup command: %w", err)
+		}
+		if testing.Testing() {
+			return errors.New("tmux cleanup hook would run the Go test binary; set a questmaster stub on PATH in this test")
 		}
 		qm = config.ShellQuote(exe)
 	}

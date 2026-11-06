@@ -92,6 +92,7 @@ func TestIntegrationTmuxConfigCheckUsesEffectiveLabelFiles(t *testing.T) {
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_check")
+	prependStubQuestmasterToPath(t)
 	if err := tmuxconfig.Prepare(root); err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +126,7 @@ func TestIntegrationTmuxConfigCheckCreatesMissingLabelFiles(t *testing.T) {
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_check")
+	prependStubQuestmasterToPath(t)
 	if err := tmuxconfig.Prepare(root); err != nil {
 		t.Fatal(err)
 	}
