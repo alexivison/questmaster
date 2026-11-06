@@ -1,0 +1,5 @@
+{
+  "id": "tmux-config-check-request",
+  "method": "tmux.config.check",
+  "protocol_version": 3
+}

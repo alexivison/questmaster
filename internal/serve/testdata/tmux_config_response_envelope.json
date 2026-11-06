@@ -1,0 +1,19 @@
+{
+  "protocol_version": 3,
+  "type": "response",
+  "id": "tmux-config-request",
+  "ok": true,
+  "topic": "tmux.config",
+  "data": {
+    "config": "/tmp/example/tmux/questmaster.conf",
+    "enforced": "/tmp/example/tmux/enforced.conf",
+    "effective_label": "questmaster",
+    "running": true,
+    "started_unix": 100,
+    "sessions": 1,
+    "edited_since_start": true,
+    "enforced_pending": false,
+    "template_version": 1,
+    "builtin_template_version": 1
+  }
+}

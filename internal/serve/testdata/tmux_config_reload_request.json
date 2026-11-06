@@ -1,0 +1,5 @@
+{
+  "id": "tmux-config-reload-request",
+  "method": "tmux.config.reload",
+  "protocol_version": 3
+}

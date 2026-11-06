@@ -1,0 +1,5 @@
+{
+  "id": "tmux-config-request",
+  "method": "tmux.config",
+  "protocol_version": 3
+}

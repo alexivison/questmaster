@@ -95,6 +95,8 @@ func (s *Server) HandleRequest(ctx context.Context, req Request) Envelope {
 		data, err = s.refreshPullRequests(ctx, req)
 	case "tmux.routes":
 		data, err = s.tmuxRoutes(ctx, req)
+	case "tmux.config":
+		data, err = s.tmuxConfig(ctx)
 	default:
 		data, err = s.snapshot(ctx, req.Method)
 	}

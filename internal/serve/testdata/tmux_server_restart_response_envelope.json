@@ -1,0 +1,12 @@
+{
+  "protocol_version": 3,
+  "type": "response",
+  "id": "tmux-server-restart-request",
+  "ok": true,
+  "topic": "tmux.server.restart",
+  "data": {
+    "restarted": false,
+    "refused": true,
+    "sessions": 1
+  }
+}
