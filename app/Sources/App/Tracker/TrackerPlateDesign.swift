@@ -71,8 +71,12 @@ enum TrackerPlateDesign {
     static let badgeDiameter = collapsedCircleDiameter
     static let badgeOverhang = Space.row
     static let badgeLogoSide = badgeDiameter * logoShare
-    /// How strongly a class portrait or familiar shows over the disc's dark fill: dimmed so the plate's text leads.
-    static let portraitStrength = 0.75
+    /// How much of its own colour a class portrait or familiar keeps; the rest is washed toward the panel's colour, so the
+    /// art sits in the theme and the plate's text leads. The disc behind the figure is `discFill`.
+    static let portraitStrength = 0.8
+    /// A portrait disc's fill, a step darker than the plates so the figure stands out; the agent badge and the
+    /// selected-session panel's disc take it too.
+    static let discFill = AppPalette.window
 
     /// The collapsed workers' circles: 25 points across with 5 between, the first's left edge 40 points right of the
     /// master disc's, in a row right under the disc's.
