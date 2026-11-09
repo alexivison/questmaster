@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
@@ -159,5 +160,45 @@ func TestHookClaudeCompactionWhileDoneStillReceivesAlert(t *testing.T) {
 	}
 	if got != message.DeliverySubmitted || runner.sendKeys == 0 {
 		t.Fatalf("notify = %q with %d send-keys, want %q delivered", got, runner.sendKeys, message.DeliverySubmitted)
+	}
+}
+
+func TestHookClaudeResumedIdleWorkerReceivesReviewAlert(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("QUESTMASTER_STATE_ROOT", root)
+	store := state.OpenStore(root)
+	const sessionID = "qm-resumed-review"
+	if err := store.Create(state.Manifest{SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
+		t.Fatal(err)
+	}
+	r := newHookRunner(store, &tmuxEnvStub{})
+	resumedAt := time.Now().Add(-time.Hour).UTC()
+	r.Now = func() time.Time { return resumedAt.Add(-time.Minute) }
+	runHookWithStdin(r, "claude", "done", sessionID, nil)
+	r.Now = func() time.Time { return resumedAt }
+	runHookWithStdin(r, "claude", "starting", sessionID, sessionStartSourcePayload("resume"))
+
+	ref, _ := state.ParsePullRequestRef("example/repo#12")
+	if _, err := state.WatchPullRequest(root, sessionID, ref, resumedAt.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.RecordPullRequestEvents(root, ref.Key, []state.PullRequestEvent{{
+		ID: "review-1", Kind: "review", State: "approved", OccurredAt: resumedAt.Add(time.Minute).Format(time.RFC3339Nano),
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	alerts, err := state.PendingPullRequestAlerts(root)
+	if err != nil || len(alerts) != 1 || len(alerts[0].Events) != 1 {
+		t.Fatalf("pending review alerts = %+v, %v", alerts, err)
+	}
+
+	runner := &notifyTmuxRunner{}
+	delivery, err := message.NewService(store, tmux.NewClient(runner)).Notify(context.Background(), sessionID, "[PR example/repo#12] approved")
+	if err != nil || delivery != message.DeliverySubmitted || runner.sendKeys == 0 {
+		t.Fatalf("review alert delivery = %q, %v; sends=%d", delivery, err, runner.sendKeys)
+	}
+	ss, err := state.LoadSessionStateAt(root, sessionID)
+	if err != nil || ss.Panes["agent"].State != "idle" {
+		t.Fatalf("resumed worker state = %+v, %v; want idle", ss, err)
 	}
 }
