@@ -124,7 +124,7 @@ func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Ti
 						break
 					}
 					if repo.PullRequest != nil {
-						result.Statuses[pr.Key] = repo.PullRequest.status(now)
+						result.Statuses[pr.Key] = repo.PullRequest.status(now, result.Viewers[host])
 						switch repo.PullRequest.State {
 						case "MERGED":
 							result.StateAt[pr.Key] = repo.PullRequest.MergedAt
@@ -163,9 +163,10 @@ func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Ti
 func query(prs []state.PullRequest) string {
 	var b strings.Builder
 	b.WriteString("query { rateLimit { cost remaining resetAt } viewer { login } ")
-	// shortcut: review pagination stops at 100 reviewers per PR; paginate if a PR reaches that count.
+	// shortcut: review connections stop at 100 reviewers per PR; paginate if a PR reaches that count.
+	// latestReviews is each reviewer's latest review of any state; latestOpinionatedReviews keeps an approval that a later comment would hide.
 	for i, pr := range prs {
-		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state closedAt mergedAt isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision latestOpinionatedReviews(last:100) { nodes { state } } commits(last:1) { nodes { commit { statusCheckRollup { state %s } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number, ciContextsQuery)
+		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state closedAt mergedAt isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision author { login __typename } latestOpinionatedReviews(last:100) { nodes { state } } latestReviews(last:100) { nodes { state author { login __typename } } } commits(last:1) { nodes { commit { statusCheckRollup { state %s } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number, ciContextsQuery)
 	}
 	b.WriteByte('}')
 	return b.String()
@@ -248,24 +249,22 @@ func (r *graphResponse) UnmarshalJSON(data []byte) error {
 }
 
 type graphPR struct {
-	Title          string  `json:"title"`
-	URL            string  `json:"url"`
-	State          string  `json:"state"`
-	ClosedAt       string  `json:"closedAt"`
-	MergedAt       string  `json:"mergedAt"`
-	Draft          bool    `json:"isDraft"`
-	HeadSHA        string  `json:"headRefOid"`
-	UpdatedAt      string  `json:"updatedAt"`
-	Additions      int     `json:"additions"`
-	Deletions      int     `json:"deletions"`
-	Comments       int     `json:"totalCommentsCount"`
-	ReviewDecision *string `json:"reviewDecision"`
-	Reviews        struct {
-		Nodes []struct {
-			State string `json:"state"`
-		} `json:"nodes"`
-	} `json:"latestOpinionatedReviews"`
-	Commits struct {
+	Title          string       `json:"title"`
+	URL            string       `json:"url"`
+	State          string       `json:"state"`
+	ClosedAt       string       `json:"closedAt"`
+	MergedAt       string       `json:"mergedAt"`
+	Draft          bool         `json:"isDraft"`
+	HeadSHA        string       `json:"headRefOid"`
+	UpdatedAt      string       `json:"updatedAt"`
+	Additions      int          `json:"additions"`
+	Deletions      int          `json:"deletions"`
+	Comments       int          `json:"totalCommentsCount"`
+	ReviewDecision *string      `json:"reviewDecision"`
+	Author         graphActor   `json:"author"`
+	Reviews        graphReviews `json:"latestOpinionatedReviews"`
+	LatestReviews  graphReviews `json:"latestReviews"`
+	Commits        struct {
 		Nodes []struct {
 			Commit struct {
 				Rollup *struct {
@@ -277,6 +276,26 @@ type graphPR struct {
 			} `json:"commit"`
 		} `json:"nodes"`
 	} `json:"commits"`
+}
+
+// graphActor is a GitHub login. Bots have TypeName "Bot", which decides their [bot] suffix.
+type graphActor struct {
+	Login    string `json:"login"`
+	TypeName string `json:"__typename"`
+}
+
+// login is the actor's login in the form the event log uses.
+func (actor graphActor) login() string {
+	return normalizeBotLogin(actor.Login, actor.TypeName == "Bot")
+}
+
+type graphReview struct {
+	State  string     `json:"state"`
+	Author graphActor `json:"author"`
+}
+
+type graphReviews struct {
+	Nodes []graphReview `json:"nodes"`
 }
 
 // ciContextsQuery selects what dates the head commit's checks: a check run's finish, a commit status's last update.
@@ -312,22 +331,9 @@ func ciCompletion(contexts []ciContext) (string, bool) {
 	return latest.UTC().Format(time.RFC3339Nano), running
 }
 
-func (pr graphPR) status(now time.Time) state.PullRequestStatus {
+func (pr graphPR) status(now time.Time, viewer string) state.PullRequestStatus {
 	stateName := strings.ToLower(pr.State)
-	review := "none"
-	if pr.ReviewDecision != nil {
-		review = reviewState(*pr.ReviewDecision)
-	} else {
-		for _, item := range pr.Reviews.Nodes {
-			if item.State == "CHANGES_REQUESTED" {
-				review = "changes_requested"
-				break
-			}
-			if item.State == "APPROVED" {
-				review = "approved"
-			}
-		}
-	}
+	review := pr.review(viewer)
 	ci := "none"
 	completedAt, running := "", false
 	if nodes := pr.Commits.Nodes; len(nodes) > 0 && nodes[len(nodes)-1].Commit.Rollup != nil {
@@ -344,7 +350,66 @@ func (pr graphPR) status(now time.Time) state.PullRequestStatus {
 			completedAt, running = ciCompletion(rollup.Contexts.Nodes)
 		}
 	}
-	return state.PullRequestStatus{Title: pr.Title, URL: pr.URL, State: stateName, Draft: pr.Draft, HeadSHA: pr.HeadSHA, UpdatedAt: pr.UpdatedAt, Additions: pr.Additions, Deletions: pr.Deletions, Comments: pr.Comments, Review: review, CI: ci, CICompletedAt: completedAt, CIRunning: running, ChangedAt: now.UTC().Format(time.RFC3339)}
+	return state.PullRequestStatus{Title: pr.Title, URL: pr.URL, Author: pr.authorFor(viewer), State: stateName, Draft: pr.Draft, HeadSHA: pr.HeadSHA, UpdatedAt: pr.UpdatedAt, Additions: pr.Additions, Deletions: pr.Deletions, Comments: pr.Comments, Review: review, CI: ci, CICompletedAt: completedAt, CIRunning: running, ChangedAt: now.UTC().Format(time.RFC3339)}
+}
+
+// review is the PR's review state. A comment shows only where GitHub gives no approval or changes request.
+func (pr graphPR) review(viewer string) string {
+	decided := pr.decidedReview()
+	if decided == "approved" || decided == "changes_requested" {
+		return decided
+	}
+	if pr.commentedByOthers(viewer) {
+		return "commented"
+	}
+	return decided
+}
+
+// decidedReview is GitHub's review decision, or the opinionated reviews when there is no decision.
+func (pr graphPR) decidedReview() string {
+	if pr.ReviewDecision != nil {
+		return reviewState(*pr.ReviewDecision)
+	}
+	review := "none"
+	for _, item := range pr.Reviews.Nodes {
+		if item.State == "CHANGES_REQUESTED" {
+			return "changes_requested"
+		}
+		if item.State == "APPROVED" {
+			review = "approved"
+		}
+	}
+	return review
+}
+
+// commentedByOthers reports whether a reviewer's latest review is a comment from someone other than the PR author
+// or the viewer. Authors reply to threads through COMMENTED reviews, and the viewer's own discussion stays out of status.
+func (pr graphPR) commentedByOthers(viewer string) bool {
+	author := pr.Author.login()
+	for _, item := range pr.LatestReviews.Nodes {
+		if item.State != "COMMENTED" {
+			continue
+		}
+		reviewer := item.Author.login()
+		if !sameLogin(reviewer, author) && !sameLogin(reviewer, viewer) {
+			return true
+		}
+	}
+	return false
+}
+
+// authorFor is the PR author's login, or empty when the viewer wrote the PR. An unknown viewer keeps the login.
+func (pr graphPR) authorFor(viewer string) string {
+	author := pr.Author.login()
+	if sameLogin(author, viewer) {
+		return ""
+	}
+	return author
+}
+
+// sameLogin compares GitHub logins case-insensitively; an empty login matches nothing.
+func sameLogin(a, b string) bool {
+	return a != "" && strings.EqualFold(a, b)
 }
 
 func reviewState(value string) string {

@@ -200,7 +200,7 @@ func TestStatusReviewAndCI(t *testing.T) {
 			if err := json.Unmarshal([]byte(data), &node); err != nil {
 				t.Fatal(err)
 			}
-			got := node.status(time.Now())
+			got := node.status(time.Now(), "")
 			if got.Review != tc.wantReview || got.CI != tc.wantCI {
 				t.Fatalf("review=%q CI=%q", got.Review, got.CI)
 			}
@@ -232,11 +232,100 @@ func TestStatusCIDatesTheNewestFinishedCheck(t *testing.T) {
 			if err := json.Unmarshal([]byte(fmt.Sprintf(`{"commits":{"nodes":[{"commit":{"statusCheckRollup":%s}}]}}`, tc.rollup)), &node); err != nil {
 				t.Fatal(err)
 			}
-			got := node.status(time.Now())
+			got := node.status(time.Now(), "")
 			if got.CICompletedAt != tc.wantAt || got.CIRunning != tc.wantRunning {
 				t.Fatalf("CICompletedAt=%q CIRunning=%v, want %q %v", got.CICompletedAt, got.CIRunning, tc.wantAt, tc.wantRunning)
 			}
 		})
+	}
+}
+
+func TestStatusReviewPrecedence(t *testing.T) {
+	t.Parallel()
+	const (
+		noReviews           = `[]`
+		approvalOpinion     = `[{"state":"APPROVED"}]`
+		changesOpinion      = `[{"state":"CHANGES_REQUESTED"}]`
+		reviewerComment     = `[{"state":"COMMENTED","author":{"login":"reviewer-one","__typename":"User"}}]`
+		authorComment       = `[{"state":"COMMENTED","author":{"login":"example-author","__typename":"User"}}]`
+		authorCommentCase   = `[{"state":"COMMENTED","author":{"login":"EXAMPLE-AUTHOR","__typename":"User"}}]`
+		viewerComment       = `[{"state":"COMMENTED","author":{"login":"example-viewer","__typename":"User"}}]`
+		viewerCommentCase   = `[{"state":"COMMENTED","author":{"login":"Example-Viewer","__typename":"User"}}]`
+		botComment          = `[{"state":"COMMENTED","author":{"login":"review-bot","__typename":"Bot"}}]`
+		dismissedByReviewer = `[{"state":"DISMISSED","author":{"login":"reviewer-one","__typename":"User"}}]`
+	)
+	tests := []struct {
+		name, decision, opinionated, latest, viewer, want string
+	}{
+		{"comment without a decision", "null", noReviews, reviewerComment, "example-viewer", "commented"},
+		{"comment beside review required", `"REVIEW_REQUIRED"`, noReviews, reviewerComment, "example-viewer", "commented"},
+		{"bot commenter counts", "null", noReviews, botComment, "example-viewer", "commented"},
+		{"unknown viewer leaves the viewer's comment counting", "null", noReviews, viewerComment, "", "commented"},
+		{"approved decision beats comment", `"APPROVED"`, noReviews, reviewerComment, "example-viewer", "approved"},
+		{"changes requested decision beats comment", `"CHANGES_REQUESTED"`, noReviews, reviewerComment, "example-viewer", "changes_requested"},
+		{"approval without a decision beats comment", "null", approvalOpinion, reviewerComment, "example-viewer", "approved"},
+		{"changes requested without a decision beats comment", "null", changesOpinion, reviewerComment, "example-viewer", "changes_requested"},
+		{"review required without a comment", `"REVIEW_REQUIRED"`, noReviews, noReviews, "example-viewer", "review_required"},
+		{"no review at all", "null", noReviews, noReviews, "example-viewer", "none"},
+		{"dismissed review is not a comment", "null", noReviews, dismissedByReviewer, "example-viewer", "none"},
+		{"author's comment is ignored", `"REVIEW_REQUIRED"`, noReviews, authorComment, "example-viewer", "review_required"},
+		{"author's comment is ignored in any case", "null", noReviews, authorCommentCase, "example-viewer", "none"},
+		{"viewer's comment is ignored", "null", noReviews, viewerComment, "example-viewer", "none"},
+		{"viewer's comment is ignored in any case", "null", noReviews, viewerCommentCase, "example-viewer", "none"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var node graphPR
+			data := fmt.Sprintf(`{"author":{"login":"example-author","__typename":"User"},"reviewDecision":%s,"latestOpinionatedReviews":{"nodes":%s},"latestReviews":{"nodes":%s}}`, tc.decision, tc.opinionated, tc.latest)
+			if err := json.Unmarshal([]byte(data), &node); err != nil {
+				t.Fatal(err)
+			}
+			if got := node.status(time.Now(), tc.viewer).Review; got != tc.want {
+				t.Fatalf("review=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStatusAuthorIsSetOnlyWhenNotViewer(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name, author, viewer, want string
+	}{
+		{"viewer's own PR", `{"login":"example-author","__typename":"User"}`, "example-author", ""},
+		{"viewer's own PR in another case", `{"login":"EXAMPLE-Author","__typename":"User"}`, "example-author", ""},
+		{"someone else's PR", `{"login":"example-author","__typename":"User"}`, "reviewer-one", "example-author"},
+		{"unknown viewer keeps the author", `{"login":"example-author","__typename":"User"}`, "", "example-author"},
+		{"bot author carries its suffix", `{"login":"release-bot","__typename":"Bot"}`, "reviewer-one", "release-bot[bot]"},
+		{"missing author", `null`, "reviewer-one", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var node graphPR
+			if err := json.Unmarshal([]byte(`{"author":`+tc.author+`}`), &node); err != nil {
+				t.Fatal(err)
+			}
+			if got := node.status(time.Now(), tc.viewer).Author; got != tc.want {
+				t.Fatalf("author=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFetchReadsAuthorAndCommentedReview(t *testing.T) {
+	t.Parallel()
+	pr := pr(t, "owner/repo#1")
+	run := func(_ context.Context, _, query string) ([]byte, []byte, error) {
+		if !strings.Contains(query, "latestOpinionatedReviews(last:100) { nodes { state } }") || !strings.Contains(query, "latestReviews(last:100) { nodes { state author { login __typename } } }") {
+			t.Fatalf("query does not read both review connections: %s", query)
+		}
+		return []byte(`{"data":{"viewer":{"login":"reviewer-one"},"p0":{"pullRequest":{"title":"PR","state":"OPEN","author":{"login":"example-author","__typename":"User"},"reviewDecision":null,"latestOpinionatedReviews":{"nodes":[]},"latestReviews":{"nodes":[{"state":"COMMENTED","author":{"login":"review-bot","__typename":"Bot"}}]},"commits":{"nodes":[]}}}}}`), nil, nil
+	}
+	got := Fetch(context.Background(), []state.PullRequest{pr}, run, time.Now()).Statuses[pr.Key]
+	if got.Review != "commented" || got.Author != "example-author" {
+		t.Fatalf("review=%q author=%q", got.Review, got.Author)
 	}
 }
 

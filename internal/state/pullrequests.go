@@ -36,6 +36,7 @@ type PullRequest struct {
 type PullRequestStatus struct {
 	Title              string `json:"title,omitempty"`
 	URL                string `json:"url,omitempty"`
+	Author             string `json:"author,omitempty"` // the PR author's login, bots with [bot]; empty when it is the authenticated viewer, kept when the viewer is unknown
 	State              string `json:"state,omitempty"`
 	Draft              bool   `json:"draft"`
 	HeadSHA            string `json:"head_sha,omitempty"`
