@@ -1,0 +1,42 @@
+GIMP Palette
+Name: Wizard — palette lock
+Columns: 3
+#
+ 15  20  29	outline 1
+ 18  24  33	outline 2
+ 34  43  57	robe 1
+ 49  62  82	robe 2
+ 72  91 116	robe 3
+102  88  80	beard 1
+118 122 126	beard 2
+158 152 143	beard 3
+ 44  43  49	staff and leather 1
+ 71  54  49	staff and leather 2
+102  88  80	staff and leather 3
+102  88  80	skin 1
+123 108  99	skin 2
+158 152 143	skin 3
+232   8   5	glow 1
+255   5   7	glow 2
+228   4   8	glow 3
+252  53   2	glow 4
+236  52   2	glow 5
+201   3   5	glow 6
+212   1   2	glow 7
+247   7   8	glow 8
+248  10   3	glow 9
+234  36   1	glow 10
+234  21   1	glow 11
+236  54   9	glow 12
+254   8   2	glow 13
+246   5   3	glow 14
+236 135  65	glow 15
+236  77  28	glow 16
+253 158  79	glow 17
+253 139  62	glow 18
+250  26   5	glow 19
+254   7   7	glow 20
+233   9   1	glow 21
+237   3   8	glow 22
+237 168  69	glow 23
+250  27   2	glow 24

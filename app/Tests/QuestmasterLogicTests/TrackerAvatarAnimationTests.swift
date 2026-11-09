@@ -671,7 +671,7 @@ struct TrackerAvatarAnimationTests {
             fail("the paladin's file should decode")
         }
         expect(
-            animation.idle == TrackerAvatarIdle(legRows: 60, eyes: TrackerAvatarEyes(row: 15, columns: 45...46, lidColour: TrackerAvatarColour(rgb: 0xf6b83f))),
+            animation.idle == TrackerAvatarIdle(legRows: 60, eyes: TrackerAvatarEyes(row: 15, columns: 45...46, lidColour: TrackerAvatarColour(rgb: 0xe4af49))),
             "idle should carry the paladin's leg rows and eyes: the eye row, eye columns and lid colour"
         )
         expect(animation.releaseHand == TrackerAvatarPixel(x: 131, y: 92), "the release hand should be the paladin's hand pixel")
@@ -703,7 +703,7 @@ struct TrackerAvatarAnimationTests {
             fail("the cleric's file should decode")
         }
         expect(
-            animation.idle == TrackerAvatarIdle(legRows: 45, eyes: TrackerAvatarEyes(row: 23, columns: 27...31, lidColour: TrackerAvatarColour(rgb: 0xe2c897))),
+            animation.idle == TrackerAvatarIdle(legRows: 45, eyes: TrackerAvatarEyes(row: 23, columns: 27...31, lidColour: TrackerAvatarColour(rgb: 0xc6b593))),
             "idle should carry the cleric's leg rows and eyes: the eye row, eye columns and lid colour"
         )
         expect(animation.releaseHand == TrackerAvatarPixel(x: 107, y: 38), "the release hand should be the cleric's hand pixel")

@@ -1,0 +1,92 @@
+{
+  "version": 2,
+  "outline": [
+    "#080306",
+    "#171110"
+  ],
+  "materials": {
+    "gold": [
+      "#bb7d39",
+      "#e4af49",
+      "#e8c15c"
+    ],
+    "metal": [
+      "#484a4e",
+      "#757469",
+      "#cfbe90"
+    ],
+    "leather and cloth": [
+      "#301e1b",
+      "#3e2820",
+      "#824d2f"
+    ]
+  },
+  "neutral": [],
+  "glow": [
+    "#fffbe8",
+    "#e4af49",
+    "#bb7d39",
+    "#e5ddb0",
+    "#f5e2a0",
+    "#e9d681",
+    "#d19540",
+    "#cfbe90",
+    "#c6ab72",
+    "#e8c15c",
+    "#e6b552",
+    "#ffac0c",
+    "#fc9c0d",
+    "#ffa90c",
+    "#ffb90d",
+    "#fc9a0a",
+    "#fc7366",
+    "#fc9b0c",
+    "#f03e89",
+    "#cc617e",
+    "#fccc0d",
+    "#fdf22a",
+    "#f05c63",
+    "#fc9269"
+  ],
+  "glow_note": "Real bright swatches from shipped effects/spells, frequency order. Reference only: the character lock never changes effects, spells, rings or bubbles.",
+  "regions": "palette-regions/manifest.json",
+  "source_map": {
+    "outline": {
+      "#000000": "#080306",
+      "#000301": "#080306",
+      "#080306": "#080306",
+      "#171110": "#171110",
+      "#241c1c": "#171110"
+    },
+    "gold": {
+      "#a96a35": "#bb7d39",
+      "#bb7d39": "#bb7d39",
+      "#d19540": "#bb7d39",
+      "#e4af49": "#e4af49",
+      "#e6b552": "#e4af49",
+      "#e8c15c": "#e8c15c",
+      "#e9d681": "#e8c15c"
+    },
+    "metal": {
+      "#404245": "#484a4e",
+      "#484a4e": "#484a4e",
+      "#5c554d": "#484a4e",
+      "#60635f": "#757469",
+      "#757469": "#757469",
+      "#877f6c": "#757469",
+      "#878c7e": "#757469",
+      "#a6916c": "#757469",
+      "#c6ab72": "#cfbe90",
+      "#cfbe90": "#cfbe90",
+      "#e5ddb0": "#cfbe90"
+    },
+    "leather and cloth": {
+      "#301e1b": "#301e1b",
+      "#3e2820": "#3e2820",
+      "#42322c": "#3e2820",
+      "#65402d": "#824d2f",
+      "#824d2f": "#824d2f",
+      "#916038": "#824d2f"
+    }
+  }
+}
