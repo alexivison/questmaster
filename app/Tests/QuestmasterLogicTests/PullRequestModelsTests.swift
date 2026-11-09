@@ -6,6 +6,7 @@ struct PullRequestModelsTests {
         unknownWireValuesDecode()
         watcherTagsUseWorkerTitles()
         watcherLayoutTitlesOneAndStacksTheRest()
+        authorLabelNamesTheAuthorOfAnAccessibleRow()
         rowsSortByStateThenDateThenKey()
         looksStaySeparate()
         labelsFormatEveryField()
@@ -57,6 +58,17 @@ struct PullRequestModelsTests {
         expect(watched(6).watcherTooltip == (1...6).map { "Task \($0)" }.joined(separator: "\n"), "the tooltip names every watcher, one per line")
     }
 
+    /// The backend sends an author only for a pull request the viewer didn't write, so a missing one shows nothing; an
+    /// inaccessible row shows nothing either.
+    private static func authorLabelNamesTheAuthorOfAnAccessibleRow() {
+        expect(display(row(1, status: status(author: "example-author"))).authorLabel == "example-author", "an author the backend sent should show")
+        expect(display(row(1, status: status(author: "  example-author "))).authorLabel == "example-author", "the author should be trimmed")
+        expect(display(row(1, status: status())).authorLabel == nil, "a pull request the viewer wrote has no author label")
+        expect(display(row(1, status: status(author: "   "))).authorLabel == nil, "a blank author should show nothing")
+        expect(display(row(1, status: status(reason: "forbidden", author: "example-author"))).authorLabel == nil, "an inaccessible row shows no author")
+        expect(display(row(1)).authorLabel == nil, "a row without status has no author")
+    }
+
     private static func rowsSortByStateThenDateThenKey() {
         let rows = [
             row(6),
@@ -74,7 +86,7 @@ struct PullRequestModelsTests {
     private static func looksStaySeparate() {
         let reviews: [(String, ReviewLook)] = [
             ("approved", .approved), ("changes_requested", .changesRequested),
-            ("review_required", .reviewRequired), ("commented", .none), ("none", .none), ("future", .none),
+            ("review_required", .reviewRequired), ("commented", .commented), ("none", .none), ("future", .none),
         ]
         for (raw, look) in reviews {
             expect(display(row(1, status: status(review: raw))).reviewLook == look, "review look for \(raw)")
@@ -170,7 +182,7 @@ struct PullRequestModelsTests {
         state: String? = "open", review: String? = "none", ci: String? = "none",
         reason: String? = nil, updated: String? = "2026-06-19T00:00:00Z", draft: Bool = false,
         title: String? = "Title", additions: Int = 0, deletions: Int = 0,
-        stale: Bool = false, url: String? = nil
+        stale: Bool = false, url: String? = nil, author: String? = nil
     ) -> [String: Any] {
         var result: [String: Any] = [
             "draft": draft, "additions": additions, "deletions": deletions,
@@ -183,6 +195,7 @@ struct PullRequestModelsTests {
         if let updated { result["updated_at"] = updated }
         if let title { result["title"] = title }
         if let url { result["url"] = url }
+        if let author { result["author"] = author }
         return result
     }
 

@@ -80,7 +80,7 @@ public enum PullRequestInaccessibleReason: String, Decodable {
 }
 
 public enum ReviewLook: Equatable {
-    case approved, changesRequested, reviewRequired, none
+    case approved, changesRequested, commented, reviewRequired, none
 }
 
 public enum CILook: Equatable {
@@ -154,6 +154,13 @@ public struct PullRequestDisplayRow: Equatable {
         guard !watcherTags.isEmpty else { return nil }
         return watcherTags.map(\.title).joined(separator: "\n")
     }
+    /// The PR author's login, as the backend sends it: it omits the viewer's own pull requests. Nil on an inaccessible row.
+    public var authorLabel: String? {
+        guard let author = accessibleStatus?.author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty else {
+            return nil
+        }
+        return author
+    }
     public var inaccessibleLabel: String? {
         switch pullRequest.status?.inaccessibleReason {
         case .notFound: return "Not found"
@@ -181,9 +188,9 @@ public struct PullRequestDisplayRow: Equatable {
         switch pullRequest.status?.review {
         case .approved: return .approved
         case .changesRequested: return .changesRequested
+        case .commented: return .commented
         case .reviewRequired: return .reviewRequired
-        // The dock doesn't draw a comment yet, so it shows no review state.
-        case .some(.none), .some(.commented), .unknown, nil: return .none
+        case .some(.none), .unknown, nil: return .none
         }
     }
     public var ciLook: CILook {

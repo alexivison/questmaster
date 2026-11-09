@@ -102,11 +102,13 @@ private extension PullRequestGitState {
 }
 
 private extension ReviewLook {
-    /// No review yet and a review still required both wait: an empty amber ring.
-    var ring: (icon: PullRequestIcon, color: NSColor) {
+    /// No review yet and a review still required both wait: an empty amber ring. A commented review is no verdict, so
+    /// it takes the neutral bubble instead of a ring.
+    var glyph: (icon: PullRequestIcon, color: NSColor) {
         switch self {
         case .approved: (.ringApproved, AppPalette.gitGreen)
         case .changesRequested: (.ringChanges, AppPalette.gitRed)
+        case .commented: (.comment, AppPalette.controlBorder)
         case .reviewRequired, .none: (.ringWaiting, AppPalette.gitAmber)
         }
     }
@@ -169,15 +171,16 @@ struct WatcherRow: View {
         .frame(height: Metrics.lineHeight, alignment: .top)
     }
 
-    /// The review ring under the git icon, then the `CI` label under the number and the diff counter with a divider between
-    /// them, and the watchers at the right edge. An inaccessible row's label sits under the number.
+    /// The review glyph under the git icon, then the `CI` label under the number and the diff counter with a divider between
+    /// them. At the right edge: the author, a divider when watchers show too, then the watchers. An inaccessible row's label
+    /// sits under the number.
     private var detailLine: some View {
         HStack(alignment: .top, spacing: Space.item) {
             if let inaccessibleLabel = row.inaccessibleLabel {
                 emptySlot
                 text(inaccessibleLabel, color: look.icon.color)
             } else if let additions = row.additionsLabel, let deletions = row.deletionsLabel {
-                slot(row.reviewLook.ring)
+                slot(row.reviewLook.glyph)
                 text("CI", color: tint(row.ciLook.color, dim: row.ciLook == .none))
                     .fixedSize()
                 divider
@@ -189,12 +192,24 @@ struct WatcherRow: View {
                 .opacity(Token.Opacity.dimmed)
             }
             Spacer(minLength: 0)
+            if let author = row.authorLabel {
+                authorName(author)
+            }
             if let tooltip = row.watcherTooltip {
+                if row.authorLabel != nil {
+                    divider
+                }
                 watchers
                     .help(tooltip)
             }
         }
         .frame(height: Metrics.lineHeight, alignment: .top)
+    }
+
+    /// The author's login. It outranks the watcher titles when the row is squeezed, so a title truncates first.
+    private func authorName(_ author: String) -> some View {
+        text(author, color: look.meta.color)
+            .layoutPriority(1)
     }
 
     @ViewBuilder
