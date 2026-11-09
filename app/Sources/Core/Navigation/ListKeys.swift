@@ -86,7 +86,7 @@ public struct ListCapabilities: OptionSet, Equatable, Sendable {
 
     public static let tracker: ListCapabilities = [.opensOnReturn, .controlRows, .delete, .edit, .editRepo, .collapseWorkers]
     public static let artifacts: ListCapabilities = [.opensOnReturn, .externalOpen, .controlRows, .tabs, .filter, .mark, .delete]
-    public static let versionControl: ListCapabilities = [.opensOnReturn, .controlRows, .refresh]
+    public static let watcher: ListCapabilities = [.opensOnReturn, .controlRows, .refresh]
     public static let questLog: ListCapabilities = [.modalMoves, .filter, .mark, .delete, .edit, .start, .closes]
     /// The Worker Log's dropdown: Return and Space tick a row, Esc closes it, and the tab keys still step the tabs.
     public static let workerLogMenu: ListCapabilities = [.tabs, .opensOnReturn, .mark, .closes]

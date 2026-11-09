@@ -4,19 +4,19 @@ import QuestmasterCore
 import SwiftUI
 
 @Observable
-final class VersionControlPaneModel {
+final class WatcherPaneModel {
     /// Whether this panel has the keys (the dock's focused panel, no modal drawn): an unfocused panel shows its cursor one
     /// step dimmer.
     var isFocused = false
 }
 
-struct VersionControlPaneRoot: View {
+struct WatcherPaneRoot: View {
     let store: PullRequestStore
-    let model: VersionControlPaneModel
+    let model: WatcherPaneModel
     let onOpenRow: (String) -> Void
 
     var body: some View {
-        VersionControlDockView(store: store, areaFocused: model.isFocused, onOpenRow: onOpenRow)
+        WatcherDockView(store: store, areaFocused: model.isFocused, onOpenRow: onOpenRow)
             .background(AppPalette.panel.swiftUI)
     }
 }
@@ -24,9 +24,9 @@ struct VersionControlPaneRoot: View {
 /// The dock's top panel body: the watched pull requests, with the keys while the panel is the dock's focused one. The list
 /// keys move and open as in the artifact list; y copies the page's URL, r refreshes; a click picks a row and opens it.
 /// What a key asks for goes to `PullRequestStore.handle`, and the App runs the effect it returns.
-final class VersionControlDockPane: NSHostingView<VersionControlPaneRoot> {
+final class WatcherDockPane: NSHostingView<WatcherPaneRoot> {
     private let store: PullRequestStore
-    private let model: VersionControlPaneModel
+    private let model: WatcherPaneModel
     private var keys = ListKeyResolver()
 
     /// Runs what a key or a click asked for: opening or copying a pull request's page, a refresh.
@@ -36,10 +36,10 @@ final class VersionControlDockPane: NSHostingView<VersionControlPaneRoot> {
 
     init(store: PullRequestStore) {
         self.store = store
-        let model = VersionControlPaneModel()
+        let model = WatcherPaneModel()
         self.model = model
-        super.init(rootView: VersionControlPaneRoot(store: store, model: model, onOpenRow: { _ in }))
-        rootView = VersionControlPaneRoot(store: store, model: model, onOpenRow: { [weak self] key in
+        super.init(rootView: WatcherPaneRoot(store: store, model: model, onOpenRow: { _ in }))
+        rootView = WatcherPaneRoot(store: store, model: model, onOpenRow: { [weak self] key in
             self?.openPullRequest(key)
         })
     }
@@ -50,7 +50,7 @@ final class VersionControlDockPane: NSHostingView<VersionControlPaneRoot> {
     }
 
     @available(*, unavailable)
-    required init(rootView: VersionControlPaneRoot) {
+    required init(rootView: WatcherPaneRoot) {
         fatalError("init(rootView:) has not been implemented")
     }
 
@@ -101,7 +101,7 @@ final class VersionControlDockPane: NSHostingView<VersionControlPaneRoot> {
         if isNativeRegionTabEvent(event) {
             return true
         }
-        guard let command = keys.command(for: event.keymapPress, in: .versionControl) else {
+        guard let command = keys.command(for: event.keymapPress, in: .watcher) else {
             guard let direction = focusDirection(from: event) else {
                 return false
             }

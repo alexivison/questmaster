@@ -14,7 +14,7 @@ final class ShellFocusCoordinator {
     private let actionBar: () -> ActionBarShellView?
     private let trackerHosting: () -> NSView?
     private let dockView: () -> SwiftUIDockPane?
-    private let versionControlPane: () -> VersionControlDockPane?
+    private let watcherPane: () -> WatcherDockPane?
     private let terminalHost: () -> TerminalPaneHosting?
     private let modalHost: () -> InWindowModalHost?
     private let updateDockTabs: () -> Void
@@ -31,7 +31,7 @@ final class ShellFocusCoordinator {
         actionBar: @escaping () -> ActionBarShellView?,
         trackerHosting: @escaping () -> NSView?,
         dockView: @escaping () -> SwiftUIDockPane?,
-        versionControlPane: @escaping () -> VersionControlDockPane?,
+        watcherPane: @escaping () -> WatcherDockPane?,
         terminalHost: @escaping () -> TerminalPaneHosting?,
         modalHost: @escaping () -> InWindowModalHost?,
         updateDockTabs: @escaping () -> Void
@@ -47,7 +47,7 @@ final class ShellFocusCoordinator {
         self.actionBar = actionBar
         self.trackerHosting = trackerHosting
         self.dockView = dockView
-        self.versionControlPane = versionControlPane
+        self.watcherPane = watcherPane
         self.terminalHost = terminalHost
         self.modalHost = modalHost
         self.updateDockTabs = updateDockTabs
@@ -98,7 +98,7 @@ final class ShellFocusCoordinator {
             terminalHost()?.focus(in: window)
         case .dock:
             switch navigation.focusedDockPanel {
-            case .top: versionControlPane()?.focus(in: window)
+            case .top: watcherPane()?.focus(in: window)
             case .bottom: dockView()?.focusCurrentRoute(in: window)
             }
         }
@@ -127,7 +127,7 @@ final class ShellFocusCoordinator {
         let topHasKeys = navigation.hasKeys(DockPanel.top)
         let bottomHasKeys = navigation.hasKeys(DockPanel.bottom)
         topDockShell()?.setFocused(topHasKeys)
-        versionControlPane()?.setFocused(topHasKeys)
+        watcherPane()?.setFocused(topHasKeys)
         bottomDockShell()?.setFocused(bottomHasKeys)
         dockView()?.setFocused(bottomHasKeys)
     }

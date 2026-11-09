@@ -5,7 +5,7 @@ public enum DockWidthPreference {
     public static let defaultsKey = "Questmaster.DockWidthFraction"
     /// The artifact viewer's share of the window until the user resizes it.
     public static let viewerFraction = 0.30
-    /// Version Control, the artifact list and the Worker Log: their share of the window, never under `minWidth`.
+    /// Watcher, the artifact list and the Worker Log: their share of the window, never under `minWidth`.
     public static let panelFraction = 0.20
     /// The width the panels were designed at, which renders and self-tests draw them at: the Chat Item and Session
     /// Detail Dock artboards are 480pt wide, and the Worker Log's tab row takes 50 more (2026-10-28).

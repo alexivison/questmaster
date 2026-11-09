@@ -81,7 +81,7 @@ enum RenderPreview {
             size: CGSize(width: 340, height: 780),
             to: "\(outputDir)/tracker-list-column.png"
         )
-        // The header at the design's own 631 wide: the mock's state (tracker shown, Worker Log and Version Control open,
+        // The header at the design's own 631 wide: the mock's state (tracker shown, Worker Log and Watcher open,
         // caffeinate on), and everything at rest.
         renderView(actionBarHeaderView(), size: CGSize(width: 631, height: ActionBarMetrics.height), to: "\(outputDir)/action-bar.png")
         renderView(
@@ -89,22 +89,25 @@ enum RenderPreview {
             size: CGSize(width: 631, height: ActionBarMetrics.height),
             to: "\(outputDir)/action-bar-rest.png"
         )
-        // The Version Control panel as the Session Detail Dock draws it, and a row of it as the Pull Request Item draws it.
-        renderView(versionControlPanelView(), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel.png")
-        renderView(versionControlPanelView(state: .empty), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel-empty.png")
-        renderView(versionControlPanelView(state: .notice), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel-notice.png")
-        render(versionControlRowsView(highlight: 1), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design.png")
-        render(versionControlRowsView(highlight: nil), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design-rest.png")
+        // The Watcher panel as the Session Detail Dock draws it, and a row of it as the Pull Request Item draws it.
+        renderView(watcherPanelView(), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel.png")
+        renderView(watcherPanelView(state: .empty), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel-empty.png")
+        renderView(watcherPanelView(state: .notice), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel-notice.png")
+        render(watcherRowsView(highlight: 1, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design.png")
+        render(watcherRowsView(highlight: nil, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design-rest.png")
+        render(watcherRowsView(highlight: nil, rows: watcherCountRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-counts.png")
+        render(watcherRowsView(highlight: nil, rows: watcherReviewRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-reviews.png")
+        render(watcherRowsView(highlight: nil, rows: watcherSqueezeRows()), size: CGSize(width: 300, height: 90), to: "\(outputDir)/watcher-rows-squeezed.png")
         render(pullRequestItemView(), size: CGSize(width: 686, height: 156), to: "\(outputDir)/pull-request-item.png")
-        // The dock split: Version Control over the artifacts or the worker chat, each alone, and either panel with the keys.
+        // The dock split: Watcher over the artifacts or the worker chat, each alone, and either panel with the keys.
         let splitCanvas = CGSize(width: DockWidthPreference.panelWidth + 2 * Space.section, height: 900)
         renderView(dockSplitView(bottom: .artifacts, focus: nil), size: splitCanvas, to: "\(outputDir)/dock-split-artifacts.png")
         renderView(dockSplitView(bottom: .workerChat, focus: nil), size: splitCanvas, to: "\(outputDir)/dock-split-worker-chat.png")
-        renderView(dockSplitView(bottom: nil, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-only-version-control.png")
+        renderView(dockSplitView(bottom: nil, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-only-watcher.png")
         renderView(dockSplitView(bottom: .artifacts, top: false, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-only-bottom.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-focused-top.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-focused-bottom.png")
-        // The Worker Log filter in the split: its chip, open dropdown and worker tabs in the bottom panel under Version Control.
+        // The Worker Log filter in the split: its chip, open dropdown and worker tabs in the bottom panel under Watcher.
         renderView(dockSplitView(bottom: .workerLog(), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-open.png")
         renderView(dockSplitView(bottom: .workerLog(menuOpen: false), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-closed.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.panelWidth, height: 640), to: "\(outputDir)/worker-chat.png")
@@ -248,7 +251,7 @@ enum RenderPreview {
         splitView.addArrangedSubview(TrackerShellView(body: tracker))
         splitView.addArrangedSubview(TerminalShellView(body: terminalBody))
         let dockColumn = DockColumnView(
-            top: DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl)),
+            top: DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher)),
             bottom: DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
         )
         dockColumn.setPanels(DockPanels(bottom: true))
@@ -374,35 +377,92 @@ enum RenderPreview {
         }
     }
 
-    /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws. The rows are views of
-    /// their own, not the store's, because the store sorts by state and the design doesn't. A master with four workers
-    /// watches them.
+    /// One pull request for the watcher fixtures: its numbers and state, the workers (`w1`...`w6`) watching it, and the
+    /// author the backend sends (nil for the viewer's own pull request).
+    private struct WatcherFixture {
+        let number: Int
+        let title: String
+        let state: String
+        let draft: Bool
+        let review: String
+        let ci: String
+        let additions: Int
+        let deletions: Int
+        let watchers: [String]
+        var author: String? = "example-author"
+        var stale = false
+    }
+
+    /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws, with the watchers the
+    /// mock shows (none, one, six with a count of two, one, one, one) and the author it draws on each.
     @MainActor
-    private static func versionControlDesignRows() -> [PullRequestDisplayRow] {
+    private static func watcherDesignRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97612, title: "fix(agent-f): Support independent Edition suggestion field decisions", state: "open", draft: false, review: "changes_requested", ci: "failure", additions: 1250, deletions: 540, watchers: []),
+            WatcherFixture(number: 97612, title: "fix(agent-f): Support independent Edition suggestion field decisions", state: "open", draft: true, review: "none", ci: "none", additions: 1250, deletions: 540, watchers: ["w1"]),
+            WatcherFixture(number: 97613, title: "fix(agent-f): Update dependency versions for stability", state: "open", draft: true, review: "approved", ci: "none", additions: 980, deletions: 320, watchers: ["w2", "w1", "w5", "w6", "w3", "w4"]),
+            WatcherFixture(number: 97614, title: "feat(agent-f): Introduce new logging features", state: "merged", draft: false, review: "review_required", ci: "pending", additions: 760, deletions: 200, watchers: ["w3"]),
+            WatcherFixture(number: 97615, title: "fix(agent-f): Resolve memory leak issue", state: "closed", draft: false, review: "approved", ci: "success", additions: 1400, deletions: 600, watchers: ["w2"]),
+            WatcherFixture(number: 97616, title: "chore(agent-f): Refactor codebase for better readability", state: "closed", draft: false, review: "changes_requested", ci: "none", additions: 500, deletions: 150, watchers: ["w4"]),
+        ])
+    }
+
+    /// Rows watched by none, one, two, four and six workers, with and without an author: the counts a row can show.
+    @MainActor
+    private static func watcherCountRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97620, title: "fix(agent-f): Add retry to the sync job", state: "open", draft: false, review: "none", ci: "none", additions: 120, deletions: 30, watchers: []),
+            WatcherFixture(number: 97621, title: "fix(agent-f): Tighten the cache key", state: "open", draft: false, review: "review_required", ci: "success", additions: 240, deletions: 80, watchers: ["w1"]),
+            WatcherFixture(number: 97622, title: "feat(agent-f): Add the export button", state: "open", draft: true, review: "approved", ci: "pending", additions: 410, deletions: 25, watchers: ["w1", "w2"], author: nil),
+            WatcherFixture(number: 97623, title: "fix(agent-f): Keep the session list in order", state: "merged", draft: false, review: "approved", ci: "success", additions: 66, deletions: 12, watchers: ["w1", "w2", "w3", "w4"]),
+            WatcherFixture(number: 97624, title: "chore(agent-f): Split the watcher module", state: "closed", draft: false, review: "changes_requested", ci: "failure", additions: 900, deletions: 640, watchers: ["w1", "w2", "w3", "w4", "w5", "w6"]),
+        ])
+    }
+
+    /// Each review state the row's glyph draws: approved, commented (with a stack, with none), waiting, changes requested,
+    /// and a stale commented row, which takes its look's icon colour instead of the bubble's grey.
+    @MainActor
+    private static func watcherReviewRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97630, title: "fix(agent-f): Approved and merged next", state: "open", draft: false, review: "approved", ci: "success", additions: 52, deletions: 9, watchers: ["w1"]),
+            WatcherFixture(number: 97631, title: "fix(agent-f): Reviewer left comments", state: "open", draft: false, review: "commented", ci: "success", additions: 88, deletions: 31, watchers: ["w2", "w3"]),
+            WatcherFixture(number: 97632, title: "fix(agent-f): Commented on by someone outside the team", state: "open", draft: false, review: "commented", ci: "none", additions: 14, deletions: 2, watchers: [], author: nil),
+            WatcherFixture(number: 97633, title: "fix(agent-f): Waiting for a review", state: "open", draft: false, review: "review_required", ci: "pending", additions: 300, deletions: 40, watchers: ["w4"]),
+            WatcherFixture(number: 97634, title: "fix(agent-f): Changes requested", state: "open", draft: false, review: "changes_requested", ci: "failure", additions: 210, deletions: 70, watchers: ["w5"]),
+            WatcherFixture(number: 97635, title: "fix(agent-f): Stale commented review", state: "open", draft: false, review: "commented", ci: "none", additions: 36, deletions: 4, watchers: ["w6"], stale: true),
+        ])
+    }
+
+    /// A row whose author and watcher title are both too long for the panel: the author truncates last, the title first.
+    @MainActor
+    private static func watcherSqueezeRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97640, title: "fix(agent-f): Keep the counters readable when the row is narrow", state: "open", draft: false, review: "commented", ci: "success", additions: 1250, deletions: 540, watchers: ["w1"], author: "example-author-with-a-long-login"),
+        ])
+    }
+
+    /// The fixtures as rows of a master with six workers. Each row is made alone, so the store's sort can't reorder them.
+    @MainActor
+    private static func watcherRows(_ fixtures: [WatcherFixture]) -> [PullRequestDisplayRow] {
         let sessions = [
-            TrackerSession(id: "m", title: "Ship version control", repoName: "Repo", agent: "claude", role: "master"),
+            TrackerSession(id: "m", title: "Ship watcher", repoName: "Repo", agent: "claude", role: "master"),
             TrackerSession(id: "w1", title: "Implement ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
             TrackerSession(id: "w2", title: "Fix UI Bug", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
             TrackerSession(id: "w3", title: "Review API", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
             TrackerSession(id: "w4", title: "Update Docs", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w5", title: "Refactor logs", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+            TrackerSession(id: "w6", title: "Write tests", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
         ]
-        // number, title, state, draft, review, ci, additions, deletions, comments, watcher
-        let specs: [(Int, String, String, Bool, String, String, Int, Int, Int, String?)] = [
-            (97612, "fix(agent-f): Support independent Edition suggestion field decisions", "open", false, "changes_requested", "failure", 1250, 540, 20, nil),
-            (97612, "fix(agent-f): Support independent Edition suggestion field decisions", "open", true, "none", "none", 1250, 540, 20, "w1"),
-            (97613, "fix(agent-f): Update dependency versions for stability", "merged", false, "approved", "none", 980, 320, 15, "w2"),
-            (97614, "feat(agent-f): Introduce new logging features", "open", true, "review_required", "success", 760, 200, 10, "w3"),
-            (97615, "fix(agent-f): Resolve memory leak issue", "merged", false, "approved", "success", 1400, 600, 25, "w2"),
-            (97616, "chore(agent-f): Refactor codebase for better readability", "closed", false, "changes_requested", "none", 500, 150, 8, "w4"),
-        ]
-        return specs.map { spec -> PullRequestDisplayRow in
+        return fixtures.map { fixture -> PullRequestDisplayRow in
+            var status: [String: Any] = [
+                "title": fixture.title, "url": "https://github.com/owner/repo/pull/\(fixture.number)", "state": fixture.state, "draft": fixture.draft,
+                "review": fixture.review, "ci": fixture.ci, "additions": fixture.additions, "deletions": fixture.deletions, "stale": fixture.stale,
+            ]
+            status["author"] = fixture.author
             let object: [String: Any] = [
-                "key": "github.com/owner/repo#\(spec.0)-\(spec.2)-\(spec.3)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": spec.0,
-                "watchers": (spec.9.map { [["session_id": $0, "added_at": "2026-10-20T00:00:00Z"]] }) ?? [],
-                "status": [
-                    "title": spec.1, "url": "https://github.com/owner/repo/pull/\(spec.0)", "state": spec.2, "draft": spec.3,
-                    "review": spec.4, "ci": spec.5, "additions": spec.6, "deletions": spec.7, "comments": spec.8, "stale": false,
-                ] as [String: Any],
+                "key": "github.com/owner/repo#\(fixture.number)-\(fixture.state)-\(fixture.draft)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": fixture.number,
+                "watchers": fixture.watchers.map { ["session_id": $0, "added_at": "2026-10-20T00:00:00Z"] },
+                "status": status,
             ]
             let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
             return PullRequestDisplayRow.make(from: [row], selectedSessionID: "m", sessions: sessions)[0]
@@ -411,11 +471,10 @@ enum RenderPreview {
 
     /// The design's rows at the panel's list width (480), `highlight` (an index) on the cursor, for diffing against the SVG.
     @MainActor
-    private static func versionControlRowsView(highlight: Int?) -> some View {
-        let rows = versionControlDesignRows()
-        return VStack(spacing: 0) {
+    private static func watcherRowsView(highlight: Int?, rows: [PullRequestDisplayRow]) -> some View {
+        VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                VersionControlRow(
+                WatcherRow(
                     row: row,
                     look: row.look(isCursor: index == highlight, areaFocused: true),
                     action: {}
@@ -445,7 +504,7 @@ enum RenderPreview {
         let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
         let display = PullRequestDisplayRow.make(from: [row], selectedSessionID: "m", sessions: sessions)[0]
         func item(highlighted: Bool) -> some View {
-            VersionControlRow(row: display, look: display.look(isCursor: highlighted, areaFocused: true), action: {})
+            WatcherRow(row: display, look: display.look(isCursor: highlighted, areaFocused: true), action: {})
                 .frame(width: 642 + 2 * Space.section)
         }
         return ZStack(alignment: .topLeading) {
@@ -456,14 +515,14 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    enum VersionControlPanelState { case design, empty, notice }
+    enum WatcherPanelState { case design, empty, notice }
 
     /// The panel's content over the dock's panel fill: the design's rows with the second on the cursor, the empty state, or a
     /// notice under the first rows.
     @MainActor
-    private static func versionControlContent(_ state: VersionControlPanelState, focused: Bool = true) -> some View {
-        let rows = versionControlDesignRows()
-        return VersionControlList(
+    private static func watcherContent(_ state: WatcherPanelState, focused: Bool = true) -> some View {
+        let rows = watcherDesignRows()
+        return WatcherList(
             rows: state == .empty ? [] : rows,
             cursorKey: rows[1].pullRequest.key,
             isUnwatched: state == .empty,
@@ -474,12 +533,12 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    /// The Version Control panel on its own, 480 x 300 at the Session Detail Dock's offset in its 482 x 305 canvas.
+    /// The Watcher panel on its own, 480 x 300 at the Session Detail Dock's offset in its 482 x 305 canvas.
     @MainActor
-    private static func versionControlPanelView(state: VersionControlPanelState = .design, isRefreshing: @escaping () -> Bool = { false }) -> NSView {
+    private static func watcherPanelView(state: WatcherPanelState = .design, isRefreshing: @escaping () -> Bool = { false }) -> NSView {
         let panel = DockShellView(
-            body: NSHostingView(rootView: versionControlContent(state)),
-            model: DockChromeModel(topBar: .versionControl, isRefreshing: isRefreshing)
+            body: NSHostingView(rootView: watcherContent(state)),
+            model: DockChromeModel(topBar: .watcher, isRefreshing: isRefreshing)
         )
         panel.frame = NSRect(x: 1, y: 5, width: 480, height: 300)
         let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 482, height: 305))
@@ -491,7 +550,7 @@ enum RenderPreview {
 
     enum DockSplitBottom { case artifacts, workerChat, workerLog(menuOpen: Bool = true, workers: Int = 4, cursor: Int = WorkerLogAction.allCases.count) }
 
-    /// The dock column as the shell lays it out, 20 in from a window-coloured canvas's edges: Version Control (unless
+    /// The dock column as the shell lays it out, 20 in from a window-coloured canvas's edges: Watcher (unless
     /// `top` is false) over the artifact list or the worker chat (unless `bottom` is nil), `focus` giving one panel the keys.
     @MainActor
     private static func dockSplitView(bottom: DockSplitBottom?, top: Bool = true, focus: DockPanel?) -> NSView {
@@ -501,8 +560,8 @@ enum RenderPreview {
     @MainActor
     private static func dockSplitCanvas(bottom: DockSplitBottom?, top: Bool = true, focus: DockPanel?) -> (canvas: NSView, column: DockColumnView) {
         let topShell = DockShellView(
-            body: NSHostingView(rootView: versionControlContent(.design, focused: focus == .top)),
-            model: DockChromeModel(topBar: .versionControl)
+            body: NSHostingView(rootView: watcherContent(.design, focused: focus == .top)),
+            model: DockChromeModel(topBar: .watcher)
         )
         let bottomShell: DockShellView
         switch bottom {
@@ -573,13 +632,13 @@ enum RenderPreview {
     }
 
 
-    /// The Version Control title bar at rest and while a refresh spins its mark: the presentation layers sampled over one
+    /// The Watcher title bar at rest and while a refresh spins its mark: the presentation layers sampled over one
     /// turn of the spinner (the offscreen snapshot can't see Core Animation's own animation), as a contact sheet in slow
-    /// motion and a GIF at real speed. Only runs when RENDER_ONLY names `version-control-refresh-spinner`.
+    /// motion and a GIF at real speed. Only runs when RENDER_ONLY names `watcher-refresh-spinner`.
     @MainActor
     private static func recordRefreshSpinner(to dir: String) {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RENDER_ONLY"]?.split(separator: ",").contains("version-control-refresh-spinner") == true else {
+        guard environment["RENDER_ONLY"]?.split(separator: ",").contains("watcher-refresh-spinner") == true else {
             return
         }
         let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 4)
@@ -588,7 +647,7 @@ enum RenderPreview {
         let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
         _ = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true)
         let size = CGSize(width: 482, height: 305)
-        let canvas = versionControlPanelView(isRefreshing: { store.isRefreshing })
+        let canvas = watcherPanelView(isRefreshing: { store.isRefreshing })
         canvas.frame = NSRect(origin: .zero, size: size)
         let window = HeadlessWindow(size: size, scale: scale)
         window.contentView = canvas
@@ -596,7 +655,7 @@ enum RenderPreview {
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         // The title and the mark beside it, from the top left.
         let header = CGRect(x: 121, y: 5, width: 240, height: 40)
-        RingPreview.write(captureLayers(of: canvas, scale: scale, rect: header), to: "\(dir)/version-control-header-rest.png")
+        RingPreview.write(captureLayers(of: canvas, scale: scale, rect: header), to: "\(dir)/watcher-header-rest.png")
 
         _ = store.handle(.refresh)
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
@@ -609,8 +668,8 @@ enum RenderPreview {
                 sheet.append(frame)
             }
         }
-        RingPreview.write(captureLayers(of: canvas, scale: scale), to: "\(dir)/version-control-panel-refreshing.png")
-        RingPreview.write(contactSheet(sheet, columns: 3, background: AppPalette.window.cgColor), to: "\(dir)/version-control-header-spinning-frames.png")
+        RingPreview.write(captureLayers(of: canvas, scale: scale), to: "\(dir)/watcher-panel-refreshing.png")
+        RingPreview.write(contactSheet(sheet, columns: 3, background: AppPalette.window.cgColor), to: "\(dir)/watcher-header-spinning-frames.png")
 
         let gifFrames = Int(WorkingSpinner.period / 0.04)
         let gifBegan = Date()
@@ -621,7 +680,7 @@ enum RenderPreview {
                 gif.append(frame)
             }
         }
-        RingPreview.writeGIF(gif, to: "\(dir)/version-control-header-spinning.gif")
+        RingPreview.writeGIF(gif, to: "\(dir)/watcher-header-spinning.gif")
         window.orderOut(nil)
     }
 

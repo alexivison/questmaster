@@ -23,14 +23,14 @@ final class ActionBarShellView: NSView {
     var onOpenArtifacts: (() -> Void)?
     var onOpenQuests: (() -> Void)?
     var onOpenWorkerChat: (() -> Void)?
-    var onOpenVersionControl: (() -> Void)?
+    var onOpenWatcher: (() -> Void)?
     var onToggleCaffeine: (() -> Void)?
     var onOpenSettings: (() -> Void)?
 
     init() {
         hostingView = ActionBarHostingView(rootView: ActionBarView(
             model: model,
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {}, onOpenVersionControl: {},
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {}, onOpenWatcher: {},
             onToggleCaffeine: {}, onOpenSettings: {}
         ))
         super.init(frame: .zero)
@@ -43,7 +43,7 @@ final class ActionBarShellView: NSView {
             onOpenArtifacts: { [weak self] in self?.onOpenArtifacts?() },
             onOpenQuests: { [weak self] in self?.onOpenQuests?() },
             onOpenWorkerChat: { [weak self] in self?.onOpenWorkerChat?() },
-            onOpenVersionControl: { [weak self] in self?.onOpenVersionControl?() },
+            onOpenWatcher: { [weak self] in self?.onOpenWatcher?() },
             onToggleCaffeine: { [weak self] in self?.onToggleCaffeine?() },
             onOpenSettings: { [weak self] in self?.onOpenSettings?() }
         )

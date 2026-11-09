@@ -38,7 +38,7 @@ struct ListKeysTests {
     private static let lists: [(name: String, capabilities: ListCapabilities)] = [
         ("tracker", .tracker),
         ("artifacts", .artifacts),
-        ("version control", .versionControl),
+        ("watcher", .watcher),
         ("quest log", .questLog),
     ]
 
@@ -61,7 +61,7 @@ struct ListKeysTests {
         expect(command(press("j", keyCode: 38), .questLog) == nil, "j is no list move in the Quest Log: its rows move with the modal keys")
         expect(command(press("j", [.control], keyCode: 38), .questLog) == nil, "⌃j is no list move in the Quest Log")
         expect(command(press("y", keyCode: 16), .tracker) == .copy, "y should copy in the tracker")
-        expect(command(press("y", keyCode: 16), .versionControl) == .copy, "y should copy in Version Control")
+        expect(command(press("y", keyCode: 16), .watcher) == .copy, "y should copy in Watcher")
         expect(command(press("y", keyCode: 16), .artifacts) == .copy, "y should copy in the artifact list")
         expect(command(press("y", keyCode: 16), .questLog) == .copy, "y should copy in the Quest Log")
         expect(command(press("x", keyCode: 7), .tracker) == nil, "x is unbound in the tracker")
@@ -80,7 +80,7 @@ struct ListKeysTests {
         expect(command(press("\r", keyCode: 36), .tracker) == .open, "Return should open the tracker's selection")
         expect(command(press(nil, keyCode: 76), .tracker) == .open, "keypad Enter should open the tracker's selection")
         expect(command(press("\r", keyCode: 36), .artifacts) == .open, "Return should open the artifact")
-        expect(command(press("\r", keyCode: 36), .versionControl) == .open, "Return should open the pull request")
+        expect(command(press("\r", keyCode: 36), .watcher) == .open, "Return should open the pull request")
         expect(command(press("\r", keyCode: 36), .questLog) == nil, "Return should do nothing in the Quest Log: e edits")
         expect(command(press(nil, keyCode: 76), .questLog) == nil, "keypad Enter should do nothing in the Quest Log")
         expect(command(press("\r", [.shift], keyCode: 36), .tracker) == nil, "shift-Return is no list key")
@@ -90,7 +90,7 @@ struct ListKeysTests {
     private static func externalOpenBelongsToArtifacts() {
         expect(command(press("o", keyCode: 31), .artifacts) == .openExternal, "o should open the highlighted artifact externally")
         expect(command(press("o", keyCode: 31), .tracker) == nil, "o should pass through the tracker")
-        expect(command(press("o", keyCode: 31), .versionControl) == nil, "o should pass through Version Control")
+        expect(command(press("o", keyCode: 31), .watcher) == nil, "o should pass through Watcher")
         expect(command(press("o", keyCode: 31), .questLog) == nil, "o should pass through the Quest Log")
     }
 
@@ -110,7 +110,7 @@ struct ListKeysTests {
         expect(command(press("]", keyCode: 30), .workerLogFeed) == .nextTab, "] should step the Worker Log's tabs")
         expect(command(press("[", keyCode: 33), .workerLogMenu) == .previousTab, "[ should step the Worker Log's tabs with the dropdown open")
         expect(command(press("[", keyCode: 33), .tracker) == nil, "the tracker has no tabs, so [ does nothing")
-        expect(command(press("]", keyCode: 30), .versionControl) == nil, "Version Control has no tabs")
+        expect(command(press("]", keyCode: 30), .watcher) == nil, "Watcher has no tabs")
         expect(command(press("]", keyCode: 30), .questLog) == nil, "the Quest Log has no tabs")
         expect(command(press("[", [.control], keyCode: 33), .artifacts) == nil, "⌃[ is Esc, not a tab")
     }
@@ -119,7 +119,7 @@ struct ListKeysTests {
         expect(command(press("e", keyCode: 14), .tracker) == .edit, "e should edit the tracker's session")
         expect(command(press("e", keyCode: 14), .questLog) == .edit, "e should edit the Quest Log's quest")
         expect(command(press("e", keyCode: 14), .artifacts) == nil, "e does nothing in the artifact list")
-        expect(command(press("e", keyCode: 14), .versionControl) == nil, "e does nothing in Version Control")
+        expect(command(press("e", keyCode: 14), .watcher) == nil, "e does nothing in Watcher")
 
         expect(command(press("E", [.shift], keyCode: 14), .tracker) == .editRepo, "E should edit the tracker's repo")
         expect(command(press("E", [.shift], keyCode: 14), .questLog) == nil, "E is no Quest Log key")
@@ -127,19 +127,19 @@ struct ListKeysTests {
         expect(command(press("d", keyCode: 2), .tracker) == .delete, "d should delete in the tracker")
         expect(command(press("d", keyCode: 2), .artifacts) == .delete, "d should delete an artifact")
         expect(command(press("d", keyCode: 2), .questLog) == .delete, "d should delete a quest")
-        expect(command(press("d", keyCode: 2), .versionControl) == nil, "d does nothing in Version Control")
+        expect(command(press("d", keyCode: 2), .watcher) == nil, "d does nothing in Watcher")
         expect(command(press("d", [.control], keyCode: 2), .artifacts) == .halfPage(1), "⌃d is half a page, not delete")
 
         expect(command(press(" ", keyCode: 49), .artifacts) == .toggleMark, "Space should mark an artifact")
         expect(command(press(" ", keyCode: 49), .questLog) == .toggleMark, "Space should mark a quest")
         expect(command(press(" ", keyCode: 49), .tracker) == nil, "Space does nothing in the tracker")
-        expect(command(press(" ", keyCode: 49), .versionControl) == nil, "Space does nothing in Version Control")
+        expect(command(press(" ", keyCode: 49), .watcher) == nil, "Space does nothing in Watcher")
 
         expect(command(press("/", keyCode: 44), .artifacts) == .focusFilter, "/ should focus the artifact filter")
         expect(command(press("/", keyCode: 44), .questLog) == .focusFilter, "/ should focus the Quest Log filter")
         expect(command(press("/", keyCode: 44), .tracker) == nil, "/ does nothing in the tracker")
 
-        expect(command(press("r", keyCode: 15), .versionControl) == .refresh, "r should refresh Version Control")
+        expect(command(press("r", keyCode: 15), .watcher) == .refresh, "r should refresh Watcher")
         expect(command(press("r", keyCode: 15), .tracker) == nil, "r does nothing in the tracker")
         expect(command(press("r", keyCode: 15), .artifacts) == nil, "r does nothing in the artifact list")
 

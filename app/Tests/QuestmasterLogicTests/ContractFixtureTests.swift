@@ -123,7 +123,7 @@ struct ContractFixtureTests {
         let wake = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_wake_request.json")
         expect(wake.method == "pr.refresh" && wake.data.sessionID == nil && wake.data.wait == false, "pr.refresh wake did not decode")
         expect(wake.data.keys == ["github.com/owner/repo#42"], "pr.refresh wake key did not decode")
-        // The Version Control dock's r: its own request builder must send exactly this payload.
+        // The Watcher dock's r: its own request builder must send exactly this payload.
         let whole = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_session_request.json")
         expect(whole.method == "pr.refresh" && whole.data.sessionID == "qm-demo" && whole.data.keys == nil && whole.data.wait == true, "pr.refresh session request did not decode")
         let store = PullRequestStore()

@@ -73,7 +73,7 @@ final class ShellSnapshotRenderer {
             dockCoordinator.state.dockPreferredFraction,
             animated: shouldAnimateDockLayout
         )
-        // The column is as wide as the bottom panel wants it; Version Control alone takes its own width.
+        // The column is as wide as the bottom panel wants it; Watcher alone takes its own width.
         splitView()?.setDockWidthMode(
             panels.bottom ? dockView()?.currentWidthMode ?? .standard : .panel,
             animated: shouldAnimateDockLayout
@@ -89,7 +89,7 @@ final class ShellSnapshotRenderer {
     }
 
     /// A new artifact in the viewed session opens in the bottom panel (never a session switch: `ArtifactDisplayState`),
-    /// but not over the worker chat (`DockState.openNewArtifact`); Version Control stays as it was.
+    /// but not over the worker chat (`DockState.openNewArtifact`); Watcher stays as it was.
     private func openArtifactDockIfActive(_ artifact: ArtifactReference) -> Bool {
         guard appIsActive(), dockCoordinator.state.openNewArtifact(artifact.id) else {
             return false

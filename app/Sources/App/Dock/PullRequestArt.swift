@@ -1,24 +1,28 @@
 import SwiftUI
 
-/// Path data copied from `Session Detail Dock.svg` (the Version Control panel) in its own coordinates, one icon per
+/// Path data copied from `Session Detail Dock.svg` (the Watcher panel) in its own coordinates, one icon per
 /// design glyph: the four git states and the three review rings. Each icon's `origin` is its 15 x 15 box's top-left
 /// corner in the SVG, so the paths parse shifted into the box. The git icons are 1pt round-capped strokes; the rings are
-/// fills. Colours stay with the view: each icon is one colour in the design.
+/// fills. The comment bubble is the fourth icon of `PR Status.svg`, drawn in a 20pt box and scaled into the slot.
+/// Colours stay with the view: each icon is one colour in the design.
 struct PullRequestIcon {
     typealias Piece = (origin: CGPoint, d: String)
 
     static let side: CGFloat = 15
+    /// The box `PR Status.svg` draws its glyphs in; its paths scale by `side / statusBoxSide` to the slot.
+    static let statusBoxSide: CGFloat = 20
 
     let isStroked: Bool
     let paths: [Path]
 
-    private init(isStroked: Bool, pieces: [Piece]) {
+    private init(isStroked: Bool, pieces: [Piece], scale: CGFloat = 1) {
         self.isStroked = isStroked
-        paths = pieces.map { SVGPath.parse($0.d, dx: -$0.origin.x, dy: -$0.origin.y) }
+        let transform = CGAffineTransform(scaleX: scale, y: scale)
+        paths = pieces.map { SVGPath.parse($0.d, dx: -$0.origin.x, dy: -$0.origin.y).applying(transform) }
     }
 
-    private init(isStroked: Bool, origin: CGPoint, _ data: [String]) {
-        self.init(isStroked: isStroked, pieces: data.map { (origin, $0) })
+    private init(isStroked: Bool, origin: CGPoint, scale: CGFloat = 1, _ data: [String]) {
+        self.init(isStroked: isStroked, pieces: data.map { (origin, $0) }, scale: scale)
     }
 
     static let gitOpen = PullRequestIcon(isStroked: true, origin: CGPoint(x: 26, y: 62), [
@@ -53,6 +57,11 @@ struct PullRequestIcon {
     ])
     static let ringWaiting = PullRequestIcon(isStroked: false, origin: CGPoint(x: 51, y: 104), [
         "M58.3664 118.993C62.4324 118.993 65.7328 115.634 65.7328 111.496C65.7328 107.359 62.4324 104 58.3664 104C54.3004 104 51 107.359 51 111.496C51 115.634 54.3004 118.993 58.3664 118.993ZM58.3664 117.743C54.9721 117.743 52.2277 114.951 52.2277 111.496C52.2277 108.042 54.9721 105.249 58.3664 105.249C61.7607 105.249 64.505 108.042 64.505 111.496C64.505 114.951 61.7607 117.743 58.3664 117.743Z",
+    ])
+    /// The speech bubble a commented review shows, from `PR Status.svg`'s fourth icon: one filled path, drawn in the neutral
+    /// grey `AppPalette.controlBorder` that the design gives it, in place of the waiting ring.
+    static let comment = PullRequestIcon(isStroked: false, origin: CGPoint(x: 117, y: 21), scale: side / statusBoxSide, [
+        "M122.489 41.0001C122.926 41.0001 123.229 40.7634 123.774 40.2717L126.853 37.4771H132.582C135.242 37.4771 136.67 35.9751 136.67 33.3077V26.3346C136.67 23.6673 135.242 22.1653 132.582 22.1653H121.087C118.428 22.1653 117 23.6582 117 26.3346V33.3077C117 35.9841 118.428 37.4771 121.087 37.4771H121.516V39.8439C121.516 40.5449 121.864 41.0001 122.489 41.0001ZM122.855 39.3342V36.6941C122.855 36.2026 122.667 36.0114 122.185 36.0114H121.087C119.285 36.0114 118.437 35.0738 118.437 33.2987V26.3346C118.437 24.5595 119.285 23.6309 121.087 23.6309H132.582C134.376 23.6309 135.233 24.5595 135.233 26.3346V33.2987C135.233 35.0738 134.376 36.0114 132.582 36.0114H126.799C126.299 36.0114 126.05 36.0842 125.71 36.4393L122.855 39.3342Z",
     ])
     static let ringApproved = PullRequestIcon(isStroked: false, origin: CGPoint(x: 51, y: 146), [
         "M58.3664 160.993C62.4324 160.993 65.7328 157.634 65.7328 153.496C65.7328 149.359 62.4324 146 58.3664 146C54.3004 146 51 149.359 51 153.496C51 157.634 54.3004 160.993 58.3664 160.993ZM58.3664 159.743C54.9721 159.743 52.2277 156.951 52.2277 153.496C52.2277 150.042 54.9721 147.249 58.3664 147.249C61.7607 147.249 64.505 150.042 64.505 153.496C64.505 156.951 61.7607 159.743 58.3664 159.743Z",

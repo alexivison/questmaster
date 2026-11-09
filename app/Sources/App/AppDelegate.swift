@@ -120,7 +120,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             actionBar: { [weak self] in self?.shellHandles?.actionBar },
             trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },
             dockView: { [weak self] in self?.shellHandles?.dockView },
-            versionControlPane: { [weak self] in self?.shellHandles?.versionControlPane },
+            watcherPane: { [weak self] in self?.shellHandles?.watcherPane },
             terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
             modalHost: { [weak self] in self?.shellHandles?.modalHost },
             updateDockTabs: { [weak self] in self?.updateDockTabs() }
@@ -172,7 +172,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleDock: #selector(toggleDock),
                 toggleQuestLog: #selector(toggleQuestLog),
                 toggleWorkerChatDock: #selector(toggleWorkerChatDock),
-                toggleVersionControlDock: #selector(toggleVersionControlDock),
+                toggleWatcherDock: #selector(toggleWatcherDock),
                 focusDockTop: #selector(focusDockTopPanel),
                 focusDockBottom: #selector(focusDockBottomPanel),
                 widenDock: #selector(widenDock),
@@ -195,7 +195,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             ),
             focusDockTop: dockPanelKeyAction(.top),
             focusDockBottom: dockPanelKeyAction(.bottom),
-            toggleVersionControlDock: .anywhere { [weak self] in self?.toggleVersionControlDock() }
+            toggleWatcherDock: .anywhere { [weak self] in self?.toggleWatcherDock() }
         ))
         let serveMutationClient = UnixSocketMutationClient(connection: daemonConnection)
         mutationClient = serveMutationClient
@@ -242,8 +242,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
         }
         handles.dockView.onFocusRequested = { [weak self] in self?.focusCoordinator.focusDockPanel(.bottom) }
-        handles.versionControlPane.onFocusRequested = { [weak self] in self?.focusCoordinator.focusDockPanel(.top) }
-        handles.versionControlPane.onControlDirection = { [weak self] direction in
+        handles.watcherPane.onFocusRequested = { [weak self] in self?.focusCoordinator.focusDockPanel(.top) }
+        handles.watcherPane.onControlDirection = { [weak self] direction in
             self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
         }
         handles.actionBar.onNewSession = { [weak self] in self?.openNewSession() }
@@ -257,11 +257,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.modalHost.onEmpty = { [weak self] in self?.focusCoordinator.focusCurrentRegion() }
         handles.modalHost.onDrawingChange = { [weak self] in self?.focusCoordinator.updateRegionKeys() }
         handles.actionBar.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat) }
-        handles.actionBar.onOpenVersionControl = { [weak self] in self?.toggleVersionControlDock() }
-        handles.versionControlPane.onPullRequestEffect = { [weak self] effect in self?.runPullRequestEffect(effect) }
+        handles.actionBar.onOpenWatcher = { [weak self] in self?.toggleWatcherDock() }
+        handles.watcherPane.onPullRequestEffect = { [weak self] effect in self?.runPullRequestEffect(effect) }
         handles.actionBar.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.actionBar.onOpenSettings = { [weak self] in self?.openSettings() }
-        handles.topDockShell.onHideDock = { [weak self] in self?.hideVersionControl() }
+        handles.topDockShell.onHideDock = { [weak self] in self?.hideWatcher() }
         handles.topDockShell.onDismissLogFilter = { [weak self] in self?.workerChatStore.closeMenu() }
         handles.bottomDockShell.onHideDock = { [weak self] in self?.hideBottomDock() }
         handles.bottomDockShell.onToggleLogFilter = { [weak self] in
@@ -655,13 +655,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Shows or hides the top panel without touching the bottom one. Showing it takes the keys.
-    @objc private func toggleVersionControlDock() {
+    @objc private func toggleWatcherDock() {
         // Also reached from MenuController's key monitor, which runs before menu validation.
         guard navigation.appCommandRoute(.app) == .allowed else {
             return
         }
         if dockCoordinator.state.topVisible {
-            hideVersionControl()
+            hideWatcher()
             return
         }
         guard runtimeStore.currentTerminalSessionID != nil else {
@@ -818,14 +818,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         focusCoordinator.applyNavigationOutcome(outcome)
     }
 
-    /// Hides the bottom panel only; Version Control stays, and fills the dock. If the bottom panel had the keys they go
+    /// Hides the bottom panel only; Watcher stays, and fills the dock. If the bottom panel had the keys they go
     /// to the top panel, or to the terminal when it was the dock's last one (`NavigationStore.settleDock`).
     private func hideBottomDock() {
         dockCoordinator.state.bottomVisible = false
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
     }
 
-    private func hideVersionControl() {
+    private func hideWatcher() {
         dockCoordinator.state.topVisible = false
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
     }
