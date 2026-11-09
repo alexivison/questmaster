@@ -301,17 +301,17 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		}
 
 		if err := s.prepareCreation(ctx, handle); err != nil {
-			return s.startRollbackError(ctx, sessionID, false, err)
+			return s.startRollbackError(ctx, sessionID, false, handle.Label(), err)
 		}
 		pane, err := s.Client.NewSession(ctx, sessionID, "", cwd)
 		if err != nil {
-			return s.startRollbackError(ctx, sessionID, false, fmt.Errorf("create tmux session: %w", err))
+			return s.startRollbackError(ctx, sessionID, false, handle.Label(), fmt.Errorf("create tmux session: %w", err))
 		}
 		if err := s.Store.Update(sessionID, func(m *state.Manifest) { m.TmuxServer = state.TmuxServer(handle.Label()) }); err != nil {
-			return s.startRollbackError(ctx, sessionID, true, fmt.Errorf("record tmux server: %w", err))
+			return s.startRollbackError(ctx, sessionID, true, handle.Label(), fmt.Errorf("record tmux server: %w", err))
 		}
 		if err := s.verifyCreationOwnership(ctx, handle); err != nil {
-			return s.startRollbackError(ctx, sessionID, true, err)
+			return s.startRollbackError(ctx, sessionID, true, handle.Label(), err)
 		}
 
 		if err := s.launchSession(ctx, launchConfig{
@@ -328,7 +328,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			agents:      launchAgents,
 			agentResume: agentResume,
 		}); err != nil {
-			return s.startRollbackError(ctx, sessionID, true, err)
+			return s.startRollbackError(ctx, sessionID, true, handle.Label(), err)
 		}
 
 		result = StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd, Master: role == roleMaster}
@@ -367,20 +367,25 @@ func workerParentBrief(parentID, brief string) string {
 
 // startRollbackError undoes a failed Start. created is true once this Start's
 // new-session succeeded; only then is the tmux session its own to kill.
-func (s *Service) startRollbackError(ctx context.Context, sessionID string, created bool, cause error) error {
-	if rollbackErr := s.rollbackStartedSession(ctx, sessionID, created); rollbackErr != nil {
+func (s *Service) startRollbackError(ctx context.Context, sessionID string, created bool, serverLabel string, cause error) error {
+	if rollbackErr := s.rollbackStartedSession(ctx, sessionID, created, serverLabel); rollbackErr != nil {
 		return fmt.Errorf("%w (rollback failed: %v)", cause, rollbackErr)
 	}
 	return cause
 }
 
-func (s *Service) rollbackStartedSession(ctx context.Context, sessionID string, created bool) error {
+func (s *Service) rollbackStartedSession(ctx context.Context, sessionID string, created bool, serverLabel string) error {
 	var errs []error
 	if created && s.Client != nil {
 		ctx, cancel := rollbackContext(ctx)
 		defer cancel()
 		if err := s.Client.KillSession(ctx, sessionID); err != nil {
-			return fmt.Errorf("kill partial tmux session: %w", err)
+			errs = append(errs, fmt.Errorf("kill partial tmux session: %w", err))
+			// The container survived; keep its manifest reachable on its server.
+			if recordErr := s.Store.Update(sessionID, func(m *state.Manifest) { m.TmuxServer = state.TmuxServer(serverLabel) }); recordErr != nil {
+				errs = append(errs, fmt.Errorf("record live tmux server: %w", recordErr))
+			}
+			return errors.Join(errs...)
 		}
 	}
 	if _, err := s.cleanupStartedSession(sessionID); err != nil {

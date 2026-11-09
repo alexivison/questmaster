@@ -282,23 +282,31 @@ func (r *Router) Invalidate() {
 	r.mu.Unlock()
 }
 
-// LiveIDs returns the union of observed session names only when every server
-// answered. Destructive callers must never treat unavailable as empty.
-func (r *Router) LiveIDs(ctx context.Context) (map[string]bool, error) {
-	// Destructive cleanup gets a fresh label set even when this router was
-	// constructed before another process created a development session.
+// CompleteInventory refreshes persisted labels and requires every server to
+// answer. Incomplete discovery must never justify absence or clean ownership.
+func (r *Router) CompleteInventory(ctx context.Context) (Inventory, error) {
 	r.refreshPersistedLabels()
 	r.mu.Lock()
 	recordErr := r.labelRecordErr
 	r.mu.Unlock()
 	if recordErr != nil {
-		return nil, recordErr
+		return Inventory{Servers: []ServerInventory{}, Rows: []Row{}}, recordErr
 	}
 	inv := r.Inventory(ctx)
 	for _, server := range inv.Servers {
 		if server.Outcome == Unavailable {
-			return nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+			return inv, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
 		}
+	}
+	return inv, nil
+}
+
+// LiveIDs returns the union of observed session names only when every server
+// answered. Destructive callers must never treat unavailable as empty.
+func (r *Router) LiveIDs(ctx context.Context) (map[string]bool, error) {
+	inv, err := r.CompleteInventory(ctx)
+	if err != nil {
+		return nil, err
 	}
 	live := make(map[string]bool, len(inv.Rows))
 	for _, row := range inv.Rows {

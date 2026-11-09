@@ -89,6 +89,7 @@ func (r *Router) Routes(ctx context.Context, ids []string, liveOnly bool) ([]Rou
 // unavailable servers and corrupt ownership never count as zero.
 type Audit struct {
 	Gate              string            `json:"gate"`
+	InventoryError    string            `json:"inventory_error,omitempty"`
 	Servers           []ServerInventory `json:"servers"`
 	LiveSessions      []Row             `json:"live_sessions"`
 	LiveLegacyManaged []string          `json:"live_legacy_managed"`
@@ -99,12 +100,11 @@ type Audit struct {
 }
 
 func (r *Router) Audit(ctx context.Context) (Audit, error) {
-	inv := r.Inventory(ctx)
+	inv, inventoryErr := r.CompleteInventory(ctx)
 	a := Audit{Gate: "ready", Servers: inv.Servers, LiveSessions: inv.Rows, LiveLegacyManaged: []string{}, Orphans: []Row{}, Duplicates: []string{}, UnknownOwnership: []string{}, CorruptManifests: []string{}}
-	for _, server := range inv.Servers {
-		if server.Outcome == Unavailable {
-			a.Gate = "unknown"
-		}
+	if inventoryErr != nil {
+		a.Gate = "unknown"
+		a.InventoryError = inventoryErr.Error()
 	}
 	entries, err := os.ReadDir(r.store.Root())
 	if err != nil && !errors.Is(err, os.ErrNotExist) {

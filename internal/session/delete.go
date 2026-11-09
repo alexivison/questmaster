@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/alexivison/questmaster/internal/state"
-	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // Delete removes a session and its workers, returning the watches actually
@@ -62,11 +61,9 @@ func (s *Service) killRecordedOrOrphan(ctx context.Context, sessionID string) er
 	}
 	router := s.router()
 	router.Invalidate() // a cached absence cannot justify deleting an orphan
-	inventory := router.Inventory(ctx)
-	for _, server := range inventory.Servers {
-		if server.Outcome == tmuxroute.Unavailable {
-			return fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
-		}
+	inventory, err := router.CompleteInventory(ctx)
+	if err != nil {
+		return err
 	}
 	for _, row := range inventory.Rows {
 		if row.ID != sessionID {
