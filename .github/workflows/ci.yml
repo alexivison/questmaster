@@ -85,6 +85,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache SwiftPM binary artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm/artifacts
+          key: ${{ runner.os }}-swiftpm-artifacts-${{ hashFiles('app/Package.swift', 'app/Package.resolved') }}
+
+      - name: Resolve Swift packages
+        run: |
+          for attempt in 1 2 3; do
+            if swift package resolve --package-path app; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Swift package resolution failed after 3 attempts"
+              exit 1
+            fi
+            echo "Swift package resolution attempt $attempt failed; retrying in $((attempt * 10)) seconds"
+            sleep "$((attempt * 10))"
+          done
+
+      - name: Locate downloaded GhosttyKit artifact (temporary probe)
+        run: find "$HOME/Library/Caches" -iname '*ghosttykit*'
+
       - name: Build app
         run: swift build -c release --package-path app --product Questmaster
 
@@ -110,7 +133,30 @@ jobs:
       - name: Install script tests
         run: app/Scripts/test-install.sh
 
-      - name: Resolve and build Swift packages
+      - name: Cache SwiftPM binary artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm/artifacts
+          key: ${{ runner.os }}-swiftpm-artifacts-${{ hashFiles('app/Package.swift', 'app/Package.resolved') }}
+
+      - name: Resolve Swift packages
+        run: |
+          for attempt in 1 2 3; do
+            if swift package resolve --package-path app; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Swift package resolution failed after 3 attempts"
+              exit 1
+            fi
+            echo "Swift package resolution attempt $attempt failed; retrying in $((attempt * 10)) seconds"
+            sleep "$((attempt * 10))"
+          done
+
+      - name: Locate downloaded GhosttyKit artifact (temporary probe)
+        run: find "$HOME/Library/Caches" -iname '*ghosttykit*'
+
+      - name: Build Swift packages
         run: swift build -c release --package-path app --product Questmaster
 
       # HOME, the state root and the install path are all temporary, as on a developer's machine:
