@@ -371,6 +371,16 @@ again where it was when the keys come back.
   a child). A panel appearing or going away fades and slides 10pt while the other grows or shrinks, over the standard
   motion step and only once (`DockPanelMotion`; Reduce Motion skips it, see "Motion"): never an animation that keeps
   running, as the terminal shares the main thread.
+- Watcher's rows list the pull requests the attached session watches. Core decides what a row shows
+  (`PullRequestDisplayRow`); `WatcherRow` only draws it. The first line is the git state, `#number` and the title. The
+  second line is the review glyph, `CI`, the diff counter, then the author and the watchers at the right edge. The review
+  glyph is a check ring (approved), an empty amber ring (waiting, or no review yet), a red X ring (changes requested) or
+  the grey speech bubble (a commented review, `PullRequestArt.swift`). The author is the login the backend sends, which
+  it omits for the viewer's own pull requests, and an inaccessible row shows none. A hairline divider sits between the
+  author and the watchers only when both show. One watcher shows its logo and title. Two or more
+  show their logos, up to four, overlapping by 5pt, with `+n` for the rest; the tooltip names every watcher. Under a
+  squeeze the watcher title truncates first, then the author, and the counters never truncate. A stale or inaccessible
+  row draws its semantic colours in the look's icon colour.
 
 **Modal keys.** Every in-window modal takes its keys the same way: its focused field's own keys first (a picker's, the
 path's, the prompt's), then `ModalKeys.command` (`Core/Navigation/ModalKeys.swift`). A sheet states whether it has text
