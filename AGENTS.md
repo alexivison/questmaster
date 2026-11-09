@@ -81,6 +81,10 @@ label override is validated at daemon start, carried into the daemon's
 environment and identity, and passed to managed dev panes so CLI spawns stay
 on the same label. A build that
 predates two-server routing must not run `prune` while named sessions exist.
+Commands run for or by a dev session must use `$QUESTMASTER_BIN` (or the dev shim directory first on
+`PATH`), never the installed `questmaster`/`qm`: an installed build that predates routing looks only on the
+default server and reports a dev session's master as not running. A shell that carries the real
+install's `QUESTMASTER_BIN` passes it to the panes it creates, so unset it before running a dev `qm` by hand.
 
 ## Go backend architecture
 
