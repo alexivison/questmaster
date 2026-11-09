@@ -112,7 +112,10 @@ struct ContractFixtureTests {
         expect(status?.updatedAt == "2026-06-19T04:20:00Z" && status?.changedAt == "2026-06-19T04:20:00Z", "pull_requests timestamps did not decode")
         expect(status?.additions == 0 && status?.deletions == 0, "pull_requests counters did not decode")
         expect(status?.review == .approved && status?.ci == .success && status?.stale == false, "pull_requests looks did not decode")
-        expect(pulls.data.last?.status?.inaccessibleReason == .saml && pulls.data.last?.status?.state == nil, "pull_requests inaccessible status did not decode")
+        expect(status?.author == nil, "pull_requests author should be omitted for the viewer's own PR")
+        expect(pulls.data[1].status?.inaccessibleReason == .saml && pulls.data[1].status?.state == nil, "pull_requests inaccessible status did not decode")
+        let commented = pulls.data.last?.status
+        expect(commented?.review == .commented && commented?.author == "example-author" && commented?.ci == .pending, "pull_requests commented review and author did not decode")
 
         let request = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_request.json")
         expect(request.method == "pr.refresh" && request.data.sessionID == "qm-demo", "pr.refresh request did not decode")

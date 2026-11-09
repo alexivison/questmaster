@@ -57,7 +57,7 @@ struct PullRequestModelsTests {
     private static func looksStaySeparate() {
         let reviews: [(String, ReviewLook)] = [
             ("approved", .approved), ("changes_requested", .changesRequested),
-            ("review_required", .reviewRequired), ("none", .none), ("future", .none),
+            ("review_required", .reviewRequired), ("commented", .none), ("none", .none), ("future", .none),
         ]
         for (raw, look) in reviews {
             expect(display(row(1, status: status(review: raw))).reviewLook == look, "review look for \(raw)")
