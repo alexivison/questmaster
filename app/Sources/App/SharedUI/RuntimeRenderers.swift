@@ -5,6 +5,7 @@ enum AppSymbolStyle {
     static let weight: NSFont.Weight = .regular
 
     private static let symbolCache = NSCache<NSString, NSImage>()
+    private static let resourceCache = NSCache<NSString, NSImage>()
 
     static func image(
         name: String,
@@ -46,6 +47,9 @@ enum AppSymbolStyle {
         return tinted
     }
 
+    /// A bundled file drawn aspect-fit on a canvas, tinted when `tintColor` is set. The result is cached by file, canvas
+    /// and tint, so a view that asks for it on every redraw (a list row's logo) reads the file and parses the SVG once.
+    /// A file that is missing is not cached: the caller draws its fallback, and the lookup stays cheap.
     static func resourceImage(
         name: String,
         fileExtension: String,
@@ -53,6 +57,12 @@ enum AppSymbolStyle {
         canvasSize: NSSize,
         tintColor: NSColor? = nil
     ) -> NSImage? {
+        let tintKey = tintColor.map { String($0.hashValue) } ?? "none"
+        let cacheKey = "\(subdirectory ?? "")/\(name).\(fileExtension)|\(canvasSize.width)x\(canvasSize.height)|\(tintKey)" as NSString
+        if let cached = resourceCache.object(forKey: cacheKey) {
+            return cached
+        }
+
         let bundle = resourceBundle()
         let url = bundle.url(forResource: name, withExtension: fileExtension, subdirectory: subdirectory)
             ?? bundle.url(forResource: name, withExtension: fileExtension)
@@ -80,6 +90,7 @@ enum AppSymbolStyle {
         image.isTemplate = false
         image.cacheMode = .never
         image.alignmentRect = NSRect(origin: .zero, size: canvasSize)
+        resourceCache.setObject(image, forKey: cacheKey)
         return image
     }
 

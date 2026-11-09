@@ -173,6 +173,7 @@ enum LogicSelfTests {
         ("testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange", testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange),
         ("testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace", testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace),
         ("testWorkerChatNameStartsPastLogoInAnyChatFont", testWorkerChatNameStartsPastLogoInAnyChatFont),
+        ("testAgentLogosAreLoadedOncePerSideAndTint", testAgentLogosAreLoadedOncePerSideAndTint),
         ("testDockPaneRoutesTheWorkerLogFilterKeys", testDockPaneRoutesTheWorkerLogFilterKeys),
         ("testWorkerLogFilterKeepsItsDesignedSize", testWorkerLogFilterKeepsItsDesignedSize),
         ("testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons", testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons),
@@ -7096,6 +7097,34 @@ enum LogicSelfTests {
             let nameX = try nameInkX(chatFont: font.chat, nameFont: font.name)
             try expect(abs(nameX - expectedNameX) <= 1, "the name should start at x \(expectedNameX) with a \(font.label) chat font, got \(nameX)")
         }
+    }
+
+    /// A list row asks for its logo on every redraw, so the same agent, side and tint must come back as the same image,
+    /// read and parsed once. A different side or tint is a different image: a cache that ignored either would draw a
+    /// plate's logo at the tab's size, or in the wrong colour.
+    private static func testAgentLogosAreLoadedOncePerSideAndTint() throws {
+        func logo(_ agent: String, _ side: CGFloat, _ tint: NSColor) throws -> NSImage {
+            guard let image = TrackerAgentMark.image(for: agent, side: side, tint: tint) else {
+                throw TestFailure("\(agent) should have a logo")
+            }
+            return image
+        }
+        let side = PullRequestIcon.side
+        let tint = AppPalette.agentMarkTint
+        for agent in ["claude", "codex", "opencode", "pi"] {
+            let first = try logo(agent, side, tint)
+            try expect(first === (try logo(agent, side, tint)), "\(agent): the same side and tint should return the cached image")
+
+            let larger = try logo(agent, side + 5, tint)
+            try expect(larger !== first, "\(agent): another side should be another image")
+            try expect(larger.size == NSSize(width: side + 5, height: side + 5), "\(agent): the larger logo should keep its own canvas")
+            try expect(first.size == NSSize(width: side, height: side), "\(agent): the first logo should keep its canvas")
+        }
+
+        // Codex and OpenCode are tinted files, so their colour is part of the key. Claude and Pi draw in their own colours.
+        let grey = try logo("codex", side, AppPalette.agentMarkTint)
+        let muted = try logo("codex", side, AppPalette.muted)
+        try expect(grey !== muted, "codex: another tint should be another image")
     }
 
     /// The x in points of the first ink right of the logo column, drawn by the line view alone. The name is one
