@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/alexivison/questmaster/internal/state"
@@ -45,6 +47,18 @@ func TestTmuxAuditGateUnknownWhenServerUnavailable(t *testing.T) {
 	}
 	if result.Gate != "unknown" {
 		t.Fatalf("CLI gate = %q", result.Gate)
+	}
+	want, err := os.ReadFile(filepath.Join("testdata", "tmux-audit-unavailable.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got bytes.Buffer
+	if err := json.Indent(&got, bytes.TrimSpace(output.Bytes()), "", "  "); err != nil {
+		t.Fatal(err)
+	}
+	got.WriteByte('\n')
+	if !bytes.Equal(got.Bytes(), want) {
+		t.Fatalf("audit JSON =\n%s\nwant:\n%s", got.Bytes(), want)
 	}
 }
 

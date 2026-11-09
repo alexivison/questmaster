@@ -70,6 +70,29 @@ func collectStatusRouted(ctx context.Context, store *state.Store, client *tmux.C
 			return statusJSONOutput{}, err
 		}
 		client = handle.Client()
+	} else {
+		inventory, err := router.CompleteInventory(ctx)
+		if err != nil {
+			return statusJSONOutput{}, err
+		}
+		var server string
+		for _, row := range inventory.Rows {
+			if row.ID != sessionID {
+				continue
+			}
+			if server != "" {
+				return statusJSONOutput{}, fmt.Errorf("session %s exists on multiple tmux servers", sessionID)
+			}
+			server = row.Label
+		}
+		if server == "" {
+			return statusJSONOutput{}, fmt.Errorf("read manifest: %w", readErr)
+		}
+		handle, err := router.Route(state.Manifest{TmuxServer: state.TmuxServer(server)})
+		if err != nil {
+			return statusJSONOutput{}, err
+		}
+		client = handle.Client()
 	}
 	isLive, liveErr := client.HasSession(ctx, sessionID)
 	if readErr != nil && !isLive && liveErr == nil {

@@ -1,0 +1,21 @@
+{
+  "gate": "unknown",
+  "inventory_error": "tmux server questmaster unavailable: list sessions: context deadline exceeded",
+  "servers": [
+    {
+      "server": "default",
+      "outcome": "absent"
+    },
+    {
+      "server": "questmaster",
+      "outcome": "unavailable",
+      "error": "list sessions: context deadline exceeded"
+    }
+  ],
+  "live_sessions": [],
+  "live_legacy_managed": [],
+  "orphans": [],
+  "duplicates": [],
+  "unknown_ownership": [],
+  "corrupt_manifests": []
+}

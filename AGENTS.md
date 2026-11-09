@@ -135,9 +135,11 @@ Invariants that aren't obvious from the code:
 - `tmux-servers.json` under the state root records every named label used for
   creation before `new-session`. Production routers load these labels on
   construction, so a corrupt manifest cannot hide a former dev server from
-  prune. Prune refreshes the labels and refuses cleanup if the record is
-  unreadable or a recorded server is unavailable; with a complete server view,
-  it can remove old corrupt manifests.
+  prune. `Router.CompleteInventory` refreshes the labels and rejects an
+  unreadable record or an unavailable server. Prune, manifest-less deletion,
+  audit and status without a readable manifest share this check. Audit reports
+  incomplete inventory as `gate="unknown"` with `inventory_error`; with a
+  complete server view, prune can remove old corrupt manifests.
 - **A session's runtime files live in its manifest's `runtime_dir`**, an
   owner-only `<state root>/runtime/<id>` (`state.NewRuntimeDir`,
   `state.EnsureRuntimeDir`, files through `state.WriteRuntimeFile`). The tmux
