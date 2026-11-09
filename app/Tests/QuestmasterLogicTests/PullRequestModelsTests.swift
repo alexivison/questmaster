@@ -5,6 +5,7 @@ struct PullRequestModelsTests {
     static func run() {
         unknownWireValuesDecode()
         watcherTagsUseWorkerTitles()
+        watcherLayoutTitlesOneAndStacksTheRest()
         rowsSortByStateThenDateThenKey()
         looksStaySeparate()
         labelsFormatEveryField()
@@ -33,11 +34,27 @@ struct PullRequestModelsTests {
             PullRequestWatcherTag(title: "Build app", agent: "codex"), PullRequestWatcherTag(title: "worker-b", agent: ""),
         ], "master tags should show only child workers, with their agents")
         expect(PullRequestDisplayRow.make(from: [value], selectedSessionID: "worker-a", sessions: sessions)[0].watcherTags.isEmpty, "worker view should have no tags")
-        let master = PullRequestDisplayRow.make(from: [value], selectedSessionID: "master", sessions: sessions)[0]
-        expect(master.extraWatcherCount == 1, "two watching workers show the first and count one more")
-        let solo = PullRequestDisplayRow.make(from: [row(1, watchers: ["worker-a"])], selectedSessionID: "master", sessions: sessions)[0]
-        expect(solo.extraWatcherCount == 0, "one watching worker has no overflow")
-        expect(PullRequestDisplayRow.make(from: [value], selectedSessionID: "worker-a", sessions: sessions)[0].extraWatcherCount == 0, "a worker's view has no overflow")
+    }
+
+    /// One watcher shows its logo and title; two or more stack their logos, the first four, and count the rest as "+n".
+    private static func watcherLayoutTitlesOneAndStacksTheRest() {
+        let sessions = [session("master", role: "master")] + (1...6).map { index in
+            session("worker-\(index)", title: "Task \(index)", role: "worker", parent: "master", agent: index.isMultiple(of: 2) ? "claude" : "codex")
+        }
+        func watched(_ count: Int, selected: String = "master") -> PullRequestDisplayRow {
+            let watchers = (1...6).prefix(count).map { "worker-\($0)" }
+            return PullRequestDisplayRow.make(from: [row(1, watchers: watchers)], selectedSessionID: selected, sessions: sessions)[0]
+        }
+        func tag(_ index: Int) -> PullRequestWatcherTag {
+            PullRequestWatcherTag(title: "Task \(index)", agent: index.isMultiple(of: 2) ? "claude" : "codex")
+        }
+        expect(watched(0).watcherLayout == .none && watched(0).watcherTooltip == nil, "no watcher shows no layout and no tooltip")
+        expect(watched(1).watcherLayout == .titled(tag(1)), "one watcher shows its logo and title")
+        expect(watched(2).watcherLayout == .stacked(logos: [tag(1), tag(2)], overflow: 0), "two watchers stack their logos with no count")
+        expect(watched(4).watcherLayout == .stacked(logos: (1...4).map(tag), overflow: 0), "four watchers still stack with no count")
+        expect(watched(6).watcherLayout == .stacked(logos: (1...4).map(tag), overflow: 2), "six watchers stack four and count the two past them")
+        expect(watched(2, selected: "worker-1").watcherLayout == .none, "a worker's view has no watcher layout")
+        expect(watched(6).watcherTooltip == (1...6).map { "Task \($0)" }.joined(separator: "\n"), "the tooltip names every watcher, one per line")
     }
 
     private static func rowsSortByStateThenDateThenKey() {

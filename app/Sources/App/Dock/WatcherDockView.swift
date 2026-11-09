@@ -12,6 +12,9 @@ enum WatcherMetrics {
     static let lineGap = Space.row
     static let cornerRadius = Token.Radius.segment
     static let lineBaseline: CGFloat = 11.8
+    /// A watcher stack's logos overlap by one row step, so each sits `PullRequestIcon.side - Space.row` past the one before,
+    /// and the later logo draws over the earlier one.
+    static let stackSpacing: CGFloat = -Space.row
 }
 
 /// The pull requests the selected session watches, a master's with its workers', newest open first.
@@ -167,7 +170,7 @@ struct WatcherRow: View {
     }
 
     /// The review ring under the git icon, then the `CI` label under the number and the diff counter with a divider between
-    /// them, and the worker tag at the right edge. An inaccessible row's label sits under the number.
+    /// them, and the watchers at the right edge. An inaccessible row's label sits under the number.
     private var detailLine: some View {
         HStack(alignment: .top, spacing: Space.item) {
             if let inaccessibleLabel = row.inaccessibleLabel {
@@ -186,11 +189,24 @@ struct WatcherRow: View {
                 .opacity(Token.Opacity.dimmed)
             }
             Spacer(minLength: 0)
-            if let tag = row.watcherTags.first {
-                workerTag(tag)
+            if let tooltip = row.watcherTooltip {
+                watchers
+                    .help(tooltip)
             }
         }
         .frame(height: Metrics.lineHeight, alignment: .top)
+    }
+
+    @ViewBuilder
+    private var watchers: some View {
+        switch row.watcherLayout {
+        case .none:
+            EmptyView()
+        case .titled(let tag):
+            titledWatcher(tag)
+        case .stacked(let logos, let overflow):
+            stackedWatchers(logos, overflow: overflow)
+        }
     }
 
     /// A hairline as tall as the line, between the label and the counters.
@@ -204,21 +220,40 @@ struct WatcherRow: View {
         Color.clear.frame(width: PullRequestIcon.side, height: PullRequestIcon.side)
     }
 
-    private func workerTag(_ tag: PullRequestWatcherTag) -> some View {
+    /// One watcher: its logo, then its title, which truncates.
+    private func titledWatcher(_ tag: PullRequestWatcherTag) -> some View {
         HStack(alignment: .top, spacing: Space.row) {
-            if let logo = TrackerAgentMark.image(for: tag.agent, side: PullRequestIcon.side, tint: AppPalette.agentMarkTint) {
-                Image(nsImage: logo)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: PullRequestIcon.side, height: PullRequestIcon.side)
-            }
+            agentLogo(tag.agent)
             text(tag.title, color: look.meta.color)
-            if row.extraWatcherCount > 0 {
-                text("+\(row.extraWatcherCount)", color: look.meta.color)
+        }
+    }
+
+    /// Two or more watchers: their logos overlapping (`WatcherMetrics.stackSpacing`), then the count of those past the stack.
+    private func stackedWatchers(_ logos: [PullRequestWatcherTag], overflow: Int) -> some View {
+        HStack(alignment: .top, spacing: Space.row) {
+            HStack(alignment: .top, spacing: WatcherMetrics.stackSpacing) {
+                ForEach(Array(logos.enumerated()), id: \.offset) { _, tag in
+                    agentLogo(tag.agent)
+                }
+            }
+            if overflow > 0 {
+                text("+\(overflow)", color: look.meta.color)
                     .fixedSize()
             }
         }
-        .help(tag.title)
+    }
+
+    /// The agent's logo in its icon box. An agent with no logo keeps the box, so a stack keeps its overlap.
+    @ViewBuilder
+    private func agentLogo(_ agent: String) -> some View {
+        if let logo = TrackerAgentMark.image(for: agent, side: PullRequestIcon.side, tint: AppPalette.agentMarkTint) {
+            Image(nsImage: logo)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: PullRequestIcon.side, height: PullRequestIcon.side)
+        } else {
+            emptySlot
+        }
     }
 
     private func text(_ value: String, color: NSColor) -> some View {

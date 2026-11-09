@@ -107,6 +107,14 @@ public struct PullRequestWatcherTag: Equatable {
     }
 }
 
+/// How a master's row shows its watchers: nothing, the one worker's logo and title, or the logos of two or more, stacked,
+/// with the count of the watchers past the stack.
+public enum PullRequestWatcherLayout: Equatable {
+    case none
+    case titled(PullRequestWatcherTag)
+    case stacked(logos: [PullRequestWatcherTag], overflow: Int)
+}
+
 /// A row's text and semantic looks; the App target supplies icons and colours.
 public struct PullRequestDisplayRow: Equatable {
     public let pullRequest: PullRequestRow
@@ -128,8 +136,24 @@ public struct PullRequestDisplayRow: Equatable {
     public var deletionsLabel: String? {
         accessibleStatus.map { "-\($0.deletions)" }
     }
-    /// A master's row names the first worker watching it; the others count behind it as "+N".
-    public var extraWatcherCount: Int { max(0, watcherTags.count - 1) }
+    /// The most logos a row stacks; the watchers past them show as "+N".
+    public static let stackedWatcherLimit = 4
+    public var watcherLayout: PullRequestWatcherLayout {
+        switch watcherTags.count {
+        case 0: return .none
+        case 1: return .titled(watcherTags[0])
+        default:
+            return .stacked(
+                logos: Array(watcherTags.prefix(Self.stackedWatcherLimit)),
+                overflow: max(0, watcherTags.count - Self.stackedWatcherLimit)
+            )
+        }
+    }
+    /// Every watcher's title, one per line, for the tooltip; nil when no worker watches the row.
+    public var watcherTooltip: String? {
+        guard !watcherTags.isEmpty else { return nil }
+        return watcherTags.map(\.title).joined(separator: "\n")
+    }
     public var inaccessibleLabel: String? {
         switch pullRequest.status?.inaccessibleReason {
         case .notFound: return "Not found"

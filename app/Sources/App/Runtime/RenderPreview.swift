@@ -93,8 +93,9 @@ enum RenderPreview {
         renderView(watcherPanelView(), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel.png")
         renderView(watcherPanelView(state: .empty), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel-empty.png")
         renderView(watcherPanelView(state: .notice), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel-notice.png")
-        render(watcherRowsView(highlight: 1), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design.png")
-        render(watcherRowsView(highlight: nil), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design-rest.png")
+        render(watcherRowsView(highlight: 1, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design.png")
+        render(watcherRowsView(highlight: nil, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design-rest.png")
+        render(watcherRowsView(highlight: nil, rows: watcherCountRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-counts.png")
         render(pullRequestItemView(), size: CGSize(width: 686, height: 156), to: "\(outputDir)/pull-request-item.png")
         // The dock split: Watcher over the artifacts or the worker chat, each alone, and either panel with the keys.
         let splitCanvas = CGSize(width: DockWidthPreference.panelWidth + 2 * Space.section, height: 900)
@@ -374,34 +375,65 @@ enum RenderPreview {
         }
     }
 
-    /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws. The rows are views of
-    /// their own, not the store's, because the store sorts by state and the design doesn't. A master with four workers
-    /// watches them.
+    /// One pull request for the watcher fixtures: its numbers and state, and the workers (`w1`...`w6`) watching it.
+    private struct WatcherFixture {
+        let number: Int
+        let title: String
+        let state: String
+        let draft: Bool
+        let review: String
+        let ci: String
+        let additions: Int
+        let deletions: Int
+        let watchers: [String]
+    }
+
+    /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws and with the watchers the
+    /// mock shows: none, one, six (four logos and a count of two), one, one, one. Rows 4 and 5 are the merged and closed
+    /// icons the mock draws.
     @MainActor
     private static func watcherDesignRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97612, title: "fix(agent-f): Support independent Edition suggestion field decisions", state: "open", draft: false, review: "changes_requested", ci: "failure", additions: 1250, deletions: 540, watchers: []),
+            WatcherFixture(number: 97612, title: "fix(agent-f): Support independent Edition suggestion field decisions", state: "open", draft: true, review: "none", ci: "none", additions: 1250, deletions: 540, watchers: ["w1"]),
+            WatcherFixture(number: 97613, title: "fix(agent-f): Update dependency versions for stability", state: "open", draft: true, review: "approved", ci: "none", additions: 980, deletions: 320, watchers: ["w2", "w1", "w5", "w6", "w3", "w4"]),
+            WatcherFixture(number: 97614, title: "feat(agent-f): Introduce new logging features", state: "merged", draft: false, review: "review_required", ci: "pending", additions: 760, deletions: 200, watchers: ["w3"]),
+            WatcherFixture(number: 97615, title: "fix(agent-f): Resolve memory leak issue", state: "closed", draft: false, review: "approved", ci: "success", additions: 1400, deletions: 600, watchers: ["w2"]),
+            WatcherFixture(number: 97616, title: "chore(agent-f): Refactor codebase for better readability", state: "closed", draft: false, review: "changes_requested", ci: "none", additions: 500, deletions: 150, watchers: ["w4"]),
+        ])
+    }
+
+    /// Rows watched by no worker, one, two, four and six: the counts a row can show, one per row.
+    @MainActor
+    private static func watcherCountRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97620, title: "fix(agent-f): Add retry to the sync job", state: "open", draft: false, review: "none", ci: "none", additions: 120, deletions: 30, watchers: []),
+            WatcherFixture(number: 97621, title: "fix(agent-f): Tighten the cache key", state: "open", draft: false, review: "review_required", ci: "success", additions: 240, deletions: 80, watchers: ["w1"]),
+            WatcherFixture(number: 97622, title: "feat(agent-f): Add the export button", state: "open", draft: true, review: "approved", ci: "pending", additions: 410, deletions: 25, watchers: ["w1", "w2"]),
+            WatcherFixture(number: 97623, title: "fix(agent-f): Keep the session list in order", state: "merged", draft: false, review: "approved", ci: "success", additions: 66, deletions: 12, watchers: ["w1", "w2", "w3", "w4"]),
+            WatcherFixture(number: 97624, title: "chore(agent-f): Split the watcher module", state: "closed", draft: false, review: "changes_requested", ci: "failure", additions: 900, deletions: 640, watchers: ["w1", "w2", "w3", "w4", "w5", "w6"]),
+        ])
+    }
+
+    /// The fixtures as rows of a master with six workers. Each row is made alone, so the store's sort can't reorder them.
+    @MainActor
+    private static func watcherRows(_ fixtures: [WatcherFixture]) -> [PullRequestDisplayRow] {
         let sessions = [
             TrackerSession(id: "m", title: "Ship watcher", repoName: "Repo", agent: "claude", role: "master"),
             TrackerSession(id: "w1", title: "Implement ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
             TrackerSession(id: "w2", title: "Fix UI Bug", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
             TrackerSession(id: "w3", title: "Review API", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
             TrackerSession(id: "w4", title: "Update Docs", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w5", title: "Refactor logs", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+            TrackerSession(id: "w6", title: "Write tests", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
         ]
-        // number, title, state, draft, review, ci, additions, deletions, comments, watcher
-        let specs: [(Int, String, String, Bool, String, String, Int, Int, Int, String?)] = [
-            (97612, "fix(agent-f): Support independent Edition suggestion field decisions", "open", false, "changes_requested", "failure", 1250, 540, 20, nil),
-            (97612, "fix(agent-f): Support independent Edition suggestion field decisions", "open", true, "none", "none", 1250, 540, 20, "w1"),
-            (97613, "fix(agent-f): Update dependency versions for stability", "merged", false, "approved", "none", 980, 320, 15, "w2"),
-            (97614, "feat(agent-f): Introduce new logging features", "open", true, "review_required", "success", 760, 200, 10, "w3"),
-            (97615, "fix(agent-f): Resolve memory leak issue", "merged", false, "approved", "success", 1400, 600, 25, "w2"),
-            (97616, "chore(agent-f): Refactor codebase for better readability", "closed", false, "changes_requested", "none", 500, 150, 8, "w4"),
-        ]
-        return specs.map { spec -> PullRequestDisplayRow in
+        return fixtures.map { fixture -> PullRequestDisplayRow in
             let object: [String: Any] = [
-                "key": "github.com/owner/repo#\(spec.0)-\(spec.2)-\(spec.3)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": spec.0,
-                "watchers": (spec.9.map { [["session_id": $0, "added_at": "2026-10-20T00:00:00Z"]] }) ?? [],
+                "key": "github.com/owner/repo#\(fixture.number)-\(fixture.state)-\(fixture.draft)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": fixture.number,
+                "watchers": fixture.watchers.map { ["session_id": $0, "added_at": "2026-10-20T00:00:00Z"] },
                 "status": [
-                    "title": spec.1, "url": "https://github.com/owner/repo/pull/\(spec.0)", "state": spec.2, "draft": spec.3,
-                    "review": spec.4, "ci": spec.5, "additions": spec.6, "deletions": spec.7, "comments": spec.8, "stale": false,
+                    "title": fixture.title, "url": "https://github.com/owner/repo/pull/\(fixture.number)", "state": fixture.state, "draft": fixture.draft,
+                    "review": fixture.review, "ci": fixture.ci, "additions": fixture.additions, "deletions": fixture.deletions, "stale": false,
                 ] as [String: Any],
             ]
             let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
@@ -411,9 +443,8 @@ enum RenderPreview {
 
     /// The design's rows at the panel's list width (480), `highlight` (an index) on the cursor, for diffing against the SVG.
     @MainActor
-    private static func watcherRowsView(highlight: Int?) -> some View {
-        let rows = watcherDesignRows()
-        return VStack(spacing: 0) {
+    private static func watcherRowsView(highlight: Int?, rows: [PullRequestDisplayRow]) -> some View {
+        VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 WatcherRow(
                     row: row,
