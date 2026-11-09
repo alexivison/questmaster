@@ -105,9 +105,6 @@ jobs:
             sleep "$((attempt * 10))"
           done
 
-      - name: Locate downloaded GhosttyKit artifact (temporary probe)
-        run: find "$HOME/Library/Caches" -iname '*ghosttykit*'
-
       - name: Build app
         run: swift build -c release --package-path app --product Questmaster
 
@@ -152,9 +149,6 @@ jobs:
             echo "Swift package resolution attempt $attempt failed; retrying in $((attempt * 10)) seconds"
             sleep "$((attempt * 10))"
           done
-
-      - name: Locate downloaded GhosttyKit artifact (temporary probe)
-        run: find "$HOME/Library/Caches" -iname '*ghosttykit*'
 
       - name: Build Swift packages
         run: swift build -c release --package-path app --product Questmaster
