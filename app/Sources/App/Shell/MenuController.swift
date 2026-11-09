@@ -43,7 +43,7 @@ final class MenuController {
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleDock, action: actions.toggleDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleQuestLog, action: actions.toggleQuestLog, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleWorkerChatDock, action: actions.toggleWorkerChatDock, target: target))
-        viewMenu.addItem(commandMenuItem(Keymap.Command.toggleVersionControlDock, action: actions.toggleVersionControlDock, target: target))
+        viewMenu.addItem(commandMenuItem(Keymap.Command.toggleWatcherDock, action: actions.toggleWatcherDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.widenDock, action: actions.widenDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.narrowDock, action: actions.narrowDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleCaffeine, action: actions.toggleCaffeine, target: target))
@@ -154,7 +154,7 @@ struct CommandKeyActions {
     let focusRegionRight: CommandKeyAction
     let focusDockTop: CommandKeyAction
     let focusDockBottom: CommandKeyAction
-    let toggleVersionControlDock: CommandKeyAction
+    let toggleWatcherDock: CommandKeyAction
 
     var table: [(binding: Keymap.CommandBinding, action: CommandKeyAction)] {
         [
@@ -162,7 +162,7 @@ struct CommandKeyActions {
             (Keymap.Command.focusRegionRight, focusRegionRight),
             (Keymap.Command.focusDockTop, focusDockTop),
             (Keymap.Command.focusDockBottom, focusDockBottom),
-            (Keymap.Command.toggleVersionControlDock, toggleVersionControlDock),
+            (Keymap.Command.toggleWatcherDock, toggleWatcherDock),
         ]
     }
 }
@@ -183,7 +183,7 @@ struct MenuActions {
     let toggleDock: Selector
     let toggleQuestLog: Selector
     let toggleWorkerChatDock: Selector
-    let toggleVersionControlDock: Selector
+    let toggleWatcherDock: Selector
     let focusDockTop: Selector
     let focusDockBottom: Selector
     let widenDock: Selector

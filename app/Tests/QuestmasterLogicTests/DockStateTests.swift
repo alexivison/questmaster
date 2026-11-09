@@ -96,12 +96,12 @@ struct DockStateTests {
         expect(shownList.openNewArtifact("a") && shownList.dockContent == .artifactViewer, "a new artifact opens from the list")
     }
 
-    /// The two panels are independent: Version Control opens and closes without touching the bottom panel, and the bottom
-    /// panel's content changes (an artifact, the worker chat, a scope change) never hide Version Control.
+    /// The two panels are independent: Watcher opens and closes without touching the bottom panel, and the bottom
+    /// panel's content changes (an artifact, the worker chat, a scope change) never hide Watcher.
     private static func panelsChangeIndependently() {
         var state = DockState.initial
         state.topVisible = true
-        expect(state.topVisible && !state.bottomVisible, "showing Version Control opens no bottom panel")
+        expect(state.topVisible && !state.bottomVisible, "showing Watcher opens no bottom panel")
         state.showArtifact("a")
         expect(state.topVisible && state.bottomVisible && state.dockContent == .artifactViewer, "an artifact opens the bottom panel and keeps the top")
         state.show(.workerChat)
@@ -112,7 +112,7 @@ struct DockStateTests {
         expect(state.topVisible && !state.bottomVisible, "hiding the bottom panel keeps the top")
         state.bottomVisible = true
         state.topVisible = false
-        expect(!state.topVisible && state.bottomVisible && state.dockContent == .artifactList, "hiding Version Control keeps the bottom panel as it was")
+        expect(!state.topVisible && state.bottomVisible && state.dockContent == .artifactList, "hiding Watcher keeps the bottom panel as it was")
         var chat = DockState(topVisible: true, bottomVisible: true, dockContent: .workerChat)
         expect(!chat.openNewArtifact("b") && chat.topVisible, "a new artifact stays out of the chat and leaves the top alone")
     }
@@ -129,14 +129,14 @@ struct DockStateTests {
         expect(DockPanels(top: true).contains(.top) && !DockPanels(top: true).contains(.bottom), "a panel set holds only what shows")
     }
 
-    /// Version Control is a fixed 300 on top with the bottom panel under a 20 gap; a panel alone fills the column.
+    /// Watcher is a fixed 300 on top with the bottom panel under a 20 gap; a panel alone fills the column.
     private static func columnLayoutSplitsOrFills() {
         let height = 800.0
         let split = DockColumnLayout.make(height: height, panels: DockPanels(top: true, bottom: true))
-        expect(split.top == DockColumnLayout.Slot(offset: 0, height: 300), "Version Control is 300 from the top")
+        expect(split.top == DockColumnLayout.Slot(offset: 0, height: 300), "Watcher is 300 from the top")
         expect(split.bottom == DockColumnLayout.Slot(offset: 320, height: 480), "the bottom panel takes the rest, 20 below")
         let onlyTop = DockColumnLayout.make(height: height, panels: DockPanels(top: true))
-        expect(onlyTop.top == DockColumnLayout.Slot(offset: 0, height: height) && onlyTop.bottom == nil, "Version Control alone fills the dock")
+        expect(onlyTop.top == DockColumnLayout.Slot(offset: 0, height: height) && onlyTop.bottom == nil, "Watcher alone fills the dock")
         let onlyBottom = DockColumnLayout.make(height: height, panels: DockPanels(bottom: true))
         expect(onlyBottom.bottom == DockColumnLayout.Slot(offset: 0, height: height) && onlyBottom.top == nil, "the bottom panel alone fills the dock")
         let none = DockColumnLayout.make(height: height, panels: DockPanels())
@@ -155,10 +155,10 @@ struct DockStateTests {
         let split = DockColumnLayout.make(height: height, panels: DockPanels(top: true, bottom: true))
 
         let showTopStart = DockColumnTransition.make(from: bottomOnly, to: split, progress: 0)
-        expect(showTopStart.top == DockPanelFrame(offset: -10, height: 300, alpha: 0), "Version Control starts 10 above its slot, unseen")
+        expect(showTopStart.top == DockPanelFrame(offset: -10, height: 300, alpha: 0), "Watcher starts 10 above its slot, unseen")
         expect(showTopStart.bottom == DockPanelFrame(offset: 0, height: 860, alpha: 1), "the bottom panel starts at its full height")
         let showTopEnd = DockColumnTransition.make(from: bottomOnly, to: split, progress: 1)
-        expect(showTopEnd.top == DockPanelFrame(offset: 0, height: 300, alpha: 1), "Version Control ends at its slot, fully shown")
+        expect(showTopEnd.top == DockPanelFrame(offset: 0, height: 300, alpha: 1), "Watcher ends at its slot, fully shown")
         expect(showTopEnd.bottom == DockPanelFrame(offset: 320, height: 540, alpha: 1), "the bottom panel ends shrunk under it")
         let showTopMid = DockColumnTransition.make(from: bottomOnly, to: split, progress: 0.5)
         expect(showTopMid.top == DockPanelFrame(offset: -5, height: 300, alpha: 0.5), "halfway it's half faded and 5 above")
@@ -170,7 +170,7 @@ struct DockStateTests {
 
         let showBottomStart = DockColumnTransition.make(from: DockColumnLayout.make(height: height, panels: DockPanels(top: true)), to: split, progress: 0)
         expect(showBottomStart.bottom == DockPanelFrame(offset: 330, height: 540, alpha: 0), "the bottom panel comes in from below")
-        expect(showBottomStart.top == DockPanelFrame(offset: 0, height: 860, alpha: 1), "while Version Control starts full height")
+        expect(showBottomStart.top == DockPanelFrame(offset: 0, height: 860, alpha: 1), "while Watcher starts full height")
 
         let none = DockColumnTransition.make(from: bottomOnly, to: bottomOnly, progress: 0.5)
         expect(none.top == nil && none.bottom == DockPanelFrame(offset: 0, height: 860, alpha: 1), "a panel that stays as it was stays put, and an absent one has no frame")

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Path data copied from `Session Detail Dock.svg` (the Version Control panel) in its own coordinates, one icon per
+/// Path data copied from `Session Detail Dock.svg` (the Watcher panel) in its own coordinates, one icon per
 /// design glyph: the four git states and the three review rings. Each icon's `origin` is its 15 x 15 box's top-left
 /// corner in the SVG, so the paths parse shifted into the box. The git icons are 1pt round-capped strokes; the rings are
 /// fills. Colours stay with the view: each icon is one colour in the design.

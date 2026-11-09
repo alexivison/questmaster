@@ -215,7 +215,7 @@ the focused panel has them (`NavigationStore.hasKeys(_: DockPanel)`). When the
 user leaves a region or panel, a selection that lasts (a tab row's) and a
 cursor whose design draws an unfocused state (the artifact list's) stay one
 step dimmer; a pure cursor with no lasting selection and no designed unfocused
-state (the tracker's, Version Control's: `RowLook.cursor`) hides, and shows
+state (the tracker's, Watcher's: `RowLook.cursor`) hides, and shows
 again where it was when the keys come back.
 
 | Element | State | Look |
@@ -291,12 +291,11 @@ again where it was when the keys come back.
   every master, kept when the attached master changes (`WorkerChatStore`, in
   memory only, so not across restarts). The dropdown is as tall as its rows, up to its panel's height less
   the 5 under the bar and the 20 inset below (the tab row's room when there is one), and scrolls past that with the
-  cursor kept in view: with Version Control above, the bottom panel is shorter
+  cursor kept in view: with Watcher above, the bottom panel is shorter
   and it scrolls sooner, never reaching behind it. The filter belongs to the
   bottom panel: its icon sits in that panel's top bar, shows only while the log
   is attached to a master and toggles the dropdown; `f` and the dropdown's keys
-  work only while that panel has the keys, and the keys leaving it (to Version
-  Control, the tracker, the terminal or a modal) close it. A click anywhere else
+  work only while that panel has the keys, and the keys leaving it (to Watcher, the tracker, the terminal or a modal) close it. A click anywhere else
   on the dock, either top bar included, closes it too. Its one chip reads "Action:" in
   `textMetaHighlighted` at regular weight, then the ticked names in `textBody` **bold** (the
   current selection is what bold means), comma-separated in the dropdown's order, which is
@@ -326,7 +325,7 @@ again where it was when the keys come back.
   with hidden tabs fades out over 20, as the feed's top does. A change of selection scrolls it to the middle. The empty state stays centred in the room above the row.
 - Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
   section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
-  artifact viewer, the Worker Log, Version Control), the tracker and the Quest Log's page draw it; the page passes the
+  artifact viewer, the Worker Log, Watcher), the tracker and the Quest Log's page draw it; the page passes the
   parchment ink instead. The Worker Log draws it only once its first read came back whole and empty, or when
   its filter or worker tab hides every line (`WorkerChatStore.isKnownEmpty`, decided in Core; the chip above it stays, with its x, and the tabs under it when they show);
   while that read is pending, failed or partial it is blank, and its `readNotice` says what failed. So does the terminal pane once its session has ended (`TerminalShellView.showEnded`, only
@@ -343,9 +342,8 @@ again where it was when the keys come back.
   by `ConnectionStateMachine`): its skeleton only while no tracker has come yet (`awaitsFirstTracker`); after a dropped
   connection (every daemon restart) the last tracker stays, drawn at `Token.Opacity.dimmed`, until a fresh one arrives
   (`showsLastTracker`); an incompatible backend empties it and shows its `StatusMessagePane` (`blockingMessage`).
-- Dock titles (Artifacts, Worker Log, Version Control, an open artifact) are title case in
-  `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Version
-  Control's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
+- Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in
+  `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Watcher's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
   ring `Space.item` past the title, on the icon line, taking no room so the centred title never moves. Core decides it
   (`PullRequestStore.isRefreshing`): from the key to the daemon's reply (`pr.refresh` with `wait`), for at least one turn
   and never past 30s; a second `r` meanwhile sends nothing, and the daemon's background polls never show it. It is Core
@@ -356,10 +354,10 @@ again where it was when the keys come back.
   `Space.section` under it. `ShellSplitLayoutPlanner` gives its frame (`headerFrame`) and `MainSplitView` lays it out
   and animates it with the panes. Its 30pt buttons sit `Space.item` from its top and bottom and `Space.section` in from
   its ends: the tracker toggle alone at the leading end; New Session, Quest Log and Settings, then Artifacts, Worker Log
-  and Version Control at the trailing end, 1 apart in a group and `Space.item` between the groups; caffeinate
+  and Watcher at the trailing end, 1 apart in a group and `Space.item` between the groups; caffeinate
   `Space.section` past them (`ActionBarMetrics`). Its empty space drags the window. Toasts sit `Space.section` above the
   window's bottom edge.
-- The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Version Control on top at a fixed 300, and
+- The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Watcher on top at a fixed 300, and
   under it the artifacts or the Worker Log. Each has its own title and close button, and either shows alone
   (it then fills the dock). `DockState` keeps their visibility app-wide; ⇧⌘K and ⇧⌘J move the keys between them (all
   navigation is ⇧⌘). An open modal owns ⇧⌘H/J/K/L: J/K move its vertical cursor or field, and H/L move a horizontal
@@ -368,7 +366,7 @@ again where it was when the keys come back.
   uses `dockPanelKeyRoute`; pressing the focused panel's key does nothing). From the terminal or tracker, or in a dock
   with one panel, J/K pass through to the focused responder, so Ghostty receives its own ⇧⌘J binding
   (`write_screen_file:paste`); the View menu items are enabled only for the dock route. With no modal, ⇧⌘R toggles
-  Version Control from the monitor before the terminal; while a modal is drawn, app shortcuts are consumed or disabled,
+  Watcher from the monitor before the terminal; while a modal is drawn, app shortcuts are consumed or disabled,
   except text editing, Quit and modal commands the top modal accepts (the Quest Log permits its toggle and New Quest as
   a child). A panel appearing or going away fades and slides 10pt while the other grows or shrinks, over the standard
   motion step and only once (`DockPanelMotion`; Reduce Motion skips it, see "Motion"): never an animation that keeps
@@ -391,7 +389,7 @@ fields (`ModalKeyContext.hasTextFields`), and the focused part decides the rest:
   (`ListCapabilities.modalMoves`). With no suggestion showing, the filter's ↑/↓ are the caret's (`FilterFieldKey`'s
   `arrowsMoveList` is off there), while ⌃p and ⌃n still move the list, as vim's previous and next do.
 
-Non-modal lists (the tracker, the dock's lists, Version Control, the Worker Log) keep their own keys, arrows included
+Non-modal lists (the tracker, the dock's lists, Watcher, the Worker Log) keep their own keys, arrows included
 (`ListKeyResolver`'s `moveUp` and `moveDown`).
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and

@@ -2,9 +2,9 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The version control rows' geometry, from `pr-item-v2.png`: 45 tall, 5 in from the row's edges, two 15pt lines 5 apart, and
+/// The watcher rows' geometry, from `pr-item-v2.png`: 45 tall, 5 in from the row's edges, two 15pt lines 5 apart, and
 /// 5 under the second. Text is centred on its line, so its baseline is 11.8 below the line's top.
-enum VersionControlMetrics {
+enum WatcherMetrics {
     static let inset = Space.section
     static let rowHeight = ControlHeight.bar + Space.row
     static let rowInset = Space.row
@@ -15,14 +15,14 @@ enum VersionControlMetrics {
 }
 
 /// The pull requests the selected session watches, a master's with its workers', newest open first.
-struct VersionControlDockView: View {
+struct WatcherDockView: View {
     let store: PullRequestStore
     /// Whether the panel has keyboard focus: an unfocused panel shows its cursor one step dimmer.
     let areaFocused: Bool
     let onOpenRow: (String) -> Void
 
     var body: some View {
-        VersionControlList(
+        WatcherList(
             rows: store.displayRows,
             cursorKey: store.cursorKey,
             isUnwatched: store.isUnwatched,
@@ -35,7 +35,7 @@ struct VersionControlDockView: View {
 
 /// The panel's content for the rows it is given: the list, scrolling inside the panel, ending 20 above its bottom edge,
 /// or the empty state, with a muted notice under either.
-struct VersionControlList: View {
+struct WatcherList: View {
     let rows: [PullRequestDisplayRow]
     let cursorKey: String?
     let isUnwatched: Bool
@@ -58,7 +58,7 @@ struct VersionControlList: View {
         } else {
             SectionedList(selectedID: cursorKey, scrollOnAppear: true) {
                 ForEach(rows, id: \.pullRequest.key) { row in
-                    VersionControlRow(
+                    WatcherRow(
                         row: row,
                         look: row.look(isCursor: row.pullRequest.key == cursorKey, areaFocused: areaFocused),
                         action: { onOpenRow(row.pullRequest.key) }
@@ -66,7 +66,7 @@ struct VersionControlList: View {
                     .id(row.pullRequest.key)
                 }
             }
-            .padding(.bottom, VersionControlMetrics.inset)
+            .padding(.bottom, WatcherMetrics.inset)
             .accessibilityLabel("Pull request list")
         }
     }
@@ -78,8 +78,8 @@ struct VersionControlList: View {
                 .font(AppFonts.monoSmall.swiftUI)
                 .foregroundStyle(AppPalette.textMeta.swiftUI)
                 .lineLimit(2)
-                .padding(.horizontal, VersionControlMetrics.inset)
-                .padding(.bottom, VersionControlMetrics.inset)
+                .padding(.horizontal, WatcherMetrics.inset)
+                .padding(.bottom, WatcherMetrics.inset)
         }
     }
 }
@@ -123,12 +123,12 @@ private extension CILook {
 
 /// `#number title` over the git state, the review ring, the `CI` label, the diff counter and, for a master, the worker's
 /// tag at the right edge.
-struct VersionControlRow: View {
+struct WatcherRow: View {
     let row: PullRequestDisplayRow
     let look: RowLook
     let action: () -> Void
 
-    private typealias Metrics = VersionControlMetrics
+    private typealias Metrics = WatcherMetrics
 
     private var showsSemanticColors: Bool { row.rowLook == .normal }
 
