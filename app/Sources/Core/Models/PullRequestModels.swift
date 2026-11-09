@@ -26,6 +26,8 @@ public struct PullRequestRow: Decodable, Equatable {
 public struct PullRequestStatus: Decodable, Equatable {
     public let title: String?
     public let url: String?
+    /// The PR author's login; nil when the authenticated viewer wrote the PR.
+    public let author: String?
     public let state: PullRequestState?
     public let draft: Bool
     public let headSHA: String?
@@ -39,7 +41,7 @@ public struct PullRequestStatus: Decodable, Equatable {
     public let stale: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case title, url, state, draft, additions, deletions, review, ci, stale
+        case title, url, author, state, draft, additions, deletions, review, ci, stale
         case headSHA = "head_sha", updatedAt = "updated_at", changedAt = "changed_at"
         case inaccessibleReason = "inaccessible_reason"
     }
@@ -54,7 +56,7 @@ public enum PullRequestState: String, Decodable {
 }
 
 public enum PullRequestReview: String, Decodable {
-    case approved, changesRequested = "changes_requested", reviewRequired = "review_required", none, unknown
+    case approved, changesRequested = "changes_requested", commented, reviewRequired = "review_required", none, unknown
 
     public init(from decoder: Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
@@ -156,7 +158,8 @@ public struct PullRequestDisplayRow: Equatable {
         case .approved: return .approved
         case .changesRequested: return .changesRequested
         case .reviewRequired: return .reviewRequired
-        case .some(.none), .unknown, nil: return .none
+        // The dock doesn't draw a comment yet, so it shows no review state.
+        case .some(.none), .some(.commented), .unknown, nil: return .none
         }
     }
     public var ciLook: CILook {
