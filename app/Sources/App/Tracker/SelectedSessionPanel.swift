@@ -145,7 +145,7 @@ struct SelectedSessionPanel: View {
     /// the overlay.
     private func drawDiscBase(_ context: inout GraphicsContext) {
         context.fillOuterShadow(PanelDesign.disc, PanelDesign.discOuterShadow)
-        context.fill(PanelDesign.disc, with: .color(AppPalette.panel.swiftUI))
+        context.fill(PanelDesign.disc, with: .color(TrackerPlateDesign.discFill.swiftUI))
     }
 
     /// The class portrait; else, for a shell, tmux or orphan, the shell row's terminal glyph in its resting colour, scaled
@@ -277,8 +277,8 @@ private enum PanelDesign {
     static let frameDropShadowOpacity: CGFloat = 0.1
     static let frameDropShadowBlur: CGFloat = 0.5
     static let frameDropShadowDrop: CGFloat = 1
-    /// The SVG draws the class portrait at 80% over the disc's fill, a step brighter than the tracker's plates.
-    static let portraitStrength = 0.8
+    /// The class portrait keeps 80% of its colour, washed toward the panel's, as the tracker's plates draw it.
+    static let portraitStrength = TrackerPlateDesign.portraitStrength
     /// The SVG's bar rim (141, 141, 255) lifts its bar (122, 122, 240) by 19 of 255 on each channel, up to white.
     private static let barRimLift: CGFloat = 19.0 / 255
 

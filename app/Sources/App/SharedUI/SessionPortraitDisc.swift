@@ -24,15 +24,18 @@ enum SessionPortraitImages {
 extension GraphicsContext {
     /// A portrait over `disc`, clipped to its circle. The disc's own fill is drawn first, so the image's transparent
     /// edge shows it.
-    /// `strength` below 1 lets the disc's fill show through, darkening the art without changing its colours.
+    /// `strength` below 1 washes the art toward the panel colour (the art keeps `strength` of its own colour), so it
+    /// sits in the theme. The wash covers the art only, so the disc's fill behind the figure can be darker.
     func drawPortrait(_ portrait: SessionPortrait, in disc: Path, strength: Double = 1) {
         guard let image = SessionPortraitImages.image(for: portrait) else {
             return
         }
         drawLayer { clipped in
-            clipped.opacity = strength
             clipped.clip(to: disc)
             clipped.draw(Image(nsImage: image).interpolation(.high), in: disc.boundingRect)
+            guard strength < 1 else { return }
+            clipped.blendMode = .sourceAtop
+            clipped.fill(Path(disc.boundingRect), with: .color(AppPalette.panel.swiftUI.opacity(1 - strength)))
         }
     }
 }
