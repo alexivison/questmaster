@@ -25,6 +25,7 @@ func TestNotifyHoldsUnsafeSessionsAndRecentTyping(t *testing.T) {
 		{"codex idle", "codex", "idle", true, false, DeliverySubmitted},
 		{"opencode done", "opencode", "done", true, false, DeliverySubmitted},
 		{"working", "codex", "working", true, false, ""},
+		{"starting", "codex", "starting", true, false, ""},
 		{"stopped", "codex", "idle", false, false, ""},
 		{"typing", "opencode", "idle", true, true, ""},
 	} {
@@ -39,7 +40,11 @@ func TestNotifyHoldsUnsafeSessionsAndRecentTyping(t *testing.T) {
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			data, _ := json.Marshal(state.SessionState{SessionID: id, Panes: map[string]state.PaneState{"agent": {Role: "agent", State: tc.hook}}})
+			pane := state.PaneState{Role: "agent", State: tc.hook}
+			if tc.hook == "starting" {
+				pane.LastKind, pane.LastEvent = "SessionStart", time.Now()
+			}
+			data, _ := json.Marshal(state.SessionState{SessionID: id, Panes: map[string]state.PaneState{"agent": pane}})
 			if err := os.WriteFile(state.SessionStatePath(store.Root(), id), data, 0o600); err != nil {
 				t.Fatal(err)
 			}

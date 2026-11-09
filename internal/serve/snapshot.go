@@ -319,10 +319,9 @@ func (s *Snapshotter) clockTracker() (TrackerSnapshot, error) {
 }
 
 func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt time.Time, typicalCache *toolTypicalDurationCache) (bool, error) {
-	// Only a "done" row can change on a clock tick (the done→idle fold after
-	// the grace period, applied by MarkSessionObserved). Every other state is
-	// driven by fsnotify, so skip the flock + state.json reads entirely.
-	if row.State != "done" {
+	// Completed turns and SessionStart with no following prompt become idle
+	// after their grace periods. Other states are driven by fsnotify.
+	if row.State != "done" && row.State != "starting" {
 		return false, nil
 	}
 	before := *row

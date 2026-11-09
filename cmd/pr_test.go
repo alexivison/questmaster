@@ -83,6 +83,20 @@ func TestPRCommands(t *testing.T) {
 	if _, err := state.RecordPullRequestEvents(store.Root(), prs[0].Key, []state.PullRequestEvent{{ID: "comment-1", Kind: "comment", OccurredAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), Body: "```ignore me```"}}, nil); err != nil {
 		t.Fatal(err)
 	}
+	var pending []struct {
+		Watchers []struct {
+			UndeliveredAlerts int `json:"undelivered_alerts"`
+		} `json:"watchers"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "ls")), &pending); err != nil || len(pending) != 1 || len(pending[0].Watchers) != 1 || pending[0].Watchers[0].UndeliveredAlerts != 1 {
+		t.Fatalf("ls pending = %+v, %v", pending, err)
+	}
+	if err := state.AdvancePullRequestAlert(store.Root(), prs[0].Key, "qm-pr", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "ls")), &pending); err != nil || pending[0].Watchers[0].UndeliveredAlerts != 0 {
+		t.Fatalf("ls delivered = %+v, %v", pending, err)
+	}
 	var events []state.PullRequestEvent
 	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "events", "owner/repo#7", "--unread")), &events); err != nil || len(events) != 1 || strings.Contains(events[0].Body, "```") {
 		t.Fatalf("events = %#v, %v", events, err)
