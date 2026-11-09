@@ -37,6 +37,26 @@ func (s *Service) Notify(ctx context.Context, sessionID, text string) (Delivery,
 		return "", err
 	}
 	activity := sessionactivity.FromState(ss).State
+	if activity == "starting" {
+		now := time.Now()
+		if _, err := state.MarkSessionObservedAt(s.store.Root(), sessionID, now); err != nil {
+			return "", err
+		}
+		ss, err = state.LoadSessionStateAt(s.store.Root(), sessionID)
+		if err != nil {
+			return "", err
+		}
+		activity = sessionactivity.FromState(ss).State
+		if activity == "starting" {
+			lastEvent := ss.Panes["agent"].LastEvent
+			if lastEvent.IsZero() || now.Sub(lastEvent) >= state.StartingToIdleGrace {
+				return "", fmt.Errorf("alert recipient %s remains in starting activity state", sessionID)
+			}
+		}
+	}
+	if activity == "unknown" || activity == "stopped" {
+		return "", fmt.Errorf("alert recipient %s has %s activity state", sessionID, activity)
+	}
 	if activity != "idle" && activity != "done" {
 		return "", nil
 	}
