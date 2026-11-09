@@ -1,4 +1,4 @@
-The questmaster CLI is available in this shell; run questmaster help (or questmaster <command> --help) for commands and flags. Use questmaster list for a session overview and questmaster read <session-id> to inspect a session.
+The questmaster CLI is available in this shell; run questmaster help (or questmaster <command> --help) for commands and flags. Use questmaster list for a session overview and questmaster read <session-id> when you need to inspect a session.
 Never delete another master's workers, even when they look finished; a master deletes only its own workers (questmaster delete <session-id>).
 Send messages with questmaster send <session-id> "message"; workers use questmaster send master to report, and masters use questmaster send all to broadcast.
 OpenCode message targets must be idle or done; a blocking wait loop keeps the target working and makes send fail.
