@@ -1030,6 +1030,38 @@ func TestMarkSessionObservedFoldsStaleDoneToIdle(t *testing.T) {
 	}
 }
 
+func TestMarkSessionObservedStartingGrace(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		age  time.Duration
+		kind string
+		want string
+	}{
+		{"fresh startup", StartingToIdleGrace - time.Second, "SessionStart", "starting"},
+		{"stale resumed startup", StartingToIdleGrace + time.Second, "SessionStart", "idle"},
+		{"other starting state", StartingToIdleGrace + time.Second, "Other", "starting"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := setStateRoot(t)
+			id := "qm-starting"
+			now := time.Now().UTC()
+			if err := SaveSessionState(id, &SessionState{
+				SessionID: id, Version: SchemaVersion,
+				Panes: map[string]PaneState{"agent": {Role: "agent", State: "starting", LastKind: tc.kind, LastEvent: now.Add(-tc.age)}},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := MarkSessionObservedAt(root, id, now); err != nil {
+				t.Fatal(err)
+			}
+			ss, err := LoadSessionStateAt(root, id)
+			if err != nil || ss.Panes["agent"].State != tc.want {
+				t.Fatalf("state = %+v, %v; want %s", ss, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestMarkSessionObservedLeavesFreshDoneUnwritten(t *testing.T) {
 	root := setStateRoot(t)
 	id := "qm-observed-fresh"
