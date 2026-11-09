@@ -10,10 +10,15 @@ import (
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
-func newQuestCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
+func newQuestCmd(store *state.Store, client *tmux.Client, repoRoot string, routers ...*tmuxroute.Router) *cobra.Command {
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
+	}
 	var sessionFlag string
 	cmd := &cobra.Command{
 		Use:   "quest",
@@ -25,7 +30,7 @@ func newQuestCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		newQuestListCmd(store),
 		newQuestEditCmd(store),
 		newQuestRemoveCmd(store),
-		newQuestStartCmd(store, client, repoRoot),
+		newQuestStartCmd(store, client, repoRoot, router),
 	)
 	return cmd
 }
@@ -181,7 +186,7 @@ func newQuestRemoveCmd(store *state.Store) *cobra.Command {
 	}
 }
 
-func newQuestStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobra.Command {
+func newQuestStartCmd(store *state.Store, client *tmux.Client, repoRoot string, router *tmuxroute.Router) *cobra.Command {
 	var title string
 	var agentFlags sessionAgentFlags
 	cmd := &cobra.Command{
@@ -206,6 +211,9 @@ func newQuestStartCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 				return err
 			}
 			svc := session.NewService(store, client, repoRoot, registry)
+			if router != nil {
+				svc.Router = router
+			}
 			svc.ReasoningEfforts = modelsuggest.ResolveReasoningEfforts
 			result, err := svc.Start(cmd.Context(), session.StartOpts{
 				Title:     title,

@@ -12,6 +12,8 @@ import (
 	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
@@ -39,8 +41,9 @@ func appVersion() string {
 const cliSendTimeout = 5 * time.Second
 
 // newCLITmuxClient is the tmux client CLI commands use.
-func newCLITmuxClient() *tmux.Client {
-	client := tmux.NewClient(tmux.DefaultServer())
+func newCLITmuxClient(root string) *tmux.Client {
+	paths := tmuxconfig.Paths(root)
+	client := tmux.NewClient(tmux.DefaultServer(paths.Config, paths.Enforced))
 	client.SendTimeout = cliSendTimeout
 	return client
 }
@@ -51,6 +54,7 @@ type Option func(*rootOpts)
 type rootOpts struct {
 	store    *state.Store
 	client   *tmux.Client
+	router   *tmuxroute.Router
 	repoRoot string
 }
 
@@ -60,6 +64,11 @@ func WithDeps(store *state.Store, client *tmux.Client) Option {
 		o.store = store
 		o.client = client
 	}
+}
+
+// WithTmuxRouter injects private-socket routes for CLI tests.
+func WithTmuxRouter(router *tmuxroute.Router) Option {
+	return func(o *rootOpts) { o.router = router }
 }
 
 // NewRootCmd creates the root cobra command.
@@ -76,10 +85,14 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 		o.store = state.OpenStore(state.StateRoot())
 	}
 	if o.client == nil {
-		o.client = newCLITmuxClient()
+		o.client = newCLITmuxClient(o.store.Root())
 	}
 	if o.repoRoot == "" {
 		o.repoRoot = os.Getenv("PARTY_REPO_ROOT")
+	}
+	router, routerErr := o.router, error(nil)
+	if router == nil {
+		router, routerErr = tmuxroute.NewProduction(o.store, o.client)
 	}
 
 	root := &cobra.Command{
@@ -94,31 +107,41 @@ When invoked with no subcommand, it shows help.`,
 			return cmd.Help()
 		},
 	}
+	if routerErr != nil {
+		root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+			if cmd.Name() == "session-closed" && cmd.Parent() != nil && cmd.Parent().Name() == "tmux" {
+				return nil
+			}
+			return routerErr
+		}
+	}
 
 	root.AddCommand(newVersionCmd())
-	root.AddCommand(newListCmd(o.store, o.client))
-	root.AddCommand(newSessionsCmd(o.store, o.client))
-	root.AddCommand(newStatusCmd(o.store, o.client))
-	root.AddCommand(newPruneCmd(o.store, o.client))
-	root.AddCommand(newStartCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newContinueCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newDeleteCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newSpawnCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newSendCmd(o.store, o.client))
-	root.AddCommand(newReadCmd(o.store, o.client))
+	root.AddCommand(newListCmd(o.store, o.client, router, routerErr))
+	root.AddCommand(newSessionsCmd(o.store, o.client, router, routerErr))
+	root.AddCommand(newStatusCmd(o.store, o.client, router))
+	root.AddCommand(newPruneCmd(o.store, o.client, router, routerErr))
+	root.AddCommand(newStartCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(newContinueCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(newDeleteCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(newSpawnCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(newAttachCmd(o.store, router, routerErr))
+	root.AddCommand(newSendCmd(o.store, o.client, router))
+	root.AddCommand(newReadCmd(o.store, o.client, router))
 	root.AddCommand(newChatCmd(o.store, o.client))
-	root.AddCommand(newWorkersCmd(o.store, o.client))
+	root.AddCommand(newWorkersCmd(o.store, o.client, router))
 	root.AddCommand(newAgentCmd())
 	root.AddCommand(newModelsCmd(o.store))
-	root.AddCommand(newHookCmd(o.store, o.client))
+	root.AddCommand(newHookCmd(o.store, o.client, router))
 	root.AddCommand(newHooksCmd())
 	root.AddCommand(newStateCmd(o.store))
 	root.AddCommand(newArtifactCmd(o.store, o.client))
 	root.AddCommand(newPRCmd(o.store, o.client))
-	root.AddCommand(newQuestCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot))
+	root.AddCommand(newQuestCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot, router))
 	root.AddCommand(newRepoCmd(o.store))
-	root.AddCommand(newDaemonCmd(o.store))
+	root.AddCommand(newDaemonCmd(o.store, router, routerErr))
+	root.AddCommand(newTmuxCmd(o.store, router, routerErr))
 
 	return root
 }

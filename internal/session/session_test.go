@@ -49,6 +49,7 @@ type callRecord struct {
 }
 
 type mockRunner struct {
+	ownerMarker string
 	calls       []callRecord
 	fn          func(ctx context.Context, args ...string) (string, error)
 	sessions    map[string]bool
@@ -94,6 +95,8 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 		return "", nil
 	}
 	switch args[0] {
+	case "show-options":
+		return m.ownerMarker, nil
 	case "has-session":
 		session := m.targetKey(flagVal(args, "-t"))
 		if m.sessions[session] {
@@ -142,7 +145,7 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 			names = append(names, s)
 		}
 		if len(names) == 0 {
-			return "", &tmux.ExitError{Code: 1}
+			return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 		}
 		return strings.Join(names, "\n"), nil
 
@@ -199,6 +202,19 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 	case "list-panes":
 		session := m.targetKey(flagVal(args, "-t"))
 		if strings.Contains(flagVal(args, "-F"), "#{pane_dead}") {
+			if flagVal(args, "-F") == "#{pane_dead}" {
+				var dead []string
+				for pane, key := range m.paneIDs {
+					if strings.HasPrefix(key, session+":") {
+						if _, ok := m.deadPanes[pane]; ok {
+							dead = append(dead, "1")
+						} else {
+							dead = append(dead, "0")
+						}
+					}
+				}
+				return strings.Join(dead, "\n"), nil
+			}
 			var lines []string
 			for pane, key := range m.paneIDs {
 				if strings.HasPrefix(key, session+":") {

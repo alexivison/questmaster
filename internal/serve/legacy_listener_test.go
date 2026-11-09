@@ -32,7 +32,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	if s.Snapshotter == nil {
 		// Transport tests can exercise the zero-value server.
-		s.Snapshotter = NewSnapshotter(nil, nil, nil)
+		s.Snapshotter = testSnapshotter(nil, nil, nil)
 	}
 	if root := s.Snapshotter.StateRoot(); root != "" {
 		if err := state.EnsurePrivateStateRoot(root); err != nil {

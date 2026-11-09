@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 const (
@@ -47,7 +48,7 @@ type claudeMessageFrame struct {
 	Type      string `json:"type"`
 }
 
-func (s *Service) nativeDeliver(ctx context.Context, m state.Manifest, target, message string) error {
+func (s *Service) nativeDeliver(ctx context.Context, client *tmux.Client, m state.Manifest, target, message string) error {
 	switch manifestAgentName(m) {
 	case "claude":
 		if restricted, err := claudeInboundRestricted(m.Cwd); err != nil {
@@ -55,7 +56,7 @@ func (s *Service) nativeDeliver(ctx context.Context, m state.Manifest, target, m
 		} else if restricted {
 			return fmt.Errorf("%w: Claude project settings restrict inbound messages", errNativeUnavailable)
 		}
-		return s.deliverClaude(ctx, target, message)
+		return s.deliverClaude(ctx, client, target, message)
 	case "pi":
 		return s.deliverPi(ctx, m, message)
 	default:
@@ -94,12 +95,12 @@ func claudeInboundRestricted(cwd string) (bool, error) {
 	return false, nil
 }
 
-func (s *Service) deliverClaude(ctx context.Context, target, message string) error {
+func (s *Service) deliverClaude(ctx context.Context, client *tmux.Client, target, message string) error {
 	frame, err := claudeFrame(message)
 	if err != nil {
 		return err
 	}
-	pid, canonical, err := s.client.PaneIdentity(ctx, target)
+	pid, canonical, err := client.PaneIdentity(ctx, target)
 	if err != nil {
 		return fmt.Errorf("%w: resolve Claude pane identity: %v", errNativeUnavailable, err)
 	}

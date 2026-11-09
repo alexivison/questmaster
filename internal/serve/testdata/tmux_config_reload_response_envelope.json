@@ -1,0 +1,11 @@
+{
+  "protocol_version": 3,
+  "type": "response",
+  "id": "tmux-config-reload-request",
+  "ok": true,
+  "topic": "tmux.config.reload",
+  "data": {
+    "running": true,
+    "errors": []
+  }
+}

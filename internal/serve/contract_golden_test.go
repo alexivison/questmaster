@@ -15,6 +15,8 @@ import (
 	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
@@ -253,6 +255,31 @@ func serveContractFixtures() []contractFixture {
 			},
 		}},
 		{name: "pr_refresh_request.json", value: Request{ID: json.RawMessage(`"pr-refresh-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","keys":["github.com/owner/repo#42"]}`), ProtocolVersion: ServeProtocolVersion}},
+		{name: "tmux_routes_request.json", value: Request{ID: json.RawMessage(`"tmux-routes-request"`), Method: "tmux.routes", Data: json.RawMessage(`{"session_ids":["qm-example"],"live":true}`), ProtocolVersion: ServeProtocolVersion}},
+		{name: "tmux_routes_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion, Type: "response", ID: json.RawMessage(`"tmux-routes-request"`), OK: boolPtr(true), Topic: "tmux.routes",
+			Data: []tmuxroute.RouteRecord{{SessionID: "qm-example", Server: "default", ConfigFiles: []string{}, Live: true, CreatedUnix: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Unix()}},
+		}},
+		{name: "tmux_config_request.json", value: Request{ID: json.RawMessage(`"tmux-config-request"`), Method: "tmux.config", ProtocolVersion: ServeProtocolVersion}},
+		{name: "tmux_config_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion, Type: "response", ID: json.RawMessage(`"tmux-config-request"`), OK: boolPtr(true), Topic: "tmux.config",
+			Data: tmuxconfig.StatusResult{Config: "/tmp/example/tmux/questmaster.conf", Enforced: "/tmp/example/tmux/enforced.questmaster.conf", EffectiveLabel: "questmaster", Running: true, StartedUnix: 100, Sessions: 1, EditedSinceStart: true, TemplateVersion: 3, BuiltinTemplateVersion: 3},
+		}},
+		{name: "tmux_config_check_request.json", value: Request{ID: json.RawMessage(`"tmux-config-check-request"`), Method: "tmux.config.check", ProtocolVersion: ServeProtocolVersion}},
+		{name: "tmux_config_check_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion, Type: "response", ID: json.RawMessage(`"tmux-config-check-request"`), OK: boolPtr(true), Topic: "tmux.config.check",
+			Data: tmuxconfig.CheckResult{OK: true, Errors: []string{}, EffectiveLabel: "questmaster"},
+		}},
+		{name: "tmux_config_reload_request.json", value: Request{ID: json.RawMessage(`"tmux-config-reload-request"`), Method: "tmux.config.reload", ProtocolVersion: ServeProtocolVersion}},
+		{name: "tmux_config_reload_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion, Type: "response", ID: json.RawMessage(`"tmux-config-reload-request"`), OK: boolPtr(true), Topic: "tmux.config.reload",
+			Data: tmuxconfig.ReloadResult{Running: true, Errors: []string{}},
+		}},
+		{name: "tmux_server_restart_request.json", value: Request{ID: json.RawMessage(`"tmux-server-restart-request"`), Method: "tmux.server.restart", ProtocolVersion: ServeProtocolVersion}},
+		{name: "tmux_server_restart_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion, Type: "response", ID: json.RawMessage(`"tmux-server-restart-request"`), OK: boolPtr(true), Topic: "tmux.server.restart",
+			Data: tmuxconfig.RestartResult{Refused: true, Sessions: 1},
+		}},
 		// What the app sends for r in the Watcher dock: the whole session, and a reply once it has refreshed.
 		{name: "pr_refresh_session_request.json", value: Request{ID: json.RawMessage(`"pr-refresh-session-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","wait":true}`), ProtocolVersion: ServeProtocolVersion}},
 		{name: "pr_refresh_wake_request.json", value: Request{ID: json.RawMessage(`"pr-wake-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"keys":["github.com/owner/repo#42"],"wait":false}`), ProtocolVersion: ServeProtocolVersion}},

@@ -11,6 +11,7 @@ import (
 	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +25,7 @@ type pruneResult struct {
 	Paths          []string `json:"paths,omitempty"`
 }
 
-func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
+func newPruneCmd(store *state.Store, client *tmux.Client, router *tmuxroute.Router, routerErr error) *cobra.Command {
 	var (
 		days   int
 		dryRun bool
@@ -34,7 +35,10 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		Use:   "prune",
 		Short: "Remove stale session manifests and orphaned state and runtime directories",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result, err := pruneManifests(cmd.Context(), store, client, days, dryRun)
+			if routerErr != nil {
+				return fmt.Errorf("tmux router: %w", routerErr)
+			}
+			result, err := pruneManifests(cmd.Context(), store, client, days, dryRun, router)
 			if err != nil {
 				return err
 			}
@@ -46,27 +50,32 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	return cmd
 }
 
-func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client, maxDays int, dryRun bool) (pruneResult, error) {
+func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client, maxDays int, dryRun bool, routers ...*tmuxroute.Router) (pruneResult, error) {
+	if len(routers) == 0 || routers[0] == nil {
+		return pruneResult{Days: maxDays, DryRun: dryRun}, fmt.Errorf("tmux router is required for prune")
+	}
 	legacyRoot := ""
 	if filepath.Clean(store.Root()) == filepath.Clean(state.StateRoot()) {
 		legacyRoot = "/tmp"
 	}
-	return pruneManifestsWithLegacyRoot(ctx, store, client, maxDays, dryRun, legacyRoot)
+	return pruneManifestsWithLegacyRoot(ctx, store, client, maxDays, dryRun, legacyRoot, routers...)
 }
 
 // legacyRoot is supplied by tests so they never scan or remove real /tmp paths.
-func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, client *tmux.Client, maxDays int, dryRun bool, legacyRoot string) (pruneResult, error) {
+func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, client *tmux.Client, maxDays int, dryRun bool, legacyRoot string, routers ...*tmuxroute.Router) (pruneResult, error) {
 	result := pruneResult{Days: maxDays, DryRun: dryRun}
-	live, err := client.ListSessions(ctx)
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
+	}
+	if router == nil {
+		return result, fmt.Errorf("tmux router is required for prune")
+	}
+	// Prune needs a fresh, complete view before its first mutation.
+	router.Invalidate()
+	liveSet, err := router.LiveIDs(ctx)
 	if err != nil {
 		return result, fmt.Errorf("list tmux sessions: %w", err)
-	}
-	liveSet := make(map[string]bool, len(live))
-	// If sessions move to dedicated tmux servers, collect liveness from every server before pruning.
-	for _, s := range live {
-		if state.IsValidSessionID(s) {
-			liveSet[s] = true
-		}
 	}
 
 	// Walk files directly (not DiscoverSessions) so corrupt manifests are eligible.
@@ -78,7 +87,6 @@ func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, clien
 		}
 		return result, fmt.Errorf("read state dir: %w", err)
 	}
-
 	cutoff := time.Now().Add(-time.Duration(maxDays) * 24 * time.Hour)
 	wouldDelete := map[string]bool{}
 
@@ -124,7 +132,7 @@ func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, clien
 			continue
 		}
 
-		// Try to parse manifest for master-with-workers guard; skip on parse failure (prune it).
+		// A corrupt manifest can be removed once the server view is complete.
 		m, readErr := store.Read(sessionID)
 		if readErr == nil && m.AgentSessionType() == "master" && len(m.Workers) > 0 {
 			continue
@@ -190,6 +198,9 @@ func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, clien
 		}
 	}
 	result.DroppedWatches, err = state.DropPullRequestWatches(root, func(id string) bool {
+		if liveSet[id] {
+			return false
+		}
 		if wouldDelete[id] {
 			return true
 		}

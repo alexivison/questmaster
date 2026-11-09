@@ -18,7 +18,13 @@ import (
 	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
+
+func daemonSnapshotterForTest(store *state.Store, client *tmux.Client, now func() time.Time) *serve.Snapshotter {
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	return serve.NewSnapshotter(store, client, now, router)
+}
 
 type runtimeTmuxRunner struct{}
 
@@ -61,7 +67,7 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 	changes := &runtimeChangeSource{changes: make(chan serve.Change, 4)}
 	var mutations atomic.Int32
 	runtime := &serve.Server{
-		Snapshotter:      serve.NewSnapshotter(store, tmux.NewClient(runtimeTmuxRunner{}), func() time.Time { return time.Unix(100, 0) }),
+		Snapshotter:      daemonSnapshotterForTest(store, tmux.NewClient(runtimeTmuxRunner{}), func() time.Time { return time.Unix(100, 0) }),
 		ChangeSource:     changes,
 		DirQuerier:       func(string) ([]string, error) { return []string{root}, nil },
 		ReasoningEfforts: func(context.Context, string, string) []string { return []string{"high"} },
@@ -70,6 +76,7 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 			return []byte(`{"started":true}`), nil
 		}),
 	}
+	runtime.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(runtimeTmuxRunner{})}, func() string { return "default" }, nil)
 	s := &server{
 		config:  Config{Root: root, PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second},
 		runtime: runtime, id: "canonical", record: Record{Root: root, Identity: "canonical", Accepting: true, Generation: 1},
@@ -195,7 +202,7 @@ func TestDaemonStopsWatcherWithoutSubscriber(t *testing.T) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s := &server{runtime: &serve.Server{Snapshotter: serve.NewSnapshotter(state.OpenStore(root), tmux.NewClient(runtimeTmuxRunner{}), nil)}}
+	s := &server{runtime: &serve.Server{Snapshotter: daemonSnapshotterForTest(state.OpenStore(root), tmux.NewClient(runtimeTmuxRunner{}), nil)}}
 	if s.source != nil {
 		t.Fatal("watcher started without a subscriber")
 	}

@@ -1,12 +1,14 @@
 package tmuxtest
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeTmux puts a stub named tmux first on PATH. The stub records its argv and
@@ -30,6 +32,19 @@ env > "$QMTEST_STUB_DIR/env"
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("QMTEST_STUB_DIR", dir)
 	return dir
+}
+
+func TestRunnerHonorsCallerDeadline(t *testing.T) {
+	dir := fakeTmux(t)
+	if err := os.WriteFile(filepath.Join(dir, "bin", "tmux"), []byte("#!/bin/sh\nexec sleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &Runner{socket: "/tmp/qmt-short/tmux.sock"}
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := r.Run(ctx, "list-sessions"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Run error = %v, want deadline exceeded", err)
+	}
 }
 
 func stubRan(dir string) bool {

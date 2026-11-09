@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 func TestNotifyHoldsUnsafeSessionsAndRecentTyping(t *testing.T) {
@@ -73,7 +74,8 @@ func TestNotifyHoldsUnsafeSessionsAndRecentTyping(t *testing.T) {
 				}
 				return "", nil
 			}}
-			svc := NewService(store, tmux.NewClient(runner))
+			client := tmux.NewClient(runner)
+			svc := NewServiceWithRouter(store, tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil))
 			got, err := svc.Notify(context.Background(), id, "[PR owner/repo#12] activity")
 			wantSent := tc.want != ""
 			if err != nil || got != tc.want || (sent > 0) != wantSent {

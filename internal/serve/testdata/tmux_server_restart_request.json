@@ -1,0 +1,5 @@
+{
+  "id": "tmux-server-restart-request",
+  "method": "tmux.server.restart",
+  "protocol_version": 3
+}

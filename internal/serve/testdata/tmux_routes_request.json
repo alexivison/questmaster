@@ -1,0 +1,11 @@
+{
+  "id": "tmux-routes-request",
+  "method": "tmux.routes",
+  "data": {
+    "session_ids": [
+      "qm-example"
+    ],
+    "live": true
+  },
+  "protocol_version": 3
+}

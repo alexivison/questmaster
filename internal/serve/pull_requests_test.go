@@ -28,7 +28,7 @@ func TestPRRefreshScopesAndWaitsForStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	called := false
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, env.tmuxClient, nil), PRRefresh: func(_ context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
+	srv := &Server{Snapshotter: testSnapshotter(env.store, env.tmuxClient, nil), PRRefresh: func(_ context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
 		called = true
 		if !wait {
 			t.Fatal("app refresh did not wait")
@@ -82,7 +82,7 @@ func TestPRRefreshWithoutSessionQueuesWatchedKey(t *testing.T) {
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
 		t.Fatal(err)
 	}
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, env.tmuxClient, nil), PRRefresh: func(_ context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
+	srv := &Server{Snapshotter: testSnapshotter(env.store, env.tmuxClient, nil), PRRefresh: func(_ context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
 		if wait || len(keys) != 1 || keys[0] != ref.Key {
 			return nil, fmt.Errorf("wrong wake: wait=%v keys=%v", wait, keys)
 		}
@@ -140,7 +140,7 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	snapshotter := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snapshotter := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	srv := &Server{Snapshotter: snapshotter}
 	request := func(id string) []state.PullRequest {
 		t.Helper()
@@ -214,7 +214,7 @@ func TestPullRequestsRegistryRewritePushesTracker(t *testing.T) {
 	env := seedServeFixture(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	source, err := NewFileChangeSource(ctx, snap, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -267,7 +267,7 @@ func TestPullRequestStatusRewritePushesTracker(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	source, err := NewFileChangeSource(ctx, snap, time.Hour)
 	if err != nil {
 		t.Fatal(err)

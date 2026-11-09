@@ -19,6 +19,8 @@ import (
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 	"github.com/spf13/cobra"
 )
@@ -37,7 +39,10 @@ type HookRunner struct {
 	Store hookManifestStore
 
 	// TmuxClient writes captured IDs into the tmux session environment.
-	TmuxClient hookTmuxEnvironmentSetter
+	TmuxClient        hookTmuxEnvironmentSetter
+	initialTmuxClient hookTmuxEnvironmentSetter
+	TmuxRouter        *tmuxroute.Router
+	TmuxRouteErr      error
 
 	// LoadTranscriptTail returns up to ~64 KiB from the end of a Claude
 	// transcript_path file. Returns (nil, nil) if the file is missing or
@@ -98,7 +103,13 @@ type hookTmuxEnvironmentSetter interface {
 
 // defaultHookRunner wires HookRunner to the real internal/state package.
 func defaultHookRunner() *HookRunner {
-	return newHookRunner(state.OpenStore(state.StateRoot()), tmux.NewClient(tmux.DefaultServer()))
+	store := state.OpenStore(state.StateRoot())
+	paths := tmuxconfig.Paths(store.Root())
+	client := tmux.NewClient(tmux.DefaultServer(paths.Config, paths.Enforced))
+	runner := newHookRunner(store, client)
+	runner.initialTmuxClient = client
+	runner.TmuxRouter, runner.TmuxRouteErr = tmuxroute.NewProduction(store, client)
+	return runner
 }
 
 func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *HookRunner {
@@ -309,7 +320,7 @@ type hookOptions struct {
 // newHookCmd builds `questmaster hook <agent> <action>`. The tmux/state
 // args mirror other subcommand factories for consistency; this hot path
 // must never call methods that scan the state root (e.g. DiscoverSessions).
-func newHookCmd(store *state.Store, client *tmux.Client) *cobra.Command {
+func newHookCmd(store *state.Store, client *tmux.Client, routes ...*tmuxroute.Router) *cobra.Command {
 	var sessionFlag string
 	cmd := &cobra.Command{
 		Use:   "hook <agent> <action>",
@@ -325,7 +336,14 @@ func newHookCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := hookOptions{ctx: cmd.Context(), agent: args[0], action: args[1], session: sessionFlag}
 			opts.stdin, opts.stdinErr = readStdinNonBlocking(cmd.InOrStdin())
-			runHook(newHookRunner(store, client), opts, cmd.ErrOrStderr())
+			runner := newHookRunner(store, client)
+			runner.initialTmuxClient = client
+			if len(routes) > 0 && routes[0] != nil {
+				runner.TmuxRouter = routes[0]
+			} else if client != nil {
+				runner.TmuxRouter, runner.TmuxRouteErr = tmuxroute.NewProduction(store, client)
+			}
+			runHook(runner, opts, cmd.ErrOrStderr())
 			return nil
 		},
 	}
@@ -358,6 +376,40 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	if validID && r.LogHookError != nil {
 		tag := opts.agent + "/" + opts.action + " "
 		stderr = hookErrorWriter{stderr: stderr, log: func(text string) { _ = r.LogHookError(id, tag+text) }}
+	}
+	if validID && r.Store != nil && (r.TmuxRouter != nil || r.TmuxRouteErr != nil) {
+		manifest, err := r.Store.Read(id)
+		if err == nil {
+			origin := "default"
+			if value, set := os.LookupEnv("QUESTMASTER_TMUX_SERVER"); set {
+				origin = value
+			}
+			recorded := string(manifest.TmuxServer)
+			if recorded == "" {
+				recorded = "default"
+			}
+			if origin != recorded {
+				fmt.Fprintf(stderr, "questmaster hook: stale tmux origin %.32q for %s (recorded %.32q)\n", origin, id, recorded)
+				return
+			}
+			if r.TmuxRouteErr != nil {
+				fmt.Fprintf(stderr, "questmaster hook: route: %v\n", r.TmuxRouteErr)
+				if recorded != "default" {
+					return
+				}
+			}
+			if r.TmuxRouteErr == nil && r.TmuxRouter != nil && r.TmuxClient == r.initialTmuxClient {
+				handle, err := r.TmuxRouter.Route(manifest)
+				if err != nil {
+					fmt.Fprintf(stderr, "questmaster hook: route %s: %v\n", id, err)
+					if recorded != "default" {
+						return
+					}
+				} else {
+					r.TmuxClient = handle.Client()
+				}
+			}
+		}
 	}
 	if opts.stdinErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook: read stdin: %v\n", opts.stdinErr)

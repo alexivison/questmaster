@@ -9,9 +9,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
+
+func daemonConfigForTest(store *state.Store, client *tmux.Client) (daemon.Config, error) {
+	root, err := filepath.Abs(store.Root())
+	if err != nil {
+		return daemon.Config{}, err
+	}
+	router := tmuxroute.New(state.OpenStore(root), map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	return newDaemonConfigWithRouter(store, client, router)
+}
 
 func TestDaemonConfigRegistersSessionClassBackfillJob(t *testing.T) {
 	t.Parallel()
@@ -20,7 +31,7 @@ func TestDaemonConfigRegistersSessionClassBackfillJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	config, err := newDaemonConfig(store, tmux.NewClient(&pruneRunner{sessions: map[string]bool{}}))
+	config, err := daemonConfigForTest(store, tmux.NewClient(&pruneRunner{sessions: map[string]bool{}}))
 	if err != nil {
 		t.Fatalf("daemon config: %v", err)
 	}
@@ -55,7 +66,7 @@ func TestDaemonClassBackfillUsesAbsoluteStateRootAfterChdir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("relative root: %v", err)
 	}
-	config, err := newDaemonConfig(state.OpenStore(relativeRoot), tmux.NewClient(&pruneRunner{sessions: map[string]bool{"qm-relative-root": true}}))
+	config, err := daemonConfigForTest(state.OpenStore(relativeRoot), tmux.NewClient(&pruneRunner{sessions: map[string]bool{"qm-relative-root": true}}))
 	if err != nil {
 		t.Fatalf("daemon config: %v", err)
 	}

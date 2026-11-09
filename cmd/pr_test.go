@@ -535,7 +535,7 @@ func TestPruneDropsOrphanWatchesAndDryRunPreservesRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{}})
-	dry, err := pruneManifests(t.Context(), store, client, 7, true)
+	dry, err := pruneManifests(t.Context(), store, client, 7, true, testPruneRouter(store, client))
 	if err != nil || dry.DroppedWatches != 2 {
 		t.Fatalf("dry prune = %#v, %v", dry, err)
 	}
@@ -543,7 +543,7 @@ func TestPruneDropsOrphanWatchesAndDryRunPreservesRegistry(t *testing.T) {
 	if err != nil || string(before) != string(after) {
 		t.Fatalf("dry run changed registry: %v", err)
 	}
-	got, err := pruneManifests(t.Context(), store, client, 7, false)
+	got, err := pruneManifests(t.Context(), store, client, 7, false, testPruneRouter(store, client))
 	if err != nil || got.DroppedWatches != 2 {
 		t.Fatalf("prune = %#v, %v", got, err)
 	}

@@ -5,6 +5,7 @@ package cmd
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -14,23 +15,30 @@ import (
 
 	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/prstatus"
+	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
 // newDaemonTmuxClient is the tmux client the daemon and its jobs use. It keeps
 // the default send timeout (see cliSendTimeout).
-func newDaemonTmuxClient() *tmux.Client {
-	return tmux.NewClient(tmux.DefaultServer())
+func newDaemonTmuxClient(root string) *tmux.Client {
+	paths := tmuxconfig.Paths(root)
+	return tmux.NewClient(tmux.DefaultServer(paths.Config, paths.Enforced))
 }
 
-func newDaemonCmd(store *state.Store) *cobra.Command {
+func newDaemonCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *cobra.Command {
 	parent := &cobra.Command{Use: "daemon", Short: "Manage the on-demand backend", Args: cobra.NoArgs}
 	var buildFrom string
 	config := func() (daemon.Config, error) {
-		c, err := newDaemonConfig(store, newDaemonTmuxClient())
+		if routerErr != nil {
+			return daemon.Config{}, routerErr
+		}
+		c, err := newDaemonConfigWithRouter(store, newDaemonTmuxClient(store.Root()), router)
 		if err != nil {
 			return daemon.Config{}, err
 		}
@@ -69,9 +77,8 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 			return err
 		}
 		c.IdleGrace = idleGrace
-		prTmux := newDaemonTmuxClient()
-		prTmux.CacheListSessions(time.Second)
-		c.Jobs = append(c.Jobs, prstatus.NewJob(store.Root(), prTmux, prstatus.GH))
+		prTmux := newDaemonTmuxClient(store.Root())
+		c.Jobs = append(c.Jobs, prstatus.NewJob(store.Root(), prTmux, prstatus.GH, router))
 		if clockInterval > 0 {
 			c.ClockInterval = clockInterval
 		}
@@ -165,12 +172,24 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 }
 
 func newDaemonConfig(store *state.Store, tmuxClient *tmux.Client) (daemon.Config, error) {
+	router, err := tmuxroute.NewProduction(store, tmuxClient)
+	if err != nil {
+		return daemon.Config{}, err
+	}
+	return newDaemonConfigWithRouter(store, tmuxClient, router)
+}
+
+func newDaemonConfigWithRouter(store *state.Store, tmuxClient *tmux.Client, router *tmuxroute.Router) (daemon.Config, error) {
+	if router == nil {
+		return daemon.Config{}, fmt.Errorf("tmux router is required for daemon")
+	}
 	root, err := filepath.Abs(store.Root())
 	if err != nil {
 		return daemon.Config{}, err
 	}
 	return daemon.Config{
-		Root: root,
-		Jobs: []daemon.Job{session.NewClassBackfillJob(state.OpenStore(root), tmuxClient)},
+		Root:    root,
+		Jobs:    []daemon.Job{session.NewClassBackfillJob(state.OpenStore(root), tmuxClient, router)},
+		Runtime: &serve.Server{TmuxRouter: router},
 	}, nil
 }
