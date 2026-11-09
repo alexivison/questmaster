@@ -54,6 +54,35 @@
         "inaccessible_reason": "saml",
         "stale": false
       }
+    },
+    {
+      "key": "github.com/owner/repo#44",
+      "host": "github.com",
+      "owner": "Owner",
+      "repo": "Repo",
+      "number": 44,
+      "watchers": [
+        {
+          "session_id": "qm-demo",
+          "added_at": "2026-06-19T04:20:00Z"
+        }
+      ],
+      "status": {
+        "title": "Needs a look",
+        "url": "https://github.com/owner/repo/pull/44",
+        "author": "example-author",
+        "state": "open",
+        "draft": false,
+        "head_sha": "def456",
+        "updated_at": "2026-06-19T04:20:00Z",
+        "additions": 0,
+        "deletions": 0,
+        "comments": 0,
+        "review": "commented",
+        "ci": "pending",
+        "changed_at": "2026-06-19T04:20:00Z",
+        "stale": false
+      }
     }
   ]
 }

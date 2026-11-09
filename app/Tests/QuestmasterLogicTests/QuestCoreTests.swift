@@ -203,7 +203,7 @@ struct QuestCoreTests {
         store.sync(quests: logQuests, repos: [])
         expect(store.handle(.page(1)) == .scrollPage(0.9) && store.handle(.halfPage(-1)) == .scrollPage(-0.5), "page keys scroll by 0.9 and half pages")
         expect(store.handle(.open) == nil && store.handle(.previousTab) == nil && store.handle(.jumpToTopPrefix) == nil, "Return, the tabs and a lone g do nothing in the Quest Log")
-        expect(store.handle(.refresh) == nil && store.handle(.editRepo) == nil && store.handle(.toggleWorkersCollapsed) == nil, "the tracker's and Version Control's keys do nothing in the Quest Log")
+        expect(store.handle(.refresh) == nil && store.handle(.editRepo) == nil && store.handle(.toggleWorkersCollapsed) == nil, "the tracker's and Watcher's keys do nothing in the Quest Log")
     }
 
     /// The rows move with the modal keys: j and k, while the arrows, Tab and ⌃J/⌃K take nothing. A lone g still

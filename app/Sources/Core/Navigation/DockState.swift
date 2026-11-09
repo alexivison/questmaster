@@ -7,7 +7,7 @@ public enum DockContent: Equatable {
     case workerChat
 }
 
-/// The dock's two stacked panels: Version Control on top, and under it whatever `DockContent` names.
+/// The dock's two stacked panels: Watcher on top, and under it whatever `DockContent` names.
 public enum DockPanel: Equatable {
     case top
     case bottom
@@ -37,14 +37,14 @@ public struct DockPanels: Equatable {
 }
 
 /// The dock's state, app-wide: switching sessions never opens, closes, swaps or resizes a panel. Only what they list
-/// follows the session (the Session tab's artifacts, the worker chat's workers, Version Control's pull requests). The
+/// follows the session (the Session tab's artifacts, the worker chat's workers, Watcher's pull requests). The
 /// open artifact stays across sessions: the viewer may show another session's artifact, as the All tab lists them
 /// anyway. In memory only.
 ///
-/// The two panels are independent: Version Control (top) opens and closes without touching the bottom panel, and what
-/// the bottom panel shows changes without touching Version Control.
+/// The two panels are independent: Watcher (top) opens and closes without touching the bottom panel, and what
+/// the bottom panel shows changes without touching Watcher.
 public struct DockState: Equatable {
-    /// Version Control, the top panel.
+    /// Watcher, the top panel.
     public var topVisible: Bool
     /// The bottom panel: `dockContent` names what it shows.
     public var bottomVisible: Bool

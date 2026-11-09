@@ -251,6 +251,7 @@ func serveContractFixtures() []contractFixture {
 			Data: []state.PullRequest{
 				{Key: "github.com/owner/repo#42", Host: "github.com", Owner: "Owner", Repo: "Repo", Number: 42, Watchers: []state.PullRequestWatcher{{SessionID: "qm-demo", AddedAt: observedAt.Format(time.RFC3339)}}, Status: &state.PullRequestStatus{Title: "Ready to merge", URL: "https://github.com/owner/repo/pull/42", State: "open", HeadSHA: "abc123", UpdatedAt: observedAt.Format(time.RFC3339), Review: "approved", CI: "success", ChangedAt: observedAt.Format(time.RFC3339)}},
 				{Key: "github.com/owner/repo#43", Host: "github.com", Owner: "Owner", Repo: "Repo", Number: 43, Watchers: []state.PullRequestWatcher{{SessionID: "qm-demo", AddedAt: observedAt.Format(time.RFC3339)}}, Status: &state.PullRequestStatus{InaccessibleReason: "saml", ChangedAt: observedAt.Format(time.RFC3339)}},
+				{Key: "github.com/owner/repo#44", Host: "github.com", Owner: "Owner", Repo: "Repo", Number: 44, Watchers: []state.PullRequestWatcher{{SessionID: "qm-demo", AddedAt: observedAt.Format(time.RFC3339)}}, Status: &state.PullRequestStatus{Title: "Needs a look", URL: "https://github.com/owner/repo/pull/44", Author: "example-author", State: "open", HeadSHA: "def456", UpdatedAt: observedAt.Format(time.RFC3339), Review: "commented", CI: "pending", ChangedAt: observedAt.Format(time.RFC3339)}},
 			},
 		}},
 		{name: "pr_refresh_request.json", value: Request{ID: json.RawMessage(`"pr-refresh-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","keys":["github.com/owner/repo#42"]}`), ProtocolVersion: ServeProtocolVersion}},
@@ -279,7 +280,7 @@ func serveContractFixtures() []contractFixture {
 			ProtocolVersion: ServeProtocolVersion, Type: "response", ID: json.RawMessage(`"tmux-server-restart-request"`), OK: boolPtr(true), Topic: "tmux.server.restart",
 			Data: tmuxconfig.RestartResult{Refused: true, Sessions: 1},
 		}},
-		// What the app sends for r in the Version Control dock: the whole session, and a reply once it has refreshed.
+		// What the app sends for r in the Watcher dock: the whole session, and a reply once it has refreshed.
 		{name: "pr_refresh_session_request.json", value: Request{ID: json.RawMessage(`"pr-refresh-session-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","wait":true}`), ProtocolVersion: ServeProtocolVersion}},
 		{name: "pr_refresh_wake_request.json", value: Request{ID: json.RawMessage(`"pr-wake-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"keys":["github.com/owner/repo#42"],"wait":false}`), ProtocolVersion: ServeProtocolVersion}},
 		{name: "pr_refresh_response_envelope.json", value: Envelope{

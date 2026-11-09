@@ -104,11 +104,11 @@ enum LogicSelfTests {
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
-        ("testVersionControlDockKeysMoveOpenCopyAndRefresh", testVersionControlDockKeysMoveOpenCopyAndRefresh),
+        ("testWatcherDockKeysMoveOpenCopyAndRefresh", testWatcherDockKeysMoveOpenCopyAndRefresh),
         ("testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow", testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow),
         ("testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion", testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion),
         ("testEveryEmptyPanelDrawsTheOneIconCentredInItsSection", testEveryEmptyPanelDrawsTheOneIconCentredInItsSection),
-        ("testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
+        ("testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
         ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
         ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
         ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
@@ -195,12 +195,13 @@ enum LogicSelfTests {
         ("testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange", testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange),
         ("testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace", testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace),
         ("testWorkerChatNameStartsPastLogoInAnyChatFont", testWorkerChatNameStartsPastLogoInAnyChatFont),
+        ("testAgentLogosAreLoadedOncePerSideAndTint", testAgentLogosAreLoadedOncePerSideAndTint),
         ("testDockPaneRoutesTheWorkerLogFilterKeys", testDockPaneRoutesTheWorkerLogFilterKeys),
         ("testWorkerLogFilterKeepsItsDesignedSize", testWorkerLogFilterKeepsItsDesignedSize),
         ("testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons", testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons),
         ("testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView", testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView),
         ("testWorkerLogFilterFollowsTheBottomPanelsKeys", testWorkerLogFilterFollowsTheBottomPanelsKeys),
-        ("testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl", testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl),
+        ("testWorkerLogFilterStaysInsideTheBottomPanelBelowWatcher", testWorkerLogFilterStaysInsideTheBottomPanelBelowWatcher),
         ("testWorkerLogChipsStayUnderTheTopBarInEveryState", testWorkerLogChipsStayUnderTheTopBarInEveryState),
         ("testWorkerChatFeedFadesInUnderItsHeader", testWorkerChatFeedFadesInUnderItsHeader),
         ("testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem", testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem),
@@ -2015,9 +2016,9 @@ enum LogicSelfTests {
         try expect(publishCount > beforeArtifacts, "artifact mode change should publish for DockRootView")
     }
 
-    /// The Version Control panel's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its URL
+    /// The Watcher panel's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its URL
     /// and r asks the daemon to refresh; a click picks and opens; modified keys and others pass through.
-    private static func testVersionControlDockKeysMoveOpenCopyAndRefresh() throws {
+    private static func testWatcherDockKeysMoveOpenCopyAndRefresh() throws {
         let store = PullRequestStore()
         let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
         guard let request = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true) else {
@@ -2033,7 +2034,7 @@ enum LogicSelfTests {
         }
         _ = store.apply(response: [try pull(1, updated: "2026-10-01T00:00:00Z"), try pull(2, updated: "2026-10-02T00:00:00Z")], for: request)
 
-        let pane = VersionControlDockPane(store: store)
+        let pane = WatcherDockPane(store: store)
         var effects: [PullRequestEffect] = []
         pane.onPullRequestEffect = { effects.append($0) }
 
@@ -2196,11 +2197,11 @@ enum LogicSelfTests {
             "the ended terminal"
         )
 
-        let versionControl = CGSize(width: DockWidthPreference.panelWidth, height: 260)
+        let watcher = CGSize(width: DockWidthPreference.panelWidth, height: 260)
         try expectCentred(
-            try ink(VersionControlList(rows: [], cursorKey: nil, isUnwatched: true, readNotice: nil, areaFocused: true, onOpenRow: { _ in }), size: versionControl),
-            in: CGRect(origin: .zero, size: versionControl),
-            "Version Control"
+            try ink(WatcherList(rows: [], cursorKey: nil, isUnwatched: true, readNotice: nil, areaFocused: true, onOpenRow: { _ in }), size: watcher),
+            in: CGRect(origin: .zero, size: watcher),
+            "Watcher"
         )
 
         let chat = CGSize(width: DockWidthPreference.panelWidth, height: 400)
@@ -2274,17 +2275,17 @@ enum LogicSelfTests {
         try expect(spinner.spinAnimation == nil, "a spinner that leaves its window stops")
     }
 
-    /// The Version Control title bar shows the spinner beside its title exactly while the pull request store refreshes
+    /// The Watcher title bar shows the spinner beside its title exactly while the pull request store refreshes
     /// (`r` until the daemon's reply and one turn), and the other docks never do. It reads the ring's presence, not its
     /// animation: a hosted ring turns or holds still by the host's Reduce Motion setting (`SpinnerRingView` reads the
     /// environment's), and CI's macOS runner reduces motion where a desk doesn't, so the turn is tested on the view
     /// itself (`testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow`).
-    private static func testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes() throws {
+    private static func testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes() throws {
         let store = PullRequestStore()
         let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
         _ = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true)
         let window = HeadlessWindow(size: CGSize(width: 480, height: 300))
-        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl, isRefreshing: { store.isRefreshing }))
+        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher, isRefreshing: { store.isRefreshing }))
         let bottom = DockShellView(body: NSView(), model: DockChromeModel(isRefreshing: { false }))
         let column = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 300))
         top.frame = NSRect(x: 0, y: 150, width: 480, height: 150)
@@ -2316,10 +2317,10 @@ enum LogicSelfTests {
         try waitForMainQueue("the spinner to go") { spinner(in: top) == nil }
     }
 
-    /// The column puts Version Control on top at 300, the bottom panel under it, 20 apart; a panel alone fills the column and
+    /// The column puts Watcher on top at 300, the bottom panel under it, 20 apart; a panel alone fills the column and
     /// a hidden one leaves the view hidden.
     private static func testDockColumnLaysOutItsPanels() throws {
-        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl))
+        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher))
         let bottom = DockShellView(body: NSView())
         let column = DockColumnView(top: top, bottom: bottom)
         column.frame = NSRect(x: 0, y: 0, width: 480, height: 860)
@@ -2331,15 +2332,15 @@ enum LogicSelfTests {
 
         _ = laidOut(DockPanels(top: true, bottom: true))
         try expect(!top.isHidden && !bottom.isHidden, "both panels show in the split")
-        try expect(top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Version Control sits at the column's top, 300 tall, got \(top.frame)")
+        try expect(top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Watcher sits at the column's top, 300 tall, got \(top.frame)")
         try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 540), "the bottom panel takes what's left under a 20 gap, got \(bottom.frame)")
 
         _ = laidOut(DockPanels(top: true))
-        try expect(!top.isHidden && bottom.isHidden, "Version Control alone leaves the bottom panel hidden")
-        try expect(top.frame == NSRect(x: 0, y: 0, width: 480, height: 860), "Version Control alone fills the dock, got \(top.frame)")
+        try expect(!top.isHidden && bottom.isHidden, "Watcher alone leaves the bottom panel hidden")
+        try expect(top.frame == NSRect(x: 0, y: 0, width: 480, height: 860), "Watcher alone fills the dock, got \(top.frame)")
 
         _ = laidOut(DockPanels(bottom: true))
-        try expect(top.isHidden && !bottom.isHidden, "the bottom panel alone leaves Version Control hidden")
+        try expect(top.isHidden && !bottom.isHidden, "the bottom panel alone leaves Watcher hidden")
         try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 860), "the bottom panel alone fills the dock, got \(bottom.frame)")
 
         _ = laidOut(DockPanels(top: true, bottom: true))
@@ -2410,7 +2411,7 @@ enum LogicSelfTests {
             focusRegionRight: .anywhere { ran.append("⇧⌘L") },
             focusDockTop: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘K") }),
             focusDockBottom: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘J") }),
-            toggleVersionControlDock: .anywhere { ran.append("⇧⌘R") }
+            toggleWatcherDock: .anywhere { ran.append("⇧⌘R") }
         )
         let menu = MenuController()
         menu.installCommandKeyMonitor(actions)
@@ -2491,7 +2492,7 @@ enum LogicSelfTests {
         func makeColumn() -> (DockColumnView, DockShellView, DockShellView, HeadlessWindow) {
             let window = HeadlessWindow(size: CGSize(width: 1000, height: 900))
             let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 900))
-            let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl))
+            let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher))
             let bottom = DockShellView(body: NSView())
             let column = DockColumnView(top: top, bottom: bottom)
             column.frame = NSRect(x: 500, y: 0, width: 480, height: 860)
@@ -2513,7 +2514,7 @@ enum LogicSelfTests {
         try expect(top.frame.maxY == 870 && top.frame.height == 300, "and 10 above its slot, got \(top.frame)")
         try expect(waitUntil { column.isTransitioning && top.alphaValue > 0 && top.alphaValue < 1 }, "the appearing panel should reach an intermediate state")
         try expect(waitUntil { !column.isTransitioning }, "the dock's panel transition should finish")
-        try expect(top.alphaValue == 1 && top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Version Control ends at its slot, got \(top.frame)")
+        try expect(top.alphaValue == 1 && top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Watcher ends at its slot, got \(top.frame)")
         try expect(bottom.alphaValue == 1 && bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 540), "the bottom panel ends shrunk under it, got \(bottom.frame)")
 
         column.setPanels(DockPanels(bottom: true), animated: true)
@@ -2545,14 +2546,14 @@ enum LogicSelfTests {
     private static func testOnlyTheFocusedDockPanelHasTheKeys() throws {
         let window = HeadlessWindow(size: CGSize(width: 1000, height: 900))
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 900))
-        let pane = VersionControlDockPane(store: PullRequestStore())
+        let pane = WatcherDockPane(store: PullRequestStore())
         let bottomPane = SwiftUIDockPane(
             store: RuntimeStore(sourceLabel: "test"),
             workerChatStore: WorkerChatStore(),
             newQuestPresenter: NewQuestSheetPresenter(),
             settingsPresenter: SettingsSheetPresenter()
         )
-        let top = DockShellView(body: pane, model: DockChromeModel(topBar: .versionControl))
+        let top = DockShellView(body: pane, model: DockChromeModel(topBar: .watcher))
         let bottom = DockShellView(body: bottomPane)
         let column = DockColumnView(top: top, bottom: bottom)
         column.frame = NSRect(x: 500, y: 0, width: 480, height: 860)
@@ -2571,7 +2572,7 @@ enum LogicSelfTests {
             actionBar: { nil },
             trackerHosting: { nil },
             dockView: { bottomPane },
-            versionControlPane: { pane },
+            watcherPane: { pane },
             terminalHost: { nil },
             modalHost: { nil },
             updateDockTabs: {}
@@ -2582,7 +2583,7 @@ enum LogicSelfTests {
         coordinator.focusDockPanel(.top)
         try expect(window.firstResponder === pane, "the top panel's pane should take the keys")
         try expect(top.isFocused && !bottom.isFocused, "only the top panel's frame should lift")
-        try expect(pane.hasFocusedLook && !bottomPane.isFocused, "Version Control draws its cursor, and the bottom panel's content its focused look, only for the panel with the keys")
+        try expect(pane.hasFocusedLook && !bottomPane.isFocused, "Watcher draws its cursor, and the bottom panel's content its focused look, only for the panel with the keys")
         coordinator.focusDockPanel(.bottom)
         try expect(!top.isFocused && bottom.isFocused, "the bottom panel's frame lifts as the top's drops")
         try expect(!pane.hasFocusedLook && bottomPane.isFocused, "the cursor hides with the top panel's keys and the bottom content's focused look comes on")
@@ -3314,7 +3315,7 @@ enum LogicSelfTests {
                 actionBar: { nil },
                 trackerHosting: { tracker },
                 dockView: { nil },
-                versionControlPane: { nil },
+                watcherPane: { nil },
                 terminalHost: { terminal },
                 modalHost: { host },
                 updateDockTabs: {}
@@ -3429,7 +3430,7 @@ enum LogicSelfTests {
             actionBar: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
-            versionControlPane: { nil },
+            watcherPane: { nil },
             terminalHost: { terminal },
             modalHost: { host },
             updateDockTabs: {}
@@ -3495,7 +3496,7 @@ enum LogicSelfTests {
             actionBar: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
-            versionControlPane: { nil },
+            watcherPane: { nil },
             terminalHost: { nil },
             modalHost: { host },
             updateDockTabs: {}
@@ -6791,7 +6792,7 @@ enum LogicSelfTests {
         try expect(clip.bounds.maxY >= documentView.bounds.height - 1, "the last row should sit at the bottom of the rows, got \(clip.bounds.maxY) of \(documentView.bounds.height)")
     }
 
-    /// The split dock with both panels showing: Version Control over the Worker Log, which is attached to a master with
+    /// The split dock with both panels showing: Watcher over the Worker Log, which is attached to a master with
     /// `workers` workers. The caller closes `window`.
     private static func splitWorkerLogDock(workers: Int, height: CGFloat = 860) -> (window: HeadlessWindow, column: DockColumnView, pane: SwiftUIDockPane, chat: WorkerChatStore, coordinator: ShellFocusCoordinator) {
         let chat = WorkerChatStore()
@@ -6805,8 +6806,8 @@ enum LogicSelfTests {
             settingsPresenter: SettingsSheetPresenter()
         )
         pane.apply(DockState(bottomVisible: true, dockContent: .workerChat), snapshot: RuntimeSnapshot.empty(sourceLabel: "test"))
-        let versionControl = VersionControlDockPane(store: PullRequestStore())
-        let top = DockShellView(body: versionControl, model: DockChromeModel(topBar: .versionControl))
+        let watcher = WatcherDockPane(store: PullRequestStore())
+        let top = DockShellView(body: watcher, model: DockChromeModel(topBar: .watcher))
         let bottom = DockShellView(
             body: pane,
             model: DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
@@ -6831,7 +6832,7 @@ enum LogicSelfTests {
             actionBar: { nil },
             trackerHosting: { nil },
             dockView: { pane },
-            versionControlPane: { versionControl },
+            watcherPane: { watcher },
             terminalHost: { nil },
             modalHost: { nil },
             updateDockTabs: {}
@@ -6842,7 +6843,7 @@ enum LogicSelfTests {
     }
 
     /// In the split dock the filter belongs to the bottom panel: `f` opens it while that panel has the keys, the keys
-    /// moving to Version Control close it, and while they are there `f` is not the filter's.
+    /// moving to Watcher close it, and while they are there `f` is not the filter's.
     private static func testWorkerLogFilterFollowsTheBottomPanelsKeys() throws {
         let dock = splitWorkerLogDock(workers: 2)
         defer { dock.window.close() }
@@ -6850,14 +6851,14 @@ enum LogicSelfTests {
         let opened = try dock.pane.performKeyEquivalent(with: keyEvent("f", keyCode: 3))
         try expect(opened && dock.chat.menu.isOpen, "f should open the filter while the bottom panel has the keys")
         dock.coordinator.focusDockPanel(.top)
-        try expect(!dock.chat.menu.isOpen, "the keys moving to Version Control should close the filter")
+        try expect(!dock.chat.menu.isOpen, "the keys moving to Watcher should close the filter")
         let stolen = try dock.pane.performKeyEquivalent(with: keyEvent("f", keyCode: 3))
-        try expect(!stolen && !dock.chat.menu.isOpen, "f should not open the filter while Version Control has the keys")
+        try expect(!stolen && !dock.chat.menu.isOpen, "f should not open the filter while Watcher has the keys")
     }
 
-    /// Under Version Control, in a window short enough that the bottom panel can't hold all the rows, the dropdown scrolls
-    /// inside what it has: 5 under the top bar and 20 above the panel's edge, never reaching behind Version Control.
-    private static func testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl() throws {
+    /// Under Watcher, in a window short enough that the bottom panel can't hold all the rows, the dropdown scrolls
+    /// inside what it has: 5 under the top bar and 20 above the panel's edge, never reaching behind Watcher.
+    private static func testWorkerLogFilterStaysInsideTheBottomPanelBelowWatcher() throws {
         let dock = splitWorkerLogDock(workers: 2, height: 560)
         defer { dock.window.close() }
         dock.coordinator.focusDockPanel(.bottom)
@@ -6869,7 +6870,7 @@ enum LogicSelfTests {
         func dropdown() -> NSScrollView? {
             scrollViews(in: dock.pane).first { $0.convert($0.bounds, to: dock.pane).width < dock.pane.bounds.width / 2 }
         }
-        try expect(waitUntil { dropdown() != nil }, "the dropdown should scroll under Version Control, with its rows in the room left")
+        try expect(waitUntil { dropdown() != nil }, "the dropdown should scroll under Watcher, with its rows in the room left")
         guard let list = dropdown() else {
             throw TestFailure("the dropdown should host a scroll view")
         }
@@ -7299,6 +7300,34 @@ enum LogicSelfTests {
             let nameX = try nameInkX(chatFont: font.chat, nameFont: font.name)
             try expect(abs(nameX - expectedNameX) <= 1, "the name should start at x \(expectedNameX) with a \(font.label) chat font, got \(nameX)")
         }
+    }
+
+    /// A list row asks for its logo on every redraw, so the same agent, side and tint must come back as the same image,
+    /// read and parsed once. A different side or tint is a different image: a cache that ignored either would draw a
+    /// plate's logo at the tab's size, or in the wrong colour.
+    private static func testAgentLogosAreLoadedOncePerSideAndTint() throws {
+        func logo(_ agent: String, _ side: CGFloat, _ tint: NSColor) throws -> NSImage {
+            guard let image = TrackerAgentMark.image(for: agent, side: side, tint: tint) else {
+                throw TestFailure("\(agent) should have a logo")
+            }
+            return image
+        }
+        let side = PullRequestIcon.side
+        let tint = AppPalette.agentMarkTint
+        for agent in ["claude", "codex", "opencode", "pi"] {
+            let first = try logo(agent, side, tint)
+            try expect(first === (try logo(agent, side, tint)), "\(agent): the same side and tint should return the cached image")
+
+            let larger = try logo(agent, side + 5, tint)
+            try expect(larger !== first, "\(agent): another side should be another image")
+            try expect(larger.size == NSSize(width: side + 5, height: side + 5), "\(agent): the larger logo should keep its own canvas")
+            try expect(first.size == NSSize(width: side, height: side), "\(agent): the first logo should keep its canvas")
+        }
+
+        // Codex and OpenCode are tinted files, so their colour is part of the key. Claude and Pi draw in their own colours.
+        let grey = try logo("codex", side, AppPalette.agentMarkTint)
+        let muted = try logo("codex", side, AppPalette.muted)
+        try expect(grey !== muted, "codex: another tint should be another image")
     }
 
     /// The x in points of the first ink right of the logo column, drawn by the line view alone. The name is one

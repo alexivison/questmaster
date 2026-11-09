@@ -26,6 +26,8 @@ public struct PullRequestRow: Decodable, Equatable {
 public struct PullRequestStatus: Decodable, Equatable {
     public let title: String?
     public let url: String?
+    /// The PR author's login; nil when the authenticated viewer wrote the PR.
+    public let author: String?
     public let state: PullRequestState?
     public let draft: Bool
     public let headSHA: String?
@@ -39,7 +41,7 @@ public struct PullRequestStatus: Decodable, Equatable {
     public let stale: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case title, url, state, draft, additions, deletions, review, ci, stale
+        case title, url, author, state, draft, additions, deletions, review, ci, stale
         case headSHA = "head_sha", updatedAt = "updated_at", changedAt = "changed_at"
         case inaccessibleReason = "inaccessible_reason"
     }
@@ -54,7 +56,7 @@ public enum PullRequestState: String, Decodable {
 }
 
 public enum PullRequestReview: String, Decodable {
-    case approved, changesRequested = "changes_requested", reviewRequired = "review_required", none, unknown
+    case approved, changesRequested = "changes_requested", commented, reviewRequired = "review_required", none, unknown
 
     public init(from decoder: Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
@@ -78,7 +80,7 @@ public enum PullRequestInaccessibleReason: String, Decodable {
 }
 
 public enum ReviewLook: Equatable {
-    case approved, changesRequested, reviewRequired, none
+    case approved, changesRequested, commented, reviewRequired, none
 }
 
 public enum CILook: Equatable {
@@ -105,6 +107,14 @@ public struct PullRequestWatcherTag: Equatable {
     }
 }
 
+/// How a master's row shows its watchers: nothing, the one worker's logo and title, or the logos of two or more, stacked,
+/// with the count of the watchers past the stack.
+public enum PullRequestWatcherLayout: Equatable {
+    case none
+    case titled(PullRequestWatcherTag)
+    case stacked(logos: [PullRequestWatcherTag], overflow: Int)
+}
+
 /// A row's text and semantic looks; the App target supplies icons and colours.
 public struct PullRequestDisplayRow: Equatable {
     public let pullRequest: PullRequestRow
@@ -126,8 +136,31 @@ public struct PullRequestDisplayRow: Equatable {
     public var deletionsLabel: String? {
         accessibleStatus.map { "-\($0.deletions)" }
     }
-    /// A master's row names the first worker watching it; the others count behind it as "+N".
-    public var extraWatcherCount: Int { max(0, watcherTags.count - 1) }
+    /// The most logos a row stacks; the watchers past them show as "+N".
+    public static let stackedWatcherLimit = 4
+    public var watcherLayout: PullRequestWatcherLayout {
+        switch watcherTags.count {
+        case 0: return .none
+        case 1: return .titled(watcherTags[0])
+        default:
+            return .stacked(
+                logos: Array(watcherTags.prefix(Self.stackedWatcherLimit)),
+                overflow: max(0, watcherTags.count - Self.stackedWatcherLimit)
+            )
+        }
+    }
+    /// Every watcher's title, one per line, for the tooltip; nil when no worker watches the row.
+    public var watcherTooltip: String? {
+        guard !watcherTags.isEmpty else { return nil }
+        return watcherTags.map(\.title).joined(separator: "\n")
+    }
+    /// The PR author's login, as the backend sends it: it omits the viewer's own pull requests. Nil on an inaccessible row.
+    public var authorLabel: String? {
+        guard let author = accessibleStatus?.author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty else {
+            return nil
+        }
+        return author
+    }
     public var inaccessibleLabel: String? {
         switch pullRequest.status?.inaccessibleReason {
         case .notFound: return "Not found"
@@ -155,6 +188,7 @@ public struct PullRequestDisplayRow: Equatable {
         switch pullRequest.status?.review {
         case .approved: return .approved
         case .changesRequested: return .changesRequested
+        case .commented: return .commented
         case .reviewRequired: return .reviewRequired
         case .some(.none), .unknown, nil: return .none
         }

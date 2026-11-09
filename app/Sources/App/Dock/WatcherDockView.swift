@@ -2,9 +2,9 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The version control rows' geometry, from `pr-item-v2.png`: 45 tall, 5 in from the row's edges, two 15pt lines 5 apart, and
+/// The watcher rows' geometry, from `pr-item-v2.png`: 45 tall, 5 in from the row's edges, two 15pt lines 5 apart, and
 /// 5 under the second. Text is centred on its line, so its baseline is 11.8 below the line's top.
-enum VersionControlMetrics {
+enum WatcherMetrics {
     static let inset = Space.section
     static let rowHeight = ControlHeight.bar + Space.row
     static let rowInset = Space.row
@@ -12,17 +12,20 @@ enum VersionControlMetrics {
     static let lineGap = Space.row
     static let cornerRadius = Token.Radius.segment
     static let lineBaseline: CGFloat = 11.8
+    /// A watcher stack's logos overlap by one row step, so each sits `PullRequestIcon.side - Space.row` past the one before,
+    /// and the later logo draws over the earlier one.
+    static let stackSpacing: CGFloat = -Space.row
 }
 
 /// The pull requests the selected session watches, a master's with its workers', newest open first.
-struct VersionControlDockView: View {
+struct WatcherDockView: View {
     let store: PullRequestStore
     /// Whether the panel has keyboard focus: an unfocused panel shows its cursor one step dimmer.
     let areaFocused: Bool
     let onOpenRow: (String) -> Void
 
     var body: some View {
-        VersionControlList(
+        WatcherList(
             rows: store.displayRows,
             cursorKey: store.cursorKey,
             isUnwatched: store.isUnwatched,
@@ -35,7 +38,7 @@ struct VersionControlDockView: View {
 
 /// The panel's content for the rows it is given: the list, scrolling inside the panel, ending 20 above its bottom edge,
 /// or the empty state, with a muted notice under either.
-struct VersionControlList: View {
+struct WatcherList: View {
     let rows: [PullRequestDisplayRow]
     let cursorKey: String?
     let isUnwatched: Bool
@@ -58,7 +61,7 @@ struct VersionControlList: View {
         } else {
             SectionedList(selectedID: cursorKey, scrollOnAppear: true) {
                 ForEach(rows, id: \.pullRequest.key) { row in
-                    VersionControlRow(
+                    WatcherRow(
                         row: row,
                         look: row.look(isCursor: row.pullRequest.key == cursorKey, areaFocused: areaFocused),
                         action: { onOpenRow(row.pullRequest.key) }
@@ -66,7 +69,7 @@ struct VersionControlList: View {
                     .id(row.pullRequest.key)
                 }
             }
-            .padding(.bottom, VersionControlMetrics.inset)
+            .padding(.bottom, WatcherMetrics.inset)
             .accessibilityLabel("Pull request list")
         }
     }
@@ -78,8 +81,8 @@ struct VersionControlList: View {
                 .font(AppFonts.monoSmall.swiftUI)
                 .foregroundStyle(AppPalette.textMeta.swiftUI)
                 .lineLimit(2)
-                .padding(.horizontal, VersionControlMetrics.inset)
-                .padding(.bottom, VersionControlMetrics.inset)
+                .padding(.horizontal, WatcherMetrics.inset)
+                .padding(.bottom, WatcherMetrics.inset)
         }
     }
 }
@@ -99,11 +102,13 @@ private extension PullRequestGitState {
 }
 
 private extension ReviewLook {
-    /// No review yet and a review still required both wait: an empty amber ring.
-    var ring: (icon: PullRequestIcon, color: NSColor) {
+    /// No review yet and a review still required both wait: an empty amber ring. A commented review is no verdict, so
+    /// it takes the neutral bubble instead of a ring.
+    var glyph: (icon: PullRequestIcon, color: NSColor) {
         switch self {
         case .approved: (.ringApproved, AppPalette.gitGreen)
         case .changesRequested: (.ringChanges, AppPalette.gitRed)
+        case .commented: (.comment, AppPalette.controlBorder)
         case .reviewRequired, .none: (.ringWaiting, AppPalette.gitAmber)
         }
     }
@@ -123,12 +128,12 @@ private extension CILook {
 
 /// `#number title` over the git state, the review ring, the `CI` label, the diff counter and, for a master, the worker's
 /// tag at the right edge.
-struct VersionControlRow: View {
+struct WatcherRow: View {
     let row: PullRequestDisplayRow
     let look: RowLook
     let action: () -> Void
 
-    private typealias Metrics = VersionControlMetrics
+    private typealias Metrics = WatcherMetrics
 
     private var showsSemanticColors: Bool { row.rowLook == .normal }
 
@@ -166,15 +171,16 @@ struct VersionControlRow: View {
         .frame(height: Metrics.lineHeight, alignment: .top)
     }
 
-    /// The review ring under the git icon, then the `CI` label under the number and the diff counter with a divider between
-    /// them, and the worker tag at the right edge. An inaccessible row's label sits under the number.
+    /// The review glyph under the git icon, then the `CI` label under the number and the diff counter with a divider between
+    /// them. At the right edge: the author, a divider when watchers show too, then the watchers. An inaccessible row's label
+    /// sits under the number.
     private var detailLine: some View {
         HStack(alignment: .top, spacing: Space.item) {
             if let inaccessibleLabel = row.inaccessibleLabel {
                 emptySlot
                 text(inaccessibleLabel, color: look.icon.color)
             } else if let additions = row.additionsLabel, let deletions = row.deletionsLabel {
-                slot(row.reviewLook.ring)
+                slot(row.reviewLook.glyph)
                 text("CI", color: tint(row.ciLook.color, dim: row.ciLook == .none))
                     .fixedSize()
                 divider
@@ -186,11 +192,36 @@ struct VersionControlRow: View {
                 .opacity(Token.Opacity.dimmed)
             }
             Spacer(minLength: 0)
-            if let tag = row.watcherTags.first {
-                workerTag(tag)
+            if let author = row.authorLabel {
+                authorName(author)
+            }
+            if let tooltip = row.watcherTooltip {
+                if row.authorLabel != nil {
+                    divider
+                }
+                watchers
+                    .help(tooltip)
             }
         }
         .frame(height: Metrics.lineHeight, alignment: .top)
+    }
+
+    /// The author's login. It outranks the watcher titles when the row is squeezed, so a title truncates first.
+    private func authorName(_ author: String) -> some View {
+        text(author, color: look.meta.color)
+            .layoutPriority(1)
+    }
+
+    @ViewBuilder
+    private var watchers: some View {
+        switch row.watcherLayout {
+        case .none:
+            EmptyView()
+        case .titled(let tag):
+            titledWatcher(tag)
+        case .stacked(let logos, let overflow):
+            stackedWatchers(logos, overflow: overflow)
+        }
     }
 
     /// A hairline as tall as the line, between the label and the counters.
@@ -204,21 +235,40 @@ struct VersionControlRow: View {
         Color.clear.frame(width: PullRequestIcon.side, height: PullRequestIcon.side)
     }
 
-    private func workerTag(_ tag: PullRequestWatcherTag) -> some View {
+    /// One watcher: its logo, then its title, which truncates.
+    private func titledWatcher(_ tag: PullRequestWatcherTag) -> some View {
         HStack(alignment: .top, spacing: Space.row) {
-            if let logo = TrackerAgentMark.image(for: tag.agent, side: PullRequestIcon.side, tint: AppPalette.agentMarkTint) {
-                Image(nsImage: logo)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: PullRequestIcon.side, height: PullRequestIcon.side)
-            }
+            agentLogo(tag.agent)
             text(tag.title, color: look.meta.color)
-            if row.extraWatcherCount > 0 {
-                text("+\(row.extraWatcherCount)", color: look.meta.color)
+        }
+    }
+
+    /// Two or more watchers: their logos overlapping (`WatcherMetrics.stackSpacing`), then the count of those past the stack.
+    private func stackedWatchers(_ logos: [PullRequestWatcherTag], overflow: Int) -> some View {
+        HStack(alignment: .top, spacing: Space.row) {
+            HStack(alignment: .top, spacing: WatcherMetrics.stackSpacing) {
+                ForEach(Array(logos.enumerated()), id: \.offset) { _, tag in
+                    agentLogo(tag.agent)
+                }
+            }
+            if overflow > 0 {
+                text("+\(overflow)", color: look.meta.color)
                     .fixedSize()
             }
         }
-        .help(tag.title)
+    }
+
+    /// The agent's logo in its icon box. An agent with no logo keeps the box, so a stack keeps its overlap.
+    @ViewBuilder
+    private func agentLogo(_ agent: String) -> some View {
+        if let logo = TrackerAgentMark.image(for: agent, side: PullRequestIcon.side, tint: AppPalette.agentMarkTint) {
+            Image(nsImage: logo)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: PullRequestIcon.side, height: PullRequestIcon.side)
+        } else {
+            emptySlot
+        }
     }
 
     private func text(_ value: String, color: NSColor) -> some View {

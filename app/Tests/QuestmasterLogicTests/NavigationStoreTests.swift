@@ -116,7 +116,7 @@ struct NavigationStoreTests {
     private static func appCommandsRespectModalOwnershipAndExceptions() {
         let modal = NavigationStore()
         modal.setModalDrawn(true)
-        for binding in [Keymap.Command.toggleVersionControlDock, Keymap.Command.widenDock] {
+        for binding in [Keymap.Command.toggleWatcherDock, Keymap.Command.widenDock] {
             expect(modal.appCommandRoute(.app) == .blockedByModal, "a modal should block \(binding.displayGlyph), including menu-only commands")
         }
         expect(modal.appCommandRoute(.textEditing) == .allowed, "standard text editing remains available in a modal")

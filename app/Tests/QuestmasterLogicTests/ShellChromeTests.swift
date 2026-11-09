@@ -6,7 +6,7 @@ struct ShellChromeTests {
         dockTopBarArtifactListHasNoBackOrActions()
         dockTopBarArtifactViewerShowsBackTitleAndActions()
         dockTopBarWorkerChatShowsItsTitle()
-        dockTopBarVersionControlShowsItsTitle()
+        dockTopBarWatcherShowsItsTitle()
         print("ShellChromeTests: all tests passed")
     }
 
@@ -54,10 +54,10 @@ struct ShellChromeTests {
         expect(!artifacts.showsLogFilter, "the artifact dock has no log filter, attached or not")
     }
 
-    private static func dockTopBarVersionControlShowsItsTitle() {
-        let model = DockTopBarModel.versionControl
-        expect(model.title == "Version Control", "version control should show its own title")
-        expect(model.back == nil && !model.showArtifactActions, "version control has no back affordance or artifact actions")
+    private static func dockTopBarWatcherShowsItsTitle() {
+        let model = DockTopBarModel.watcher
+        expect(model.title == "Watcher", "watcher should show its own title")
+        expect(model.back == nil && !model.showArtifactActions, "watcher has no back affordance or artifact actions")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

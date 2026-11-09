@@ -189,7 +189,7 @@ final class DockShellView: NSView {
     }
 }
 
-/// The dock region: Version Control's panel over the bottom panel (artifacts or worker chat), each its own scooped
+/// The dock region: Watcher's panel over the bottom panel (artifacts or worker chat), each its own scooped
 /// `DockShellView`, laid out by `DockColumnLayout`. It's the pane `MainSplitView` sizes and shows or hides; what shows
 /// inside follows the dock state's panels.
 ///

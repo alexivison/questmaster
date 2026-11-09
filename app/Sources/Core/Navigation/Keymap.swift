@@ -112,7 +112,7 @@ public enum Keymap {
         public static let toggleQuestLog = CommandBinding(title: "Toggle Quest Log", keyEquivalent: "t", modifiers: [.command, .shift])
         public static let toggleWorkerChatDock = CommandBinding(title: "Toggle Worker Log", keyEquivalent: "w", modifiers: [.command, .shift])
         // R for pull Request. ⌘⇧V would shadow Ghostty's paste_from_selection; Ghostty binds no ⌘⇧R.
-        public static let toggleVersionControlDock = CommandBinding(title: "Toggle Version Control", keyEquivalent: "r", modifiers: [.command, .shift])
+        public static let toggleWatcherDock = CommandBinding(title: "Toggle Watcher", keyEquivalent: "r", modifiers: [.command, .shift])
         // ">"/"<" match vim's window-resize convention (Ctrl-w >/Ctrl-w <). Bound via
         // their unshifted base keys ("."/",") with explicit .shift, per the layout-independence
         // note above.
