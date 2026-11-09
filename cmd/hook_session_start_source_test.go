@@ -193,7 +193,9 @@ func TestHookClaudeResumedIdleWorkerReceivesReviewAlert(t *testing.T) {
 	}
 
 	runner := &notifyTmuxRunner{}
-	delivery, err := message.NewService(store, tmux.NewClient(runner)).Notify(context.Background(), sessionID, "[PR example/repo#12] approved")
+	client := tmux.NewClient(runner)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	delivery, err := message.NewServiceWithRouter(store, router).Notify(context.Background(), sessionID, "[PR example/repo#12] approved")
 	if err != nil || delivery != message.DeliverySubmitted || runner.sendKeys == 0 {
 		t.Fatalf("review alert delivery = %q, %v; sends=%d", delivery, err, runner.sendKeys)
 	}
