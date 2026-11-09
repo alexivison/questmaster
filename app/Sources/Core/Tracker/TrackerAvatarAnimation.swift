@@ -204,44 +204,99 @@ public struct TrackerAvatarColour: Equatable, Sendable {
     }
 }
 
-/// The eyes an idle blinks: where the lids sit, and what colour they are.
-public struct TrackerAvatarEyes: Equatable, Sendable {
-    /// The row the lids cover while a blink shows.
-    public let row: Int
-    /// The columns the lids cover, the first and the last included.
-    public let columns: ClosedRange<Int>
-    /// The colour the lids draw in: the figure's own skin, so a blink reads as closed eyes.
-    public let lidColour: TrackerAvatarColour
-
-    public init(row: Int, columns: ClosedRange<Int>, lidColour: TrackerAvatarColour) {
-        self.row = row
-        self.columns = columns
-        self.lidColour = lidColour
-    }
-}
-
-/// Idle draws as layers: the legs and cloak hold still while the figure above them breathes. A figure with eyes also blinks, its
-/// eyelids covering the eyes. An idle that loops has none of this.
-public struct TrackerAvatarIdle: Equatable, Sendable {
-    /// The bottom rows, which stay still while the figure above breathes.
-    public let legRows: Int
-    /// The eyes the lids cover. Nil for an idle with no eyes: it breathes and never blinks.
-    public let eyes: TrackerAvatarEyes?
-
-    public init(legRows: Int, eyes: TrackerAvatarEyes?) {
-        self.legRows = legRows
-        self.eyes = eyes
-    }
-}
-
 /// A point on a pose's canvas, in sprite pixels from the top left.
-public struct TrackerAvatarPixel: Equatable, Sendable {
+public struct TrackerAvatarPixel: Equatable, Hashable, Sendable {
     public let x: Int
     public let y: Int
 
     public init(x: Int, y: Int) {
         self.x = x
         self.y = y
+    }
+}
+
+/// One authored breathing image and the exact blink stencil on its canvas.
+public struct TrackerAvatarBreathingFrame: Equatable, Sendable {
+    public let file: String
+    public let seconds: TimeInterval
+    public let eyeRow: Int?
+    public let eyeColumns: [Int]?
+    public let lidPixels: [TrackerAvatarPixel]
+
+    public init(file: String, seconds: TimeInterval, eyeRow: Int?, eyeColumns: [Int]?, lidPixels: [TrackerAvatarPixel]) {
+        self.file = file
+        self.seconds = seconds
+        self.eyeRow = eyeRow
+        self.eyeColumns = eyeColumns
+        self.lidPixels = lidPixels
+    }
+}
+
+/// A breathing cycle in its authored order. Repeated filenames are allowed for explicit ping-pong tracks. If the resume image
+/// occurs more than once, playback resumes at its first occurrence.
+public struct TrackerAvatarBreathing: Equatable, Sendable {
+    public let resumeFrame: String
+    public let frames: [TrackerAvatarBreathingFrame]
+
+    public init?(resumeFrame: String, frames: [TrackerAvatarBreathingFrame]) {
+        let period = frames.reduce(0) { $0 + $1.seconds }
+        guard !frames.isEmpty,
+              frames.allSatisfy({ $0.seconds.isFinite && $0.seconds > 0 }),
+              period.isFinite,
+              frames.contains(where: { $0.file == resumeFrame }) else {
+            return nil
+        }
+        self.resumeFrame = resumeFrame
+        self.frames = frames
+    }
+
+    public var period: TimeInterval {
+        frames.reduce(0) { $0 + $1.seconds }
+    }
+
+    /// The cycle rotated to begin at `resume_frame`.
+    public var framesFromResume: [TrackerAvatarBreathingFrame] {
+        guard let start = frames.firstIndex(where: { $0.file == resumeFrame }) else {
+            return []
+        }
+        return Array(frames[start...]) + Array(frames[..<start])
+    }
+
+    /// The frame and time until its next change, for elapsed active-idle time.
+    public func frame(at elapsed: TimeInterval) -> (frame: TrackerAvatarBreathingFrame, untilNext: TimeInterval)? {
+        let playback = framesFromResume
+        guard !playback.isEmpty else {
+            return nil
+        }
+        let period = self.period
+        var cycleTime = max(0, elapsed).truncatingRemainder(dividingBy: period)
+        if period - cycleTime <= max(1e-12, period * 1e-12) {
+            cycleTime = 0
+        }
+        var start: TimeInterval = 0
+        for frame in playback {
+            let end = start + frame.seconds
+            if cycleTime < end {
+                return (frame, end - cycleTime)
+            }
+            start = end
+        }
+        return (playback[0], playback[0].seconds)
+    }
+}
+
+/// Idle's still frame, optional authored breathing images and blink settings. No pose pixels are moved in code.
+public struct TrackerAvatarIdleAnimation: Equatable, Sendable {
+    public let blink: Bool
+    public let lidColour: TrackerAvatarColour?
+    public let stillLidPixels: [TrackerAvatarPixel]
+    public let breathing: TrackerAvatarBreathing?
+
+    public init(blink: Bool, lidColour: TrackerAvatarColour?, stillLidPixels: [TrackerAvatarPixel], breathing: TrackerAvatarBreathing?) {
+        self.blink = blink
+        self.lidColour = lidColour
+        self.stillLidPixels = stillLidPixels
+        self.breathing = breathing
     }
 }
 
@@ -277,10 +332,14 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     /// A pose's blocks don't match how it plays: an enter or a finish on a pose without a loop (a one-shot, or idle), a loop on a
     /// one-shot, or a one-shot on a steady pose.
     case misplacedBlock(String)
-    /// An idle with no loop draws as layers, which needs its `leg_rows`.
-    case incompleteIdle
-    /// An idle's eyes are one group: `eye_row`, `eye_columns` and `lid_colour` all or none. A group with only some of its keys is refused.
+    /// The eye row, eye columns and lid colour must be complete when the legacy shorthand is used.
     case incompleteEyes
+    /// Idle or breathing frame lid pixels must be non-empty, unique, and non-negative.
+    case invalidLidPixels(String)
+    /// A breathing track has an invalid file, duration or resume frame.
+    case invalidBreathing(String)
+    /// Blinking is enabled, but a still or breathing frame has no lid stencil.
+    case missingLidStencil(String)
     /// A pose has a bubble anchor but isn't calling out, the only pose that draws the shared bubble.
     case misplacedBubble(String)
     /// A `spells` key that names no spell: the orb (`S1-summoning-orb`), the messenger (`S2-messenger`) or the wisp (`S6-returning-wisp`).
@@ -306,8 +365,8 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The only `version` this build reads.
     public static let supportedVersion = 1
 
-    /// The layered idle's legs, and its eyes when it has them. Nil when `01-idle` has a loop, which needs none of it.
-    public let idle: TrackerAvatarIdle?
+    /// Idle's authored breathing and blink data. Nil when `01-idle` is an authored pose loop.
+    public let idle: TrackerAvatarIdleAnimation?
     /// The point a release's spell leaves the caster's hand from, on the release pose's canvas.
     public let releaseHand: TrackerAvatarPixel
     /// The fidgets an idle figure may play, by name. None when `01-idle` has a loop, which plays no fidgets.
@@ -334,8 +393,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         }
         self.poses = poses
         spells = try Self.spellAnimations(file.spells ?? [:])
-        // An idle that loops is a frame loop like any other pose: it has no legs to hold or eyes to blink, and no fidgets to play, so
-        // whatever the file keeps of them is not read.
+        // Bard and Barbarian's authored idle loops keep their existing frame-loop behavior and do not read layered-idle metadata.
         if poses[.idle]?.loop != nil {
             idle = nil
             fidgets = []
@@ -365,28 +423,112 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         poses[pose]?.once?.seconds ?? 0
     }
 
-    private static func idle(_ file: File.Idle?) throws -> TrackerAvatarIdle {
-        guard let file, let legRows = file.legRows else {
-            throw TrackerAvatarAnimationError.incompleteIdle
+    private static func idle(_ file: File.Idle?) throws -> TrackerAvatarIdleAnimation {
+        guard let file else {
+            return TrackerAvatarIdleAnimation(blink: false, lidColour: nil, stillLidPixels: [], breathing: nil)
         }
-        return TrackerAvatarIdle(legRows: legRows, eyes: try eyes(file))
+        let legacyPixels = try shorthandPixels(row: file.eyeRow, columns: file.eyeColumns, named: "idle")
+        let stillPixels = try pixels(file.lidPixels, named: "idle") ?? legacyPixels ?? []
+        let needsColour = file.lidPixels != nil || legacyPixels != nil || file.breathing != nil
+        let lidColour: TrackerAvatarColour?
+        if let lidHex = file.lidColour {
+            guard let colour = TrackerAvatarColour(hex: lidHex) else {
+                throw TrackerAvatarAnimationError.invalidLidColour
+            }
+            lidColour = colour
+        } else if needsColour {
+            throw TrackerAvatarAnimationError.incompleteEyes
+        } else {
+            lidColour = nil
+        }
+        let breathing = try breathingTrack(file.breathing, fallback: legacyPixels)
+        let hasAnyStencil = breathing?.frames.contains(where: { !$0.lidPixels.isEmpty }) ?? !stillPixels.isEmpty
+        let hasCompleteStencil = breathing?.frames.allSatisfy { !$0.lidPixels.isEmpty } ?? !stillPixels.isEmpty
+        let blink = file.blink ?? hasAnyStencil
+        guard !blink || hasCompleteStencil else {
+            throw TrackerAvatarAnimationError.missingLidStencil("idle")
+        }
+        return TrackerAvatarIdleAnimation(blink: blink, lidColour: lidColour, stillLidPixels: stillPixels, breathing: breathing)
     }
 
-    /// The eyes, when the file gives any of their keys; then all three must be there. A file with none of them has no eyes.
-    private static func eyes(_ file: File.Idle) throws -> TrackerAvatarEyes? {
-        guard file.eyeRow != nil || file.eyeColumns != nil || file.lidColour != nil else {
+    private static func breathingTrack(
+        _ file: File.Idle.Breathing?, fallback: [TrackerAvatarPixel]?
+    ) throws -> TrackerAvatarBreathing? {
+        guard let file else {
             return nil
         }
-        guard let eyeRow = file.eyeRow, let eyeColumns = file.eyeColumns, let lidHex = file.lidColour else {
+        guard isBreathingFile(file.resumeFrame), !file.frames.isEmpty else {
+            throw TrackerAvatarAnimationError.invalidBreathing("resume_frame must name a breathing PNG and frames must not be empty")
+        }
+        var frames: [TrackerAvatarBreathingFrame] = []
+        for frame in file.frames {
+            guard isBreathingFile(frame.file), frame.seconds.isFinite, frame.seconds > 0 else {
+                throw TrackerAvatarAnimationError.invalidBreathing("\(frame.file) needs a breathing PNG filename and positive finite seconds")
+            }
+            let shorthand = try shorthandPixels(row: frame.eyeRow, columns: frame.eyeColumns, named: frame.file)
+            let stencil = try pixels(frame.lidPixels, named: frame.file) ?? shorthand ?? fallback ?? []
+            frames.append(TrackerAvatarBreathingFrame(
+                file: frame.file,
+                seconds: frame.seconds,
+                eyeRow: frame.eyeRow,
+                eyeColumns: frame.eyeColumns,
+                lidPixels: stencil
+            ))
+        }
+        guard frames.contains(where: { $0.file == file.resumeFrame }) else {
+            throw TrackerAvatarAnimationError.invalidBreathing("resume_frame \(file.resumeFrame) is not in frames")
+        }
+        guard let breathing = TrackerAvatarBreathing(resumeFrame: file.resumeFrame, frames: frames) else {
+            throw TrackerAvatarAnimationError.invalidBreathing("resume_frame must name a frame and every frame needs positive finite seconds")
+        }
+        return breathing
+    }
+
+    private static func isBreathingFile(_ file: String) -> Bool {
+        file.hasPrefix("01-idle-breath-") && file.dropFirst("01-idle-breath-".count).hasSuffix(".png")
+            && file.dropFirst("01-idle-breath-".count).dropLast(".png".count).isEmpty == false
+            && !file.contains("/") && !file.contains("\\")
+    }
+
+    private static func shorthandPixels(row: Int?, columns: [Int]?, named: String) throws -> [TrackerAvatarPixel]? {
+        guard row != nil || columns != nil else {
+            return nil
+        }
+        guard let row, let columns else {
             throw TrackerAvatarAnimationError.incompleteEyes
         }
-        guard let first = eyeColumns.first, eyeColumns.count == 2, let last = eyeColumns.last, first <= last else {
-            throw TrackerAvatarAnimationError.invalidEyeColumns
+        guard row >= 0, !columns.isEmpty, columns.allSatisfy({ $0 >= 0 }), Set(columns).count == columns.count else {
+            throw TrackerAvatarAnimationError.invalidBreathing("\(named) has invalid eye coordinates")
         }
-        guard let lidColour = TrackerAvatarColour(hex: lidHex) else {
-            throw TrackerAvatarAnimationError.invalidLidColour
+        if named == "idle" {
+            guard columns.count == 2, columns[0] <= columns[1] else {
+                throw TrackerAvatarAnimationError.invalidEyeColumns
+            }
+            return (columns[0]...columns[1]).map { TrackerAvatarPixel(x: $0, y: row) }
         }
-        return TrackerAvatarEyes(row: eyeRow, columns: first...last, lidColour: lidColour)
+        return columns.map { TrackerAvatarPixel(x: $0, y: row) }
+    }
+
+    private static func pixels(_ values: [[Int]]?, named: String) throws -> [TrackerAvatarPixel]? {
+        guard let values else {
+            return nil
+        }
+        guard !values.isEmpty else {
+            throw TrackerAvatarAnimationError.invalidLidPixels(named)
+        }
+        var seen = Set<TrackerAvatarPixel>()
+        var result: [TrackerAvatarPixel] = []
+        for pair in values {
+            guard pair.count == 2, pair[0] >= 0, pair[1] >= 0 else {
+                throw TrackerAvatarAnimationError.invalidLidPixels(named)
+            }
+            let pixel = TrackerAvatarPixel(x: pair[0], y: pair[1])
+            guard seen.insert(pixel).inserted else {
+                throw TrackerAvatarAnimationError.invalidLidPixels(named)
+            }
+            result.append(pixel)
+        }
+        return result
     }
 
     private static func poseAnimation(_ pose: File.Pose, named name: String, kind: TrackerAvatarPose) throws -> TrackerAvatarPoseAnimation {
@@ -490,16 +632,44 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         }
 
         struct Idle: Decodable {
-            let legRows: Int?
             let eyeRow: Int?
             let eyeColumns: [Int]?
             let lidColour: String?
+            let blink: Bool?
+            let lidPixels: [[Int]]?
+            let breathing: Breathing?
 
             enum CodingKeys: String, CodingKey {
-                case legRows = "leg_rows"
                 case eyeRow = "eye_row"
                 case eyeColumns = "eye_columns"
                 case lidColour = "lid_colour"
+                case blink, breathing
+                case lidPixels = "lid_pixels"
+            }
+
+            struct Breathing: Decodable {
+                let resumeFrame: String
+                let frames: [Frame]
+
+                enum CodingKeys: String, CodingKey {
+                    case resumeFrame = "resume_frame"
+                    case frames
+                }
+
+                struct Frame: Decodable {
+                    let file: String
+                    let seconds: TimeInterval
+                    let eyeRow: Int?
+                    let eyeColumns: [Int]?
+                    let lidPixels: [[Int]]?
+
+                    enum CodingKeys: String, CodingKey {
+                        case file, seconds
+                        case eyeRow = "eye_row"
+                        case eyeColumns = "eye_columns"
+                        case lidPixels = "lid_pixels"
+                    }
+                }
             }
         }
 

@@ -24,12 +24,6 @@ enum TrackerAvatarDesign {
     /// How long the lids stay down. A blink snaps shut and open, so no motion step applies.
     static let blinkClosedSeconds: TimeInterval = 0.15
     static let blinkIntervalSeconds: ClosedRange<TimeInterval> = 3...6
-    /// The breath steps a whole sprite pixel, never a glide: the figure above the legs holds at rest for `breathHoldPeriod`, drops
-    /// `breathPixels` for as long, and comes back. A half-pixel position would blur on Retina.
-    static let breathPixels: CGFloat = 1
-    static let breathHoldPeriod: TimeInterval = 1.6
-    /// A cycle is two holds: at rest, then down.
-    static let breathPeriod: TimeInterval = 2 * breathHoldPeriod
     /// How high a spell's path arcs between its two ends.
     static let flightArcHeight: CGFloat = 40
 }
@@ -87,18 +81,37 @@ enum TrackerAvatarFramesAnimation {
     }
 }
 
-/// Idle's layer art, split for its motion: the figure above and below the legs.
-final class TrackerAvatarArt {
-    let width: Int
-    let height: Int
-    let bodyUpper: CGImage
-    let bodyLower: CGImage
+/// A named idle image and its corresponding painted blink stencil.
+struct TrackerAvatarIdleFrameArt {
+    let definition: TrackerAvatarBreathingFrame
+    let image: CGImage
+    let lids: CGImage?
+}
 
-    init(width: Int, height: Int, bodyUpper: CGImage, bodyLower: CGImage) {
-        self.width = width
-        self.height = height
-        self.bodyUpper = bodyUpper
-        self.bodyLower = bodyLower
+/// A track of named idle PNGs as one discrete Core Animation loop.
+private enum TrackerAvatarIdleFramesAnimation {
+    static func make(images: [CGImage], durations: [TimeInterval]) -> CAKeyframeAnimation? {
+        guard images.count == durations.count, let first = images.first,
+              durations.allSatisfy({ $0.isFinite && $0 > 0 }) else {
+            return nil
+        }
+        let period = durations.reduce(0, +)
+        guard period.isFinite, period > 0 else {
+            return nil
+        }
+        var starts: [TimeInterval] = []
+        var start: TimeInterval = 0
+        for step in durations {
+            starts.append(start)
+            start += step
+        }
+        let frames = CAKeyframeAnimation(keyPath: "contents")
+        frames.values = images + [first]
+        frames.keyTimes = (starts + [period]).map { NSNumber(value: $0 / period) }
+        frames.calculationMode = .discrete
+        frames.duration = period
+        frames.repeatCount = .infinity
+        return frames
     }
 }
 
@@ -108,8 +121,7 @@ final class TrackerAvatarArt {
 final class TrackerAvatarSprites {
     let classID: String
     let animation: TrackerAvatarAnimation
-    /// The idle figure's height in sprite pixels above its sole, read once when the class loads, so the tag can follow it. Nil while
-    /// idle's first frame has no art.
+    /// The idle figure's height in sprite pixels above its sole, read once when the class loads, so the tag can follow it.
     private(set) var idleFigureHeight: Int?
     private let folder: URL
     private var images: [String: CGImage] = [:]
@@ -128,8 +140,15 @@ final class TrackerAvatarSprites {
         guard FileManager.default.fileExists(atPath: file.path) else {
             return nil
         }
-        guard let data = try? Data(contentsOf: file), let animation = try? TrackerAvatarAnimation(data: data) else {
+        guard let data = try? Data(contentsOf: file) else {
             NSLog("Questmaster: %@ has no usable animation.json, so its class shows no avatar", file.path)
+            return nil
+        }
+        let animation: TrackerAvatarAnimation
+        do {
+            animation = try TrackerAvatarAnimation(data: data)
+        } catch {
+            NSLog("Questmaster: %@ has no usable animation.json (%@), so its class shows no avatar", file.path, String(describing: error))
             return nil
         }
         self.init(classID: classID, animation: animation, folder: folder)
@@ -205,6 +224,94 @@ final class TrackerAvatarSprites {
         frame(.idle, .character, number)
     }
 
+    /// The authored breathing PNG, named independently of the fidget frame sequence.
+    func idleBreathingFrame(_ file: String) -> CGImage? {
+        image(named: URL(fileURLWithPath: file).deletingPathExtension().lastPathComponent)
+    }
+
+    /// Every authored breathing image and its matching eyelid stencil, in playback order from `resume_frame`. Nil when any PNG is
+    /// missing, differs in size, or cannot contain its recorded lid pixels.
+    lazy var idleBreathingArt: [TrackerAvatarIdleFrameArt]? = {
+        guard let idle = animation.idle, let breathing = idle.breathing, let colour = idle.lidColour else {
+            return nil
+        }
+        let frames = breathing.framesFromResume
+        guard let first = frames.first, let firstImage = idleBreathingFrame(first.file) else {
+            return nil
+        }
+        var art: [TrackerAvatarIdleFrameArt] = []
+        for frame in frames {
+            guard let image = idleBreathingFrame(frame.file), image.width == firstImage.width, image.height == firstImage.height,
+                  frame.lidPixels.allSatisfy({ $0.x < image.width && $0.y < image.height }) else {
+                return nil
+            }
+            let lids = frame.lidPixels.isEmpty ? nil : Self.lidImage(size: CGSize(width: image.width, height: image.height), pixels: frame.lidPixels, colour: colour)
+            guard frame.lidPixels.isEmpty || lids != nil else {
+                return nil
+            }
+            art.append(TrackerAvatarIdleFrameArt(
+                definition: frame,
+                image: image,
+                lids: lids
+            ))
+        }
+        return art.count == frames.count ? art : nil
+    }()
+
+    /// The still idle image and its blink stencil when no breathing track is configured.
+    lazy var idleStillArt: TrackerAvatarIdleFrameArt? = {
+        guard let idle = animation.idle, let image = idleFrame(1) else {
+            return nil
+        }
+        let stencil = idle.stillLidPixels
+        guard stencil.allSatisfy({ $0.x < image.width && $0.y < image.height }) else {
+            return nil
+        }
+        return TrackerAvatarIdleFrameArt(
+            definition: TrackerAvatarBreathingFrame(file: "01-idle-f1.png", seconds: 0, eyeRow: nil, eyeColumns: nil, lidPixels: stencil),
+            image: image,
+            lids: stencil.isEmpty ? nil : idle.lidColour.flatMap {
+                Self.lidImage(size: CGSize(width: image.width, height: image.height), pixels: stencil, colour: $0)
+            }
+        )
+    }()
+
+    fileprivate static func lidImage(size: CGSize, pixels: [TrackerAvatarPixel], colour: TrackerAvatarColour) -> CGImage? {
+        let width = Int(size.width)
+        let height = Int(size.height)
+        guard width > 0, height > 0 else {
+            return nil
+        }
+        let rgb = colour.rgb
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        for pixel in pixels {
+            guard pixel.x < width, pixel.y < height else {
+                return nil
+            }
+            let offset = (pixel.y * width + pixel.x) * 4
+            bytes[offset] = UInt8((rgb >> 16) & 0xff)
+            bytes[offset + 1] = UInt8((rgb >> 8) & 0xff)
+            bytes[offset + 2] = UInt8(rgb & 0xff)
+            bytes[offset + 3] = 0xff
+        }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else {
+            return nil
+        }
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+    }
+
     /// The shared calling-out bubble, `Resources/Sprites/shared/bubble.png`, beside the class folders. Nil while it has no art.
     var bubble: CGImage? {
         image(named: "bubble", in: folder.deletingLastPathComponent().appendingPathComponent("shared", isDirectory: true))
@@ -213,19 +320,6 @@ final class TrackerAvatarSprites {
     /// The fidgets whose every frame has its art, so the core may play them.
     var availableFidgets: [TrackerAvatarIdleFidget] {
         animation.fidgets.filter { fidget in fidget.frames.allSatisfy { idleFrame($0) != nil } }
-    }
-
-    /// Idle's layer art, split at its legs. Nil until its first frame has landed, and for an idle that loops, which has no legs to split.
-    func idleArt() -> TrackerAvatarArt? {
-        guard let body = idleFrame(1), let legs = animation.idle?.legRows else {
-            return nil
-        }
-        let height = body.height
-        guard let bodyUpper = crop(body, toRows: 0..<(height - legs)),
-              let bodyLower = crop(body, toRows: (height - legs)..<height) else {
-            return nil
-        }
-        return TrackerAvatarArt(width: body.width, height: height, bodyUpper: bodyUpper, bodyLower: bodyLower)
     }
 
     /// The size of a pose's canvas in sprite pixels. Every frame of a pose shares its canvas, so f1 stands for all of them.
@@ -294,9 +388,6 @@ final class TrackerAvatarSprites {
         return image
     }
 
-    private func crop(_ image: CGImage, toRows rows: Range<Int>) -> CGImage? {
-        image.cropping(to: CGRect(x: 0, y: rows.lowerBound, width: image.width, height: rows.count))
-    }
 }
 
 /// The class avatar in the tracker column, in its slot. `beat` is the director's beat count: it rises whenever a pose's cue
@@ -342,9 +433,9 @@ struct TrackerAvatar: NSViewRepresentable {
 
 /// The Core Animation keys the rigs add their motion under, so a rig's stop removes only its own motion.
 enum TrackerAvatarMotionKey {
-    static let breath = "avatar-breath"
     static let frames = "avatar-frames"
     static let move = "avatar-move"
+    static let lids = "avatar-lids"
 }
 
 /// The layer properties the avatar changes: a show, a pose's frame, a placement. Core Animation animates an implicit change to
@@ -356,11 +447,11 @@ enum TrackerAvatarLayerActions {
         "position": NSNull(),
         "bounds": NSNull(),
         "hidden": NSNull(),
+        "opacity": NSNull(),
     ]
 }
 
-/// One pose's drawing on the sprite's frame: the layers of Idle, or a frame set. The view shows, places and blinks either the
-/// same way.
+/// One pose's drawing on the sprite's frame: idle art or a pose's frame set.
 @MainActor
 protocol TrackerAvatarPoseRig: AnyObject {
     var pose: TrackerAvatarPose { get }
@@ -400,38 +491,42 @@ fileprivate extension TrackerAvatarPoseRig {
     }
 }
 
-/// Idle, drawn as layers: the legs, and the figure above them, which breathes. Core Animation runs the breath on the render
-/// server, so SwiftUI redraws nothing as it goes, which the terminal, sharing the main thread, needs.
+/// Idle's still frame, optional PixelLab breathing loop and blink stencil. Core Animation advances both layers on the render server.
 @MainActor
-fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
-    private typealias Design = TrackerAvatarDesign
-
+fileprivate final class TrackerAvatarIdleRig: TrackerAvatarPoseRig {
     let pose: TrackerAvatarPose
-    /// The whole sprite.
     let root = CALayer()
-    /// The figure above the legs: breathes, and carries the eyelids when it has eyes.
-    let upper = CALayer()
-    let lower = CALayer()
-    /// The eyelids: one shape over the eye pixels, hidden except during a blink. Nil for an idle with no eyes, which has none to blink.
-    let lids: CAShapeLayer?
+    let character = CALayer()
+    let lids: CALayer?
     private let placement: TrackerAvatarPoseAnimation
-    private let idle: TrackerAvatarIdle
-    private let art: TrackerAvatarArt
+    private let idle: TrackerAvatarIdleAnimation
+    private let stillArt: TrackerAvatarIdleFrameArt
+    private let breathingArt: [TrackerAvatarIdleFrameArt]?
 
-    init(pose: TrackerAvatarPose, placement: TrackerAvatarPoseAnimation, idle: TrackerAvatarIdle, art: TrackerAvatarArt) {
+    var canBlink: Bool {
+        idle.blink && lids != nil
+    }
+
+    init?(pose: TrackerAvatarPose, placement: TrackerAvatarPoseAnimation, sprites: TrackerAvatarSprites) {
+        guard let idle = sprites.animation.idle, let stillArt = sprites.idleStillArt else {
+            return nil
+        }
         self.pose = pose
         self.placement = placement
         self.idle = idle
-        self.art = art
-        lids = Self.makeLids(idle.eyes, upperRows: art.height - idle.legRows)
-        root.addSublayer(lower)
-        root.addSublayer(upper)
+        self.stillArt = stillArt
+        breathingArt = sprites.idleBreathingArt
+        let hasLids = stillArt.lids != nil || sprites.idleBreathingArt?.contains(where: { $0.lids != nil }) == true
+        lids = hasLids ? CALayer() : nil
+        root.addSublayer(character)
         if let lids {
-            upper.addSublayer(lids)
+            root.addSublayer(lids)
+            lids.name = TrackerAvatarMotionKey.lids
+            lids.contents = stillArt.lids
+            lids.opacity = 0
         }
-        upper.contents = art.bodyUpper
-        lower.contents = art.bodyLower
-        for part in [root, upper, lower] {
+        character.contents = stillArt.image
+        for part in [root, character] + (lids.map { [$0] } ?? []) {
             part.actions = TrackerAvatarLayerActions.immediate
             part.magnificationFilter = .nearest
             part.minificationFilter = .nearest
@@ -439,71 +534,50 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
     }
 
     func place(in bounds: CGRect) {
-        let pixel = Design.pixelPoints
-        let width = CGFloat(art.width) * pixel
-        let height = CGFloat(art.height) * pixel
-        let legHeight = CGFloat(idle.legRows) * pixel
         placeRoot(
-            pixels: CGSize(width: art.width, height: art.height),
+            pixels: CGSize(width: stillArt.image.width, height: stillArt.image.height),
             footRow: placement.footRow,
             bodyColumn: placement.bodyColumn,
             in: bounds
         )
-        lower.frame = CGRect(x: 0, y: 0, width: width, height: legHeight)
-        upper.frame = CGRect(x: 0, y: legHeight, width: width, height: height - legHeight)
-        lids?.frame = upper.bounds
-    }
-
-    /// The eyelids over the eyes, in the upper body's space. Nil when the idle has no eyes.
-    private static func makeLids(_ eyes: TrackerAvatarEyes?, upperRows: Int) -> CAShapeLayer? {
-        guard let eyes else {
-            return nil
-        }
-        let lids = CAShapeLayer()
-        lids.fillColor = eyes.lidColour.cgColor
-        lids.path = eyelidPath(eyes, upperRows: upperRows)
-        lids.isHidden = true
-        lids.actions = TrackerAvatarLayerActions.immediate
-        return lids
-    }
-
-    /// The eye pixels, in the upper body's own space (bottom-left origin), one pixel row across the eyes.
-    private static func eyelidPath(_ eyes: TrackerAvatarEyes, upperRows: Int) -> CGPath {
-        let pixel = Design.pixelPoints
-        let path = CGMutablePath()
-        for column in eyes.columns {
-            path.addRect(CGRect(
-                x: CGFloat(column) * pixel,
-                y: CGFloat(upperRows - 1 - eyes.row) * pixel,
-                width: pixel,
-                height: pixel
-            ))
-        }
-        return path
+        character.frame = root.bounds
+        lids?.frame = root.bounds
     }
 
     func startMotion() {
-        guard upper.animation(forKey: TrackerAvatarMotionKey.breath) == nil else {
+        guard character.animation(forKey: TrackerAvatarMotionKey.frames) == nil, let breathingArt else {
             return
         }
-        let breath = CAKeyframeAnimation(keyPath: "transform.translation.y")
-        let down = -Design.breathPixels * Design.pixelPoints
-        // A discrete keyframe holds each value up to the next key, so the cycle closes on its own rest key.
-        breath.values = [0, down, 0].map { NSNumber(value: Double($0)) }
-        breath.keyTimes = [0, Design.breathHoldPeriod, Design.breathPeriod].map { NSNumber(value: $0 / Design.breathPeriod) }
-        breath.calculationMode = .discrete
-        breath.duration = Design.breathPeriod
-        breath.repeatCount = .infinity
-        upper.add(breath, forKey: TrackerAvatarMotionKey.breath)
+        let images = breathingArt.map(\.image)
+        let durations = breathingArt.map { $0.definition.seconds * Motion.slowdown }
+        guard let frames = TrackerAvatarIdleFramesAnimation.make(images: images, durations: durations) else {
+            return
+        }
+        character.contents = images.first
+        lids?.contents = breathingArt.first?.lids ?? stillArt.lids
+        character.add(frames, forKey: TrackerAvatarMotionKey.frames)
+        if let lids {
+            let stencilImages = breathingArt.compactMap { $0.lids ?? transparentLidImage(size: stillArt.image) }
+            if let stencilFrames = TrackerAvatarIdleFramesAnimation.make(images: stencilImages, durations: durations) {
+                lids.add(stencilFrames, forKey: TrackerAvatarMotionKey.frames)
+            }
+        }
     }
 
     func stopMotion() {
-        upper.removeAnimation(forKey: TrackerAvatarMotionKey.breath)
-        lids?.isHidden = true
+        character.removeAnimation(forKey: TrackerAvatarMotionKey.frames)
+        lids?.removeAnimation(forKey: TrackerAvatarMotionKey.frames)
+        character.contents = stillArt.image
+        lids?.contents = stillArt.lids
+        lids?.opacity = 0
     }
 
     func setLids(shown: Bool) {
-        lids?.isHidden = !shown
+        lids?.opacity = shown ? 1 : 0
+    }
+
+    private func transparentLidImage(size: CGImage) -> CGImage? {
+        TrackerAvatarSprites.lidImage(size: CGSize(width: size.width, height: size.height), pixels: [], colour: idle.lidColour ?? TrackerAvatarColour(rgb: 0))
     }
 }
 
@@ -761,9 +835,9 @@ fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
     func setLids(shown: Bool) {}
 }
 
-/// The avatar's view. A pose change snaps: the shown rig hides and the new one shows at once. Idle breathes, and blinks when it has
-/// eyes. While he fidgets his fidget frame replaces the layers, so the breath and the blink pause until he is back. An idle with a loop
-/// cycles its frames instead, from the first whenever it comes on screen, and neither breathes, blinks nor fidgets. Motion runs only
+/// The avatar's view. A pose change snaps: the shown rig hides and the new one shows at once. PixelLab's idle frames loop and its blink
+/// stencil tracks the same frame. A fidget or another pose suspends both; idle resumes at its configured resume frame. An authored idle
+/// loop cycles instead and has no separate blink or fidgets. Motion runs only
 /// while the view is in a window and not under Reduce Motion; a pose change still shows then. A pose's finish holds the loop still
 /// while it is on screen.
 final class TrackerAvatarView: NSView {
@@ -880,13 +954,9 @@ final class TrackerAvatarView: NSView {
                 return nil
             }
             if pose.playKind == .layers && placement.loop == nil {
-                guard let art = sprites.idleArt(), let idle = sprites.animation.idle else {
-                    return nil
-                }
-                return TrackerAvatarRig(pose: pose, placement: placement, idle: idle, art: art)
+                return TrackerAvatarIdleRig(pose: pose, placement: placement, sprites: sprites)
             }
-            // An idle with a loop is a frame loop like the other steady poses: it restarts from its first frame whenever it comes on
-            // screen, since a hidden rig stops its loop, and it has no breath, no blink and no fidgets.
+            // Bard and Barbarian keep their authored idle loops, with no layered-idle blink or fidgets.
             return TrackerAvatarFrameRig(pose: pose, placement: placement, sprites: sprites)
         }
     }
@@ -925,8 +995,8 @@ final class TrackerAvatarView: NSView {
 
     /// The shown idle layers, when they have eyes to blink. A fidget's frame has no eyelids, so the blink waits for it to end. An idle
     /// with no eyes has none to blink, and an idle that loops has no layers at all.
-    private var blinkingRig: TrackerAvatarRig? {
-        guard shownKey == .pose(.idle), let rig = shown as? TrackerAvatarRig, rig.lids != nil else {
+    private var blinkingRig: TrackerAvatarIdleRig? {
+        guard shownKey == .pose(.idle), let rig = shown as? TrackerAvatarIdleRig, rig.canBlink else {
             return nil
         }
         return rig
@@ -939,7 +1009,10 @@ final class TrackerAvatarView: NSView {
 
     /// Shows the eyelids over the eyes of an idle that has them, for the render previews; a blink does the same for a moment.
     func showEyelids(_ shown: Bool) {
-        blinkingRig?.setLids(shown: shown)
+        guard shownKey == .pose(.idle), let rig = self.shown as? TrackerAvatarIdleRig else {
+            return
+        }
+        rig.setLids(shown: shown)
     }
 
     private func startBlinking() {

@@ -60,6 +60,7 @@ timed("ProjectOrderTests") { ProjectOrderTests.run() }
         timed("TrackerAvatarMotionTests") { TrackerAvatarMotionTests.run() }
         timed("TrackerAvatarFidgetsTests") { TrackerAvatarFidgetsTests.run() }
         timed("TrackerAvatarAnimationTests") { TrackerAvatarAnimationTests.run() }
+        timed("TrackerAvatarIdleTimelineTests") { TrackerAvatarIdleTimelineTests.run() }
         timed("TrackerTagLayoutTests") { TrackerTagLayoutTests.run() }
         timed("ModalCommandRoutingTests") { ModalCommandRoutingTests.run() }
         timed("InteractionLookTests") { InteractionLookTests.run() }

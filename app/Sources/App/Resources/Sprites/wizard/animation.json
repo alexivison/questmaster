@@ -7,7 +7,127 @@
       44,
       45
     ],
-    "lid_colour": "#7b6c63"
+    "lid_colour": "#7b6c63",
+    "blink": true,
+    "breathing": {
+      "resume_frame": "01-idle-breath-f8.png",
+      "frames": [
+        {
+          "file": "01-idle-breath-f1.png",
+          "seconds": 0.2,
+          "eye_row": 16,
+          "eye_columns": [
+            45,
+            46
+          ],
+          "lid_pixels": [
+            [
+              45,
+              16
+            ],
+            [
+              46,
+              16
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f2.png",
+          "seconds": 0.2,
+          "eye_row": 17,
+          "eye_columns": [
+            47,
+            48
+          ],
+          "lid_pixels": [
+            [
+              47,
+              17
+            ],
+            [
+              48,
+              17
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f3.png",
+          "seconds": 0.2,
+          "eye_row": 17,
+          "eye_columns": [
+            50,
+            51
+          ],
+          "lid_pixels": [
+            [
+              50,
+              17
+            ],
+            [
+              51,
+              17
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f6.png",
+          "seconds": 0.2,
+          "eye_row": 17,
+          "eye_columns": [
+            48,
+            49
+          ],
+          "lid_pixels": [
+            [
+              48,
+              17
+            ],
+            [
+              49,
+              17
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f7.png",
+          "seconds": 0.2,
+          "eye_row": 17,
+          "eye_columns": [
+            46,
+            47
+          ],
+          "lid_pixels": [
+            [
+              46,
+              17
+            ],
+            [
+              47,
+              17
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f8.png",
+          "seconds": 0.2,
+          "eye_row": 16,
+          "eye_columns": [
+            44,
+            45
+          ],
+          "lid_pixels": [
+            [
+              44,
+              16
+            ],
+            [
+              45,
+              16
+            ]
+          ]
+        }
+      ]
+    }
   },
   "release_hand": {
     "x": 58,

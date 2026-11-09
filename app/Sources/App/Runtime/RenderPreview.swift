@@ -61,7 +61,8 @@ enum RenderPreview {
         render(trackerAvatarView(state: "idle", sessionClass: "wizard"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-wizard.png")
         render(trackerAvatarView(state: "idle", sessionClass: "paladin"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-paladin.png")
         render(trackerAvatarView(state: "idle", sessionClass: "cleric"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-cleric.png")
-        for sessionClass in ["bard", "paladin", "wizard", "cleric"] {
+        render(trackerAvatarView(state: "idle", sessionClass: "rogue"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-rogue.png")
+        for sessionClass in ["bard", "paladin", "wizard", "cleric", "rogue"] {
             render(trackerAvatarView(state: "blocked", sessionClass: sessionClass), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-calling-out-\(sessionClass).png")
         }
         render(trackerAvatarView(state: "idle", sessionClass: ""), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-none.png")
@@ -2492,42 +2493,59 @@ enum RenderPreview {
         print("RenderPreview: recorded \(index) frames to \(frames)")
     }
 
-    /// The idle avatar's breath and blink, sampled frame by frame from its presentation layers into one GIF at real speed.
-    /// Only runs when RENDER_ONLY names `tracker-avatar-idle-motion`. The sample is longer than a breath cycle, and a blink
-    /// falls inside it, since the first one comes 3 to 6 s in.
+    /// The selected class's authored idle and a forced stencil blink, sampled frame by frame into a GIF.
+    /// Only runs when RENDER_ONLY names `tracker-avatar-idle-motion`; AVATAR_CLASS selects the class.
     @MainActor
     private static func recordTrackerAvatarMotion(to dir: String) {
         let environment = ProcessInfo.processInfo.environment
         guard environment["RENDER_ONLY"]?.split(separator: ",").contains("tracker-avatar-idle-motion") == true else {
             return
         }
+        let classID = environment["AVATAR_CLASS"] ?? "bard"
+        guard let sprites = TrackerAvatarSprites.bundled()[classID] else {
+            print("RenderPreview: no sprites for \(classID)")
+            return
+        }
         let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 2)
+        let priorReduceMotion = Motion.reducesMotion
+        Motion.reducesMotion = { false }
+        defer { Motion.reducesMotion = priorReduceMotion }
         warmUpFirstWindow()
         let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
         let container = NSView(frame: NSRect(origin: .zero, size: size))
-        let host = NSHostingView(rootView: TrackerAvatarSlot(pose: .idle, sprites: previewBardSprites()).background(AppPalette.window.swiftUI))
-        host.frame = container.bounds
-        host.autoresizingMask = [.width, .height]
-        container.addSubview(host)
+        container.wantsLayer = true
+        container.layer?.backgroundColor = AppPalette.window.cgColor
+        let avatar = TrackerAvatarView(frame: container.bounds)
+        avatar.sprites = sprites
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        container.addSubview(avatar)
         let window = HeadlessWindow(size: size, scale: scale)
         window.contentView = container
         window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         let framesPerSecond = 30.0
-        let sampleSeconds = 8.0
+        let authoredPeriod = sprites.animation.idle?.breathing?.period ?? sprites.animation.animation(for: .idle)?.loop?.seconds ?? 1.6
+        let sampleSeconds = max(6, authoredPeriod * Motion.slowdown * 2)
         let began = Date()
         var frames: [CGImage] = []
         var index = 0
+        var blinkVisible = false
         while Date().timeIntervalSince(began) < sampleSeconds {
             RunLoop.current.run(until: began.addingTimeInterval(Double(index) / framesPerSecond))
+            let elapsed = Date().timeIntervalSince(began)
+            let shouldShowBlink = elapsed >= 1 && elapsed < 1 + TrackerAvatarDesign.blinkClosedSeconds
+            if shouldShowBlink != blinkVisible {
+                avatar.showEyelids(shouldShowBlink)
+                blinkVisible = shouldShowBlink
+            }
             if let frame = captureLayers(of: container, scale: scale) {
                 frames.append(frame)
             }
             index += 1
         }
-        RingPreview.writeGIF(frames, to: "\(dir)/tracker-avatar-idle-motion.gif")
+        RingPreview.writeGIF(frames, to: "\(dir)/tracker-avatar-idle-motion-\(classID).gif")
         window.orderOut(nil)
-        print("RenderPreview: recorded \(frames.count) avatar frames")
+        print("RenderPreview: recorded \(frames.count) \(classID) avatar frames")
     }
 
     /// A bard master's session as the tracker payload decodes it, for the avatar's preview timelines.

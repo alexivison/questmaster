@@ -6,6 +6,7 @@ struct TrackerAvatarAnimationTests {
         decodesTheBardsFile()
         decodesTheWizardsFile()
         decodesThePaladinsFile()
+        decodesTheDruidsBlinkSetting()
         thePaladinsBlocksPlayAtTheirTimes()
         decodesTheClericsFile()
         theClericsBlocksPlayAtTheirTimes()
@@ -28,9 +29,11 @@ struct TrackerAvatarAnimationTests {
         aSpellMayGiveItsFlightAndImpactFrames()
         aSpellNeedsAKnownNameGoodTracksAndAnAnchorOnAFlight()
         aSpellSaysWhichWayItsFlightFaces()
-        aLoopingIdleNeedsNoLegsEyesOrFidgets()
-        aLayeredIdleNeedsItsLegRowsAndEyesAllOrNone()
-        aStillIdleWithNoEyesDecodesWithoutThem()
+        aLoopingIdleIgnoresLayeredIdleData()
+        aStillIdleUsesLegacyEyeColumnsWithoutLegRows()
+        aStillIdleMayUseAnAuthoredLidStencil()
+        aBreathingTrackReadsSparseFilesAndFrameStencils()
+        aBreathingTrackRejectsMalformedData()
         aLoopingIdleTakesNoEnterFinishOrOnce()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
@@ -402,77 +405,156 @@ struct TrackerAvatarAnimationTests {
         return try decode(json)
     }
 
-    /// An idle with a loop is a frame loop like any steady pose, so it has no legs to hold, eyes to blink or fidgets to play. The
-    /// file may leave `idle` and `fidgets` out, and if it keeps them they aren't read: no fidget plays beside a loop, and a lid colour
-    /// that isn't one is no fault of a file that has no lids.
-    private static func aLoopingIdleNeedsNoLegsEyesOrFidgets() {
+    /// Authored idle loops do not read layered idle settings or fidgets.
+    private static func aLoopingIdleIgnoresLayeredIdleData() {
         guard let bare = try? bardWithIdleLoop({ json in
             json.removeValue(forKey: "idle")
             json.removeValue(forKey: "fidgets")
         }) else {
-            fail("a looping idle with no idle keys and no fidgets should decode")
+            fail("a looping idle with no layered idle keys should decode")
         }
         let loop = bare.animation(for: .idle)?.loop
-        expect(loop?.character.steps == [TrackerAvatarStep(frame: 1, seconds: 0.1), TrackerAvatarStep(frame: 2, seconds: 0.1), TrackerAvatarStep(frame: 3, seconds: 0.2)],
-               "idle should cycle its three frames")
-        expect(loop?.front?.steps.map(\.frame) == [1, 2] && loop?.behind == nil, "idle's loop may carry an effect in front, as any loop does")
-        expect(bare.idle == nil && bare.fidgets.isEmpty, "a looping idle has no legs, eyes or fidgets")
+        expect(loop?.character.steps.map(\.frame) == [1, 2, 3], "idle should cycle its authored frames")
+        expect(bare.idle == nil && bare.fidgets.isEmpty, "an authored idle loop has no layered idle metadata or fidgets")
         guard let kept = try? bardWithIdleLoop({ json in
-            var idle = json["idle"] as? [String: Any] ?? [:]
-            idle["lid_colour"] = "not a colour"
-            json["idle"] = idle
+            json["idle"] = ["lid_colour": "not a colour", "blink": true]
+            json["fidgets"] = ["invalid": [[0, -1]]] as [String: Any]
         }) else {
-            fail("a looping idle should not read the keys it has no use for")
+            fail("an authored idle loop should ignore layered idle keys and fidgets")
         }
-        expect(kept.idle == nil && kept.fidgets.isEmpty, "a looping idle should keep neither its idle keys nor the fidgets the file still lists")
-        expect(AvatarAnimationFixture.bard().animation(for: .idle)?.loop == nil, "the bard's own idle should still be layers")
+        expect(kept.idle == nil && kept.fidgets.isEmpty, "an authored idle loop should keep neither layered settings nor fidgets")
+        expect(AvatarAnimationFixture.bard().animation(for: .idle)?.loop == nil, "the fixture's layered idle should remain layered")
     }
 
-    /// An idle with no loop draws as layers, which needs its `leg_rows`. Its eyes are one group, `eye_row`, `eye_columns` and `lid_colour`
-    /// all or none, so a group with only some of its keys is refused. The file may leave the fidgets out.
-    private static func aLayeredIdleNeedsItsLegRowsAndEyesAllOrNone() {
-        expectThrows(TrackerAvatarAnimationError.incompleteIdle, "a layered idle with no idle keys") {
-            var json = bardJSON()
-            json.removeValue(forKey: "idle")
-            _ = try decode(json)
+    /// A still idle no longer needs leg_rows. The old eye shorthand remains a two-endpoint inclusive range.
+    private static func aStillIdleUsesLegacyEyeColumnsWithoutLegRows() {
+        guard let animation = try? bardWithIdle({ $0.removeValue(forKey: "leg_rows") }) else {
+            fail("an idle without legacy leg_rows should decode")
         }
-        expectThrows(TrackerAvatarAnimationError.incompleteIdle, "a layered idle with no leg_rows") {
-            _ = try bardWithIdle { idle in
-                idle.removeValue(forKey: "leg_rows")
-            }
-        }
+        expect(animation.idle?.blink == true, "legacy eye metadata should keep blinking enabled")
+        expect(animation.idle?.stillLidPixels == (56...63).map { TrackerAvatarPixel(x: $0, y: 48) },
+               "legacy eye columns should keep their inclusive range semantics")
         for key in ["eye_row", "eye_columns", "lid_colour"] {
-            expectThrows(TrackerAvatarAnimationError.incompleteEyes, "eyes with no \(key)") {
-                _ = try bardWithIdle { idle in
-                    idle.removeValue(forKey: key)
-                }
+            expectRejected("a partial legacy eye shorthand without \(key)") {
+                _ = try bardWithIdle { $0.removeValue(forKey: key) }
             }
         }
-        expectThrows(TrackerAvatarAnimationError.incompleteEyes, "eyes with only an eye row") {
+        var noIdle = bardJSON()
+        noIdle.removeValue(forKey: "idle")
+        guard let rested = try? decode(noIdle) else {
+            fail("a layered idle with no animation metadata should rest on its still art")
+        }
+        expect(rested.idle?.blink == false && rested.idle?.breathing == nil,
+               "an idle with no metadata should have no breathing loop or blink")
+    }
+
+    private static func aStillIdleMayUseAnAuthoredLidStencil() {
+        guard let animation = try? bardWithIdle({ idle in
+            idle.removeValue(forKey: "eye_row")
+            idle.removeValue(forKey: "eye_columns")
+            idle["lid_pixels"] = [[4, 8], [5, 8], [5, 9]]
+        }) else {
+            fail("an idle with lid_pixels should decode without the old eye shorthand")
+        }
+        expect(animation.idle?.stillLidPixels == [
+            TrackerAvatarPixel(x: 4, y: 8), TrackerAvatarPixel(x: 5, y: 8), TrackerAvatarPixel(x: 5, y: 9),
+        ], "still lid_pixels should be kept in full")
+        expect(animation.idle?.blink == true, "an authored still stencil should enable blinking by default")
+    }
+
+    private static func aBreathingTrackReadsSparseFilesAndFrameStencils() {
+        let animation = try? bardWithIdle { idle in
+            idle["blink"] = true
+            idle["breathing"] = [
+                "resume_frame": "01-idle-breath-f3.png",
+                "frames": [
+                    ["file": "01-idle-breath-f1.png", "seconds": 0.2, "eye_row": 7, "eye_columns": [2], "lid_pixels": [[2, 7], [2, 8]]],
+                    ["file": "01-idle-breath-f3.png", "seconds": 0.4, "eye_row": 8, "eye_columns": [3, 4], "lid_pixels": [[3, 8], [4, 8], [4, 9]]],
+                ],
+            ]
+        }
+        guard let breathing = animation?.idle?.breathing else {
+            fail("the authored breathing track should decode")
+        }
+        expect(breathing.frames.map(\.file) == ["01-idle-breath-f1.png", "01-idle-breath-f3.png"],
+               "breathing should keep sparse filenames in their written order")
+        expect(abs(breathing.period - 0.6) < 1e-9, "the loop period should be the sum of its authored frame times")
+        expect(breathing.framesFromResume.map(\.file) == ["01-idle-breath-f3.png", "01-idle-breath-f1.png"],
+               "the resume frame should lead the next cycle")
+        expect(breathing.frames[1].lidPixels == [TrackerAvatarPixel(x: 3, y: 8), TrackerAvatarPixel(x: 4, y: 8), TrackerAvatarPixel(x: 4, y: 9)],
+               "lid_pixels should override the one-row landmarks and preserve multi-row eyes")
+        expect(breathing.frame(at: 0)?.frame.file == "01-idle-breath-f3.png", "the resume frame should show at elapsed zero")
+        expect(breathing.frame(at: 0.4)?.frame.file == "01-idle-breath-f1.png", "the next frame should follow its authored duration")
+        expect(breathing.frame(at: 0.6)?.frame.file == "01-idle-breath-f3.png", "the ordered list should wrap after its full duration")
+    }
+
+    private static func aBreathingTrackRejectsMalformedData() {
+        expectRejected("a resume filename not listed in frames") {
             _ = try bardWithIdle { idle in
+                idle["breathing"] = ["resume_frame": "01-idle-breath-f2.png", "frames": [["file": "01-idle-breath-f1.png", "seconds": 0.2]]]
+            }
+        }
+        expectRejected("an empty breathing track") {
+            _ = try bardWithIdle { $0["breathing"] = ["resume_frame": "01-idle-breath-f1.png", "frames": []] }
+        }
+        expectRejected("a non-breathing filename") {
+            _ = try bardWithIdle { $0["breathing"] = ["resume_frame": "../01-idle-f1.png", "frames": [["file": "../01-idle-f1.png", "seconds": 0.2]]] }
+        }
+        expectRejected("a zero-duration frame") {
+            _ = try bardWithIdle { $0["breathing"] = ["resume_frame": "01-idle-breath-f1.png", "frames": [["file": "01-idle-breath-f1.png", "seconds": 0]]] }
+        }
+        expectRejected("an overflowing breathing period") {
+            _ = try bardWithIdle {
+                $0["breathing"] = [
+                    "resume_frame": "01-idle-breath-f1.png",
+                    "frames": [
+                        ["file": "01-idle-breath-f1.png", "seconds": 1e308],
+                        ["file": "01-idle-breath-f2.png", "seconds": 1e308],
+                    ],
+                ]
+            }
+        }
+        expectRejected("negative lid coordinates") {
+            _ = try bardWithIdle { idle in
+                idle["lid_pixels"] = [[-1, 8]]
+                idle.removeValue(forKey: "eye_row")
                 idle.removeValue(forKey: "eye_columns")
-                idle.removeValue(forKey: "lid_colour")
             }
         }
-        var json = bardJSON()
-        json.removeValue(forKey: "fidgets")
-        expect((try? decode(json))?.fidgets.isEmpty == true, "a layered idle with no fidgets key should have none")
+        expectRejected("a malformed coordinate pair") {
+            _ = try bardWithIdle { idle in
+                idle["lid_pixels"] = [[5]]
+                idle.removeValue(forKey: "eye_row")
+                idle.removeValue(forKey: "eye_columns")
+            }
+        }
+        expectRejected("duplicate lid pixels") {
+            _ = try bardWithIdle { idle in
+                idle["lid_pixels"] = [[5, 8], [5, 8]]
+                idle.removeValue(forKey: "eye_row")
+                idle.removeValue(forKey: "eye_columns")
+            }
+        }
+        expectRejected("blinking with a frame that has no stencil") {
+            _ = try bardWithIdle { idle in
+                idle["blink"] = true
+                idle["eye_row"] = nil
+                idle["eye_columns"] = nil
+                idle["lid_pixels"] = nil
+                idle["breathing"] = ["resume_frame": "01-idle-breath-f1.png", "frames": [["file": "01-idle-breath-f1.png", "seconds": 0.2]]]
+            }
+        }
     }
 
-    /// A layered idle with none of the eye keys is a figure with no eyes: it decodes with its leg rows alone, and its fidgets still play.
-    private static func aStillIdleWithNoEyesDecodesWithoutThem() {
-        var json = AvatarAnimationFixture.classJSON("wizard")
-        var idle = json["idle"] as? [String: Any] ?? [:]
-        for key in ["eye_row", "eye_columns", "lid_colour"] {
-            idle.removeValue(forKey: key)
+    private static func expectRejected(_ message: String, _ body: () throws -> Void) {
+        do {
+            try body()
+            fail("\(message) should be rejected")
+        } catch is TrackerAvatarAnimationError {
+            return
+        } catch {
+            fail("\(message) should fail with TrackerAvatarAnimationError, got \(error)")
         }
-        json["idle"] = idle
-        guard let animation = try? decode(json) else {
-            fail("a still idle with no eye keys should decode")
-        }
-        expect(animation.idle == TrackerAvatarIdle(legRows: 45, eyes: nil),
-               "a still idle with no eye keys should keep its leg rows and have no eyes, got \(String(describing: animation.idle))")
-        expect(animation.fidgets.map(\.name) == ["hood", "staff-tap"], "a still idle with no eyes should keep its fidgets")
     }
 
     /// Idle's loop is all it takes: it comes on screen with no enter and leaves with no finish of its own, and a one-shot has no place
@@ -654,10 +736,15 @@ struct TrackerAvatarAnimationTests {
         guard let animation = try? decode(AvatarAnimationFixture.classJSON("wizard")) else {
             fail("the wizard's file should decode")
         }
-        expect(
-            animation.idle == TrackerAvatarIdle(legRows: 45, eyes: TrackerAvatarEyes(row: 16, columns: 44...45, lidColour: TrackerAvatarColour(rgb: 0x7b6c63))),
-            "idle should carry the wizard's leg rows and eyes: the eye row, eye columns and lid colour"
-        )
+        expect(animation.idle?.blink == true, "the wizard should blink")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0x7b6c63), "the wizard should keep the eyelid colour")
+        expect(animation.idle?.stillLidPixels == [TrackerAvatarPixel(x: 44, y: 16), TrackerAvatarPixel(x: 45, y: 16)],
+               "the legacy still eye shorthand should remain available")
+        expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f8.png", "the wizard should resume from its authored rest frame")
+        expect(animation.idle?.breathing?.frames.map(\.file) == [
+            "01-idle-breath-f1.png", "01-idle-breath-f2.png", "01-idle-breath-f3.png",
+            "01-idle-breath-f6.png", "01-idle-breath-f7.png", "01-idle-breath-f8.png",
+        ], "the wizard should keep the sparse authored frame names")
         expect(animation.releaseHand == TrackerAvatarPixel(x: 58, y: 14), "the release hand should be the wizard's hand pixel")
         expect(animation.fidgets.map(\.name) == ["hood", "staff-tap"], "fidgets should come in name order")
         expect(animation.fidgets.first?.track.steps.map(\.frame) == Array(2...9), "the hood should play idle frames 2 to 9")
@@ -670,16 +757,31 @@ struct TrackerAvatarAnimationTests {
         guard let animation = try? decode(AvatarAnimationFixture.classJSON("paladin")) else {
             fail("the paladin's file should decode")
         }
-        expect(
-            animation.idle == TrackerAvatarIdle(legRows: 60, eyes: TrackerAvatarEyes(row: 15, columns: 45...46, lidColour: TrackerAvatarColour(rgb: 0xe4af49))),
-            "idle should carry the paladin's leg rows and eyes: the eye row, eye columns and lid colour"
-        )
+        expect(animation.idle?.blink == true, "the paladin should blink")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xe4af49), "the paladin should keep the eyelid colour")
+        expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f5.png", "the paladin should resume at the authored rest frame")
+        expect(animation.idle?.breathing?.frames.map(\.file) == [
+            "01-idle-breath-f1.png", "01-idle-breath-f2.png", "01-idle-breath-f3.png", "01-idle-breath-f4.png",
+            "01-idle-breath-f5.png", "01-idle-breath-f6.png", "01-idle-breath-f7.png", "01-idle-breath-f8.png",
+            "01-idle-breath-f7.png", "01-idle-breath-f6.png", "01-idle-breath-f5.png", "01-idle-breath-f4.png",
+            "01-idle-breath-f3.png", "01-idle-breath-f2.png",
+        ], "the paladin should keep the explicit ping-pong frame order")
         expect(animation.releaseHand == TrackerAvatarPixel(x: 131, y: 92), "the release hand should be the paladin's hand pixel")
         expect(animation.fidgets.map(\.name) == ["watch"], "the paladin should have the watch fidget")
         let pondering = animation.animation(for: .pondering)
         expect(pondering?.footRow == 174 && pondering?.bodyColumn == 56, "pondering should stand at the paladin's foot row and body column")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the paladin's summoning should have a ground effect")
         expect(animation.animation(for: .channelling)?.finish != nil, "the paladin's channelling should finish")
+    }
+
+    private static func decodesTheDruidsBlinkSetting() {
+        guard let animation = try? decode(AvatarAnimationFixture.classJSON("druid")) else {
+            fail("the druid's file should decode")
+        }
+        expect(animation.idle?.blink == false, "the druid should never blink")
+        expect(animation.idle?.breathing?.frames.count == 8, "the druid should keep the eight authored breathing frames")
+        expect(animation.idle?.breathing?.frames.first?.lidPixels == [TrackerAvatarPixel(x: 63, y: 37), TrackerAvatarPixel(x: 64, y: 37)],
+               "closed-eye metadata should still be decoded for the druid")
     }
 
     /// The paladin's frames at given times, read from his file: the summoning's entrance moves him while its ground circle opens
@@ -702,10 +804,9 @@ struct TrackerAvatarAnimationTests {
         guard let animation = try? decode(AvatarAnimationFixture.classJSON("cleric")) else {
             fail("the cleric's file should decode")
         }
-        expect(
-            animation.idle == TrackerAvatarIdle(legRows: 45, eyes: TrackerAvatarEyes(row: 23, columns: 27...31, lidColour: TrackerAvatarColour(rgb: 0xc6b593))),
-            "idle should carry the cleric's leg rows and eyes: the eye row, eye columns and lid colour"
-        )
+        expect(animation.idle?.blink == true, "the cleric should blink using its legacy eye shorthand")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xc6b593), "the cleric should keep the eyelid colour")
+        expect(animation.idle?.stillLidPixels.count == 5, "the legacy eye range should paint all five columns")
         expect(animation.releaseHand == TrackerAvatarPixel(x: 107, y: 38), "the release hand should be the cleric's hand pixel")
         expect(animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
         expect(animation.fidgets.first?.frames == Array(2...9), "the mitre should play idle frames 2 to 9")

@@ -7,7 +7,285 @@
       45,
       46
     ],
-    "lid_colour": "#e4af49"
+    "lid_colour": "#e4af49",
+    "blink": true,
+    "breathing": {
+      "resume_frame": "01-idle-breath-f5.png",
+      "frames": [
+        {
+          "file": "01-idle-breath-f1.png",
+          "seconds": 0.2,
+          "eye_row": 15,
+          "eye_columns": [
+            45
+          ],
+          "lid_pixels": [
+            [
+              45,
+              15
+            ],
+            [
+              45,
+              16
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f2.png",
+          "seconds": 0.2,
+          "eye_row": 15,
+          "eye_columns": [
+            44
+          ],
+          "lid_pixels": [
+            [
+              44,
+              15
+            ],
+            [
+              44,
+              16
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f3.png",
+          "seconds": 0.2,
+          "eye_row": 15,
+          "eye_columns": [
+            43,
+            44
+          ],
+          "lid_pixels": [
+            [
+              43,
+              15
+            ],
+            [
+              44,
+              15
+            ],
+            [
+              44,
+              16
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f4.png",
+          "seconds": 0.2,
+          "eye_row": 15,
+          "eye_columns": [
+            44,
+            45
+          ],
+          "lid_pixels": [
+            [
+              44,
+              15
+            ],
+            [
+              45,
+              15
+            ],
+            [
+              45,
+              16
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f5.png",
+          "seconds": 0.2,
+          "eye_row": 15,
+          "eye_columns": [
+            46
+          ],
+          "lid_pixels": [
+            [
+              46,
+              15
+            ],
+            [
+              47,
+              16
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f6.png",
+          "seconds": 0.2,
+          "eye_row": 16,
+          "eye_columns": [
+            48
+          ],
+          "lid_pixels": [
+            [
+              48,
+              16
+            ],
+            [
+              49,
+              17
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f7.png",
+          "seconds": 0.2,
+          "eye_row": 16,
+          "eye_columns": [
+            49
+          ],
+          "lid_pixels": [
+            [
+              49,
+              16
+            ],
+            [
+              50,
+              17
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f8.png",
+          "seconds": 0.2,
+          "eye_row": 16,
+          "eye_columns": [
+            49
+          ],
+          "lid_pixels": [
+            [
+              49,
+              16
+            ],
+            [
+              50,
+              17
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f7.png",
+          "seconds": 0.2,
+          "eye_row": 16,
+          "eye_columns": [
+            49
+          ],
+          "lid_pixels": [
+            [
+              49,
+              16
+            ],
+            [
+              50,
+              17
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f6.png",
+          "seconds": 0.2,
+          "eye_row": 16,
+          "eye_columns": [
+            48
+          ],
+          "lid_pixels": [
+            [
+              48,
+              16
+            ],
+            [
+              49,
+              17
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f5.png",
+          "seconds": 0.2,
+          "eye_row": 15,
+          "eye_columns": [
+            46
+          ],
+          "lid_pixels": [
+            [
+              46,
+              15
+            ],
+            [
+              47,
+              16
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f4.png",
+          "seconds": 0.2,
+          "eye_row": 15,
+          "eye_columns": [
+            44,
+            45
+          ],
+          "lid_pixels": [
+            [
+              44,
+              15
+            ],
+            [
+              45,
+              15
+            ],
+            [
+              45,
+              16
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f3.png",
+          "seconds": 0.2,
+          "eye_row": 15,
+          "eye_columns": [
+            43,
+            44
+          ],
+          "lid_pixels": [
+            [
+              43,
+              15
+            ],
+            [
+              44,
+              15
+            ],
+            [
+              44,
+              16
+            ]
+          ]
+        },
+        {
+          "file": "01-idle-breath-f2.png",
+          "seconds": 0.2,
+          "eye_row": 15,
+          "eye_columns": [
+            44
+          ],
+          "lid_pixels": [
+            [
+              44,
+              15
+            ],
+            [
+              44,
+              16
+            ]
+          ]
+        }
+      ]
+    }
   },
   "release_hand": {
     "x": 131,
