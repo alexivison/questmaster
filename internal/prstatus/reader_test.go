@@ -288,6 +288,80 @@ func TestStatusReviewPrecedence(t *testing.T) {
 	}
 }
 
+// TestStatusCommentEndsWhenReviewerIsRequestedAgain walks a PR through the review lifecycle: a reviewer asked again
+// after commenting is waiting on the author, so the comment stops counting until they review again.
+func TestStatusCommentEndsWhenReviewerIsRequestedAgain(t *testing.T) {
+	t.Parallel()
+	const (
+		noOpinions               = `[]`
+		approvalOpinion          = `[{"state":"APPROVED"}]`
+		changesOpinion           = `[{"state":"CHANGES_REQUESTED"}]`
+		noComments               = `[]`
+		commentOne               = `[{"state":"COMMENTED","author":{"login":"reviewer-one","__typename":"User"}}]`
+		commentOneCase           = `[{"state":"COMMENTED","author":{"login":"Reviewer-One","__typename":"User"}}]`
+		commentTwo               = `[{"state":"COMMENTED","author":{"login":"reviewer-two","__typename":"User"}}]`
+		commentOneAndTwo         = `[{"state":"COMMENTED","author":{"login":"reviewer-one","__typename":"User"}},{"state":"COMMENTED","author":{"login":"reviewer-two","__typename":"User"}}]`
+		commentBot               = `[{"state":"COMMENTED","author":{"login":"review-bot","__typename":"Bot"}}]`
+		commentBotSuffix         = `[{"state":"COMMENTED","author":{"login":"review-bot[bot]","__typename":"Bot"}}]`
+		approvalOne              = `[{"state":"APPROVED","author":{"login":"reviewer-one","__typename":"User"}}]`
+		changesOne               = `[{"state":"CHANGES_REQUESTED","author":{"login":"reviewer-one","__typename":"User"}}]`
+		approvalOneAndCommentTwo = `[{"state":"APPROVED","author":{"login":"reviewer-one","__typename":"User"}},{"state":"COMMENTED","author":{"login":"reviewer-two","__typename":"User"}}]`
+		changesOneAndCommentTwo  = `[{"state":"CHANGES_REQUESTED","author":{"login":"reviewer-one","__typename":"User"}},{"state":"COMMENTED","author":{"login":"reviewer-two","__typename":"User"}}]`
+		noRequests               = `[]`
+		requestOne               = `[{"requestedReviewer":{"__typename":"User","login":"reviewer-one"}}]`
+		requestOneCase           = `[{"requestedReviewer":{"__typename":"User","login":"REVIEWER-ONE"}}]`
+		requestTwo               = `[{"requestedReviewer":{"__typename":"User","login":"reviewer-two"}}]`
+		requestTeam              = `[{"requestedReviewer":{"__typename":"Team","login":"reviewer-one"}}]`
+		requestNullNodes         = `[{"requestedReviewer":null},{"requestedReviewer":{"__typename":"Mannequin"}}]`
+		requestBot               = `[{"requestedReviewer":{"__typename":"Bot","login":"review-bot"}}]`
+		requestBotSuffix         = `[{"requestedReviewer":{"__typename":"Bot","login":"review-bot[bot]"}}]`
+	)
+	tests := []struct {
+		name, decision, opinionated, latest, requested, want string
+	}{
+		{"requested before any review", `"REVIEW_REQUIRED"`, noOpinions, noComments, requestOne, "review_required"},
+		{"commented and not requested", `"REVIEW_REQUIRED"`, noOpinions, commentOne, noRequests, "commented"},
+		{"commented then requested again", `"REVIEW_REQUIRED"`, noOpinions, commentOne, requestOne, "review_required"},
+		{"commented then requested again without a decision", "null", noOpinions, commentOne, requestOne, "none"},
+		{"approved after the request", `"APPROVED"`, approvalOpinion, approvalOne, noRequests, "approved"},
+		{"comments again after the request", `"REVIEW_REQUIRED"`, noOpinions, commentOne, noRequests, "commented"},
+		{"changes requested after the request", `"CHANGES_REQUESTED"`, changesOpinion, changesOne, noRequests, "changes_requested"},
+		{"one commenter requested again, the other not", `"REVIEW_REQUIRED"`, noOpinions, commentOneAndTwo, requestTwo, "commented"},
+		{"a request for someone who did not comment", `"REVIEW_REQUIRED"`, noOpinions, commentOne, requestTwo, "commented"},
+		{"a team request does not hide a user's comment", `"REVIEW_REQUIRED"`, noOpinions, commentOne, requestTeam, "commented"},
+		{"null and non-account request nodes do not hide a comment", `"REVIEW_REQUIRED"`, noOpinions, commentOne, requestNullNodes, "commented"},
+		{"request in another letter case hides the comment", `"REVIEW_REQUIRED"`, noOpinions, commentOneCase, requestOneCase, "review_required"},
+		{"bot request with the suffix matches a comment without it", `"REVIEW_REQUIRED"`, noOpinions, commentBot, requestBotSuffix, "review_required"},
+		{"bot request without the suffix matches a comment with it", `"REVIEW_REQUIRED"`, noOpinions, commentBotSuffix, requestBot, "review_required"},
+		// An approval or changes request is a decision: a re-request or another reviewer's comment does not change it.
+		{"approved decision stays approved when the approver is requested again", `"APPROVED"`, approvalOpinion, approvalOne, requestOne, "approved"},
+		{"approval without a decision stays approved when the approver is requested again", "null", approvalOpinion, approvalOne, requestOne, "approved"},
+		{"changes requested decision stays when the reviewer is requested again", `"CHANGES_REQUESTED"`, changesOpinion, changesOne, requestOne, "changes_requested"},
+		{"changes requested without a decision stays when the reviewer is requested again", "null", changesOpinion, changesOne, requestOne, "changes_requested"},
+		{"approved stays approved beside a comment from a requested reviewer", `"APPROVED"`, approvalOpinion, approvalOneAndCommentTwo, requestTwo, "approved"},
+		{"approved stays approved beside a comment from an unrequested reviewer", `"APPROVED"`, approvalOpinion, approvalOneAndCommentTwo, noRequests, "approved"},
+		{"approval without a decision stays approved beside a comment", "null", approvalOpinion, approvalOneAndCommentTwo, noRequests, "approved"},
+		{"changes requested stays beside a comment from a requested reviewer", `"CHANGES_REQUESTED"`, changesOpinion, changesOneAndCommentTwo, requestTwo, "changes_requested"},
+		{"changes requested stays beside a comment from an unrequested reviewer", `"CHANGES_REQUESTED"`, changesOpinion, changesOneAndCommentTwo, noRequests, "changes_requested"},
+		{"changes requested without a decision stays beside a comment", "null", changesOpinion, changesOneAndCommentTwo, noRequests, "changes_requested"},
+		// GitHub's REVIEW_REQUIRED decision decides even when one reviewer has approved (a partial approval).
+		{"review required decision ignores an opinionated approval", `"REVIEW_REQUIRED"`, approvalOpinion, approvalOne, noRequests, "review_required"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var node graphPR
+			data := fmt.Sprintf(`{"author":{"login":"example-author","__typename":"User"},"reviewDecision":%s,"latestOpinionatedReviews":{"nodes":%s},"latestReviews":{"nodes":%s},"reviewRequests":{"nodes":%s}}`, tc.decision, tc.opinionated, tc.latest, tc.requested)
+			if err := json.Unmarshal([]byte(data), &node); err != nil {
+				t.Fatal(err)
+			}
+			if got := node.status(time.Now(), "example-viewer").Review; got != tc.want {
+				t.Fatalf("review=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestStatusAuthorIsSetOnlyWhenNotViewer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -318,10 +392,16 @@ func TestFetchReadsAuthorAndCommentedReview(t *testing.T) {
 	t.Parallel()
 	pr := pr(t, "owner/repo#1")
 	run := func(_ context.Context, _, query string) ([]byte, []byte, error) {
-		if !strings.Contains(query, "latestOpinionatedReviews(last:100) { nodes { state } }") || !strings.Contains(query, "latestReviews(last:100) { nodes { state author { login __typename } } }") {
-			t.Fatalf("query does not read both review connections: %s", query)
+		for _, field := range []string{
+			"latestOpinionatedReviews(last:100) { nodes { state } }",
+			"latestReviews(last:100) { nodes { state author { login __typename } } }",
+			"reviewRequests(first:100) { nodes { requestedReviewer { __typename ... on User { login } ... on Bot { login } } } }",
+		} {
+			if !strings.Contains(query, field) {
+				t.Fatalf("query omits %q: %s", field, query)
+			}
 		}
-		return []byte(`{"data":{"viewer":{"login":"reviewer-one"},"p0":{"pullRequest":{"title":"PR","state":"OPEN","author":{"login":"example-author","__typename":"User"},"reviewDecision":null,"latestOpinionatedReviews":{"nodes":[]},"latestReviews":{"nodes":[{"state":"COMMENTED","author":{"login":"review-bot","__typename":"Bot"}}]},"commits":{"nodes":[]}}}}}`), nil, nil
+		return []byte(`{"data":{"viewer":{"login":"reviewer-one"},"p0":{"pullRequest":{"title":"PR","state":"OPEN","author":{"login":"example-author","__typename":"User"},"reviewDecision":null,"latestOpinionatedReviews":{"nodes":[]},"latestReviews":{"nodes":[{"state":"COMMENTED","author":{"login":"review-bot","__typename":"Bot"}}]},"reviewRequests":{"nodes":[{"requestedReviewer":null},{"requestedReviewer":{"__typename":"Team"}}]},"commits":{"nodes":[]}}}}}`), nil, nil
 	}
 	got := Fetch(context.Background(), []state.PullRequest{pr}, run, time.Now()).Statuses[pr.Key]
 	if got.Review != "commented" || got.Author != "example-author" {

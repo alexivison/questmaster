@@ -163,10 +163,11 @@ func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Ti
 func query(prs []state.PullRequest) string {
 	var b strings.Builder
 	b.WriteString("query { rateLimit { cost remaining resetAt } viewer { login } ")
-	// shortcut: review connections stop at 100 reviewers per PR; paginate if a PR reaches that count.
+	// shortcut: review connections and review requests stop at 100 per PR; paginate if a PR reaches that count.
 	// latestReviews is each reviewer's latest review of any state; latestOpinionatedReviews keeps an approval that a later comment would hide.
+	// reviewRequests lists reviewers the PR is still waiting on; a reviewer asked again after a comment is in it.
 	for i, pr := range prs {
-		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state closedAt mergedAt isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision author { login __typename } latestOpinionatedReviews(last:100) { nodes { state } } latestReviews(last:100) { nodes { state author { login __typename } } } commits(last:1) { nodes { commit { statusCheckRollup { state %s } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number, ciContextsQuery)
+		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state closedAt mergedAt isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision author { login __typename } latestOpinionatedReviews(last:100) { nodes { state } } latestReviews(last:100) { nodes { state author { login __typename } } } reviewRequests(first:100) { nodes { requestedReviewer { __typename ... on User { login } ... on Bot { login } } } } commits(last:1) { nodes { commit { statusCheckRollup { state %s } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number, ciContextsQuery)
 	}
 	b.WriteByte('}')
 	return b.String()
@@ -249,21 +250,22 @@ func (r *graphResponse) UnmarshalJSON(data []byte) error {
 }
 
 type graphPR struct {
-	Title          string       `json:"title"`
-	URL            string       `json:"url"`
-	State          string       `json:"state"`
-	ClosedAt       string       `json:"closedAt"`
-	MergedAt       string       `json:"mergedAt"`
-	Draft          bool         `json:"isDraft"`
-	HeadSHA        string       `json:"headRefOid"`
-	UpdatedAt      string       `json:"updatedAt"`
-	Additions      int          `json:"additions"`
-	Deletions      int          `json:"deletions"`
-	Comments       int          `json:"totalCommentsCount"`
-	ReviewDecision *string      `json:"reviewDecision"`
-	Author         graphActor   `json:"author"`
-	Reviews        graphReviews `json:"latestOpinionatedReviews"`
-	LatestReviews  graphReviews `json:"latestReviews"`
+	Title          string              `json:"title"`
+	URL            string              `json:"url"`
+	State          string              `json:"state"`
+	ClosedAt       string              `json:"closedAt"`
+	MergedAt       string              `json:"mergedAt"`
+	Draft          bool                `json:"isDraft"`
+	HeadSHA        string              `json:"headRefOid"`
+	UpdatedAt      string              `json:"updatedAt"`
+	Additions      int                 `json:"additions"`
+	Deletions      int                 `json:"deletions"`
+	Comments       int                 `json:"totalCommentsCount"`
+	ReviewDecision *string             `json:"reviewDecision"`
+	Author         graphActor          `json:"author"`
+	Reviews        graphReviews        `json:"latestOpinionatedReviews"`
+	LatestReviews  graphReviews        `json:"latestReviews"`
+	ReviewRequests graphReviewRequests `json:"reviewRequests"`
 	Commits        struct {
 		Nodes []struct {
 			Commit struct {
@@ -296,6 +298,19 @@ type graphReview struct {
 
 type graphReviews struct {
 	Nodes []graphReview `json:"nodes"`
+}
+
+type graphReviewRequest struct {
+	Reviewer graphActor `json:"requestedReviewer"`
+}
+
+type graphReviewRequests struct {
+	Nodes []graphReviewRequest `json:"nodes"`
+}
+
+// isAccount reports whether the actor is a user or bot, the only reviewer types that can match a comment's author.
+func (actor graphActor) isAccount() bool {
+	return actor.TypeName == "User" || actor.TypeName == "Bot"
 }
 
 // ciContextsQuery selects what dates the head commit's checks: a check run's finish, a commit status's last update.
@@ -383,7 +398,9 @@ func (pr graphPR) decidedReview() string {
 }
 
 // commentedByOthers reports whether a reviewer's latest review is a comment from someone other than the PR author
-// or the viewer. Authors reply to threads through COMMENTED reviews, and the viewer's own discussion stays out of status.
+// or the viewer, and that reviewer has not been asked again. Authors reply to threads through COMMENTED reviews, and
+// the viewer's own discussion stays out of status. A reviewer asked again is waiting on the author, so the comment
+// no longer counts; submitting a review clears the request.
 func (pr graphPR) commentedByOthers(viewer string) bool {
 	author := pr.Author.login()
 	for _, item := range pr.LatestReviews.Nodes {
@@ -391,7 +408,18 @@ func (pr graphPR) commentedByOthers(viewer string) bool {
 			continue
 		}
 		reviewer := item.Author.login()
-		if !sameLogin(reviewer, author) && !sameLogin(reviewer, viewer) {
+		if sameLogin(reviewer, author) || sameLogin(reviewer, viewer) || pr.isRequested(reviewer) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// isRequested reports whether a user or bot reviewer is currently asked to review. Team requests do not match.
+func (pr graphPR) isRequested(login string) bool {
+	for _, item := range pr.ReviewRequests.Nodes {
+		if item.Reviewer.isAccount() && sameLogin(item.Reviewer.login(), login) {
 			return true
 		}
 	}
