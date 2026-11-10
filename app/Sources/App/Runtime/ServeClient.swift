@@ -2,7 +2,9 @@ import Darwin
 import Foundation
 import QuestmasterCore
 
-final class UnixSocketServeClient {
+/// `@unchecked Sendable`: `stop()` may run on any thread. The fields it shares with the loop sit under `control`. The
+/// loop's own state is touched only on `queue`, and `start` sets `onUpdate` before it queues the loop.
+final class UnixSocketServeClient: @unchecked Sendable {
     private let connect: () throws -> Int32
     private let invalidate: () -> Void
     // A self-test can synchronize on a partial socket read without sleeping.

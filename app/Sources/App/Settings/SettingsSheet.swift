@@ -313,7 +313,7 @@ final class SettingsSheetModel: ObservableObject {
     /// keeps its original footprint, with content anchored to the top
     /// (`alignment: .top` on the frame below) rather than shrinking or
     /// centering in the leftover space.
-    static let sheetSize = CGSize(width: 900, height: 780)
+    nonisolated static let sheetSize = CGSize(width: 900, height: 780)
 
     @Published var state = RoleDefaultsSettingsModel()
     @Published var section = SettingsSection.modelsAndReasoning

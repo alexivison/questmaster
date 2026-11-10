@@ -4163,6 +4163,7 @@ enum LogicSelfTests {
 
     /// A real tracker in a headless window at 1x, with `masters` plates and `shells` shells (`shell-0` ...), `viewed` the
     /// attached session. The viewed shell's row is filled, which marks where the shell section is.
+    @MainActor
     private final class TrackerFixture {
         let store: RuntimeStore
         let view: NSView
