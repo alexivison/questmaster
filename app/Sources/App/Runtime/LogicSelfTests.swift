@@ -74,8 +74,11 @@ enum LogicSelfTests {
         ("testBundledDruidSpritesReadTheirAnimationFile", testBundledDruidSpritesReadTheirAnimationFile),
         ("testBundledRogueSpritesReadTheirAnimationFile", testBundledRogueSpritesReadTheirAnimationFile),
         ("testBundledClericSpritesReadTheirAnimationFile", testBundledClericSpritesReadTheirAnimationFile),
-        ("testTheBubbleStaysInTheSlotAndUnderTheTag", testTheBubbleStaysInTheSlotAndUnderTheTag),
-        ("testTallAvatarDrawsOverTheSelectedSessionPanelWithoutChangingTheSlot", testTallAvatarDrawsOverTheSelectedSessionPanelWithoutChangingTheSlot),
+        ("testTheBubbleStaysInTheSlotAboveTheBanner", testTheBubbleStaysInTheSlotAboveTheBanner),
+        ("testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot", testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot),
+        ("testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible", testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible),
+        ("testTheAvatarStandsOnTheFullWidthBannerAboveTheShells", testTheAvatarStandsOnTheFullWidthBannerAboveTheShells),
+        ("testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList", testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList),
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
@@ -635,10 +638,8 @@ enum LogicSelfTests {
             return (weight / (scale * scale), weight == 0 ? .zero : CGPoint(x: sum.x / weight, y: sum.y / weight))
         }
 
-        /// The first plate follows the selected-session panel and its list gap; each following row adds its height and a gap.
+        /// The first plate starts at the tracker header inset; each following row adds its height and a gap.
         let masterTop = TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: 0)
-            + SelectedSessionPanel.canvasSize.height
-            + TrackerListMetrics.selectedPanelGap
         let workerTop = masterTop + TrackerNameplateRole.master.canvasSize.height + TrackerListMetrics.spacing
         let collapsedTop = workerTop + TrackerNameplateRole.worker.canvasSize.height + TrackerListMetrics.spacing
         let gutter = TrackerListMetrics.sidePadding
@@ -781,8 +782,10 @@ enum LogicSelfTests {
 
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
         try expectClose(TrackerListMetrics.spacing, 10, "every gap in the list")
-        try expectClose(TrackerListMetrics.selectedPanelGap, 40, "gap between the selected-session panel and the list")
-        try expectClose(TrackerListMetrics.shellClearance, 40, "clearance between the list and the pinned shell section")
+        try expectClose(TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: 0), 0, "first section starts at the tracker top")
+        try expectClose(TrackerListMetrics.avatarClearance, 40, "clearance between the list and the avatar slot")
+        try expectClose(SelectedSessionTagMetrics.width, 260, "banner matches a master plate's width")
+        try expectClose(SelectedSessionTagMetrics.tabInset, 5, "id tab inset on each side")
         try expectClose(TrackerListMetrics.contentWidth, TrackerPlateDesign.topLevelSize.width + TrackerPlateDesign.glowBandWidth, "tracker content width, the master plate's and its band's")
 
         // The collapsed workers sit right under the disc's row, 40 right of its left edge, and fill the plate's width.
@@ -2070,7 +2073,8 @@ enum LogicSelfTests {
         guard let sprites = TrackerAvatarSprites.bundled()["cleric"] else {
             throw TestFailure("the cleric's sprites should load from the app bundle")
         }
-        try expect(sprites.animation.idle?.breathing == nil, "the cleric should rest on its still image without a breathing loop")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 14 && sprites.idleBreathingArt?.count == 14,
+                   "the cleric should load all fourteen breathing steps and their lid stencils")
         try expect(sprites.animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
         try expect(sprites.availableFidgets.count == 1, "the cleric's fidget should have its art")
         try expect(sprites.idleStillArt != nil, "the cleric should have a still idle image")
@@ -2083,10 +2087,10 @@ enum LogicSelfTests {
         try expect(missing.isEmpty, "every frame the cleric's file plays should have its art, missing: \(missing)")
     }
 
-    /// The shared bubble stays inside the avatar slot and below the tag, one avatar gap above the class's idle figure. Every bundled
+    /// The shared bubble stays inside the avatar slot, above the banner at its sole. Every bundled
     /// class with an anchor is checked, and a fixture with one covers the path until a class ships one.
     @MainActor
-    private static func testTheBubbleStaysInTheSlotAndUnderTheTag() throws {
+    private static func testTheBubbleStaysInTheSlotAboveTheBanner() throws {
         for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key })
         where sprites.animation.animation(for: .callingOut)?.bubble != nil {
             try expectBubbleClear(of: sprites, named: classID)
@@ -2094,9 +2098,9 @@ enum LogicSelfTests {
         try expectBubbleClear(of: try bubbleFixture(), named: "the bubble fixture")
     }
 
-    /// A synthetic calling-out pose taller than its idle figure reaches out of the fixed slot and draws above the selected-session panel.
+    /// A synthetic calling-out pose reaches out of the fixed slot and draws over the plate above it, while its sole meets the banner.
     @MainActor
-    private static func testTallAvatarDrawsOverTheSelectedSessionPanelWithoutChangingTheSlot() throws {
+    private static func testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot() throws {
         let fixture = try TrackerAvatarOverflowFixture.make()
         defer { try? FileManager.default.removeItem(at: fixture.folder) }
         guard let idleFigureHeight = fixture.sprites.idleFigureHeight,
@@ -2108,23 +2112,23 @@ enum LogicSelfTests {
         let poseHeight = TrackerTagLayout.figureHeight(topRow: rows.lowerBound, footRow: pose.footRow)
         try expect(idleFigureHeight == 160, "the synthetic idle should be 160 px tall, got \(idleFigureHeight)")
         try expect(CGFloat(poseHeight) > TrackerAvatarMetrics.slotHeight, "the synthetic pose should extend above the reserved slot")
-        try expect(SelectedSessionPanel.canvasSize == CGSize(width: TrackerAvatarMetrics.slotWidth, height: 75),
-                   "the selected-session panel should keep its 260 x 75 frame")
         try expect(TrackerAvatarMetrics.slotHeight == 175, "the avatar slot should keep its reserved height")
 
         let scale: CGFloat = 2
-        let tagHeight = SelectedSessionPanel.canvasSize.height
         let slotTop = TrackerAvatarOverflowFixture.slotTop
         let size = TrackerAvatarOverflowFixture.canvas
-        let content = SelectedSessionPanelContent(
+        let content = SelectedSessionTagContent(
             title: "Tall Pose Preview", id: "qm-preview", projectName: "preview", projectColor: NSColor(hex: 0x3434A8)
         )
-        let host = NSHostingView(rootView: ZStack(alignment: .topLeading) {
-            SelectedSessionPanel(content: content, onCopyID: { _ in })
-                .frame(width: TrackerAvatarMetrics.slotWidth, height: tagHeight)
+        let host = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+            TrackerNameplateBackground(
+                role: .master, color: AppPalette.inert, showsCursor: false, isRecoloring: false,
+                statusColor: nil, ring: .none, text: EmptyView()
+            )
             TrackerAvatarSlot(pose: .callingOut, sprites: fixture.sprites)
-                .offset(y: slotTop)
                 .zIndex(1)
+            SelectedSessionTag(content: content, onCopyID: { _ in })
+                .zIndex(2)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .background(AppPalette.window.swiftUI))
@@ -2156,8 +2160,8 @@ enum LogicSelfTests {
             guard let bitmap else { return false }
             let oppositeTopBand = (bitmap.pixelsHigh - topBand.upperBound)..<(bitmap.pixelsHigh - topBand.lowerBound)
             return view != nil && (showsPose(bitmap, in: topBand) || showsPose(bitmap, in: oppositeTopBand))
-        }, "the pose's top rows should draw in the tag-covered strip above the slot, over the tag")
-        try expect(bitmap != nil, "the overlapping panel and avatar should render to a bitmap")
+        }, "the pose's top rows should draw over the plate above the slot")
+        try expect(bitmap != nil, "the overlapping plate and avatar should render to a bitmap")
         try expect(view?.bounds.size == CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight),
                    "the avatar view should retain its reserved slot frame")
         try expect(view?.layer?.masksToBounds == false, "the avatar layer should leave its overflow visible")
@@ -2165,6 +2169,36 @@ enum LogicSelfTests {
                    "the avatar should keep taking no clicks")
 
         try expect(bandHeight > 0, "the synthetic pose should have top rows outside the slot")
+    }
+
+    /// A real tracker with a synthetic pixel mark that crosses the foot row: its sole stays visible while the id tab
+    /// hides its lower pixels. The tall-pose test separately checks that the avatar still draws above the plates.
+    private static func testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible() throws {
+        let art = try TrackerAvatarOverflowFixture.make()
+        defer { try? FileManager.default.removeItem(at: art.folder) }
+        let fixture = try TrackerFixture(masters: 1, shells: 2, viewed: "master-0", height: 700, sessionClass: "wizard")
+        defer { fixture.close() }
+        guard let avatar = descendants(of: fixture.view).compactMap({ $0 as? TrackerAvatarView }).first,
+              let pose = art.sprites.animation.animation(for: .callingOut),
+              let marker = NSColor(cgColor: TrackerAvatarOverflowFixture.markerColor) else {
+            throw TestFailure("the tracker should have its avatar slot and synthetic marker art")
+        }
+        avatar.sprites = art.sprites
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: true)
+        let slot = fixture.view.convert(avatar.bounds, from: avatar)
+        let sole = fixture.view.isFlipped ? slot.maxY : fixture.size.height - slot.minY
+        let scale: CGFloat = 2
+        let column = Int((slot.minX + slot.width / 2 - CGFloat(pose.bodyColumn) + 7) * scale)
+        let soleRow = Int(sole * scale) - 1
+        let hangingRow = Int((sole + 2) * scale)
+        var probe: PixelProbe?
+        try expect(waitUntil {
+            guard let bitmap = try? snapshot(fixture.view, size: fixture.size, scale: scale) else { return false }
+            probe = PixelProbe(bitmap: bitmap, height: bitmap.pixelsHigh)
+            return probe?.isColor(column, soleRow, marker) == true
+        }, "the sprite's last sole row should remain visible directly above the banner")
+        try expect(probe?.isColor(column, hangingRow, AppPalette.panel) == true,
+                   "the banner's id tab should cover the sprite pixels hanging below the sole")
     }
 
     private static func descendants(of view: NSView) -> [NSView] {
@@ -2192,7 +2226,6 @@ enum LogicSelfTests {
     @MainActor
     private static func expectBubbleClear(of sprites: TrackerAvatarSprites, named name: String) throws {
         guard let placement = sprites.animation.animation(for: .callingOut),
-              let idleFigureHeight = sprites.idleFigureHeight,
               sprites.bubble != nil, let rig = TrackerAvatarFrameRig(pose: .callingOut, placement: placement, sprites: sprites) else {
             throw TestFailure("\(name) should draw its calling out with the shared bubble")
         }
@@ -2203,11 +2236,10 @@ enum LogicSelfTests {
         let bubble = rig.bubble.frame.offsetBy(dx: rig.root.frame.minX, dy: rig.root.frame.minY)
         let bubbleTop = slot.height - bubble.maxY
         let bubbleBottom = slot.height - bubble.minY
-        let tagBottom = slot.height - CGFloat(idleFigureHeight) - Space.section
         try expect(bubble.width > 0 && bubble.height > 0, "\(name)'s bubble should have a frame")
         try expect(bubble.minX >= slot.minX && bubble.maxX <= slot.maxX && bubbleTop >= slot.minY && bubbleBottom <= slot.maxY,
                    "\(name)'s bubble should sit inside the slot, got \(bubble)")
-        try expect(bubbleTop >= tagBottom, "\(name)'s bubble should stay below the tag's bottom at \(tagBottom), got its top at \(bubbleTop)")
+        try expect(bubbleBottom <= slot.height, "\(name)'s bubble should stay above the banner at the slot's bottom, got its bottom at \(bubbleBottom)")
     }
 
     /// Each bundled class's idle figure is measured from its own art, against its foot line, and the slot reserves the tallest one
@@ -2222,6 +2254,97 @@ enum LogicSelfTests {
         let tallest = sprites.values.compactMap(\.idleFigureHeight).max() ?? 0
         try expect(TrackerAvatarMetrics.tallestFigureHeight == tallest, "the tallest figure should be \(tallest) px, got \(TrackerAvatarMetrics.tallestFigureHeight)")
         try expect(TrackerAvatarMetrics.slotHeight == 175, "the slot should reserve the tallest figure rounded up to 5, got \(TrackerAvatarMetrics.slotHeight)")
+    }
+
+    /// Masters and workers reserve one fixed-width banner and avatar slot, with or without shells or class art.
+    private static func testTheAvatarStandsOnTheFullWidthBannerAboveTheShells() throws {
+        for shells in [0, 3] {
+            for sessionClass in ["wizard", "paladin", ""] {
+                for viewed in ["master-0", "worker-0"] {
+                    let fixture = try TrackerFixture(masters: 1, shells: shells, viewed: viewed, height: 700, sessionClass: sessionClass, workers: 1)
+                    defer { fixture.close() }
+                    guard let avatar = descendants(of: fixture.view).compactMap({ $0 as? TrackerAvatarView }).first else {
+                        throw TestFailure("the tracker should reserve an avatar slot, including for a class without art")
+                    }
+                    let shellHeight = CGFloat(shells) * TrackerShellMetrics.rowHeight
+                    let bannerBottom = fixture.size.height - TrackerListMetrics.verticalPadding - shellHeight - (shells > 0 ? Space.section : 0)
+                    let bannerTop = bannerBottom - SelectedSessionTagMetrics.height
+                    let slot = fixture.view.convert(avatar.bounds, from: avatar)
+                    let sole = fixture.view.isFlipped ? slot.maxY : fixture.size.height - slot.minY
+                    try expect(abs(sole - bannerTop) < 1, "\(sessionClass) with \(shells) shells: the sole should touch the banner top at \(bannerTop), got \(sole)")
+                    try expect(slot.size == CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight),
+                               "the reserved slot should keep the same size for every class")
+                    try expect(abs(slot.minX - TrackerListMetrics.sidePadding) < 1, "the avatar and banner should start at the plates' leading inset")
+
+                    let probe = try fixture.probe()
+                    let left = Int(TrackerListMetrics.sidePadding)
+                    let tabMiddle = Int(bannerTop + SelectedSessionTagMetrics.tabHeight / 2)
+                    try expect(probe.isColor(left + Int(Space.item), tabMiddle, AppPalette.panel), "the banner's id tab should sit directly under the slot")
+                    try expect(probe.isColor(left + Int(Space.row) - 1, tabMiddle, AppPalette.window), "the id tab should stay inset 5pt")
+                    let barMiddle = Int(bannerBottom - SelectedSessionTagMetrics.borderWidth - SelectedSessionTagMetrics.barHeight / 2)
+                    let color = TrackerNameplateColor.barLightness(AppPalette.displayColor("indigo") ?? AppPalette.muted)
+                    for x in [left + Int(Space.item), left + Int(TrackerAvatarMetrics.slotWidth - Space.item)] {
+                        try expect(probe.isColor(x, barMiddle, color), "\(sessionClass) with \(shells) shells: the banner's bar should span the full 260pt plate width at \(x), \(barMiddle)")
+                    }
+                    let tracker = TrackerRenderer.tracker(fixture.store.snapshot)
+                    let attached = SelectedSessionTagContent.make(currentTerminalSessionID: viewed, tracker: tracker)
+                    try expect(attached?.title == viewed && attached?.id == viewed && attached?.projectName == "Repo",
+                               "an attached plate should keep its own banner details, including without class art")
+                    if shells > 0 {
+                        let shellTop = fixture.size.height - TrackerListMetrics.verticalPadding - shellHeight
+                        try expect(abs(shellTop - bannerBottom - Space.section) < 1, "the shells should start 20pt below the banner")
+                        try expect(probe.clearBand(above: Int(shellTop)), "the shell gap should stay clear below the banner's shadow")
+                    }
+                }
+            }
+        }
+
+        for title in ["A", String(repeating: "A long title ", count: 20)] {
+            let tag = NSHostingView(rootView: SelectedSessionTag(
+                content: SelectedSessionTagContent(title: title, id: "qm-example", projectName: "Example", projectColor: AppPalette.muted),
+                onCopyID: { _ in }
+            ))
+            try expect(tag.fittingSize.width == TrackerAvatarMetrics.slotWidth, "short and long titles should both reserve a 260pt banner")
+        }
+    }
+
+    /// Shells, unknown ids and no attachment remove the whole footer, returning its reserved room to the plates.
+    private static func testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList() throws {
+        for shells in [0, 3] {
+            for viewed: String? in ["shell-0", nil, "unknown-session"] {
+                let fixture = try TrackerFixture(masters: 14, shells: shells, viewed: viewed, height: 700, sessionClass: "wizard")
+                defer { fixture.close() }
+                try expect(!descendants(of: fixture.view).contains { $0 is TrackerAvatarView },
+                           "\(String(describing: viewed)): no avatar slot should remain without an attached plate")
+                let tracker = TrackerRenderer.tracker(fixture.store.snapshot)
+                try expect(SelectedSessionTagContent.make(currentTerminalSessionID: viewed, tracker: tracker) == nil,
+                           "\(String(describing: viewed)): no banner should remain without an attached plate")
+                let shellHeight = CGFloat(shells) * TrackerShellMetrics.rowHeight
+                let listHeight = fixture.size.height - shellHeight - TrackerListMetrics.verticalPadding - (shells > 0 ? Space.section : 0)
+                try expect(fixture.scrollView(height: listHeight) != nil,
+                           "\(String(describing: viewed)): plates should fill the freed avatar and banner space up to \(listHeight)")
+                if shells > 0 {
+                    let shellTop = fixture.size.height - TrackerListMetrics.verticalPadding - shellHeight
+                    let probe = try fixture.probe()
+                    try expect(probe.clearBand(above: Int(shellTop)), "the plates should leave 20pt above the pinned shells")
+                    guard let shellScroll = fixture.scrollView(height: shellHeight) else { throw TestFailure("the shells should keep their own section") }
+                    let section = fixture.view.convert(shellScroll.bounds, from: shellScroll)
+                    let bottom = fixture.view.isFlipped ? section.maxY : fixture.size.height - section.minY
+                    try expect(abs(bottom - (fixture.size.height - TrackerListMetrics.verticalPadding)) < 1,
+                               "the shells should stay 20pt from the bottom without an attached plate")
+                    if viewed == "shell-0" {
+                        try expect(probe.filledShellRows.contains(Int(shellTop)), "the selected first shell should stay at the pinned section's top")
+                    }
+                }
+            }
+        }
+        for role in ["tmux", "orphan"] {
+            let fixture = try TrackerFixture(masters: 1, shells: 1, viewed: "shell-0", height: 700, sessionClass: "wizard", shellRole: role)
+            defer { fixture.close() }
+            try expect(!descendants(of: fixture.view).contains { $0 is TrackerAvatarView }, "an attached \(role) should reserve no avatar slot")
+            let tracker = TrackerRenderer.tracker(fixture.store.snapshot)
+            try expect(SelectedSessionTagContent.make(currentTerminalSessionID: "shell-0", tracker: tracker) == nil, "an attached \(role) should have no banner")
+        }
     }
 
     /// The frames a class's file plays that have no art, as `pose layer fN` names, and the spells' frames and stills.
@@ -4769,12 +4892,13 @@ enum LogicSelfTests {
         let window: HeadlessWindow
         let size: CGSize
 
-        init(masters: Int, shells: Int, viewed: String, height: Int) throws {
+        init(masters: Int, shells: Int, viewed: String?, height: Int, sessionClass: String = "", shellRole: String = "shell", workers: Int = 0) throws {
             func session(_ id: String, role: String) -> TrackerSession {
-                TrackerSession(id: id, title: id, repoName: "Repo", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle")
+                TrackerSession(id: id, title: id, repoName: "Repo", repoColor: "indigo", sessionClass: role == "master" ? sessionClass : "", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle", parentID: role == "worker" ? "master-0" : "")
             }
             let plates = (0..<masters).map { session("master-\($0)", role: "master") }
-            let shellRows = (0..<shells).map { session("shell-\($0)", role: "shell") }
+                + (0..<workers).map { session("worker-\($0)", role: "worker") }
+            let shellRows = (0..<shells).map { session("shell-\($0)", role: shellRole) }
             store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: viewed, expandedMasterIDs: [])
             store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: plates + shellRows)])))
             size = CGSize(width: 340, height: CGFloat(height))
@@ -4792,7 +4916,10 @@ enum LogicSelfTests {
             window.contentView = view
             window.show()
             let shellSectionHeight = min(CGFloat(shells) * TrackerShellMetrics.rowHeight, TrackerShellMetrics.maxHeight)
-            try expect(LogicSelfTests.waitUntil { scrollView(height: shellSectionHeight) != nil }, "the tracker shell section should finish laying out")
+            try expect(LogicSelfTests.waitUntil {
+                if shells > 0 { return scrollView(height: shellSectionHeight) != nil }
+                return LogicSelfTests.descendants(of: view).contains { $0 is NSScrollView && $0.bounds.height > 0 }
+            }, "the tracker footer should finish laying out")
         }
 
         func observePointerMove(_ seconds: TimeInterval) {
@@ -4847,9 +4974,9 @@ enum LogicSelfTests {
             return (0..<height).filter { isColor(column, $0, AppPalette.item) }
         }
 
-        /// Nothing of a plate in the band above the section, at several columns.
+        /// The lower half of the 20pt banner-to-shell gap is clear; the upper half leaves room for the raised shadow.
         func clearBand(above sectionTop: Int) -> Bool {
-            let clearTop = sectionTop - Int(TrackerListMetrics.shellClearance)
+            let clearTop = sectionTop - Int(Space.item)
             return [60, 120, 200].allSatisfy { x in (clearTop..<sectionTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
         }
     }
@@ -4864,7 +4991,7 @@ enum LogicSelfTests {
     }
 
     /// The shell section sits on the tracker column's bottom edge, at its bottom margin, however many plates there are:
-    /// with few plates there is empty space above it, with many the plates are cut `shellClearance` above it, and with
+    /// with few or many plates the banner ends `Space.section` above it, and with
     /// many shells the section stops at its max height. The viewed shell's filled row marks the section's bottom (the
     /// last shell) or its top (the first).
     private static func testTheShellSectionIsPinnedToTheTrackersBottom() throws {

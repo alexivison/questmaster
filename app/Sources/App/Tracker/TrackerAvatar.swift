@@ -121,7 +121,7 @@ private enum TrackerAvatarIdleFramesAnimation {
 final class TrackerAvatarSprites {
     let classID: String
     let animation: TrackerAvatarAnimation
-    /// The idle figure's height in sprite pixels above its sole, read once when the class loads, so the tag can follow it.
+    /// The idle figure's height in sprite pixels above its sole, read once when the class loads to size the shared slot.
     private(set) var idleFigureHeight: Int?
     private let folder: URL
     private var images: [String: CGImage] = [:]

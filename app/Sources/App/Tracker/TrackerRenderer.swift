@@ -34,7 +34,7 @@ struct TrackerRenderedRepo {
     let groups: [TrackerRenderGroup]
 }
 
-/// A shell row, with the repo it was listed under (the selected-session panel names it).
+/// A shell row, with the repo it was listed under (used by session details and standalone panel previews).
 struct TrackerRenderedShell {
     let rendered: TrackerRenderedSession
     let repoName: String

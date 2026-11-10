@@ -50,6 +50,15 @@ enum RenderPreview {
         render(trackerAllClassPlatesView(), size: CGSize(width: 580, height: 1240), to: "\(outputDir)/tracker-all-class-plates.png")
         render(classTrackerView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/class-tracker.png")
         render(trackerAvatarView(state: "idle"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-idle.png")
+        renderTrackerBannerPreview(sessionClass: "wizard", to: "\(outputDir)/tracker-banner-wizard-shells.png")
+        renderTrackerBannerPreview(sessionClass: "wizard", attachedID: "s1", to: "\(outputDir)/tracker-banner-shell-attached.png")
+        renderTrackerBannerPreview(sessionClass: "wizard", showsShells: false, to: "\(outputDir)/tracker-banner-wizard-no-shells.png")
+        renderTrackerBannerPreview(sessionClass: "paladin", to: "\(outputDir)/tracker-banner-paladin-shells.png")
+        renderTrackerBannerPreview(sessionClass: "paladin", state: "working", tool: "Bash", to: "\(outputDir)/tracker-banner-paladin-circle.png")
+        // Peak ground-effect extents from the bundled summoning loops; Barbarian's summon has no circle.
+        for (sessionClass, frame) in [("barbarian", 1), ("bard", 4), ("cleric", 1), ("druid", 7), ("paladin", 8), ("rogue", 1), ("wizard", 1)] {
+            renderTrackerBannerPreview(sessionClass: sessionClass, summonFrame: frame, to: "\(outputDir)/tracker-summoning-\(sessionClass).png")
+        }
         render(trackerAvatarView(state: "working", tool: "Bash"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-channelling.png")
         render(trackerAvatarView(state: "blocked"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-calling-out.png")
         if let fixture = try? TrackerAvatarOverflowFixture.make() {
@@ -1820,7 +1829,7 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// A standalone selected-session-tag preview. The tracker now uses its pinned selected-session panel above the plate list.
+    /// The same session banner that sits directly beneath the avatar in the tracker column.
     @MainActor
     private static func selectedSessionTagView(
         title: String = "Trace Events", id: String = "qm-1789532989", projectName: String = "scry"
@@ -1833,50 +1842,96 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The selected-session panel and a synthetic pose whose top rows reach out of the fixed slot, to check their real layer order.
+    /// A plate, a synthetic tall pose and the banner under its sole, to check the overflow's real layer order.
     @MainActor
     private static func trackerAvatarFrontView(sprites: TrackerAvatarSprites) -> some View {
-        let content = SelectedSessionPanelContent(
+        let content = SelectedSessionTagContent(
             title: "Tall Pose Preview", id: "qm-preview", projectName: "preview", projectColor: NSColor(hex: 0x3434A8)
         )
-        return ZStack(alignment: .topLeading) {
-            SelectedSessionPanel(content: content, onCopyID: { _ in })
-                .frame(width: TrackerAvatarMetrics.slotWidth, height: SelectedSessionPanel.canvasSize.height)
+        return VStack(alignment: .leading, spacing: 0) {
+            TrackerNameplateBackground(
+                role: .master, color: AppPalette.inert, showsCursor: false, isRecoloring: false,
+                statusColor: nil, ring: .none, text: EmptyView()
+            )
             TrackerAvatarSlot(pose: .callingOut, sprites: sprites)
-                .offset(y: TrackerAvatarFrontPreviewMetrics.slotTop)
                 .zIndex(1)
+            SelectedSessionTag(content: content, onCopyID: { _ in })
+                .zIndex(2)
         }
         .frame(width: TrackerAvatarFrontPreviewMetrics.canvas.width, height: TrackerAvatarFrontPreviewMetrics.canvas.height, alignment: .topLeading)
         .background(AppPalette.window.swiftUI)
     }
 
-    /// A real tracker column with a master attached and shells at the bottom: selected-session panel, plates, avatar slot and
-    /// pinned shell section. `state` and `tool` set the pose; a class other than bard leaves the slot empty.
+    /// A real tracker column: scrolling plates, attached class avatar, its full-width banner, then the pinned shells.
+    /// `state` and `tool` set the pose; a class without bundled art keeps the reserved slot and its session banner.
     @MainActor
-    private static func trackerAvatarView(state: String, tool: String? = nil, sessionClass: String = "bard") -> some View {
+    private static func trackerAvatarView(
+        state: String, tool: String? = nil, sessionClass: String = "bard", showsShells: Bool = true,
+        keyboardBridge: TrackerKeyboardBridge? = nil, attachedID: String? = "qm-example"
+    ) -> some View {
         let attached = TrackerSession(
-            id: "bard", title: "Trace Events", repoName: "questmaster", displayColor: "orange", sessionClass: sessionClass,
+            id: "qm-example", title: "Trace Events", repoName: "example-app", displayColor: "orange", sessionClass: sessionClass,
             agent: "claude", role: "master", state: state, snippet: "Following event dispatch...", elapsedSeedMS: 186_000,
             cast: tool.map { TrackerCast(tool: $0, startedAt: Date(), typicalMS: 6000) }
         )
-        let dotfiles = [
-            TrackerSession(id: "m1", title: "Audit aliases", repoName: "dotfiles", displayColor: "lime", sessionClass: "cleric", agent: "claude", role: "master", state: "working", snippet: "Checking aliases across...", elapsedSeedMS: 216_000),
-            TrackerSession(id: "m2", title: "Scan packages", repoName: "dotfiles", displayColor: "lime", sessionClass: "paladin", agent: "codex", role: "master", state: "working", snippet: "Resolving package depen...", elapsedSeedMS: 36_000),
+        let tools = [
+            TrackerSession(id: "m1", title: "Audit aliases", repoName: "sample-tools", displayColor: "lime", sessionClass: "cleric", agent: "claude", role: "master", state: "working", snippet: "Checking aliases across...", elapsedSeedMS: 216_000),
+            TrackerSession(id: "m2", title: "Scan packages", repoName: "sample-tools", displayColor: "lime", sessionClass: "paladin", agent: "codex", role: "master", state: "working", snippet: "Resolving package depen...", elapsedSeedMS: 36_000),
         ]
-        let shells = (1...3).map { TrackerSession(id: "s\($0)", title: "Shell", repoName: "scry", displayColor: "blue", agent: "shell", role: "shell", state: "idle", snippet: "") }
-        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "bard")
+        let shells = showsShells ? (1...3).map { TrackerSession(id: "s\($0)", title: "Shell", repoName: "example-app", displayColor: "blue", agent: "shell", role: "shell", state: "idle", snippet: "") } : []
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: attachedID)
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
-            TrackerRepo(id: "dotfiles", name: "dotfiles", color: "lime", sessions: dotfiles),
-            TrackerRepo(id: "questmaster", name: "questmaster", color: "orange", sessions: [attached]),
-            TrackerRepo(id: "scry", name: "scry", color: "indigo", sessions: shells),
+            TrackerRepo(id: "tools", name: "sample-tools", color: "lime", sessions: tools),
+            TrackerRepo(id: "example", name: "example-app", color: "orange", sessions: [attached] + shells),
         ])))
         return TrackerRootView(
             store: store,
-            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: keyboardBridge == nil ? .terminal : .tracker)),
+            keyboardBridge: keyboardBridge,
             newSessionPresenter: NewSessionSheetPresenter(),
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
         .background(AppPalette.window.swiftUI)
+    }
+
+    /// Uses the tracker's existing keyboard bridge to put its cursor on the last shell while the master stays attached.
+    @MainActor
+    private static func renderTrackerBannerPreview(
+        sessionClass: String, showsShells: Bool = true, state: String = "idle", tool: String? = nil,
+        summonFrame: Int? = nil, attachedID: String? = "qm-example", to path: String
+    ) {
+        let bridge = TrackerKeyboardBridge()
+        let size = TrackerBannerPreviewMetrics.canvas
+        let host = NSHostingView(rootView: trackerAvatarView(
+            state: state, tool: tool, sessionClass: sessionClass, showsShells: showsShells, keyboardBridge: bridge, attachedID: attachedID
+        ).frame(width: size.width, height: size.height))
+        renderView(host, size: size, afterSettle: { host in
+            if let summonFrame, let sprites = TrackerAvatarSprites.bundled()[sessionClass],
+               let placement = sprites.animation.animation(for: .summoning), let loop = placement.loop,
+               let rig = TrackerAvatarFrameRig(pose: .summoning, placement: placement, sprites: sprites) {
+                @MainActor func avatar(in view: NSView) -> TrackerAvatarView? {
+                    if let avatar = view as? TrackerAvatarView { return avatar }
+                    return view.subviews.lazy.compactMap(avatar).first
+                }
+                if let avatar = avatar(in: host) {
+                    // Hold a real authored loop instant, including the character's independently timed track.
+                    let effect = loop.behind ?? loop.front
+                    let step = effect?.steps.firstIndex { $0.frame == summonFrame } ?? 0
+                    let elapsed = (effect?.starts[step] ?? 0) + firstDrawSeconds
+                    avatar.configure(pose: nil, beat: 0, finish: nil, reduceMotion: true)
+                    rig.place(in: avatar.bounds)
+                    for (kind, layer) in [(TrackerAvatarLayer.behind, rig.behind), (.character, rig.character), (.front, rig.front)] {
+                        layer.contents = loop.track(for: kind).flatMap { sprites.frame(.summoning, kind, $0.frame(at: elapsed, looping: true)) }
+                    }
+                    avatar.layer?.addSublayer(rig.root)
+                }
+            }
+            guard showsShells, let key = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .shift, timestamp: 0,
+                windowNumber: 0, context: nil, characters: "G", charactersIgnoringModifiers: "G", isARepeat: false, keyCode: 5
+            ) else { return }
+            _ = bridge.handle(key)
+        }, to: path)
     }
 
     @MainActor
@@ -2815,8 +2870,11 @@ enum RenderPreview {
 
     @MainActor
     private enum TrackerAvatarFrontPreviewMetrics {
-        static var slotTop: CGFloat { TrackerAvatarOverflowFixture.slotTop }
         static var canvas: CGSize { TrackerAvatarOverflowFixture.canvas }
+    }
+
+    private enum TrackerBannerPreviewMetrics {
+        static let canvas = CGSize(width: 340, height: 960)
     }
 
     @MainActor

@@ -2,18 +2,18 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// What the selected-session tag shows: the attached session's title, id and project. With no attached session, the tag
-/// reads "Terminal" with no id and a muted bar.
+/// The attached plate's title, id and project, whether its class has a sprite or not. Shell rows and missing attachments
+/// have no banner or reserved avatar slot.
 struct SelectedSessionTagContent {
     let title: String
     let id: String
     let projectName: String
     let projectColor: NSColor
 
-    static func make(currentTerminalSessionID: String?, tracker: TrackerRenderedTracker) -> SelectedSessionTagContent {
-        let id = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID) ?? ""
-        guard let match = matchingRow(id: id, tracker: tracker) else {
-            return SelectedSessionTagContent(title: "Terminal", id: id, projectName: "", projectColor: AppPalette.muted)
+    static func make(currentTerminalSessionID: String?, tracker: TrackerRenderedTracker) -> SelectedSessionTagContent? {
+        guard let id = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID),
+              let match = matchingPlate(id: id, tracker: tracker) else {
+            return nil
         }
         let title = match.rendered.session.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return SelectedSessionTagContent(
@@ -24,12 +24,15 @@ struct SelectedSessionTagContent {
         )
     }
 
-    private static func matchingRow(id: String, tracker: TrackerRenderedTracker) -> (repoName: String, rendered: TrackerRenderedSession)? {
-        let plates = tracker.repos.flatMap { repo in
-            repo.groups.flatMap { [$0.root] + $0.workers }.map { (repoName: repo.repo.name, rendered: $0) }
+    private static func matchingPlate(id: String, tracker: TrackerRenderedTracker) -> (repoName: String, rendered: TrackerRenderedSession)? {
+        for repo in tracker.repos {
+            for group in repo.groups {
+                if let rendered = group.root.session.id == id ? group.root : group.workers.first(where: { $0.session.id == id }) {
+                    return (repo.repo.name, rendered)
+                }
+            }
         }
-        let shells = tracker.shells.map { (repoName: $0.repoName, rendered: $0.rendered) }
-        return (plates + shells).first { $0.rendered.session.id == id }
+        return nil
     }
 }
 
@@ -43,33 +46,27 @@ enum SelectedSessionTagMetrics {
     static let tabInset = Space.row
     static let tabRadius: CGFloat = 4
     static let frameRadius: CGFloat = 5
-    static let bandHeight: CGFloat = 20
+    static let bandHeight = Space.section
     static let barHeight = Space.item
     /// The title's padding on each side of its band.
     static let titlePadding = Space.item
-    /// The tag is no wider than the avatar's slot, which it is centred in.
-    static let maxWidth = TrackerAvatarMetrics.slotWidth
+    /// The banner spans a master plate's width, regardless of the title's length.
+    static let width = TrackerAvatarMetrics.slotWidth
 
     /// The frame's height: a rim above the band, a rim between the band and the bar, and a rim below the bar.
     static var frameHeight: CGFloat { 3 * borderWidth + bandHeight + barHeight }
     static var height: CGFloat { tabHeight + frameHeight }
-
-    /// The title plus `titlePadding` on each side of its band, and the rim on each side, up to `maxWidth`. A longer title
-    /// truncates.
-    static func width(forTitle title: String) -> CGFloat {
-        let titleWidth = (title as NSString).size(withAttributes: [.font: AppFonts.trackerPanelTitle]).width
-        return min(maxWidth, ceil(titleWidth) + 2 * (titlePadding + borderWidth))
-    }
 }
 
-/// The attached session's tag, centred above the avatar: its id on a tab, its title on a band and its project on a bar in
-/// the project's colour, in a framed box as wide as the title. The frame casts the raised shadow. A click copies the id.
+/// The attached session's banner beneath the avatar: its id on a tab, its title on a band and its project on a bar in
+/// the project's colour. It spans a master plate's width and truncates long titles. The frame casts the raised shadow.
+/// A click copies the id.
 struct SelectedSessionTag: View {
     let content: SelectedSessionTagContent
     let onCopyID: (String) -> Void
 
     var body: some View {
-        let width = SelectedSessionTagMetrics.width(forTitle: content.title)
+        let width = SelectedSessionTagMetrics.width
         VStack(spacing: 0) {
             idTab(width: width - 2 * SelectedSessionTagMetrics.tabInset)
             frame(width: width)
@@ -104,6 +101,8 @@ struct SelectedSessionTag: View {
                 .font(AppFonts.trackerPanelTitle.swiftUI)
                 .foregroundStyle(AppPalette.textBody.swiftUI)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, SelectedSessionTagMetrics.titlePadding)
                 .frame(maxWidth: .infinity)
                 .frame(height: SelectedSessionTagMetrics.bandHeight)
                 .background(AppPalette.item.swiftUI)

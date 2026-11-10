@@ -318,8 +318,8 @@ struct TrackerAvatarAnimationTests {
         guard let cleric = try? decode(AvatarAnimationFixture.classJSON("cleric")) else {
             fail("the cleric's file should decode")
         }
-        expect(cleric.animation(for: .release)?.strikeFrame == 4, "the cleric's release should strike on its peak, f4")
-        expect(cleric.animation(for: .catching)?.strikeFrame == 5, "the cleric's catch should strike on its peak, f5")
+        expect(cleric.animation(for: .release)?.strikeFrame == 3, "the cleric's release should strike on its peak, f3")
+        expect(cleric.animation(for: .catching)?.strikeFrame == 9, "the cleric's catch should strike on its peak, f9")
     }
 
     /// Only a release and a catch move, so only they may name a strike, and the frame must be one the character shows: a frame only
@@ -801,32 +801,36 @@ struct TrackerAvatarAnimationTests {
     }
 
     private static func decodesTheClericsFile() {
-        guard let animation = try? decode(AvatarAnimationFixture.classJSON("cleric")) else {
-            fail("the cleric's file should decode")
+        let animation: TrackerAvatarAnimation
+        do { animation = try decode(AvatarAnimationFixture.classJSON("cleric")) } catch {
+            fail("the cleric's file should decode: \(error)")
         }
-        expect(animation.idle?.blink == true, "the cleric should blink using its legacy eye shorthand")
-        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xc6b593), "the cleric should keep the eyelid colour")
-        expect(animation.idle?.stillLidPixels.count == 5, "the legacy eye range should paint all five columns")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 107, y: 38), "the release hand should be the cleric's hand pixel")
+        expect(animation.idle?.blink == true, "the cleric should blink")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xe3a372), "the cleric should keep the eyelid colour")
+        expect(animation.idle?.stillLidPixels.count == 2, "the cleric's two-pixel eye should take two lid pixels")
+        expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the cleric should resume at the authored rest frame")
+        expect(animation.idle?.breathing?.frames.count == 14, "the cleric's breathing should play its 14 reviewed steps")
+        expect(animation.idle?.breathing?.frames.allSatisfy { $0.seconds == 0.3 } == true, "the cleric breathes slowly, 0.3 s a step")
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 93, y: 68), "the release hand should be the cleric's hand pixel")
         expect(animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
-        expect(animation.fidgets.first?.frames == Array(2...9), "the mitre should play idle frames 2 to 9")
+        expect(animation.fidgets.first?.frames == [2, 3, 4, 5, 4, 3, 2], "the mitre should play idle frames 2 to 5 and back")
         let pondering = animation.animation(for: .pondering)
         expect(pondering?.footRow == 162 && pondering?.bodyColumn == 40, "pondering should stand at the cleric's foot row and body column")
-        expect(animation.animation(for: .callingOut)?.footRow == 166, "calling out's flare should keep the cleric's foot row at 166")
+        expect(animation.animation(for: .callingOut)?.footRow == 162, "calling out should stand at the cleric's foot row")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the cleric's summoning should have a ground effect")
         expect(animation.animation(for: .channelling)?.finish != nil, "the cleric's channelling should finish")
     }
 
     /// The cleric's frames at given times, read from his file: the summoning's ground circle opens below the figure, and the
-    /// studying's finish plays its entrance backwards, from f5 down to f1.
+    /// studying's finish plays its entrance backwards, from f7 down to f1.
     private static func theClericsBlocksPlayAtTheirTimes() {
         guard let animation = try? decode(AvatarAnimationFixture.classJSON("cleric")),
               let summoning = animation.animation(for: .summoning), let enter = summoning.enter,
               let studyingFinish = animation.animation(for: .studying)?.finish else {
             fail("the cleric's summoning and studying should have their blocks")
         }
-        expect(enter.behind?.frame(at: 0.3, looping: false) == 15, "the ground circle should reach frame 15 at 0.3 s of its enter")
-        expect(studyingFinish.character.frame(at: 0, looping: false) == 5, "the studying's finish should start on the pose's f5")
+        expect(enter.behind?.frame(at: 0.35, looping: false) == 19, "the ground circle should reach frame 19 at 0.35 s of its enter")
+        expect(studyingFinish.character.frame(at: 0, looping: false) == 7, "the studying's finish should start on the pose's f7")
         expect(studyingFinish.character.frame(at: 9, looping: false) == 1, "the studying's finish should end on the cleric's f1")
     }
 

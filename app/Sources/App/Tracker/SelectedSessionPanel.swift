@@ -49,7 +49,7 @@ struct SelectedSessionPanelContent {
     }
 }
 
-/// The attached session, pinned above the tracker list: its disc icon (the class portrait, a shell's terminal glyph, or
+/// The attached session's portrait panel, retained for standalone previews: its disc icon (the class portrait, a shell's terminal glyph, or
 /// nothing), the session id in the tab above the plate, the title on its strip, and the project on its bar. A click copies
 /// the id.
 struct SelectedSessionPanel: View {

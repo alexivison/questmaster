@@ -6,10 +6,10 @@ import QuestmasterCore
 /// A throwaway sprite class for checking a pose that reaches above the fixed idle-sized slot.
 @MainActor
 enum TrackerAvatarOverflowFixture {
-    static let panelOverlap = Space.item * 2
-    static var slotTop: CGFloat { SelectedSessionPanel.canvasSize.height - panelOverlap }
+    static let markerColor = CGColor(red: 0.95, green: 0.04, blue: 0.06, alpha: 1)
+    static var slotTop: CGFloat { TrackerNameplateRole.master.canvasSize.height }
     static var canvas: CGSize {
-        CGSize(width: TrackerAvatarMetrics.slotWidth, height: SelectedSessionPanel.canvasSize.height + TrackerAvatarMetrics.slotHeight - panelOverlap)
+        CGSize(width: TrackerAvatarMetrics.slotWidth, height: slotTop + TrackerAvatarMetrics.slotHeight + SelectedSessionTagMetrics.height)
     }
 
     struct Fixture {
@@ -83,7 +83,6 @@ enum TrackerAvatarOverflowFixture {
         let cloth = CGColor(red: 0.62, green: 0.23, blue: 0.12, alpha: 1)
         let skin = CGColor(red: 0.8, green: 0.51, blue: 0.34, alpha: 1)
         let steel = CGColor(red: 0.58, green: 0.66, blue: 0.72, alpha: 1)
-        let axeMark = CGColor(red: 0.95, green: 0.04, blue: 0.06, alpha: 1)
 
         fill(CGRect(x: 25, y: 12, width: 13, height: 56), color: leather)
         fill(CGRect(x: 43, y: 12, width: 13, height: 56), color: leather)
@@ -94,7 +93,9 @@ enum TrackerAvatarOverflowFixture {
         fill(CGRect(x: 23, y: 148, width: 38, height: 7), color: leather)
         fill(CGRect(x: 61, y: 98, width: 5, height: 99), color: leather)
         fill(CGRect(x: 49, y: 174, width: 29, height: 26), color: steel)
-        fill(CGRect(x: 49, y: 188, width: 29, height: 12), color: axeMark)
+        fill(CGRect(x: 49, y: 188, width: 29, height: 12), color: markerColor)
+        // Straddles foot_row 185: the same colour marks the sole and four rows hanging below it.
+        fill(CGRect(x: 5, y: 10, width: 5, height: 10), color: markerColor)
         try write(context, to: url)
     }
 

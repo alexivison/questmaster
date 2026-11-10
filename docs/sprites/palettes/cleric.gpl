@@ -1,9 +1,15 @@
 GIMP Palette
-Name: Cleric — palette lock
+Name: ClericRedo — palette lock
 Columns: 3
 #
-  2   4   3	outline 1
- 28  19  20	outline 2
+  0   0   0	outline 1
+ 54  30  48	outline 2
+141  82  66	skin 1
+227 163 114	skin 2
+250 192 139	skin 3
+210 184 169	brows 1
+233 208 191	brows 2
+247 229 210	brows 3
 173 166 157	warm white robe 1
 225 219 206	warm white robe 2
 251 245 232	warm white robe 3
@@ -19,36 +25,8 @@ Columns: 3
  75  62  50	wood and leather 1
 137 116  86	wood and leather 2
 173 153 119	wood and leather 3
- 88  80  87	neutral 1
-121 116 113	neutral 2
-131 127 124	neutral 3
- 63  52  41	beard 1
-137 116  86	beard 2
-159 140 111	beard 3
-137 116  86	skin 1
-173 153 119	skin 2
-198 181 147	skin 3
-217 188 108	glow 1
-255 251 232	glow 2
-212 175  78	glow 3
-218 210 189	glow 4
-215 203 170	glow 5
-202 175 120	glow 6
-204 189 157	glow 7
-180 137  72	glow 8
-211 181 106	glow 9
-201 166 103	glow 10
-208 179 109	glow 11
-233 217 168	glow 12
-243 227 166	glow 13
-198 181 147	glow 14
-203 162  71	glow 15
-177 147  96	glow 16
-253 105  27	glow 17
-216 206 182	glow 18
-213 204 179	glow 19
-253 241 119	glow 20
-253 123  24	glow 21
-253 247 133	glow 22
-215 205 180	glow 23
-213 202 177	glow 24
+173 166 157	parchment 1
+225 219 206	parchment 2
+233 208 191	parchment 3
+245 214 157	glow 1
+255 246 220	glow 2

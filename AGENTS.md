@@ -266,7 +266,7 @@ again where it was when the keys come back.
 - Bold means selected and appears only in a lasting-selection list, a text tab row's selected tab or a selection chip's value. Artifacts
   have no selected state: picking one opens it.
 - Shells are not plates: every shell, tmux and orphan row leaves its repo group for the shell rows (`TrackerShellSection`,
-  drawn by `TrackerShellRow`), the last block of the plates' one list. A shell's own display colour tints its title in every
+  drawn by `TrackerShellRow`), pinned below the avatar's session banner. A shell's own display colour tints its title in every
   state; none leaves the state's text colour.
 - Dividers inside rows are `line` in every state.
 - Brass and glow mean "on", for toggles only. One gold, `accent` #D7B13D, for
@@ -421,7 +421,7 @@ is a multiple of 5, and spacing takes one of four steps (`Space` in
 | `Space.row` | 5 | rows of one list control; a field and its dropdown; collapsed circles; the cast row under its disc |
 | `Space.item` | 10 | sibling items (plates, tabs, buttons, chat entries, bar icons); icon → text; text inset inside a control; header band → content |
 | `Space.section` | 20 | the shell gap (`ShellMetrics.gap`); every panel's edge margin; blocks inside a panel |
-| `Space.group` | 40 | between groups of blocks: the selected-session panel → the plate list; the plate list → the avatar slot |
+| `Space.group` | 40 | between groups of blocks: the plate list → the avatar slot |
 
 Control heights are one family (`ControlHeight`): `chip` 15, `compact` 25
 (pill tabs, Quest Log rows), `control` 30 (buttons, dropdown rows), `field` 35
@@ -439,19 +439,25 @@ A shell row is 35 high (`ControlHeight.field`) and as wide as the 260 column, fl
 (the tracker mock's layout, not Shell Session.svg's inset and spaced rows), with a 25pt disc (`ControlHeight.compact`) 10
 in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its
 edge), as tall as its rows up to `TrackerShellMetrics.maxHeight` (175, five rows), and scrolls inside itself past that;
-the plates scroll in their own list above it. The avatar slot sits between that list and the pinned shell section, with
-`TrackerListMetrics.shellClearance` (`Space.group`) between the list and the slot, and `verticalPadding` (`Space.section`)
-below the slot. The slot is 260pt wide and reserves the tallest bundled class's idle figure, rounded up to 5pt (175pt now),
-so changing classes never moves the layout. With no shells the plate list uses the column's full available height. The
-selected-session panel is pinned above the list: its 260 x 75 canvas starts at the tracker's top inset, and the first
-plate starts `TrackerListMetrics.selectedPanelGap` (`Space.group`) below it. The tracker has one cursor id; the plates'
+the plates scroll in their own list above it. The first plate section starts at
+`TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight:)`, as does the loading skeleton. Under the list,
+`TrackerListMetrics.avatarClearance` (`Space.group`) precedes the fixed avatar slot. Its sole stands directly on the
+session banner's id tab, with no gap. The slot and banner are 260pt wide and left-aligned with the master plates at
+`TrackerListMetrics.sidePadding`; the slot reserves the tallest bundled class's idle figure, rounded up to 5pt (175pt now),
+so changing classes never moves the layout. `Space.section` separates the banner's bottom from the shells. With no
+shells, the banner ends `verticalPadding` above the column's bottom. Only an attached plate (master or worker) reserves
+the avatar slot and banner. With a shell, tmux or orphan attached, or no known attachment, both disappear and the plates
+use their space, ending `Space.section` above the shells or `verticalPadding` above the bottom. The tracker has one cursor id; the plates'
 list and the shell section each receive it only for their own rows, and a cursor the pointer moved scrolls neither
 (`PointerCursor`).
 
-The selected-session panel (`SelectedSessionPanel`) carries the attached session's id, title, project and disc icon. The
-disc shows a class portrait, a shell's terminal glyph or nothing. Its project bar uses the project's colour, while a shell
-uses its own display colour or the neutral shell grey. The icon fades in over `MotionStep.standard` when the attached
-session or its icon changes; the first draw, an empty disc, and Reduce Motion do not fade. The panel copies the id on click.
+The session banner (`SelectedSessionTag`) carries the attached session's id, title and project below its class sprite.
+Its id tab is inset `Space.row` on each side, its title truncates, and its project bar uses the project's colour.
+Every attached plate shows its own title, id and project, including a class without art; its avatar slot stays reserved
+when no sprite is available. The banner resolver (`SelectedSessionTagContent.make`) returns no content for shell rows,
+nothing attached or an unknown id, so neither banner nor avatar slot appears. A click copies the attached id. The sprite
+draws over the list; the banner draws in front of the sprite, covering art below its sole while keeping its raised shadow.
+`SelectedSessionPanel` remains for its standalone previews and self-tests.
 
 Not spacing, so free of the rule: text baselines and line heights, a glyph's
 optical nudge, radii and stroke widths, 0/1 spacers, and `svg…` lengths in an
@@ -528,15 +534,15 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 - **Playback:** a loop cycles each track on its own clock, so a 1-frame character and an 8-frame front run independently. A one-shot, an enter or a finish plays each track once, holds its last frame, and lasts as long as its longest track (`TrackerAvatarBlock.seconds`). Each track is a discrete keyframe run on its layer's contents, and a discrete keyframe holds each value only up to the next key, so every sequence closes on a repeated key. `TrackerAvatarFrame.beat` rises whenever a pose's cue starts, so a repeated one-shot plays again. Changes snap: the layers take contents, position, bounds and hidden at once (`TrackerAvatarLayerActions`), so there is no crossfade. `testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation` checks the keys after a switch. Frames have no glow or floaters.
 - **Finish:** when the steady pose leaves for another steady pose, its own `finish` plays first (any pose with a loop may have one, a cast or not), once the hold has run, and the new pose shows when it ends, opening on its own enter if it has one. It is skipped for a switch to calling out or to the same pose, while a cue is playing, when the pose has no finish block (it then snaps), and under Reduce Motion. A change that arrives during a finish doesn't restart it: the finish plays through and the pose wanted at its end shows, and the finishing pose itself, wanted back by then, opens on its enter again. The finish's layers hold the frame at its elapsed time (`TrackerAvatarFrame.finishElapsed`). A bow waits for a finish, like any steady change.
 - **Enter:** a steady pose with a `loop` may open it with an `enter`. The enter plays once when the pose comes on screen (on attach, a switch, a change, or calling out's cut-in), then the loop starts from its own first frame. Its clock starts when the pose arrives and runs on under a cue or a finish, which take the frame while they play (`TrackerAvatarFrame.enterElapsed`; the view plays the tracks with `TrackerAvatarFrameRig.showEnter`). A change inside a longer enter waits for the hold and then cuts the enter short, and a pose leaving during its enter still finishes (the finish plays from its first frame), as a loop cut short does. A pose that continues, a new turn or the same pose back from a cue, doesn't replay it. Reduce Motion skips it. A summoning cast's cue plays its enter the same way, on its beat, then one loop cycle and its finish.
-- **Anchor and moves:** a pose's feet (`foot_row`, the row of its lowest boot pixel) stand on the slot's baseline, and its body column (`body_column`) on the slot's centre column, so an effect on one side doesn't move him. Art below the feet hangs under the baseline, into the margin under the slot. The slot is `TrackerAvatarMetrics.slotWidth` by `slotHeight`, one point a sprite pixel. `slotHeight` reserves the tallest bundled
+- **Anchor and moves:** a pose's feet (`foot_row`, the row of its lowest boot pixel) stand on the slot's baseline, and its body column (`body_column`) on the slot's centre column, so an effect on one side doesn't move him. Art below the feet hangs under the baseline, behind the session banner. The slot is `TrackerAvatarMetrics.slotWidth` by `slotHeight`, one point a sprite pixel. `slotHeight` reserves the tallest bundled
 class's idle figure (`TrackerAvatarSprites.idleFigureHeight`, read once at load), rounded up to 5 (175 now), so no class changes
 the slot's size. The moves are horizontal only (`TrackerAvatarMotion`, Core), so no figure leaves its baseline: a release steps 3 px forward on its strike, and a catch recoils 2 px back on the catch. The strike is one step of the `once` character track: the second by default, or the first step that shows the pose's `strike_frame` (`"strike_frame": 3`, an art frame number, as the tracks use). The move starts as that step begins and returns as the next step does, or as the block ends when it is the last. A class with an entrance before the peak names the peak's frame, so the move lands on it rather than on the entrance's second frame. A finish plays in place, with no move. The figure layer (character and front) carries the moves, as discrete additive keyframes on `position.x` that return to the anchor exactly. The behind layer stays put.
 - **Looping idle:** `01-idle` may carry a `loop` block with a `character` track and optional `front` and `behind` tracks. Bard and Barbarian use this authored idle loop; their behaviour remains unchanged, with no layered-idle blink or fidgets. Their idle art is `01-idle-f<n>.png`, placed by the idle pose's `foot_row` and `body_column`. Idle f1 is the figure used to measure the slot. Reduce Motion holds the first frame of each track.
 - **Idle:** A layered idle rests on `01-idle-f1.png`. Its optional `breathing` object names a `resume_frame` and an ordered list of `{file, seconds}` frames. The list plays in order and wraps; file numbers can be sparse, and authored ping-pongs repeat frames explicitly. Its period is the sum of frame times (stretched by the debug slowdown when enabled). Legacy `leg_rows` is ignored. PixelLab supplies each complete PNG frame; the app does not move the body in code. `idle.blink` controls whether timed blinks run. The authoritative blink stencil is `lid_pixels`, an array of zero-based `[x, y]` pixels painted in `lid_colour` on top of the current frame. A still idle may have its own stencil. Legacy top-level `eye_row` plus exactly two `eye_columns` remains supported; frame eye metadata is also accepted, while a supplied `lid_pixels` list takes precedence. A blink-enabled idle needs a stencil on its still frame or every breathing frame. Without a breathing track, the figure rests on its still frame and can still blink when it has a stencil. Fidgets (`TrackerAvatarFidgets`, Core) still play one idle art frame after a random 8–15 s gap; any fidget or other pose suspends breathing and blinking, and idle resumes at `resume_frame` when it ends. The Druid's bird fidget remains available. Reduce Motion holds the still frame and skips its motion.
-- **Slot:** the avatar is shown in a fixed slot after the scrolling plate list and above the pinned shell section. Its height is
+- **Slot:** an attached plate reserves a fixed slot after the scrolling plate list, standing on its session banner above the pinned shell section. Shell rows and no known attachment reserve neither slot nor banner. Its height is
   the tallest bundled class's idle figure, rounded up to 5pt, and its width matches a master plate. The avatar's sole stays
-  on the slot's bottom edge for every pose; art below the feet uses the slot's bottom margin. A class change swaps the pose
-  without changing the slot's size or moving the plate list or selected-session panel.
+  on the slot's bottom edge and the banner's top for every pose; the banner covers art below the feet. A class change swaps the pose
+  without changing the slot's size or moving the plate list or session banner.
 - **Bubble:** calling out may show one shared `!` bubble for every class, `Resources/Sprites/shared/bubble.png`, drawn at one
   point a sprite pixel. Its bottom centre sits on the pose's `bubble` anchor (`{"x", "y"}`, in `11-calling-out`'s canvas
   pixels, read as `TrackerAvatarPoseAnimation.bubble`), placed like the frames by `foot_row` and `body_column`. A class
