@@ -107,8 +107,12 @@ When invoked with no subcommand, it shows help.`,
 			return cmd.Help()
 		},
 	}
+	skillsCmd := newSkillsCmd()
 	if routerErr != nil {
 		root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+			if commandWithin(cmd, skillsCmd) {
+				return nil
+			}
 			if cmd.Name() == "session-closed" && cmd.Parent() != nil && cmd.Parent().Name() == "tmux" {
 				return nil
 			}
@@ -138,12 +142,22 @@ When invoked with no subcommand, it shows help.`,
 	root.AddCommand(newArtifactCmd(o.store, o.client))
 	root.AddCommand(newPRCmd(o.store, o.client))
 	root.AddCommand(newQuestCmd(o.store, o.client, o.repoRoot, router))
+	root.AddCommand(skillsCmd)
 	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot, router))
 	root.AddCommand(newRepoCmd(o.store))
 	root.AddCommand(newDaemonCmd(o.store, router, routerErr))
 	root.AddCommand(newTmuxCmd(o.store, router, routerErr))
 
 	return root
+}
+
+func commandWithin(cmd, ancestor *cobra.Command) bool {
+	for current := cmd; current != nil; current = current.Parent() {
+		if current == ancestor {
+			return true
+		}
+	}
+	return false
 }
 
 func newVersionCmd() *cobra.Command {
