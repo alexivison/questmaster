@@ -4,6 +4,7 @@ package session
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -16,6 +17,14 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	if err := os.Setenv("QUESTMASTER_STATE_ROOT", root); err != nil {
+		panic(err)
+	}
+	// Generated cleanup hooks must resolve a harmless shim before parallel
+	// tests run, independently of an installed Questmaster on the host.
+	if err := os.WriteFile(filepath.Join(root, "questmaster"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
 		panic(err)
 	}
 	code := m.Run()
