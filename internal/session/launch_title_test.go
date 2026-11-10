@@ -100,14 +100,14 @@ func TestLaunchedPaneTitleWriteDoesNotHoldTheManifestLock(t *testing.T) {
 
 	synced := make(chan error, 1)
 	go func() { synced <- svc.syncLaunchedPaneTitle(t.Context(), sessionID, "%1") }()
-	<-entered
+	_ = receiveSessionTestValue(t, entered, "pane title write to enter the held call")
 	updated := make(chan error, 1)
 	go func() { updated <- svc.Store.Update(sessionID, func(m *state.Manifest) { m.SetExtra("probe", "1") }) }()
-	if err := <-updated; err != nil {
+	if err := receiveSessionTestValue(t, updated, "manifest update to finish while title write is blocked"); err != nil {
 		t.Fatalf("manifest update: %v", err)
 	}
 	close(release)
-	if err := <-synced; err != nil {
+	if err := receiveSessionTestValue(t, synced, "pane title sync to finish"); err != nil {
 		t.Fatalf("sync launched pane title: %v", err)
 	}
 }

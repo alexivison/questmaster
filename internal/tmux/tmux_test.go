@@ -707,6 +707,9 @@ func TestSend_VerifiesCommandArgs(t *testing.T) {
 	if requestedDelay != sendEnterDelay {
 		t.Fatalf("Enter delay = %s, want %s", requestedDelay, sendEnterDelay)
 	}
+	if sendEnterDelay < 120*time.Millisecond {
+		t.Fatalf("Enter delay = %s, want at least 120ms so the terminal can distinguish the command from pasted text", sendEnterDelay)
+	}
 	if timerStartedBeforeText {
 		t.Fatal("Enter delay timer started before text was sent")
 	}

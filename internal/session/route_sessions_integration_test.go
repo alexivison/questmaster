@@ -192,14 +192,14 @@ func TestIntegrationDelayedCleanupDoesNotHarmContinue(t *testing.T) {
 	svc.Router = router
 	continued := make(chan error, 1)
 	go func() { _, err := svc.Continue(t.Context(), id); continued <- err }()
-	<-pause.paused
+	_ = receiveSessionTestValue(t, pause.paused, "Continue to reach the held tmux call")
 	closed := make(chan error, 1)
 	go func() { closed <- svc.SessionClosed(t.Context(), "test_named", id) }()
 	close(pause.release)
-	if err := <-continued; err != nil {
+	if err := receiveSessionTestValue(t, continued, "Continue to finish"); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-closed; err != nil {
+	if err := receiveSessionTestValue(t, closed, "SessionClosed to finish"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(dir); err != nil {

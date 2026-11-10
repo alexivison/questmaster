@@ -57,7 +57,7 @@ func TestPRJobQuiesceMidFetchKeepsLastStatus(t *testing.T) {
 	s := &server{dir: dir, jobsRequested: true, config: Config{Jobs: []Job{job}, JobDrainTimeout: time.Second}}
 	s.tryJobsLock()
 	defer s.stopJobs()
-	<-started
+	_ = receiveDaemonTestValue(t, started, "PR job fetch to start")
 	if !s.quiesceJobs() {
 		t.Fatal("fetch did not drain")
 	}
@@ -103,10 +103,10 @@ func TestShutdownLetsDispatchedRequestFinish(t *testing.T) {
 	if err := enc.Encode(request{Method: "start", ProtocolVersion: ProtocolVersion}); err != nil {
 		t.Fatal(err)
 	}
-	<-started
+	_ = receiveDaemonTestValue(t, started, "dispatched mutation to start")
 	done := make(chan error, 1)
 	go func() { done <- s.shutdown(false) }()
-	<-stoppedAccepting
+	_ = receiveDaemonTestValue(t, stoppedAccepting, "daemon to stop accepting requests")
 	select {
 	case <-done:
 		t.Fatal("shutdown discarded dispatched work")
@@ -129,7 +129,7 @@ func TestShutdownLetsDispatchedRequestFinish(t *testing.T) {
 	if reply.Error != "exiting" {
 		t.Fatalf("undispatched reply: %+v", reply)
 	}
-	if err := <-done; err != nil {
+	if err := receiveDaemonTestValue(t, done, "daemon shutdown to finish"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -198,7 +198,7 @@ func TestIdleCheckRejectsArrivingClientWithoutResuming(t *testing.T) {
 		t.Fatal("rejected client changed the client count or idle activity")
 	}
 	close(job.continueCheck)
-	if err := <-done; err != nil {
+	if err := receiveDaemonTestValue(t, done, "idle shutdown to finish"); err != nil {
 		t.Fatal(err)
 	}
 	if s.listener != nil {
@@ -378,12 +378,21 @@ func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 
 type deadlineCountingConn struct {
 	net.Conn
-	readDeadlines atomic.Int32
+	mu        sync.Mutex
+	deadlines []time.Time
 }
 
 func (c *deadlineCountingConn) SetReadDeadline(deadline time.Time) error {
-	c.readDeadlines.Add(1)
+	c.mu.Lock()
+	c.deadlines = append(c.deadlines, deadline)
+	c.mu.Unlock()
 	return c.Conn.SetReadDeadline(deadline)
+}
+
+func (c *deadlineCountingConn) readDeadlineValues() []time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]time.Time(nil), c.deadlines...)
 }
 
 func TestConnectionRenewsReadDeadlineForEachRequestAndPreventsIdleExit(t *testing.T) {
@@ -397,7 +406,12 @@ func TestConnectionRenewsReadDeadlineForEachRequestAndPreventsIdleExit(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &server{config: Config{Root: root, ReadIdleTimeout: 200 * time.Millisecond, WriteTimeout: time.Second, PollInterval: time.Millisecond}, id: "canonical", socket: socket, dir: dir, record: Record{Root: root, Identity: "canonical", Accepting: true}}
+	clockBase := time.Now()
+	var clockTicks atomic.Int64
+	s := &server{config: Config{
+		Root: root, ReadIdleTimeout: 200 * time.Millisecond, WriteTimeout: time.Second, PollInterval: time.Millisecond,
+		Clock: func() time.Time { return clockBase.Add(time.Duration(clockTicks.Add(1)) * time.Second) },
+	}, id: "canonical", socket: socket, dir: dir, record: Record{Root: root, Identity: "canonical", Accepting: true}}
 	if err := s.listen(); err != nil {
 		t.Fatal(err)
 	}
@@ -425,8 +439,14 @@ func TestConnectionRenewsReadDeadlineForEachRequestAndPreventsIdleExit(t *testin
 			t.Fatalf("request %d: %v %+v", i, err, reply)
 		}
 	}
-	if got := serverConn.readDeadlines.Load(); got < 9 {
-		t.Fatalf("read deadlines set = %d, want one for each of 9 requests", got)
+	deadlines := serverConn.readDeadlineValues()
+	if len(deadlines) < 9 {
+		t.Fatalf("read deadlines set = %d, want one for each of 9 requests", len(deadlines))
+	}
+	for i := 1; i < 9; i++ {
+		if !deadlines[i].After(deadlines[i-1]) {
+			t.Fatalf("read deadline %d = %s, want it after request %d deadline %s", i+1, deadlines[i], i, deadlines[i-1])
+		}
 	}
 	if s.clients() != 1 {
 		t.Fatal("live connection was not counted")
@@ -461,9 +481,9 @@ func TestJobRestartsAfterPanic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { runJob(ctx, job, time.Millisecond); close(done) }()
-	<-job.restarted
+	_ = receiveDaemonTestValue(t, job.restarted, "job to restart after panic")
 	cancel()
-	<-done
+	_ = receiveDaemonTestValue(t, done, "job loop to stop")
 	if job.runs.Load() != 2 {
 		t.Fatalf("runs = %d", job.runs.Load())
 	}

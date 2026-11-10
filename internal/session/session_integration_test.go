@@ -91,7 +91,7 @@ func TestIntegrationConcurrentContinueKeepsWinner(t *testing.T) {
 	}
 	reattached := 0
 	for range 2 {
-		o := <-outcomes
+		o := receiveSessionTestValue(t, outcomes, "Continue operation to finish")
 		if o.err != nil {
 			t.Errorf("Continue: %v", o.err)
 		}

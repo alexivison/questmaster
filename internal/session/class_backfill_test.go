@@ -113,7 +113,7 @@ func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- job.Run(ctx) }()
-	<-passes // the pass-complete notification follows all manifest writes
+	_ = receiveSessionTestValue(t, passes, "first class-backfill pass") // follows all manifest writes
 	assertClassBackfillWaiting(t, done)
 	if job.HasWork() {
 		cancel()
@@ -124,7 +124,7 @@ func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 		t.Fatalf("tmux list calls = %d, want one completed pass", runner.calls)
 	}
 	cancel()
-	if err := <-done; err != nil {
+	if err := receiveSessionTestValue(t, done, "class-backfill job to stop after success"); err != nil {
 		t.Fatalf("Run after cancellation: %v", err)
 	}
 
@@ -187,7 +187,7 @@ func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- job.Run(ctx) }()
-	<-passes
+	_ = receiveSessionTestValue(t, passes, "first class-backfill pass")
 	assertClassBackfillWaiting(t, done)
 	if err := store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID: "qm-later",
@@ -199,7 +199,7 @@ func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
 		t.Fatal("HasWork() = true between successful passes")
 	}
 	rescans <- struct{}{}
-	<-passes
+	_ = receiveSessionTestValue(t, passes, "class-backfill rescan")
 	assertClassBackfillWaiting(t, done)
 	manifest, err := store.Read("qm-later")
 	if err != nil {
@@ -209,7 +209,7 @@ func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
 		t.Fatal("rescan did not backfill the later master")
 	}
 	cancel()
-	if err := <-done; err != nil {
+	if err := receiveSessionTestValue(t, done, "class-backfill job to stop after cancellation"); err != nil {
 		t.Fatalf("Run after cancellation: %v", err)
 	}
 }
@@ -232,7 +232,7 @@ func TestClassBackfillJobSkipsTmuxForEmptyRescans(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- job.Run(ctx) }()
 	defer cancel()
-	<-passes
+	_ = receiveSessionTestValue(t, passes, "initial class-backfill pass")
 	assertClassBackfillWaiting(t, done)
 	manifest, err := store.Read("qm-rescan")
 	if err != nil {
@@ -242,7 +242,7 @@ func TestClassBackfillJobSkipsTmuxForEmptyRescans(t *testing.T) {
 		t.Fatal("initial pass did not backfill classless master")
 	}
 	rescans <- struct{}{}
-	<-passes
+	_ = receiveSessionTestValue(t, passes, "empty class-backfill rescan")
 	assertClassBackfillWaiting(t, done)
 	if job.HasWork() {
 		t.Fatal("HasWork() = true after empty rescan")
@@ -251,7 +251,7 @@ func TestClassBackfillJobSkipsTmuxForEmptyRescans(t *testing.T) {
 		t.Fatalf("tmux list calls = %d, want only the initial classless pass", runner.calls)
 	}
 	cancel()
-	if err := <-done; err != nil {
+	if err := receiveSessionTestValue(t, done, "class-backfill job to stop after empty rescan"); err != nil {
 		t.Fatalf("Run after cancellation: %v", err)
 	}
 }

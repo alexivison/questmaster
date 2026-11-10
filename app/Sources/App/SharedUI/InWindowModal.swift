@@ -45,13 +45,16 @@ final class InWindowModalStack: ObservableObject {
         entries.append(Entry(id: id, kind: kind, view: view))
     }
 
-    func dismiss(id: AnyHashable) {
+    /// Calls `onDismissed` after the closing duration has elapsed and the entry is removed.
+    func dismiss(id: AnyHashable, onDismissed: (() -> Void)? = nil) {
         guard let index = entries.firstIndex(where: { $0.id == id && !$0.closing }) else {
             return
         }
         entries[index].closing = true
         DispatchQueue.main.asyncAfter(deadline: .now() + Motion.duration(.fast)) { [weak self] in
-            self?.entries.removeAll { $0.id == id && $0.closing }
+            guard let self else { return }
+            self.entries.removeAll { $0.id == id && $0.closing }
+            onDismissed?()
         }
     }
 }

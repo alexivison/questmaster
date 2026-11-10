@@ -17,6 +17,20 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 )
 
+const catalogTestWaitTimeout = 10 * time.Second
+
+func receiveCatalogTestValue[T any](t *testing.T, ch <-chan T, description string) T {
+	t.Helper()
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(catalogTestWaitTimeout):
+		t.Fatalf("timed out after %s waiting for %s", catalogTestWaitTimeout, description)
+		var zero T
+		return zero
+	}
+}
+
 // upstreamFixture mirrors the shape of the models.dev document, including the
 // records Questmaster must drop (an embedding model with no tool calls, an
 // image-only model) and fields it ignores.
@@ -361,7 +375,7 @@ func (f *blockingFetcher) release() {
 // background refresh has begun.
 func (f *blockingFetcher) awaitStarted(t *testing.T) {
 	t.Helper()
-	<-f.started
+	_ = receiveCatalogTestValue(t, f.started, "catalog fetch to start")
 }
 
 type loadResult struct {
@@ -382,7 +396,11 @@ func awaitCachedAt(t *testing.T, root string, fetchedAt time.Time) {
 	flight := catalogFlightsByRoot[root]
 	catalogFlightsMu.Unlock()
 	if flight != nil {
-		<-flight.done
+		select {
+		case <-flight.done:
+		case <-time.After(catalogTestWaitTimeout):
+			t.Fatalf("timed out after %s waiting for catalog flight", catalogTestWaitTimeout)
+		}
 	}
 	cached, err := readCatalogCache(root)
 	if err != nil || !cached.FetchedAt.Equal(fetchedAt) {
@@ -529,10 +547,13 @@ func TestLoadCatalogColdCacheReturnsFallbackWhenWaitExpires(t *testing.T) {
 		})
 		done <- loadResult{catalog: catalog, err: err}
 	}()
+	if catalogColdWait > 2*time.Second {
+		t.Fatalf("cold wait = %s, want no more than 2s", catalogColdWait)
+	}
 	fetch.awaitStarted(t)
-	<-waiting
+	_ = receiveCatalogTestValue(t, waiting, "cold catalog request to start its wait timer")
 	close(expired)
-	cold := <-done
+	cold := receiveCatalogTestValue(t, done, "cold catalog request to return its fallback")
 	if !cold.catalog.Empty() {
 		t.Errorf("cold load = %+v, want no catalog while the fetch is still running", cold.catalog)
 	}
@@ -577,7 +598,7 @@ func TestLoadCatalogWithoutBackgroundWaitsForFreshCatalog(t *testing.T) {
 	}()
 	slow.awaitStarted(t)
 	slow.release()
-	result := <-done
+	result := receiveCatalogTestValue(t, done, "one-shot catalog request to return")
 	if result.err != nil {
 		t.Fatalf("load: %v", result.err)
 	}

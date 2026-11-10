@@ -433,7 +433,7 @@ func TestServerSocketReadsAndPushesTrackerUpdates(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -469,7 +469,7 @@ func TestServerSocketRestrictsOwnerAccess(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -783,7 +783,7 @@ func TestServerClockChangeWithoutStateTransitionProducesNoWirePush(t *testing.T)
 	assertNoEvent(t, conn, dec, 250*time.Millisecond)
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -925,11 +925,13 @@ func TestFileChangeSourceSlowSubscriberCoalescesWithoutBlockingOthers(t *testing
 		source.publish(topicChange(topicDirSuggest))
 		close(done)
 	}()
-	<-done
-	if got := <-slow; !reflect.DeepEqual(got.Topics, []string{topicTracker}) {
+	_ = receiveServeTestValue(t, done, "second publish to finish")
+	if got := receiveServeTestValue(t, slow, "slow subscriber update"); !reflect.DeepEqual(got.Topics, []string{topicTracker}) {
 		t.Fatalf("slow subscriber did not coalesce to all topics: %+v", got)
 	}
-	if first, second := <-fast, <-fast; !reflect.DeepEqual(first.Topics, []string{topicModels}) || !reflect.DeepEqual(second.Topics, []string{topicDirSuggest}) {
+	first := receiveServeTestValue(t, fast, "first fast subscriber update")
+	second := receiveServeTestValue(t, fast, "second fast subscriber update")
+	if !reflect.DeepEqual(first.Topics, []string{topicModels}) || !reflect.DeepEqual(second.Topics, []string{topicDirSuggest}) {
 		t.Fatalf("fast subscriber missed changes: first=%+v second=%+v", first, second)
 	}
 }
@@ -1002,13 +1004,14 @@ func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
 	path := filepath.Join(source.stateRoot, sessionID, "state.json")
 	event := fsnotify.Event{Name: path, Op: fsnotify.Write}
 	events <- event
-	debounce, maxWait := <-timers, <-timers
+	debounce := receiveServeTestValue(t, timers, "debounce timer")
+	maxWait := receiveServeTestValue(t, timers, "max-wait timer")
 	if debounce.initial != watchDebounceWindow || maxWait.initial != watchDebounceMaxWait {
 		t.Fatalf("initial timers = %s and %s, want debounce %s and max wait %s", debounce.initial, maxWait.initial, watchDebounceWindow, watchDebounceMaxWait)
 	}
 	for range eventCount - 1 {
 		events <- event
-		if got := <-debounce.resets; got != watchDebounceWindow {
+		if got := receiveServeTestValue(t, debounce.resets, "debounce timer reset"); got != watchDebounceWindow {
 			t.Fatalf("debounce reset = %s, want %s", got, watchDebounceWindow)
 		}
 	}
@@ -1018,12 +1021,12 @@ func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
 	default:
 	}
 	maxWait.fired <- time.Time{}
-	change := <-changes
+	change := receiveServeTestValue(t, changes, "max-wait change notification")
 	if !change.Affects(topicTracker) || !slices.Contains(change.SessionIDs, sessionID) {
 		t.Fatalf("max-wait change = %+v", change)
 	}
 	cancel()
-	<-done
+	_ = receiveServeTestValue(t, done, "file change source to stop")
 }
 
 func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
@@ -1212,7 +1215,7 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1640,7 +1643,7 @@ func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1765,7 +1768,7 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1847,7 +1850,7 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1908,7 +1911,7 @@ func TestServerReasoningEffortsTopicUsesPersistedModelWhenCallerModelIsEmpty(t *
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1969,7 +1972,7 @@ func TestServerModelsAndReasoningEffortsTopicsReflectPersistedRoleDefault(t *tes
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2071,7 +2074,7 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2267,7 +2270,7 @@ func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2332,7 +2335,7 @@ func TestServerRoleDefaultSetClearsCarriedEffortWhenModelChanges(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errC; err != nil {
+	if err := receiveServeTestValue(t, errC, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2393,7 +2396,7 @@ func TestServerRoleDefaultSetMutationMergesPartialUpdates(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2466,7 +2469,7 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2600,6 +2603,7 @@ func (stoppedTmuxRunner) Run(_ context.Context, args ...string) (string, error) 
 func TestServerMutationRunnerTimeoutReturnsError(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := tempSocketPath(t)
+	const mutationResponseWatchdog = 10 * time.Second
 	oldTimeout := mutationOperationTimeout
 	mutationOperationTimeout = 75 * time.Millisecond
 	t.Cleanup(func() { mutationOperationTimeout = oldTimeout })
@@ -2615,17 +2619,21 @@ func TestServerMutationRunnerTimeoutReturnsError(t *testing.T) {
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
 
-	got := sendRawMutation(t, socketPath, map[string]any{
+	startedAt := time.Now()
+	got := sendRawMutationWithDeadline(t, socketPath, map[string]any{
 		"id":     "slow",
 		"method": "delete",
 		"data":   map[string]any{"session_id": "qm-slow"},
-	})
+	}, mutationResponseWatchdog)
+	if elapsed := time.Since(startedAt); elapsed > mutationResponseWatchdog {
+		t.Fatalf("mutation timeout response took %s, want within %s", elapsed, mutationResponseWatchdog)
+	}
 	if got.Type != "response" || got.OK == nil || *got.OK || !strings.Contains(got.Error, "context deadline exceeded") {
 		t.Fatalf("timeout response = %#v, want context deadline exceeded error", got)
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2863,6 +2871,8 @@ func waitForSocket(t *testing.T, ready <-chan struct{}, path string, serveDone <
 	case <-ready:
 	case err := <-serveDone:
 		t.Fatalf("server stopped before socket appeared: %v", err)
+	case <-time.After(serveTestWaitTimeout):
+		t.Fatalf("timed out after %s waiting for the server socket", serveTestWaitTimeout)
 	}
 	conn, err := net.Dial("unix", path)
 	if err != nil {
@@ -2972,9 +2982,18 @@ func sendMutation(t *testing.T, socketPath string, req map[string]any) Envelope 
 }
 
 func sendRawMutation(t *testing.T, socketPath string, req map[string]any) Envelope {
+	return sendRawMutationWithDeadline(t, socketPath, req, 0)
+}
+
+func sendRawMutationWithDeadline(t *testing.T, socketPath string, req map[string]any, timeout time.Duration) Envelope {
 	t.Helper()
 	conn, enc, dec := dialServe(t, socketPath)
 	defer conn.Close() //nolint:errcheck
+	if timeout > 0 {
+		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+			t.Fatalf("set mutation socket deadline: %v", err)
+		}
+	}
 	writeRequest(t, enc, req)
 	var env Envelope
 	if err := dec.Decode(&env); err != nil {

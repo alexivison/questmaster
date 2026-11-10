@@ -342,7 +342,7 @@ func (s *server) handle(conn net.Conn) {
 	dec := json.NewDecoder(conn)
 	for {
 		var req serve.Request
-		_ = conn.SetReadDeadline(time.Now().Add(s.config.ReadIdleTimeout))
+		_ = conn.SetReadDeadline(s.config.now().Add(s.config.ReadIdleTimeout))
 		if err := dec.Decode(&req); err != nil {
 			return
 		}

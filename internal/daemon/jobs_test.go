@@ -52,7 +52,7 @@ func (j *fakeJob) Run(ctx context.Context) error {
 
 func waitForJobStart(t *testing.T, job *fakeJob) {
 	t.Helper()
-	<-job.started
+	_ = receiveDaemonTestValue(t, job.started, "job to start")
 }
 
 // newJobsServer builds a daemon on dir with an injected clock. jobsFlag is the --jobs value, so the
