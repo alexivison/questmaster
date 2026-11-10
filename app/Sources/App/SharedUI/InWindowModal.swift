@@ -131,11 +131,11 @@ private struct InWindowSheetModifier<Item: Identifiable, Sheet: View>: ViewModif
 struct ModalLayer<Content: View>: View {
     let closing: Bool
     @ViewBuilder var content: Content
-    @State private var contentSize: CGSize = .zero
+    @Environment(\.inWindowModalStack) private var stack
+    @Environment(\.inWindowModalEntryID) private var entryID
     /// False for the first frame, so the entrance animates from the hidden state.
     @State private var entered = false
 
-    private static var margin: CGFloat { ShellMetrics.gap }
     private static var scrimOpacity: Double { 0.35 }
     private static var enterScale: CGFloat { 0.97 }
 
@@ -147,34 +147,175 @@ struct ModalLayer<Content: View>: View {
                 AppPalette.shadow.swiftUI.opacity(isShown ? Self.scrimOpacity : 0)
                     .contentShape(Rectangle())
                     .onTapGesture {}
-                content
-                    .fixedSize()
-                    .background(GeometryReader { Color.clear.preference(key: ModalSizeKey.self, value: $0.size) })
-                    .scaleEffect(fit(in: proxy.size) * (isShown ? 1 : Self.enterScale))
-                    .opacity(isShown ? 1 : 0)
+                ModalScaledContent(
+                    rootView: AnyView(content
+                        .fixedSize()
+                        .environment(\.inWindowModalStack, stack)
+                        .environment(\.inWindowModalEntryID, entryID)),
+                    enterScale: isShown ? 1 : Self.enterScale,
+                    closing: closing
+                )
+                .opacity(isShown ? 1 : 0)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .onPreferenceChange(ModalSizeKey.self) { contentSize = $0 }
         .ignoresSafeArea()
         .allowsHitTesting(!closing)
         .animation(Motion.animation(closing ? .fast : .standard), value: isShown)
         .onAppear { entered = true }
     }
+}
 
-    private func fit(in size: CGSize) -> CGFloat {
-        guard contentSize.width > 0, contentSize.height > 0 else {
-            return 1
-        }
-        let margin = Self.margin * 2
-        return max(0.1, min(1, (size.width - margin) / contentSize.width, (size.height - margin) / contentSize.height))
+/// A modal's content, hosted in AppKit. The fit to the window is AppKit's own view scaling (`ModalScaleView`), so
+/// events, tracking areas and text geometry follow it. The entrance is a short Core Animation transform on top.
+private struct ModalScaledContent: NSViewRepresentable {
+    let rootView: AnyView
+    let enterScale: CGFloat
+    let closing: Bool
+
+    func makeNSView(context: Context) -> ModalScaleView {
+        ModalScaleView()
+    }
+
+    func updateNSView(_ view: ModalScaleView, context: Context) {
+        view.update(rootView: rootView, enterScale: enterScale, closing: closing)
     }
 }
 
-private struct ModalSizeKey: PreferenceKey {
-    static let defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
+/// The hosted content. Its size comes from SwiftUI after the first layout, so it reports each layout to its owner, which
+/// refits the modal then.
+private final class ModalHostingView: NSHostingView<AnyView> {
+    var onLayout: (() -> Void)?
+
+    override func layout() {
+        super.layout()
+        onLayout?()
+    }
+}
+
+/// Fits the modal to the window with the view's own bounds: the bounds are the frame divided by the fit, centred on the
+/// frame, so the content lays out at its real size and AppKit maps every event, hit test and tracking area through the
+/// fit. The entrance (`enterScale` to 1) is a Core Animation transform, which AppKit does not see; hit tests map through
+/// it by hand while it runs.
+private final class ModalScaleView: NSView {
+    private static var margin: CGFloat { ShellMetrics.gap }
+    private static let animationKey = "modalEntrance"
+
+    private let hosting = ModalHostingView(rootView: AnyView(EmptyView()))
+    /// 1 once the modal is shown; `ModalLayer`'s entrance scale while it comes in or goes out.
+    private var enterScale: CGFloat = 1
+    private var hasEnterScale = false
+    private var closing = false
+    /// The scale that fits the content in the window with the shell gap around it, at most 1.
+    private var fit: CGFloat = 1
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        hosting.sizingOptions = [.intrinsicContentSize]
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+        hosting.onLayout = { [weak self] in self?.refit() }
+        addSubview(hosting)
+        NSLayoutConstraint.activate([
+            hosting.centerXAnchor.constraint(equalTo: centerXAnchor),
+            hosting.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(rootView: AnyView, enterScale: CGFloat, closing: Bool) {
+        hosting.rootView = rootView
+        // The first value is where the modal starts, so it is set at once; only a later change animates.
+        let entering = hasEnterScale && enterScale != self.enterScale
+        hasEnterScale = true
+        self.enterScale = enterScale
+        self.closing = closing
+        refit()
+        applyEntrance(animated: entering)
+    }
+
+    override func layout() {
+        super.layout()
+        refit()
+    }
+
+    /// The entrance transform is invisible to AppKit, so the point is mapped back through it before AppKit tests the
+    /// subviews. The fit needs no mapping: the bounds carry it.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview else {
+            return super.hitTest(point)
+        }
+        let local = convert(point, from: superview)
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let unscaled = CGPoint(
+            x: center.x + (local.x - center.x) / enterScale,
+            y: center.y + (local.y - center.y) / enterScale
+        )
+        return super.hitTest(convert(unscaled, to: superview))
+    }
+
+    /// The scale that fits the content in the window with the shell gap around it, at most 1.
+    private func fitScale() -> CGFloat {
+        let content = hosting.intrinsicContentSize
+        // Before the first layout the window size and the content size are unknown: no fit yet.
+        guard frame.width > 0, frame.height > 0, content.width > 0, content.height > 0 else {
+            return 1
+        }
+        let margin = Self.margin * 2
+        return max(0.1, min(1, (frame.width - margin) / content.width, (frame.height - margin) / content.height))
+    }
+
+    /// Sets the bounds to the frame divided by the fit, centred on the frame. The hosting view is centred in the bounds,
+    /// so it draws at `fit` times its size, centred in the window.
+    private func refit() {
+        let next = fitScale()
+        let size = CGSize(width: frame.width / next, height: frame.height / next)
+        let target = CGRect(
+            origin: CGPoint(x: (frame.width - size.width) / 2, y: (frame.height - size.height) / 2),
+            size: size
+        )
+        // AppKit may round the bounds it keeps, so a tolerance stops a layout pass from setting them again forever.
+        guard next != fit || !Self.sameRect(bounds, target) else {
+            return
+        }
+        fit = next
+        bounds = target
+    }
+
+    private static func sameRect(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        let tolerance: CGFloat = 0.5
+        return abs(lhs.minX - rhs.minX) < tolerance && abs(lhs.minY - rhs.minY) < tolerance
+            && abs(lhs.width - rhs.width) < tolerance && abs(lhs.height - rhs.height) < tolerance
+    }
+
+    /// The entrance transform: the modal scales from `enterScale` to 1 about its centre, over the Motion step for its
+    /// direction. Reduce Motion lands it at once.
+    private func applyEntrance(animated: Bool) {
+        guard let layer else {
+            return
+        }
+        let target = CATransform3DMakeScale(enterScale, enterScale, 1)
+        // A pass that changes nothing must not cut a running entrance short.
+        guard animated || !CATransform3DEqualToTransform(layer.transform, target) else {
+            return
+        }
+        let step: MotionStep = closing ? .fast : .standard
+        let from = layer.presentation()?.transform ?? layer.transform
+        layer.transform = target
+        layer.removeAnimation(forKey: Self.animationKey)
+        guard animated, !Motion.reducesMotion(), Motion.duration(step) > 0 else {
+            return
+        }
+        let animation = CABasicAnimation(keyPath: "transform")
+        animation.fromValue = from
+        animation.toValue = target
+        animation.duration = Motion.duration(step)
+        animation.timingFunction = Motion.timingFunction
+        layer.add(animation, forKey: Self.animationKey)
     }
 }
 

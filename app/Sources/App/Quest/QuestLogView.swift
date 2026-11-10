@@ -3,34 +3,42 @@ import QuestmasterCore
 import SwiftUI
 
 /// Positions from user-quests-modal-v3.svg (900 x 780), and from -v2-nobody.svg for the plain page, whose ink v3
-/// keeps, re-fitted to the 5pt rhythm (2026-10-22): 20 from the panel's edges and 10 under the shared header
-/// (ModalSheetHeader), where v3 draws 30 and 30. Baselines are where the design's glyph outlines sit.
-private enum QuestLogMetrics {
-    static let sheetSize = CGSize(width: 900, height: 780)
-    /// Filter field (`FilterBar`): 350 x 35 at (20, 80).
-    static let filterOrigin = CGPoint(x: Space.section, y: ModalFormMetrics.contentTop)
+/// keeps, re-fitted to the 5pt rhythm (2026-10-22). Baselines are where the design's glyph outlines sit. The sheet
+/// is fixed at `QuestLogMetrics.sheetSize`; `QuestLogLayout` places its parts.
+enum QuestLogMetrics {
+    /// The sheet's fixed size. A window smaller than it shrinks the modal to fit (`ModalScaleView`), as other modals do.
+    static let sheetSize = CGSize(width: 1280, height: 860)
+
+    /// Rounds a length to the nearest grid line.
+    static func snapToGrid(_ length: CGFloat) -> CGFloat {
+        (length / gridStep).rounded() * gridStep
+    }
+    /// The tabs and the page start `ModalFormMetrics.contentTop` down, under the shared header.
+    static let contentTop = ModalFormMetrics.contentTop
+    /// The left column, top to bottom: the tabs, the filter, the list. Columns are `columnGap` apart.
     static let filterHeight = FilterBarMetrics.height
-    /// List column, straight under the field: x 20-370. A section title's baseline sits 21 below the previous
-    /// box (the field or the last row) and 9 above its first row; rows are 25 high, 5 apart (a 30pt pitch),
-    /// with the text baseline 16.5 down and 10 in.
-    static let listOrigin = CGPoint(x: filterOrigin.x, y: filterOrigin.y + filterHeight)
-    static let listWidth: CGFloat = 350
+    static let tabsHeight = TextTabMetrics.height
+    static let columnGap = Space.item
+    /// Between the page and the outer edges, and between the list and the page.
+    static let inset = Space.section
+    /// Below the page: `inset` to the buttons, which are `ControlHeight.control` high, then `Space.item` under them.
+    static let buttonBandHeight = Space.section + ControlHeight.control + Space.item * 2
+    /// A row is one title line (`rowHeight`), with its tag chips under it (a tagged row). Rows are `rowSpacing` apart.
     static let rowHeight = ControlHeight.compact
-    static let rowSpacing = Space.row
+    /// A tagged row is its title line and the chip line under it (`QuestTagChipMetrics.height`) with `Space.row` below.
+    static let taggedRowHeight = ControlHeight.row
+    static let rowSpacing = Space.item
     static let rowBaseline: CGFloat = 16.5
     static let rowTextInset = Space.item
     static let rowCornerRadius: CGFloat = 3
-    static let sectionHeight: CGFloat = 30
-    static let sectionBaseline: CGFloat = 21
     static let markSize: CGFloat = 5
-    /// Page: the design's 473 x 596 page (its parchment clipped to the top 594) scaled whole to 500 x 630, the same
-    /// proportions, 10 right of the list, its top on the filter's.
+    /// Page: the design's 473 wide page, its parchment clipped to the top 594.
     static let svgPageWidth: CGFloat = 473
     static let svgParchmentHeight: CGFloat = 594
-    static let pageOrigin = CGPoint(x: listOrigin.x + listWidth + Space.item, y: filterOrigin.y)
-    static let pageSize = CGSize(width: 500, height: 630)
-    static let pageScale = pageSize.width / svgPageWidth
-    static let parchmentHeight = svgParchmentHeight * pageScale
+    /// The sheet's sizes and the columns' widths sit on this grid.
+    static let gridStep = Space.row
+    /// The list's share of the width the two columns share; the page takes the rest.
+    static let listShare: CGFloat = 0.42
     static let pageCornerRadius: CGFloat = 5
     static let parchmentEdgeStroke: CGFloat = 3
     static let parchmentEdgeOpacity = 0.35
@@ -39,7 +47,6 @@ private enum QuestLogMetrics {
     /// 16pt line, 20 in on each side; a plain page's line sits on a baseline 32 down. Then the rule 24 below the last
     /// baseline and the footer's baseline 32 below the rule. The vines and rules scale with the page; the text doesn't.
     static let inkInset = Space.section
-    static let bodyWidth = pageSize.width - 2 * inkInset
     static let titleWidth: CGFloat = 325
     static let titleBaseline: CGFloat = 34
     static let plainBaseline: CGFloat = 32
@@ -65,17 +72,50 @@ private enum QuestLogMetrics {
     static let footerDiamondSvgSize: CGFloat = 5.66
     static let footerDiamondGap = Space.item
     static let footerDiamondRaise: CGFloat = 3.5
-    /// Buttons: the shared angled buttons at the design's 200 wide, 10 apart, centred, 20 under the page.
+    /// Buttons: the shared angled buttons at the design's 200 wide, 10 apart, centred.
     static let buttonWidth: CGFloat = 200
     static let buttonSpacing = Space.item
-    static let buttonTop = pageOrigin.y + pageSize.height + Space.section
+}
+
+/// Where the Quest Log's parts sit in a sheet of one size. The page takes the sheet's height under the tabs and the
+/// larger share of the width; the left column takes the rest, its list on the grid.
+struct QuestLogLayout: Equatable {
+    let sheetSize: CGSize
+    let pageSize: CGSize
+    let listWidth: CGFloat
+
+    init(sheetSize: CGSize) {
+        self.sheetSize = sheetSize
+        let height = sheetSize.height - QuestLogMetrics.contentTop - QuestLogMetrics.buttonBandHeight
+        let columnsWidth = sheetSize.width - 2 * QuestLogMetrics.inset - QuestLogMetrics.columnGap
+        listWidth = QuestLogMetrics.snapToGrid(columnsWidth * QuestLogMetrics.listShare)
+        pageSize = CGSize(width: columnsWidth - listWidth, height: height)
+    }
+
+    /// The uniform scale of the page's ornaments and text guides: the design's page width at this page's width.
+    var pageScale: CGFloat { pageSize.width / QuestLogMetrics.svgPageWidth }
+    /// The parchment fills the page exactly, its height scaled on its own, so its torn edges keep all four sides at any
+    /// page shape. The width keeps `pageScale`, so the edges' widths stay true.
+    var parchmentScaleY: CGFloat { pageSize.height / QuestLogMetrics.svgParchmentHeight }
+    var bodyWidth: CGFloat { pageSize.width - 2 * QuestLogMetrics.inkInset }
+    var pageOrigin: CGPoint {
+        CGPoint(x: sheetSize.width - QuestLogMetrics.inset - pageSize.width, y: QuestLogMetrics.contentTop)
+    }
+    var tabsOrigin: CGPoint { CGPoint(x: QuestLogMetrics.inset, y: QuestLogMetrics.contentTop) }
+    var filterOrigin: CGPoint {
+        CGPoint(x: QuestLogMetrics.inset, y: tabsOrigin.y + QuestLogMetrics.tabsHeight + QuestLogMetrics.columnGap)
+    }
+    var listOrigin: CGPoint {
+        CGPoint(x: QuestLogMetrics.inset, y: filterOrigin.y + QuestLogMetrics.filterHeight + QuestLogMetrics.columnGap)
+    }
+    var listHeight: CGFloat { pageOrigin.y + pageSize.height - listOrigin.y }
+    var buttonTop: CGFloat { pageOrigin.y + pageSize.height + QuestLogMetrics.inset }
 }
 
 struct QuestLogView: View {
-    static let size = QuestLogMetrics.sheetSize
-
     let store: QuestLogStore
     let filter: QuestLogFilter
+    let layout: QuestLogLayout
     var pageScroll = QuestLogPageScroll()
     /// Offscreen renders can't focus the field; this draws it as focused (its border, its suggestions).
     var previewFocused = false
@@ -84,19 +124,14 @@ struct QuestLogView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             ModalSheetHeader(title: "Quest Log")
-                .frame(width: QuestLogMetrics.sheetSize.width)
-            QuestLogList(store: store)
-                .frame(width: QuestLogMetrics.listWidth, height: QuestLogMetrics.pageOrigin.y + QuestLogMetrics.pageSize.height - QuestLogMetrics.listOrigin.y, alignment: .top)
-                .offset(x: QuestLogMetrics.listOrigin.x, y: QuestLogMetrics.listOrigin.y)
-            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll)
-                .offset(x: QuestLogMetrics.pageOrigin.x, y: QuestLogMetrics.pageOrigin.y)
-            buttons
-                .frame(width: QuestLogMetrics.sheetSize.width)
-                .offset(y: QuestLogMetrics.buttonTop)
+                .frame(width: layout.sheetSize.width)
+            TextTabRow(titles: store.tabTitles, selectedIndex: store.selectedTabIndex, areaFocused: true, alignment: .leading, onSelect: store.selectTab)
+                .frame(width: layout.listWidth)
+                .offset(x: layout.tabsOrigin.x, y: layout.tabsOrigin.y)
             FilterBar(
                 tokens: filter.tokens,
                 query: Binding(get: { filter.query }, set: { filter.setQuery($0) }),
-                placeholder: "@project: or text",
+                placeholder: "@type or @size or text...",
                 focusNonce: filter.focusNonce,
                 suggestions: filter.suggestions,
                 highlightedSuggestionID: filter.selectedSuggestionID,
@@ -106,10 +141,18 @@ struct QuestLogView: View {
                 onRemoveToken: { filter.removeToken($0) },
                 onSelectSuggestion: { filter.acceptSuggestion($0) }
             )
-            .frame(width: QuestLogMetrics.listWidth)
-            .offset(x: QuestLogMetrics.filterOrigin.x, y: QuestLogMetrics.filterOrigin.y)
+            .frame(width: layout.listWidth)
+            .offset(x: layout.filterOrigin.x, y: layout.filterOrigin.y)
+            QuestLogList(store: store)
+                .frame(width: layout.listWidth, height: layout.listHeight, alignment: .top)
+                .offset(x: layout.listOrigin.x, y: layout.listOrigin.y)
+            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout)
+                .offset(x: layout.pageOrigin.x, y: layout.pageOrigin.y)
+            buttons
+                .frame(width: layout.sheetSize.width)
+                .offset(y: layout.buttonTop)
         }
-        .frame(width: QuestLogMetrics.sheetSize.width, height: QuestLogMetrics.sheetSize.height, alignment: .topLeading)
+        .frame(width: layout.sheetSize.width, height: layout.sheetSize.height, alignment: .topLeading)
         .scoopedPanel()
     }
 
@@ -140,9 +183,15 @@ struct QuestLogModal: View {
 
     var body: some View {
         // A fresh page per opening, so the parchment unrolls when the log opens and not on later changes.
-        QuestLogView(store: store, filter: filter, pageScroll: pageScroll, onCommand: onCommand)
-            .id(store.openGeneration)
-            .background(SheetKeyEventMonitor(onKeyDown: handle))
+        QuestLogView(
+            store: store,
+            filter: filter,
+            layout: QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize),
+            pageScroll: pageScroll,
+            onCommand: onCommand
+        )
+        .id(store.openGeneration)
+        .background(SheetKeyEventMonitor(onKeyDown: handle))
     }
 
     private func handleNavigation(_ direction: NavigationDirection) {
@@ -180,29 +229,16 @@ extension InWindowModalStack {
 
 // MARK: - List
 
+/// One row per visible quest, newest first. A tagged row shows its chips under the title.
 private struct QuestLogList: View {
     let store: QuestLogStore
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(store.sections) { section in
-                        // The title and the first row scroll into view together.
-                        VStack(alignment: .leading, spacing: 0) {
-                            BaselineText(section.title, font: AppFonts.monoSmall, color: AppPalette.accent, baseline: QuestLogMetrics.sectionBaseline)
-                                .frame(height: QuestLogMetrics.sectionHeight, alignment: .top)
-                            if let first = section.quests.first {
-                                row(first).id(first.id)
-                            }
-                        }
-                        .id(Self.sectionStartID(section.id))
-                        VStack(alignment: .leading, spacing: QuestLogMetrics.rowSpacing) {
-                            ForEach(section.quests.dropFirst()) { quest in
-                                row(quest).id(quest.id)
-                            }
-                        }
-                        .padding(.top, section.quests.count > 1 ? QuestLogMetrics.rowSpacing : 0)
+                VStack(alignment: .leading, spacing: QuestLogMetrics.rowSpacing) {
+                    ForEach(store.visibleQuests) { quest in
+                        row(quest).id(quest.id)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -220,47 +256,56 @@ private struct QuestLogList: View {
         }
     }
 
-    private static func sectionStartID(_ sectionID: String) -> String {
-        "section-start:\(sectionID)"
-    }
-
     private func scroll(_ proxy: ScrollViewProxy, to id: String?) {
-        switch QuestDisplayState.scrollTarget(for: id, in: store.sections) {
-        case .top:
-            if let first = store.sections.first {
-                proxy.scrollTo(Self.sectionStartID(first.id), anchor: .top)
-            }
-        case .sectionStart(let sectionID):
-            proxy.scrollTo(Self.sectionStartID(sectionID))
-        case .row(let id):
-            proxy.scrollTo(id)
-        case nil:
-            break
+        guard let id else {
+            return
         }
+        proxy.scrollTo(id)
     }
 
     private func row(_ quest: QuestItem) -> some View {
         let look = RowLook.lasting(selected: quest.id == store.selectedID)
-        return BaselineText(
-            QuestLogPage(quest: quest, project: "").title,
-            font: look.bold ? AppFonts.questLogRowSelected : AppFonts.questLogRow,
-            color: look.text.color,
-            baseline: QuestLogMetrics.rowBaseline
-        )
-        .lineLimit(1)
+        let chips = QuestDisplayState.tagChipNames(for: quest)
+        return VStack(alignment: .leading, spacing: 0) {
+            BaselineText(
+                QuestLogPage(quest: quest, project: "").title,
+                font: look.bold ? AppFonts.questLogRowSelected : AppFonts.questLogRow,
+                color: look.text.color,
+                baseline: QuestLogMetrics.rowBaseline
+            )
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, minHeight: QuestLogMetrics.rowHeight, maxHeight: QuestLogMetrics.rowHeight, alignment: .topLeading)
+            if !chips.isEmpty {
+                chipRow(chips)
+            }
+        }
         .padding(.leading, QuestLogMetrics.rowTextInset)
-        .frame(maxWidth: .infinity, minHeight: QuestLogMetrics.rowHeight, maxHeight: QuestLogMetrics.rowHeight, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: rowHeight(chips), maxHeight: rowHeight(chips), alignment: .topLeading)
         // The pointer shows the hover look; a click or the keys change the selection, which the page follows.
         .stateRow(look, cornerRadius: QuestLogMetrics.rowCornerRadius)
-        .overlay(alignment: .leading) {
+        .overlay(alignment: .topLeading) {
             if store.markedIDs.contains(quest.id) {
                 DiamondShape()
                     .fill(AppPalette.accent.swiftUI)
                     .frame(width: QuestLogMetrics.markSize, height: QuestLogMetrics.markSize)
                     .padding(.leading, (QuestLogMetrics.rowTextInset - QuestLogMetrics.markSize) / 2)
+                    .padding(.top, (QuestLogMetrics.rowHeight - QuestLogMetrics.markSize) / 2)
             }
         }
         .onTapGesture { store.select(quest.id) }
+    }
+
+    private func rowHeight(_ chips: [String]) -> CGFloat {
+        chips.isEmpty ? QuestLogMetrics.rowHeight : QuestLogMetrics.taggedRowHeight
+    }
+
+    private func chipRow(_ names: [String]) -> some View {
+        HStack(spacing: QuestTagChipMetrics.spacing) {
+            ForEach(Array(names.enumerated()), id: \.offset) { _, name in
+                QuestTagChip(name: name)
+            }
+        }
+        .padding(.bottom, Space.row)
     }
 }
 
@@ -270,6 +315,7 @@ private struct QuestLogPageView: View {
     let page: QuestLogPage?
     let pageID: String?
     let pageScroll: QuestLogPageScroll
+    let layout: QuestLogLayout
     @State private var unrolled = false
     @State private var inked = false
 
@@ -278,23 +324,24 @@ private struct QuestLogPageView: View {
             paper
                 .modifier(UnrollMask(progress: unrolled ? 1 : 0))
             ink
-                .frame(height: QuestLogMetrics.parchmentHeight)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .animation(Motion.animation(.fast), value: pageID)
                 .opacity(inked ? 1 : 0)
         }
-        .frame(width: QuestLogMetrics.pageSize.width, height: QuestLogMetrics.pageSize.height)
+        .frame(width: layout.pageSize.width, height: layout.pageSize.height)
         .onAppear(perform: unroll)
     }
 
+    /// The paper is exactly the page's rectangle. The parchment covers it, so it can be taller: the clip keeps it inside.
     private var paper: some View {
         ZStack(alignment: .top) {
             RoundedRectangle(cornerRadius: QuestLogMetrics.pageCornerRadius)
                 .fill(AppPalette.item.swiftUI)
-            QuestLogParchment()
-                .frame(height: QuestLogMetrics.parchmentHeight)
-                .frame(maxHeight: .infinity, alignment: .top)
+            QuestLogParchment(layout: layout)
+                .frame(width: layout.pageSize.width, height: layout.pageSize.height)
         }
+        .frame(width: layout.pageSize.width, height: layout.pageSize.height, alignment: .top)
+        .clipShape(RoundedRectangle(cornerRadius: QuestLogMetrics.pageCornerRadius))
     }
 
     /// Plays once per opening (the view is rebuilt for each): the paper unrolls top to bottom as the modal's fade-in
@@ -311,7 +358,7 @@ private struct QuestLogPageView: View {
     @ViewBuilder private var ink: some View {
         if let page {
             ScrollView(.vertical) {
-                QuestLogInk(page: page)
+                QuestLogInk(page: page, layout: layout)
                     .background(ScrollerHider(onApply: { scrollView in
                         hideScroller(on: scrollView)
                         pageScroll.attach(scrollView)
@@ -359,6 +406,7 @@ private struct UnrollMask: ViewModifier, Animatable {
 
 private struct QuestLogInk: View {
     let page: QuestLogPage
+    let layout: QuestLogLayout
 
     var body: some View {
         Group {
@@ -383,12 +431,12 @@ private struct QuestLogInk: View {
 
     /// Plain page text: the description, or a title-only quest's one line.
     private func paragraph(_ text: String) -> some View {
-        Text(QuestLogPage.wrapped(text, columns: columns(QuestLogMetrics.bodyWidth, AppFonts.questLogBody)))
+        Text(QuestLogPage.wrapped(text, columns: columns(layout.bodyWidth, AppFonts.questLogBody)))
             .font(AppFonts.questLogBody.swiftUI)
             .lineSpacing(QuestLogMetrics.bodyLineHeight - naturalLineHeight(AppFonts.questLogBody))
             .foregroundStyle(AppPalette.panel.swiftUI)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(width: QuestLogMetrics.bodyWidth, alignment: .leading)
+            .frame(width: layout.bodyWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, QuestLogMetrics.inkInset)
     }
@@ -396,8 +444,8 @@ private struct QuestLogInk: View {
     /// The title, centred, with the vines on its first baseline.
     private var title: some View {
         ZStack(alignment: Alignment(horizontal: .center, vertical: .firstTextBaseline)) {
-            QuestLogOrnaments(pieces: QuestLogOrnaments.titleVines, lines: QuestLogMetrics.titleVineLines, band: QuestLogMetrics.titleVineBand)
-                .alignmentGuide(.firstTextBaseline) { _ in (QuestLogMetrics.titleBaseline - QuestLogMetrics.titleVineBand.top) * QuestLogMetrics.pageScale }
+            QuestLogOrnaments(layout: layout, pieces: QuestLogOrnaments.titleVines, lines: QuestLogMetrics.titleVineLines, band: QuestLogMetrics.titleVineBand)
+                .alignmentGuide(.firstTextBaseline) { _ in (QuestLogMetrics.titleBaseline - QuestLogMetrics.titleVineBand.top) * layout.pageScale }
             Text(QuestLogPage.wrapped(page.title, columns: columns(QuestLogMetrics.titleWidth, AppFonts.questLogTitle)))
                 .font(AppFonts.questLogTitle.swiftUI)
                 .foregroundStyle(AppPalette.panel.swiftUI)
@@ -409,9 +457,9 @@ private struct QuestLogInk: View {
 
     /// The rule and its vines; its "baseline" is the rule's top edge.
     private var rule: some View {
-        QuestLogOrnaments(pieces: QuestLogOrnaments.ruleVines, lines: [QuestLogMetrics.rule], band: QuestLogMetrics.ruleVineBand)
-            .alignmentGuide(.firstTextBaseline) { _ in (QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top) * QuestLogMetrics.pageScale }
-            .alignmentGuide(.lastTextBaseline) { _ in (QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top) * QuestLogMetrics.pageScale }
+        QuestLogOrnaments(layout: layout, pieces: QuestLogOrnaments.ruleVines, lines: [QuestLogMetrics.rule], band: QuestLogMetrics.ruleVineBand)
+            .alignmentGuide(.firstTextBaseline) { _ in (QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top) * layout.pageScale }
+            .alignmentGuide(.lastTextBaseline) { _ in (QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top) * layout.pageScale }
     }
 
     /// "project ◆ Created: … ◆ Updated: …", wrapped between parts when it doesn't fit (QuestLogPage.footerLines).
@@ -419,7 +467,7 @@ private struct QuestLogInk: View {
         // The separator's width in whole columns, rounded up, so a line never runs past the body.
         let separatorWidth = 2 * QuestLogMetrics.footerDiamondGap + QuestLogMetrics.footerDiamondSvgSize
         let separatorColumns = Int((separatorWidth / columnWidth(AppFonts.monoSmall)).rounded(.up))
-        let lines = page.footerLines(columns: columns(QuestLogMetrics.bodyWidth, AppFonts.monoSmall), separatorColumns: separatorColumns)
+        let lines = page.footerLines(columns: columns(layout.bodyWidth, AppFonts.monoSmall), separatorColumns: separatorColumns)
         return VStack(alignment: .leading, spacing: QuestLogMetrics.footerLinePitch - naturalLineHeight(AppFonts.monoSmall)) {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, parts in
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
@@ -444,9 +492,11 @@ private struct QuestLogInk: View {
     }
 }
 
-/// The user's parchment, drawn from the design's path data at the page's scale: the paper, the folds masked to its
-/// outline, and a 3pt edge stroke of which only the inner half shows, all at the design's 0.7 group opacity.
+/// The user's parchment, drawn from the design's path data to fill the page (scaled per axis, see
+/// `QuestLogLayout.parchmentScaleY`): the paper, the folds masked to its outline, and a 3pt edge stroke of which only
+/// the inner half shows, all at the design's 0.7 group opacity.
 private struct QuestLogParchment: View {
+    let layout: QuestLogLayout
     private static let outline = SVGPath.parse(QuestLogArt.parchmentOutline)
     private static let edge = SVGPath.parse(QuestLogArt.parchmentEdge)
     private static let pieces = QuestLogArt.parchment.map { (color(for: $0.role).swiftUI.opacity($0.opacity), SVGPath.parse($0.d)) }
@@ -457,7 +507,7 @@ private struct QuestLogParchment: View {
             QuestLogDebug.parchmentDraws += 1
             #endif
             context.clip(to: Path(CGRect(origin: .zero, size: size)))
-            context.scaleBy(x: QuestLogMetrics.pageScale, y: QuestLogMetrics.pageScale)
+            context.scaleBy(x: layout.pageScale, y: layout.parchmentScaleY)
             context.fill(Self.outline, with: .color(AppPalette.parchment.swiftUI))
             context.clip(to: Self.outline)
             for (color, path) in Self.pieces {
@@ -485,6 +535,7 @@ private struct QuestLogParchment: View {
 /// Vines and lines drawn at their page-local design positions, in a strip that starts at `band.top`.
 private struct QuestLogOrnaments: View {
     typealias Piece = (path: Path, evenOdd: Bool)
+    let layout: QuestLogLayout
 
     static let titleVines = parsed(QuestLogArt.titleVineLeft + QuestLogArt.titleVineRight)
     static let ruleVines = parsed(QuestLogArt.ruleVineLeft + QuestLogArt.ruleVineRight)
@@ -499,7 +550,7 @@ private struct QuestLogOrnaments: View {
 
     var body: some View {
         Canvas { context, _ in
-            context.scaleBy(x: QuestLogMetrics.pageScale, y: QuestLogMetrics.pageScale)
+            context.scaleBy(x: layout.pageScale, y: layout.pageScale)
             context.translateBy(x: 0, y: -band.top)
             let color = GraphicsContext.Shading.color(AppPalette.line.swiftUI)
             for piece in pieces {
@@ -509,7 +560,7 @@ private struct QuestLogOrnaments: View {
                 context.fill(Path(line), with: color)
             }
         }
-        .frame(width: QuestLogMetrics.pageSize.width, height: band.height * QuestLogMetrics.pageScale)
+        .frame(width: layout.pageSize.width, height: band.height * layout.pageScale)
     }
 }
 
@@ -534,7 +585,7 @@ private struct BaselineColumn: Layout {
     let gaps: [CGFloat]
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? QuestLogMetrics.pageSize.width
+        let width = proposal.width ?? 0
         return CGSize(width: width, height: frames(width: width, subviews: subviews).last?.maxY ?? 0)
     }
 

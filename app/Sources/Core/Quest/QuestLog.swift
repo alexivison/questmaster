@@ -145,23 +145,33 @@ public enum QuestLogCopyText {
     }
 }
 
-/// The Quest Log modal's state: whether it is open, the quests grouped by project, the selection and the
-/// quests marked with space.
+/// The Quest Log modal's state: whether it is open, the list of quests the tab and the filter keep, the selected
+/// project tab, the selection and the quests marked with space.
 @Observable
 public final class QuestLogStore {
     public private(set) var isOpen = false
     /// Counts openings, so the view can play its opening once per open and not on later changes.
     public private(set) var openGeneration = 0
-    public private(set) var sections: [QuestSection] = []
+    /// The quests the tab and the filter keep, newest created first.
+    public private(set) var visibleQuests: [QuestItem] = []
+    /// The project tabs after All, in the user's project order.
+    public private(set) var projectTabs: [QuestProjectTab] = []
+    /// The project tab in use, nil for All. It survives closing the log and falls back to All when its project has no quests left.
+    public private(set) var selectedProjectID: String?
     public private(set) var selectedID: String?
     public private(set) var markedIDs: Set<String> = []
     /// Bumped when a jump asks the list to scroll to the selection even if it didn't change (`gg` / `G`).
     public private(set) var scrollNonce = 0
     @ObservationIgnored private var keys = ListKeyResolver()
+    @ObservationIgnored private var allQuests: [QuestItem] = []
+    @ObservationIgnored private var projectTitles: [String: String] = [:]
+    @ObservationIgnored private var filter = QuestListFilter()
 
     /// A page step keeps a line of overlap; a half page is vim's.
     static let pageStep = 0.9
     static let halfPageStep = 0.5
+    /// The title of the tab that keeps every quest.
+    public static let allTabTitle = "All"
 
     public init() {}
 
@@ -175,7 +185,7 @@ public final class QuestLogStore {
     private func modalMove(for press: Keymap.KeyPress) -> ListCommand? {
         let context = ModalKeyContext(
             focus: nil,
-            fieldCount: QuestDisplayState.flatQuests(in: sections).count,
+            fieldCount: visibleQuests.count,
             hasTextFields: false,
             submitting: false,
             submits: false
@@ -203,52 +213,103 @@ public final class QuestLogStore {
         markedIDs = []
     }
 
-    /// Regroups the quests that pass the filter (text and `@project:` tokens) and recovers the selection.
+    /// The tab titles in order: All, then one per project tab.
+    public var tabTitles: [String] {
+        [Self.allTabTitle] + projectTabs.map(\.title)
+    }
+
+    /// The selected tab's index in `tabTitles`; 0 is All.
+    public var selectedTabIndex: Int {
+        guard let selectedProjectID, let index = projectTabs.firstIndex(where: { $0.projectID == selectedProjectID }) else {
+            return 0
+        }
+        return index + 1
+    }
+
+    /// Selects the tab at `index` in `tabTitles`. An index outside the tabs does nothing.
+    public func selectTab(_ index: Int) {
+        guard (0...projectTabs.count).contains(index) else {
+            return
+        }
+        let projectID = index == 0 ? nil : projectTabs[index - 1].projectID
+        guard projectID != selectedProjectID else {
+            return
+        }
+        selectedProjectID = projectID
+        regroup()
+    }
+
+    /// Takes the snapshot's quests and regroups them under the tab and the filter, recovering the selection.
     public func sync(
         quests: [QuestItem],
         repos: [TrackerRepo],
         projects: [TrackerProject] = [],
-        query: String = "",
-        projectIDs: Set<String> = []
+        filter: QuestListFilter = QuestListFilter()
     ) {
-        let next = QuestDisplayState.sections(quests: quests, repos: repos, projects: projects, query: query, projectIDs: projectIDs)
-        guard next != sections else {
+        allQuests = quests
+        self.filter = filter
+        projectTitles = QuestDisplayState.projectTitles(quests: quests, repos: repos, projects: projects)
+        let tabs = QuestDisplayState.projectTabs(quests: quests, repos: repos, projects: projects)
+        if tabs != projectTabs {
+            projectTabs = tabs
+        }
+        if let selectedProjectID, !tabs.contains(where: { $0.projectID == selectedProjectID }) {
+            self.selectedProjectID = nil
+        }
+        regroup()
+    }
+
+    private func regroup() {
+        let next = QuestDisplayState.visibleQuests(quests: allQuests, filter: filter, projectID: selectedProjectID)
+        guard next != visibleQuests else {
             return
         }
-        let previous = QuestDisplayState.flatQuests(in: sections)
-        sections = next
+        let previous = visibleQuests
+        visibleQuests = next
         selectedID = QuestDisplayState.recoveredSelection(current: selectedID, in: next, previouslyDisplayedQuests: previous)
-        markedIDs.formIntersection(QuestDisplayState.flatQuests(in: next).map(\.id))
+        markedIDs.formIntersection(next.map(\.id))
+    }
+
+    /// Steps to the previous or next tab, wrapping.
+    private func stepTab(_ delta: Int) {
+        let count = projectTabs.count + 1
+        selectTab((selectedTabIndex + delta + count) % count)
     }
 
     public func select(_ id: String) {
-        guard QuestDisplayState.flatQuests(in: sections).contains(where: { $0.id == id }) else {
+        guard visibleQuests.contains(where: { $0.id == id }) else {
             return
         }
         selectedID = id
     }
 
     public var selectedPage: QuestLogPage? {
-        for section in sections {
-            if let quest = section.quests.first(where: { $0.id == selectedID }) {
-                return QuestLogPage(quest: quest, project: section.title)
-            }
+        guard let quest = visibleQuests.first(where: { $0.id == selectedID }) else {
+            return nil
         }
-        return nil
+        return QuestLogPage(quest: quest, project: projectName(for: quest))
+    }
+
+    /// The project's name on the page's footer; a quest without a project says so.
+    private func projectName(for quest: QuestItem) -> String {
+        guard let projectID = QuestDisplayState.projectKey(of: quest) else {
+            return "No project"
+        }
+        return projectTitles[projectID] ?? ""
     }
 
     /// The marked quests in list order, or the selected one when nothing is marked.
     public var targets: [QuestItem] {
         let ids = markedIDs.isEmpty ? Set([selectedID].compactMap { $0 }) : markedIDs
-        return QuestDisplayState.flatQuests(in: sections).filter { ids.contains($0.id) }
+        return visibleQuests.filter { ids.contains($0.id) }
     }
 
     /// Applies a list command here and returns the rest for the app to carry out (nil when there is nothing to act on).
-    /// A command the Quest Log doesn't take (Return, the tabs, the workers' keys) does nothing.
+    /// A command the Quest Log doesn't take (Return, the workers' keys) does nothing.
     public func handle(_ command: ListCommand) -> QuestLogEffect? {
         switch command {
         case .move(let delta):
-            selectedID = QuestDisplayState.movedSelection(current: selectedID, delta: delta, in: sections)
+            selectedID = QuestDisplayState.movedSelection(current: selectedID, delta: delta, in: visibleQuests)
             return nil
         case .jumpToTop:
             jump(atStart: true)
@@ -265,6 +326,12 @@ public final class QuestLogStore {
             return .close
         case .focusFilter:
             return .focusFilter
+        case .previousTab:
+            stepTab(-1)
+            return nil
+        case .nextTab:
+            stepTab(1)
+            return nil
         case .page(let direction):
             return scrollPage(direction, step: Self.pageStep)
         case .halfPage(let direction):
@@ -272,12 +339,12 @@ public final class QuestLogStore {
         case .start:
             return targets.isEmpty ? nil : .start(targets)
         case .edit:
-            return QuestDisplayState.flatQuests(in: sections).first { $0.id == selectedID }.map(QuestLogEffect.edit)
+            return visibleQuests.first { $0.id == selectedID }.map(QuestLogEffect.edit)
         case .delete:
             return targets.isEmpty ? nil : .delete(targets)
         case .copy:
             return targets.isEmpty ? nil : .copy(targets)
-        case .jumpToTopPrefix, .open, .openExternal, .previousTab, .nextTab, .refresh, .editRepo,
+        case .jumpToTopPrefix, .open, .openExternal, .refresh, .editRepo,
              .toggleWorkersCollapsed, .toggleAllWorkersCollapsed:
             return nil
         }
@@ -291,7 +358,7 @@ public final class QuestLogStore {
     }
 
     private func jump(atStart: Bool) {
-        guard let id = QuestDisplayState.edgeSelection(atStart: atStart, in: sections) else {
+        guard let id = QuestDisplayState.edgeSelection(atStart: atStart, in: visibleQuests) else {
             return
         }
         selectedID = id

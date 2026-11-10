@@ -2,19 +2,21 @@ import AppKit
 import Observation
 import QuestmasterCore
 
-/// The Quest Log's filter field: free text plus `@project:` tokens with suggestions. This is the quest
-/// dock's filter (main, 32c8004) moved over unchanged in behaviour. It parses and matches with the
-/// artifact filter's helpers on `DockPaneModel`; Core's `QuestDisplayState` does the filtering itself.
+/// The Quest Log's filter field: free text plus `@type:` and `@size:` tokens with suggestions. The tokens narrow the
+/// list along with the text; the project tabs (`QuestLogStore`) pick the project. The field shares its parsing and
+/// keys with the artifact filter (`DockPaneModel.filterTrigger`, `FilterBar`).
 @Observable
 @MainActor
 final class QuestLogFilter {
+    /// The token prefixes this field takes.
+    static let kinds: [FilterTokenKind] = [.type, .size]
+
     private(set) var query = ""
     private(set) var tokens: [ArtifactFilterToken] = []
     private(set) var suggestions: [ArtifactFilterSuggestion] = []
     private(set) var selectedSuggestionID: String?
     /// Bumped to move keyboard focus into the field.
     private(set) var focusNonce = 0
-    private(set) var projectIDs: Set<String> = []
     private var suggestionIndex = 0
     private var suggestionsHidden = false
     private var tracker = TrackerSnapshot(repos: [])
@@ -26,11 +28,14 @@ final class QuestLogFilter {
     /// The keys go back to the list: Esc or Return with no suggestion open. The filter stays; the next Esc closes the log.
     @ObservationIgnored var onLeave: (() -> Void)?
 
-    var isActive: Bool { !textQuery.isEmpty || !projectIDs.isEmpty }
+    /// The text and tag selections the list keeps.
+    var search: QuestListFilter {
+        QuestListFilter(text: textQuery, types: selectedValues(of: .type), sizes: selectedValues(of: .size))
+    }
 
     /// The text part of the query: everything before an `@` token still being typed.
     var textQuery: String {
-        guard let trigger = DockPaneModel.filterTrigger(in: query) else {
+        guard let trigger = DockPaneModel.filterTrigger(in: query, kinds: Self.kinds) else {
             return query.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return String(query[..<trigger.range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,7 +68,7 @@ final class QuestLogFilter {
 
     @discardableResult
     func acceptSuggestion(_ suggestion: ArtifactFilterSuggestion? = nil) -> Bool {
-        guard let trigger = DockPaneModel.filterTrigger(in: query) else {
+        guard let trigger = DockPaneModel.filterTrigger(in: query, kinds: Self.kinds) else {
             return false
         }
         guard let selected = suggestion ?? suggestions.first(where: { $0.id == selectedSuggestionID }) else {
@@ -115,7 +120,6 @@ final class QuestLogFilter {
             onLeave?()
         case .removeLastChip:
             tokens.removeLast()
-            syncProjectIDs()
             changed()
         case .hideSuggestions:
             suggestionsHidden = true
@@ -147,85 +151,71 @@ final class QuestLogFilter {
         selectedSuggestionID = suggestions[suggestionIndex].id
     }
 
-    private func addToken(kind: ArtifactFilterTokenKind, value: String, title: String) {
-        guard kind == .project,
+    private func addToken(kind: FilterTokenKind, value: String, title: String) {
+        guard Self.kinds.contains(kind),
               !value.isEmpty,
               !tokens.contains(where: { $0.kind == kind && $0.value == value }) else {
             return
         }
         tokens.append(ArtifactFilterToken(kind: kind, value: value, title: title))
-        syncProjectIDs()
     }
 
-    private func removeToken(kind: ArtifactFilterTokenKind, value: String) {
-        let next = tokens.filter { $0.kind != kind || $0.value != value }
-        guard next != tokens else {
-            return
-        }
-        tokens = next
-        syncProjectIDs()
+    private func removeToken(kind: FilterTokenKind, value: String) {
+        tokens.removeAll { $0.kind == kind && $0.value == value }
     }
 
-    private func syncProjectIDs() {
-        projectIDs = Set(tokens.filter { $0.kind == .project }.map(\.value))
+    private func selectedValues(of kind: FilterTokenKind) -> Set<String> {
+        Set(tokens.filter { $0.kind == kind }.map(\.value))
     }
 
     private func makeSuggestions() -> [ArtifactFilterSuggestion] {
-        guard !suggestionsHidden, let trigger = DockPaneModel.filterTrigger(in: query) else {
+        guard !suggestionsHidden, let trigger = DockPaneModel.filterTrigger(in: query, kinds: Self.kinds) else {
             return []
         }
         switch trigger.mode {
         case .command:
             let commandQuery = trigger.query.lowercased()
-            let kind = ArtifactFilterTokenKind.project
-            guard commandQuery.isEmpty || kind.rawValue.hasPrefix(commandQuery) else {
-                return []
-            }
-            return [ArtifactFilterSuggestion(mode: .command, kind: kind, value: kind.rawValue, title: kind.command, detail: "filter", tokenTitle: "")]
+            return Self.kinds
+                .filter { commandQuery.isEmpty || $0.rawValue.hasPrefix(commandQuery) }
+                .map { kind in
+                    ArtifactFilterSuggestion(mode: .command, kind: kind, value: kind.rawValue, title: kind.command, detail: "filter", tokenTitle: "")
+                }
         case .value:
-            guard trigger.kind == .project else {
+            guard let kind = trigger.kind else {
                 return []
             }
-            return projectOptions()
-                .filter { !projectIDs.contains($0.id) }
+            let selected = selectedValues(of: kind)
+            return options(for: kind)
+                .filter { !selected.contains($0.id) }
                 .filter { DockPaneModel.fuzzyMatch(trigger.query, in: $0.id) || DockPaneModel.fuzzyMatch(trigger.query, in: $0.title) }
                 .map { option in
                     ArtifactFilterSuggestion(
                         mode: .value,
-                        kind: .project,
+                        kind: kind,
                         value: option.id,
-                        title: "\(ArtifactFilterTokenKind.project.command)\(option.title)",
-                        detail: String(tracker.quests.filter { $0.projectID == option.id }.count),
+                        title: "\(kind.command)\(option.title)",
+                        detail: String(quests(tagged: kind, with: option.id).count),
                         tokenTitle: option.title
                     )
                 }
         }
     }
 
-    private func projectOptions() -> [ArtifactFilterOption] {
-        var titlesByID: [String: String] = [:]
-        for project in tracker.projects {
-            guard let id = DockPaneModel.cleanName(project.id), id != "ungrouped" else {
-                continue
-            }
-            titlesByID[id] = DockPaneModel.cleanName(project.name) ?? DockPaneModel.humanProjectName(id)
+    private func options(for kind: FilterTokenKind) -> [ArtifactFilterOption] {
+        switch kind {
+        case .size:
+            QuestSize.allCases.map { ArtifactFilterOption(id: $0.rawValue, title: $0.rawValue) }
+        case .type:
+            QuestTagType.allCases.map { ArtifactFilterOption(id: $0.rawValue, title: $0.displayName) }
+        case .project:
+            []
         }
-        for repo in tracker.repos {
-            guard let id = DockPaneModel.cleanName(repo.id), id != "ungrouped" else {
-                continue
-            }
-            titlesByID[id] = titlesByID[id] ?? DockPaneModel.cleanName(repo.name) ?? DockPaneModel.humanProjectName(id)
+    }
+
+    /// The quests that carry a tag, as the suggestion's count.
+    private func quests(tagged kind: FilterTokenKind, with value: String) -> [QuestItem] {
+        tracker.quests.filter { quest in
+            kind == .size ? quest.size == value : quest.types.contains(value)
         }
-        for quest in tracker.quests {
-            guard let id = DockPaneModel.cleanName(quest.projectID) else {
-                continue
-            }
-            titlesByID[id] = titlesByID[id]
-                ?? DockPaneModel.cleanName(quest.projectName)
-                ?? DockPaneModel.cleanName(quest.projectPath).map(DockPaneModel.humanProjectName(_:))
-                ?? DockPaneModel.humanProjectName(id)
-        }
-        let options = titlesByID.map { ArtifactFilterOption(id: $0.key, title: $0.value) }
-        return ProjectOrder(projects: tracker.projects).sorted(options, id: \.id, title: \.title)
     }
 }

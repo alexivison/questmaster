@@ -137,12 +137,12 @@ enum RenderPreview {
         // The worker tabs (Tabs (Simple).svg at the user's 12pt and 5pt gaps): few tabs that fit, the selected one bold and
         // lit while the panel has the keys and a step dimmer without them, the pointer lighting an unselected one, and tabs
         // too many for the panel scrolling with a fade on each side that has some hidden.
-        render(workerLogTabsView(workers: 4, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-few.png")
-        render(workerLogTabsView(workers: 4, selected: "w2", focused: false), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-unfocused.png")
-        render(workerLogTabsView(workers: 4, selected: nil, hovered: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-hover.png")
-        render(workerLogTabsView(workers: 9, selected: "w5"), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-middle.png")
-        render(workerLogTabsView(workers: 9, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-start.png")
-        render(workerLogTabsView(workers: 9, selected: "w9"), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-end.png")
+        render(workerLogTabsView(workers: 4, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-few.png")
+        render(workerLogTabsView(workers: 4, selected: "w2", focused: false), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-unfocused.png")
+        render(workerLogTabsView(workers: 4, selected: nil, hovered: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-hover.png")
+        render(workerLogTabsView(workers: 9, selected: "w5"), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-middle.png")
+        render(workerLogTabsView(workers: 9, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-start.png")
+        render(workerLogTabsView(workers: 9, selected: "w9"), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-end.png")
         renderView(workerLogDockView(menuOpen: false, selected: "w2"), size: logDock, to: "\(outputDir)/worker-log-tabs-dock.png")
         renderView(workerLogDockView(menuOpen: false, workers: 9, selected: "w5"), size: logDock, to: "\(outputDir)/worker-log-tabs-dock-overflow.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
@@ -177,20 +177,21 @@ enum RenderPreview {
         render(artifactListView(showFilter: true, suggesting: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter-suggestions.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
         render(artifactListView(focused: false), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-list-unfocused.png")
-        render(QuestLogView(store: questLogStore(), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log.png")
-        render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-nobody.png")
-        render(QuestLogView(store: questLogStore(filteredTo: "questmaster"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filtered.png")
+        // The Quest Log at its fixed size, over the same quests.
+        let layout = QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize)
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log.png")
+        render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-nobody.png")
+        render(QuestLogView(store: questLogStore(tab: "questmaster"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tab.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(tokens: ["@type:bug", "@size:S"]), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-filtered.png")
         render(
-            QuestLogView(store: questLogStore(), filter: questLogFilter(token: false, typing: "@project:"), previewFocused: true, onCommand: { _ in }),
-            size: QuestLogView.size,
+            QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "@type:"), layout: layout, previewFocused: true, onCommand: { _ in }),
+            size: layout.sheetSize,
             to: "\(outputDir)/quest-log-suggestions.png"
         )
-        render(QuestLogView(store: questLogStore(), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-placeholder.png")
-        render(QuestLogView(store: questLogStore(), filter: questLogFilter(token: false), previewFocused: true, onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-focused.png")
-        render(QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "gjpqy"), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-typed.png")
-        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long.png")
-        render(QuestLogView(store: questLogStore(empty: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-empty.png")
-        renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "gjpqy"), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-filter-typed.png")
+        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-long.png")
+        render(QuestLogView(store: questLogStore(empty: true), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-empty.png")
+        renderView(questLogWindowView(), size: questLogWindow, to: "\(outputDir)/quest-log-window.png")
         recordQuestLogAnimations(to: outputDir)
         recordDockPanelAnimations(to: outputDir)
         recordSelectedSessionFade(to: outputDir)
@@ -198,7 +199,7 @@ enum RenderPreview {
         // A long quest scrolled partway down, with the overflow cue at the page's bottom edge.
         let scrolledPage = QuestLogPageScroll()
         scrolledPage.previewOffset = 160
-        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), pageScroll: scrolledPage, onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long-scrolled.png")
+        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(), layout: layout, pageScroll: scrolledPage, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-long-scrolled.png")
         render(newSessionSheetView(title: "gjpqy quest", path: "/tmp/gjpqy/project"), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-descenders.png")
         render(newSessionSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-sheet.png")
         let window = CGSize(width: 1400, height: 900)
@@ -208,7 +209,7 @@ enum RenderPreview {
         renderView(modalWindowView(overQuestLog: true, DestructiveConfirmationSheetView(spec: .deleteQuests(count: 1), onDecision: { _ in })), size: window, to: "\(outputDir)/modal-confirm-over-quest-log.png")
         renderView(modalWindowView(overQuestLog: true, newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-over-quest-log.png")
         // The shared background alone, at the Quest Log design's size, for diffing against its outer path.
-        render(Color.clear.scoopedPanel(), size: QuestLogView.size, to: "\(outputDir)/scooped-panel.png")
+        render(Color.clear.scoopedPanel(), size: QuestLogMetrics.sheetSize, to: "\(outputDir)/scooped-panel.png")
         let pane = CGSize(width: 480, height: 1015)
         renderView(artifactPaneView(highlight: 2, suggesting: true), size: pane, to: "\(outputDir)/artifact-pane.png")
         renderView(artifactPaneView(highlight: 4, focused: false), size: pane, to: "\(outputDir)/artifact-pane-unfocused.png")
@@ -1899,11 +1900,25 @@ enum RenderPreview {
     }
 
     /// The Quest Log design's own quests (user-quests-modal-v2.svg), newest first within each project.
+    private static let questLogWindow = CGSize(width: 1440, height: 900)
+
+    /// A list with a realistic mix: three projects with tags on some of their quests, a few without a project, and
+    /// some untagged. The first dotfiles quest carries a body (the page's titled layout).
     private static func questLogQuests(longBody: Bool = false) -> [QuestItem] {
-        let projects = [
-            ("dotfiles", ["Add more meta data to shell sessions", "Restore terminal settings on login", "Share editor configs across devices", "Remove unused environment variables"]),
-            ("questmaster", ["Track milestones for active quests", "Sort adventures by upcoming deadline", "Assign party roles to teammates", "Archive completed quest campaigns"]),
-            ("scry", ["Search notes with exact phrases", "Filter results by source and date", "Save frequently used search filters", "Highlight matches in previews"]),
+        let rows: [(project: String, title: String, types: [String], size: String)] = [
+            ("dotfiles", "Add more meta data to shell sessions", ["improvement"], "M"),
+            ("dotfiles", "Restore terminal settings on login", ["bug"], "S"),
+            ("dotfiles", "Share editor configs across devices", [], ""),
+            ("dotfiles", "Remove unused environment variables", ["cleanup"], "S"),
+            ("questmaster", "Track milestones for active quests", ["feature", "research"], "L"),
+            ("questmaster", "Sort adventures by upcoming deadline", ["bug"], "S"),
+            ("questmaster", "Assign party roles to teammates", ["decision"], "M"),
+            ("questmaster", "Archive completed quest campaigns", [], ""),
+            ("scry", "Search notes with exact phrases", ["bug", "improvement"], "S"),
+            ("scry", "Filter results by source and date", [], ""),
+            ("scry", "Save frequently used search filters", ["feature"], "M"),
+            ("", "Pick a name for the pairing channel", ["decision"], "S"),
+            ("", "Jot down the Friday demo", [], ""),
         ]
         var body = """
         The idea is to make questmaster also work well as a tmux session handler
@@ -1915,40 +1930,44 @@ enum RenderPreview {
         if longBody {
             body += "\n\n" + (1...40).map { "- Step \($0): keep going until the page has to scroll" }.joined(separator: "\n")
         }
-        return projects.flatMap { project, titles in
-            titles.enumerated().map { index, title in
-                QuestItem(
-                    id: "\(project)-\(index)",
-                    content: index == 0 && project == "dotfiles" ? "\(title)\n\n\(body)" : title,
-                    projectID: project,
-                    projectName: project,
-                    createdAt: String(format: "2026-09-%02dT10:00:00Z", 8 - index),
-                    updatedAt: String(format: "2026-09-%02dT10:00:00Z", 8 - index)
-                )
-            }
+        var perProject: [String: Int] = [:]
+        return rows.enumerated().map { index, row in
+            let number = perProject[row.project, default: 0]
+            perProject[row.project] = number + 1
+            return QuestItem(
+                id: "\(row.project.isEmpty ? "none" : row.project)-\(number)",
+                content: index == 0 ? "\(row.title)\n\n\(body)" : row.title,
+                types: row.types,
+                size: row.size,
+                projectID: row.project,
+                projectName: row.project,
+                createdAt: String(format: "2026-09-%02dT10:00:00Z", 28 - index),
+                updatedAt: String(format: "2026-09-%02dT10:00:00Z", 28 - index)
+            )
         }
     }
 
-    /// `filteredTo` applies a project token to the list as the app would; the design SVGs draw a token chip
-    /// over the full list, so the design renders show the chip without applying it.
-    @MainActor
-    private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, filteredTo projectID: String? = nil) -> QuestLogStore {
+    /// `tab` selects a project tab, as a click or `]` would; `selecting` selects a quest.
+    private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, tab projectID: String? = nil) -> QuestLogStore {
         let store = QuestLogStore()
-        store.sync(quests: empty ? [] : questLogQuests(longBody: longBody), repos: [], projectIDs: Set([projectID].compactMap { $0 }))
+        store.sync(quests: empty ? [] : questLogQuests(longBody: longBody), repos: [])
+        if let projectID, let index = store.projectTabs.firstIndex(where: { $0.projectID == projectID }) {
+            store.selectTab(index + 1)
+        }
         if let id {
             store.select(id)
         }
         return store
     }
 
-    /// A filter holding a `@project questmaster` token, as the design draws it; `typing` leaves an unfinished
+    /// A filter holding the tokens, each typed and accepted as the field takes it; `typing` leaves an unfinished
     /// query in the field so its suggestions open.
     @MainActor
-    private static func questLogFilter(token: Bool = true, typing: String? = nil) -> QuestLogFilter {
+    private static func questLogFilter(tokens: [String] = [], typing: String? = nil) -> QuestLogFilter {
         let filter = QuestLogFilter()
         filter.update(tracker: TrackerSnapshot(repos: [], quests: questLogQuests()))
-        if token {
-            filter.setQuery("@project:questm")
+        for token in tokens {
+            filter.setQuery(token)
             filter.acceptSuggestion()
         }
         if let typing {
@@ -1957,8 +1976,9 @@ enum RenderPreview {
         return filter
     }
 
+    /// The Quest Log over the main shell, as the window draws it. The self-tests host it too.
     @MainActor
-    private static func questLogWindowView() -> NSView {
+    static func questLogWindowView() -> NSView {
         let size = CGSize(width: 1400, height: 900)
         let shell = shellWithHeaderView(size: size, trackerVisible: true, dockVisible: true)
         let stack = InWindowModalStack()
@@ -2367,7 +2387,7 @@ enum RenderPreview {
     @MainActor
     private static func questLogModal(_ store: QuestLogStore) -> QuestLogModal {
         store.open()
-        return QuestLogModal(store: store, filter: questLogFilter(token: false), pageScroll: QuestLogPageScroll(), onCommand: { _ in })
+        return QuestLogModal(store: store, filter: questLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in })
     }
 
     private static func confirmationView() -> some View {
