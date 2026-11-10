@@ -88,6 +88,10 @@ enum LogicSelfTests {
         ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
         ("testQuestLogListStartsWithItsFirstRowWhole", testQuestLogListStartsWithItsFirstRowWhole),
         ("testQuestLogFilterFieldTakesClicksWhenTheModalIsScaledDown", testQuestLogFilterFieldTakesClicksWhenTheModalIsScaledDown),
+        ("testModalEntranceScalesAboutItsCentre", testModalEntranceScalesAboutItsCentre),
+        ("testModalEntranceRoutesClicksToWhereItDraws", testModalEntranceRoutesClicksToWhereItDraws),
+        ("testModalEntranceIsSkippedUnderReduceMotion", testModalEntranceIsSkippedUnderReduceMotion),
+        ("testModalCloseScalesBackAboutItsCentre", testModalCloseScalesBackAboutItsCentre),
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges", testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges),
@@ -212,6 +216,7 @@ enum LogicSelfTests {
         ("testWorkerLogTabsScrollToTheSelection", testWorkerLogTabsScrollToTheSelection),
         ("testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs", testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs),
         ("testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers", testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers),
+        ("testQuestLogTabsCentreWhenTheyFit", testQuestLogTabsCentreWhenTheyFit),
         ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
         ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
         ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
@@ -3757,6 +3762,241 @@ enum LogicSelfTests {
             hit.map { $0 === host || $0.isDescendant(of: host) } ?? false,
             "a click on the field's centre should reach the modal, got \(String(describing: hit))"
         )
+    }
+
+    /// The Quest Log in a 1000 x 800 window, read frame by frame. The modal's drawn rect comes from the presentation of the
+    /// layer that carries its scale, so an entrance or a close in flight shows.
+    @MainActor private struct QuestLogModalFrames {
+        // One point per pixel, as the CI runner renders: at a fractional fit that is where Auto Layout rounds frames.
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 800), scale: 1)
+        let stack = InWindowModalStack()
+        let host: InWindowModalHost
+        let store: QuestLogStore
+
+        init() {
+            store = QuestLogStore()
+            store.sync(quests: [QuestItem(id: "q1", content: "Quest 1")], repos: [])
+            host = InWindowModalHost(stack: stack)
+            host.frame = NSRect(origin: .zero, size: window.frame.size)
+            window.contentView = host
+            window.show()
+        }
+
+        /// The hosted content's hosting view, which the modal file keeps private: found by class name.
+        var hostedView: NSView? { Self.view(named: "ModalHostingView", in: host) }
+
+        /// The view whose layer carries the modal's scale: the hosted content's superview.
+        var coordinateView: NSView? { hostedView?.superview }
+
+        /// Whether the entrance (or a close) is running: no click reaches the modal then.
+        var isScaling: Bool { !(coordinateView?.layer?.animationKeys() ?? []).isEmpty }
+
+        /// The Quest Log's laid-out content at the fit to the window, centred. The fit reads the frame the content is drawn
+        /// at: on a busy runner SwiftUI's reported intrinsic size can differ from that frame.
+        var fittedRect: CGRect {
+            let content = hostedView?.frame.size ?? .zero
+            let margin = ShellMetrics.gap * 2
+            let fit = min(1, (host.bounds.width - margin) / content.width, (host.bounds.height - margin) / content.height)
+            let size = CGSize(width: content.width * fit, height: content.height * fit)
+            return CGRect(x: host.bounds.midX - size.width / 2, y: host.bounds.midY - size.height / 2, width: size.width, height: size.height)
+        }
+
+        func present() {
+            store.open()
+            stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        }
+
+        /// Where the modal's content is drawn now, in the host's coordinates; nil while SwiftUI hasn't drawn it yet.
+        var drawnRect: CGRect? {
+            guard let coordinates = coordinateView, let hosted = hostedView, let coordinateLayer = coordinates.layer, let hostLayer = host.layer else {
+                return nil
+            }
+            let presented = coordinateLayer.presentation() ?? coordinateLayer
+            let corners = [CGPoint(x: hosted.frame.minX, y: hosted.frame.minY), CGPoint(x: hosted.frame.maxX, y: hosted.frame.maxY)]
+                .map { presented.convert($0, to: hostLayer) }
+            return CGRect(
+                x: min(corners[0].x, corners[1].x), y: min(corners[0].y, corners[1].y),
+                width: abs(corners[1].x - corners[0].x), height: abs(corners[1].y - corners[0].y)
+            )
+        }
+
+        /// Lays out the host synchronously, so the frames read next are the laid-out ones.
+        func layOutNow() {
+            host.layoutSubtreeIfNeeded()
+        }
+
+        /// Presents the Quest Log and reads its drawn rect on each display tick until the entrance has run and finished, or
+        /// five seconds pass. `perFrame` gets each drawn rect, and the rects are returned.
+        func sampleEntrance(perFrame: (CGRect) throws -> Void = { _ in }) throws -> [CGRect] {
+            present()
+            var drawn: [CGRect] = []
+            var began = false
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+                began = began || isScaling
+                if let rect = drawnRect {
+                    drawn.append(rect)
+                    try perFrame(rect)
+                }
+                if began && !isScaling {
+                    break
+                }
+            }
+            return drawn
+        }
+
+        /// Dismisses the Quest Log and reads its drawn rect on each display tick until it is removed, or five seconds pass.
+        func sampleClose() throws -> [CGRect] {
+            stack.dismiss(id: QuestLogModal.stackID)
+            var drawn: [CGRect] = []
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline, coordinateView != nil {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+                if let rect = drawnRect {
+                    drawn.append(rect)
+                }
+            }
+            return drawn
+        }
+
+        /// Presents the Quest Log with Reduce Motion on, then reads its drawn rect on the next few display ticks.
+        func sampleRestingFrames(perFrame: (CGRect) throws -> Void) throws -> [CGRect] {
+            present()
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline, drawnRect == nil {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+            }
+            var drawn: [CGRect] = []
+            for _ in 0..<5 {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+                if let rect = drawnRect {
+                    drawn.append(rect)
+                    try perFrame(rect)
+                }
+            }
+            return drawn
+        }
+
+        private static func view(named name: String, in root: NSView) -> NSView? {
+            if String(describing: type(of: root)) == name {
+                return root
+            }
+            return root.subviews.lazy.compactMap { view(named: name, in: $0) }.first
+        }
+    }
+
+    private static func sameRect(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 0.5) -> Bool {
+        abs(lhs.minX - rhs.minX) < tolerance && abs(lhs.minY - rhs.minY) < tolerance
+            && abs(lhs.width - rhs.width) < tolerance && abs(lhs.height - rhs.height) < tolerance
+    }
+
+    /// The entrance scales the modal about its centre. Its drawn rect keeps the window's centre at every frame, it starts a
+    /// little smaller than the fit and never overshoots it, and it ends exactly at the fit.
+    private static func testModalEntranceScalesAboutItsCentre() throws {
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        let drawn = try scene.sampleEntrance()
+        guard let smallest = drawn.map(\.width).min() else {
+            throw TestFailure("the Quest Log should be drawn while it enters")
+        }
+        try expect(!scene.isScaling, "the entrance should finish")
+        scene.layOutNow()
+        // The sheet is a fixed size: the scaled layout must not shorten it (Auto Layout rounds its frame at a fractional fit).
+        let laidOut = scene.hostedView?.frame.size ?? .zero
+        try expect(
+            abs(laidOut.width - QuestLogMetrics.sheetSize.width) < 0.5 && abs(laidOut.height - QuestLogMetrics.sheetSize.height) < 0.5,
+            "the Quest Log should lay out at its fixed sheet size \(QuestLogMetrics.sheetSize), got \(laidOut)"
+        )
+        let fitted = scene.fittedRect
+        let settled = scene.drawnRect ?? .zero
+        try expect(sameRect(settled, fitted), "the entrance should end at the fit \(fitted), drawn \(settled)")
+        try expect(smallest < fitted.width - 1, "the entrance should draw the modal smaller than the fit at first, smallest \(smallest)")
+        try expect(smallest >= fitted.width * 0.96, "the entrance should start from about 0.97 of the fit, smallest \(smallest) of \(fitted.width)")
+        try expect(drawn.allSatisfy { $0.width <= fitted.width + 0.5 }, "the entrance should never draw the modal above the fit")
+        let centre = CGPoint(x: scene.host.bounds.midX, y: scene.host.bounds.midY)
+        for rect in drawn {
+            try expect(
+                abs(rect.midX - centre.x) < 0.5 && abs(rect.midY - centre.y) < 0.5,
+                "the modal should stay centred on \(centre) while it scales, but was drawn at \(rect)"
+            )
+        }
+    }
+
+    /// While the entrance runs nothing in the modal takes a click, so none lands on a control at the wrong place. Once it
+    /// has settled a click just inside the drawn edge reaches the modal, and one just outside doesn't.
+    private static func testModalEntranceRoutesClicksToWhereItDraws() throws {
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        // The scale view covers the window, so a click outside the modal lands on it; only the hosted content counts as the modal.
+        func reachesModal(_ point: CGPoint) -> Bool {
+            let inWindow = scene.host.convert(point, to: nil)
+            guard let hit = scene.window.contentView?.superview?.hitTest(inWindow), let hosted = scene.hostedView else {
+                return false
+            }
+            return hit === hosted || hit.isDescendant(of: hosted)
+        }
+        var scalingFrames = 0
+        let drawn = try scene.sampleEntrance { rect in
+            guard scene.isScaling else {
+                return
+            }
+            scalingFrames += 1
+            try expect(!reachesModal(CGPoint(x: rect.midX, y: scene.host.bounds.midY)), "no click should reach the modal while it scales")
+        }
+        try expect(scalingFrames > 0, "the entrance should be sampled while it runs")
+        try expect(drawn.last != nil, "the Quest Log should be drawn once the sample ends")
+        try expect(!scene.isScaling, "the entrance should finish")
+        scene.layOutNow()
+        let fitted = scene.fittedRect
+        let y = scene.host.bounds.midY
+        try expect(reachesModal(CGPoint(x: fitted.minX + 4, y: y)), "a click 4pt inside the settled edge should reach the modal, drawn at \(fitted)")
+        try expect(!reachesModal(CGPoint(x: fitted.minX - 4, y: y)), "a click 4pt outside the settled edge should not reach the modal, drawn at \(fitted)")
+    }
+
+    /// Under Reduce Motion the modal is drawn at its fit from its first frame, and nothing animates.
+    private static func testModalEntranceIsSkippedUnderReduceMotion() throws {
+        let reducesMotion = Motion.reducesMotion
+        Motion.reducesMotion = { true }
+        defer { Motion.reducesMotion = reducesMotion }
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        var animated = false
+        let drawn = try scene.sampleRestingFrames { _ in
+            animated = animated || scene.isScaling
+        }
+        try expect(!drawn.isEmpty, "the Quest Log should be drawn under Reduce Motion")
+        try expect(!animated, "under Reduce Motion the entrance should add no animation")
+        scene.layOutNow()
+        let fitted = scene.fittedRect
+        try expect(sameRect(scene.drawnRect ?? .zero, fitted), "under Reduce Motion the modal should be drawn at the fit \(fitted)")
+        // The first frame is already the fit's width, within the layout's own settling.
+        if let first = drawn.first {
+            try expect(abs(first.width - fitted.width) < fitted.width * 0.01, "under Reduce Motion the first frame should already be the fit's width, got \(first.width) of \(fitted.width)")
+        }
+    }
+
+    /// Closing scales the modal back to its start scale about its centre, before it is removed.
+    private static func testModalCloseScalesBackAboutItsCentre() throws {
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        _ = try scene.sampleEntrance()
+        try expect(!scene.isScaling, "the Quest Log should be drawn at rest before it closes")
+        scene.layOutNow()
+        let fitted = scene.fittedRect
+        let drawn = try scene.sampleClose()
+        guard let smallest = drawn.map(\.width).min() else {
+            throw TestFailure("the Quest Log should be drawn while it closes")
+        }
+        try expect(smallest < fitted.width - 1, "the close should draw the modal smaller than the fit, smallest \(smallest)")
+        try expect(smallest >= fitted.width * 0.96, "the close should end at about 0.97 of the fit, smallest \(smallest) of \(fitted.width)")
+        let centre = CGPoint(x: scene.host.bounds.midX, y: scene.host.bounds.midY)
+        for rect in drawn {
+            try expect(
+                abs(rect.midX - centre.x) < 0.5 && abs(rect.midY - centre.y) < 0.5,
+                "the modal should stay centred on \(centre) while it closes, but was drawn at \(rect)"
+            )
+        }
     }
 
     private static func testQuestLogOpensScrolledToTheKeptSelection() throws {
@@ -7308,6 +7548,92 @@ enum LogicSelfTests {
 
     /// The feed ends where the row begins, and the row ends `bottomInset` above the panel's edge. The row
     /// shows from two workers on: a master with none or one has no row at all, and the feed fills the panel.
+    /// The Quest Log's project tabs sit centred in their column while they fit, as the Worker Log's do. Wider than the column
+    /// they start at the leading edge and scroll sideways.
+    private static func testQuestLogTabsCentreWhenTheyFit() throws {
+        let fitting = try questLogTabInk(projectNames: ["dotfiles", "questmaster", "scry"])
+        try expect(!fitting.scrolls, "three short projects should fit the Quest Log's column")
+        try expect(fitting.left > 20, "the Quest Log's tabs should sit in from the leading edge, got \(fitting.left) on the left")
+        try expect(abs(fitting.left - fitting.right) <= 1, "the Quest Log's tabs should be centred: \(fitting.left) on the left, \(fitting.right) on the right")
+
+        let overflowing = try questLogTabInk(projectNames: (1...8).map { "a-long-project-name-\($0)" })
+        try expect(overflowing.scrolls, "eight long projects should overflow the column and scroll")
+        try expect(overflowing.left < 1, "overflowing tabs should start at the leading edge, got \(overflowing.left) on the left")
+
+        // The Worker Log's row was always centred; the Quest Log's change must not move it.
+        let worker = tabRowHost(workers: (1...2).map { WorkerLogWorker(id: "w\($0)", name: "Worker \($0)") }, selected: nil)
+        defer { worker.window.close() }
+        guard let workerTabs = descendant(NSScrollView.self, in: worker.hosting) else {
+            throw TestFailure("the Worker Log's tab row should scroll")
+        }
+        let workerInk = try tabInkGaps(in: worker.hosting, size: worker.size, tabs: workerTabs)
+        try expect(abs(workerInk.left - workerInk.right) <= 1 && workerInk.left > 20, "the Worker Log's tabs should stay centred, got \(workerInk.left) and \(workerInk.right)")
+    }
+
+    /// The Quest Log hosted at its sheet size, with one project tab per name, and the ink gaps of its tab row.
+    private static func questLogTabInk(projectNames: [String]) throws -> (left: CGFloat, right: CGFloat, scrolls: Bool) {
+        let store = QuestLogStore()
+        store.sync(
+            quests: projectNames.enumerated().map { index, name in QuestItem(id: "q\(index)", content: "Quest \(index)", projectID: "p\(index)", projectName: name) },
+            repos: []
+        )
+        let layout = QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize)
+        let hosting = NSHostingView(rootView: QuestLogView(store: store, filter: QuestLogFilter(), layout: layout, onCommand: { _ in }))
+        hosting.frame = NSRect(origin: .zero, size: layout.sheetSize)
+        let window = HeadlessWindow(size: layout.sheetSize)
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            view.subviews.flatMap { ((($0 as? NSScrollView).map { [$0] }) ?? []) + scrollViews(in: $0) }
+        }
+        var tabRow: NSScrollView?
+        guard waitUntil({
+            tabRow = scrollViews(in: hosting).first(where: { $0.frame.height == TextTabMetrics.height })
+            return tabRow != nil
+        }), let tabs = tabRow else {
+            throw TestFailure("the Quest Log should have a tab row \(TextTabMetrics.height) high")
+        }
+        hosting.layoutSubtreeIfNeeded()
+        return try tabInkGaps(in: hosting, size: layout.sheetSize, tabs: tabs)
+    }
+
+    /// Where a tab row's ink starts and ends, as gaps to its two edges in points, read from a snapshot of `hosting`. A
+    /// row that scrolls reports `scrolls` and no centring is measured for it.
+    private static func tabInkGaps(in hosting: NSView, size: CGSize, tabs: NSScrollView) throws -> (left: CGFloat, right: CGFloat, scrolls: Bool) {
+        let scale: CGFloat = 2
+        guard waitUntil({ (tabs.documentView?.frame.width ?? 0) > 0 }) else {
+            throw TestFailure("the tab row should lay out before it is read")
+        }
+        hosting.layoutSubtreeIfNeeded()
+        let bitmap = try snapshot(hosting, size: size, scale: scale)
+        let band = tabs.convert(tabs.bounds, to: hosting)
+        let rows = Int(band.minY * scale)..<Int(band.maxY * scale)
+        let firstColumn = Int(band.minX * scale)
+        guard let background = bitmap.colorAt(x: firstColumn, y: rows.lowerBound)?.usingColorSpace(.deviceRGB) else {
+            throw TestFailure("the tab row's background should read")
+        }
+        func inked(_ column: Int) -> Bool {
+            rows.contains { row in
+                guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB) else {
+                    return false
+                }
+                return abs(pixel.redComponent - background.redComponent) + abs(pixel.greenComponent - background.greenComponent)
+                    + abs(pixel.blueComponent - background.blueComponent) > 0.12
+            }
+        }
+        let columns = firstColumn..<min(Int(band.maxX * scale), bitmap.pixelsWide)
+        guard let first = columns.first(where: inked), let last = columns.last(where: inked) else {
+            throw TestFailure("the tab row should show some ink")
+        }
+        let scrolls = (tabs.documentView?.frame.width ?? 0) > tabs.contentView.bounds.width + 0.5
+        return (
+            left: CGFloat(first - firstColumn) / scale,
+            right: band.maxX - CGFloat(last + 1) / scale,
+            scrolls: scrolls
+        )
+    }
+
     private static func testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers() throws {
         func host(workers: Int) throws -> (window: HeadlessWindow, hosting: NSHostingView<AnyView>) {
             let chat = WorkerChatStore()

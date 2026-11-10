@@ -468,9 +468,9 @@ fields (`ModalKeyContext.hasTextFields`), and the focused part decides the rest:
   (`ListCapabilities.modalMoves`). With no suggestion showing, the filter's ↑/↓ are the caret's (`FilterFieldKey`'s
   `arrowsMoveList` is off there), while ⌃p and ⌃n still move the list, as vim's previous and next do.
 - **The Quest Log's list** is one flat list, newest created first (ties by id), not grouped by project
-  (`QuestDisplayState.visibleQuests`). Project tabs (`TextTabRow`, the Worker Log's text tabs) sit above the filter:
-  All, then one tab per project that has quests, in the Settings project order; quests without a project show only
-  under All. `[` and `]` step the tabs. The selected tab lives in `QuestLogStore` and survives closing the log; it falls
+  (`QuestDisplayState.visibleQuests`). Project tabs (`TextTabRow`, the Worker Log's text tabs) sit above the filter,
+  centred over the column while they fit and scrolling sideways past it: All, then one tab per project that has quests,
+  in the Settings project order; quests without a project show only under All. `[` and `]` step the tabs. The selected tab lives in `QuestLogStore` and survives closing the log; it falls
   back to All when its project has no quests left. The filter takes free text plus `@type:` and `@size:` tokens
   (`QuestListFilter`): any selected tag within a group matches, and the text, the tags and the tab must all match.
   A row shows its title, then its tag chips (size first, then types in `QuestTags` order); an untagged row is title only.
@@ -562,8 +562,8 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 
 | Step | Seconds | Role |
 |---|---|---|
-| `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade |
-| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
+| `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade, a modal's scale back on close |
+| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in and scale-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
 
 - **One easing:** ease out, quick at first and settling, as the cubic Bézier (0, 0, 0.58, 1), the system's own `.easeOut`.
   `Motion.timingFunction` is its Core Animation and AppKit form, `Motion.animation(_:after:)` its SwiftUI form, and
@@ -579,6 +579,11 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   from the SwiftUI environment (the status ring, the cast bar) skips on that and takes its step lengths from
   `Motion.duration`; the ring's exit and crossfade are skipped under it, so the ring just goes. The logic-test runner
   starts every case with it off.
+- **Modal entrance.** Every in-window modal fades in and scales from 0.97 to 1 about its centre over `standard`, and on
+  close fades out and scales back over `fast` (`ModalLayer`, then `ModalScaleView`). The fit to the window is the scale
+  view's AppKit bounds, so events and text geometry map exactly. The entrance is a Core Animation transform on a child
+  view that AppKit never scales: animating the bounds moved a native scroll view's offset during the scale (the Quest
+  Log list's first row). While the transform runs, nothing in the modal takes a click; it takes them once it has settled.
 - **Sequencing** is a step too: `Motion.animation(.standard, after: .fast)` starts one step late (the Quest Log's paper
   unrolls as the modal's fade-in ends, then the ink follows).
 - **One-shot only.** The terminal shares the main thread, so a transition runs once and nothing keeps running. Prefer

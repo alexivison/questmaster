@@ -182,6 +182,8 @@ enum RenderPreview {
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log.png")
         render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-nobody.png")
         render(QuestLogView(store: questLogStore(tab: "questmaster"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tab.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tabs-centred.png")
+        render(QuestLogView(store: questLogOverflowStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tabs-overflow.png")
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(tokens: ["@type:bug", "@size:S"]), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-filtered.png")
         render(
             QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "@type:"), layout: layout, previewFocused: true, onCommand: { _ in }),
@@ -1960,6 +1962,17 @@ enum RenderPreview {
         return store
     }
 
+    /// Quests across eight projects with names too long for the tab row, so it scrolls sideways; the last tab is selected.
+    private static func questLogOverflowStore() -> QuestLogStore {
+        let store = QuestLogStore()
+        store.sync(
+            quests: (1...8).map { QuestItem(id: "t\($0)", content: "Quest \($0)", projectID: "t\($0)", projectName: "a-long-project-name-\($0)") },
+            repos: []
+        )
+        store.selectTab(store.tabTitles.count - 1)
+        return store
+    }
+
     /// A filter holding the tokens, each typed and accepted as the field takes it; `typing` leaves an unfinished
     /// query in the field so its suggestions open.
     @MainActor
@@ -2349,7 +2362,8 @@ enum RenderPreview {
             let shell = shellWithHeaderView(size: size, trackerVisible: true, dockVisible: true)
             let stack = InWindowModalStack()
             (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
-            recordAnimation("quest-log-open-gif", root: shell, size: size, crop: modalCrop, duration: 0.75 * Motion.slowdown, to: dir) {
+            // The Quest Log at its fit is 1280 x 860 in this window: the crop takes all of it, with the scrim around.
+            recordAnimation("quest-log-open-gif", root: shell, size: size, crop: CGRect(x: 40, y: 10, width: 1320, height: 880), duration: 0.75 * Motion.slowdown, capturesLayers: true, to: dir) {
                 stack.presentQuestLog(questLogModal(questLogStore()))
             }
         }
