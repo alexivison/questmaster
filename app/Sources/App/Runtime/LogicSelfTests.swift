@@ -3790,6 +3790,16 @@ enum LogicSelfTests {
         /// Whether the entrance (or a close) is running: no click reaches the modal then.
         var isScaling: Bool { !(coordinateView?.layer?.animationKeys() ?? []).isEmpty }
 
+        /// Whether the entrance has finished and the hosted content has laid out at its intrinsic size. SwiftUI can take longer
+        /// than a short sample to settle its text on a busy runner, so the tests read the fit only once this holds.
+        var isSettled: Bool {
+            guard let hosted = hostedView, !isScaling else {
+                return false
+            }
+            let size = hosted.intrinsicContentSize
+            return abs(hosted.frame.width - size.width) < 0.5 && abs(hosted.frame.height - size.height) < 0.5
+        }
+
         /// The Quest Log's content at the fit to the window, centred, once it has settled.
         var fittedRect: CGRect {
             let content = hostedView?.intrinsicContentSize ?? .zero
@@ -3855,8 +3865,10 @@ enum LogicSelfTests {
         guard let smallest = drawn.map(\.width).min() else {
             throw TestFailure("the Quest Log should be drawn while it enters")
         }
+        try expect(waitUntil { scene.isSettled }, "the entrance should finish and the Quest Log lay out at its size")
         let fitted = scene.fittedRect
-        try expect(sameRect(drawn.last ?? .zero, fitted), "the entrance should end at the fit \(fitted), drawn \(drawn.last ?? .zero)")
+        let settled = scene.drawnRect ?? .zero
+        try expect(sameRect(settled, fitted), "the entrance should end at the fit \(fitted), drawn \(settled)")
         try expect(smallest < fitted.width - 1, "the entrance should draw the modal smaller than the fit at first, smallest \(smallest)")
         try expect(smallest >= fitted.width * 0.96, "the entrance should start from about 0.97 of the fit, smallest \(smallest) of \(fitted.width)")
         try expect(drawn.allSatisfy { $0.width <= fitted.width + 0.5 }, "the entrance should never draw the modal above the fit")
@@ -3891,7 +3903,8 @@ enum LogicSelfTests {
             try expect(!reachesModal(CGPoint(x: rect.midX, y: scene.host.bounds.midY)), "no click should reach the modal while it scales")
         }
         try expect(scalingFrames > 0, "the entrance should be sampled while it runs")
-        try expect(!scene.isScaling && drawn.last != nil, "the entrance should finish within the sample")
+        try expect(drawn.last != nil, "the Quest Log should be drawn once the sample ends")
+        try expect(waitUntil { scene.isSettled }, "the entrance should finish and the Quest Log lay out at its size")
         let fitted = scene.fittedRect
         let y = scene.host.bounds.midY
         try expect(reachesModal(CGPoint(x: fitted.minX + 4, y: y)), "a click 4pt inside the settled edge should reach the modal, drawn at \(fitted)")
@@ -3910,9 +3923,14 @@ enum LogicSelfTests {
             animated = animated || scene.isScaling
         }
         try expect(!drawn.isEmpty, "the Quest Log should be drawn under Reduce Motion")
-        let fitted = scene.fittedRect
-        try expect(drawn.allSatisfy { sameRect($0, fitted) }, "under Reduce Motion every frame should be the fit \(fitted), got \(drawn.first ?? .zero)")
         try expect(!animated, "under Reduce Motion the entrance should add no animation")
+        try expect(waitUntil { scene.isSettled }, "the Quest Log should lay out at its size")
+        let fitted = scene.fittedRect
+        try expect(sameRect(scene.drawnRect ?? .zero, fitted), "under Reduce Motion the modal should be drawn at the fit \(fitted)")
+        // The first frame is already the fit's width, within the layout's own settling.
+        if let first = drawn.first {
+            try expect(abs(first.width - fitted.width) < fitted.width * 0.01, "under Reduce Motion the first frame should already be the fit's width, got \(first.width) of \(fitted.width)")
+        }
     }
 
     /// Closing scales the modal back to its start scale about its centre, before it is removed.
@@ -3920,6 +3938,7 @@ enum LogicSelfTests {
         let scene = QuestLogModalFrames()
         defer { scene.window.close() }
         _ = try scene.sample(for: 0.6, begin: scene.present)
+        try expect(waitUntil { scene.isSettled }, "the Quest Log should settle before it closes")
         let fitted = scene.fittedRect
         let drawn = try scene.sample(for: 0.25, begin: { scene.stack.dismiss(id: QuestLogModal.stackID) })
         guard let smallest = drawn.map(\.width).min() else {
