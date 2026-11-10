@@ -60,7 +60,7 @@ struct TrackerAvatarAnimationTests {
         expect(animation.animation(for: .idle)?.loop?.character.steps.map(\.frame) == Array(1...9), "idle should strum through f1 to f9")
         let pondering = animation.animation(for: .pondering)
         expect(pondering?.footRow == 162 && pondering?.bodyColumn == 56, "pondering should stand at the bard's foot row and body column")
-        expect(pondering?.finish?.character.steps.map(\.frame) == [4, 3, 2, 1], "pondering's finish should play its entrance backwards to f1")
+        expect(pondering?.finish?.character.steps.map(\.frame) == [4, 2, 1], "pondering's finish should play its entrance backwards to f1")
         expect(animation.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 58, y: 10), "calling out should anchor the shared bubble at the bard's head")
     }
 
@@ -792,7 +792,7 @@ struct TrackerAvatarAnimationTests {
               let finish = summoning.finish, let channellingFinish = animation.animation(for: .channelling)?.finish else {
             fail("the paladin's summoning and channelling should have their blocks")
         }
-        expect(enter.character.frame(at: 0.35, looping: false) == 4, "a summoning's enter should reach the paladin's f4 at 0.35 s")
+        expect(enter.character.frame(at: 0.35, looping: false) == 7, "a summoning's enter should reach the paladin's f7 at 0.35 s")
         expect(enter.behind?.frame(at: 0.35, looping: false) == 15, "the ground circle should reach frame 15 at 0.35 s of its enter")
         expect(loop.character.frame(at: 0.9, looping: true) == 11, "the summoning's loop should show f11 from 0.8 s")
         expect(finish.behind?.frame(at: 0.25, looping: false) == 11, "the ground circle's finish should reach frame 11 at 0.25 s")
@@ -829,7 +829,7 @@ struct TrackerAvatarAnimationTests {
               let studyingFinish = animation.animation(for: .studying)?.finish else {
             fail("the cleric's summoning and studying should have their blocks")
         }
-        expect(enter.behind?.frame(at: 0.35, looping: false) == 19, "the ground circle should reach frame 19 at 0.35 s of its enter")
+        expect(enter.behind?.frame(at: 0.35, looping: false) == 15, "the ground circle should reach frame 15 at 0.35 s of its enter")
         expect(studyingFinish.character.frame(at: 0, looping: false) == 7, "the studying's finish should start on the pose's f7")
         expect(studyingFinish.character.frame(at: 9, looping: false) == 1, "the studying's finish should end on the cleric's f1")
     }

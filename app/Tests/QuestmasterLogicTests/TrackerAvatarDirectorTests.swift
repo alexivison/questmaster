@@ -182,8 +182,8 @@ struct TrackerAvatarDirectorTests {
     private static func attachingMidStretchUsesThePayloadsWorkingStart() {
         var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(elapsedSince: epochStart), at: 100)
-        director.observe(bard(state: "done"), at: 101)
-        expect(director.frame(at: 101).pose == .pondering, "the bow should wait for the pondering pose's hold from the attach")
+        director.observe(bard(state: "done"), at: 100 + TrackerAvatarTiming.holdSeconds / 2)
+        expect(director.frame(at: 100 + TrackerAvatarTiming.holdSeconds / 2).pose == .pondering, "the bow should wait for the pondering pose's hold from the attach")
         expect(director.frame(at: 101 + TrackerAvatarTiming.holdSeconds).pose == .bow, "a turn that ran a minute before the attach should still bow")
     }
 
@@ -625,7 +625,8 @@ struct TrackerAvatarDirectorTests {
         var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("02-pondering", seconds: 2))
         director.observe(bard(), at: 0)
         director.observe(bard(tool: "Read"), at: 0.5)
-        expect(near(director.frame(at: 1.4).enterElapsed, 1.4), "a change should wait out the hold while the enter plays")
+        let waiting = TrackerAvatarTiming.holdSeconds - 0.1
+        expect(near(director.frame(at: waiting).enterElapsed, waiting), "a change should wait out the hold while the enter plays")
         let changed = director.frame(at: TrackerAvatarTiming.holdSeconds)
         expect(changed.pose == .studying && changed.enterElapsed == nil, "the hold should cut the enter short, got \(changed)")
     }
@@ -635,8 +636,9 @@ struct TrackerAvatarDirectorTests {
         var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("03-studying", seconds: 2))
         director.observe(bard(tool: "Read"), at: 0)
         director.observe(bard(tool: "Edit"), at: 0.5)
-        let during = director.frame(at: 1)
-        expect(during.pose == .studying && near(during.enterElapsed, 1) && during.finishElapsed == nil, "the cast should still be in its enter, got \(during)")
+        let waiting = TrackerAvatarTiming.holdSeconds - 0.1
+        let during = director.frame(at: waiting)
+        expect(during.pose == .studying && near(during.enterElapsed, waiting) && during.finishElapsed == nil, "the cast should still be in its enter, got \(during)")
         let finish = director.frame(at: TrackerAvatarTiming.holdSeconds)
         expect(finish.pose == .studying && finish.finishElapsed == 0 && finish.enterElapsed == nil, "the cast's finish should play when the hold runs out, got \(finish)")
         let next = director.frame(at: TrackerAvatarTiming.holdSeconds + finishSeconds)

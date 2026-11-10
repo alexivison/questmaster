@@ -5,7 +5,7 @@ import Foundation
 public enum TrackerAvatarTiming {
     /// A steady pose stays this long before a different one shows, so tool calls that change several times a second
     /// don't flicker. Calling out is the exception: it cuts in at once.
-    public static let holdSeconds: TimeInterval = 1.5
+    public static let holdSeconds: TimeInterval = 1.0
     /// The least working stretch that earns a bow when it ends. A shorter turn goes straight to idle; the user may tune this.
     public static let minimumBowWorkSeconds: TimeInterval = 60
 }
