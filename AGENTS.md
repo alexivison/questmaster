@@ -74,7 +74,7 @@ covers the installer.
 State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 
 For branch testing, run `QUESTMASTER_TMUX_LABEL=dev_example swift run --package-path app Questmaster`
-from a `feat/tmux-server` worktree. `--state-root` or `QUESTMASTER_STATE_ROOT`
+from a worktree branched from `origin/main`. `--state-root` or `QUESTMASTER_STATE_ROOT`
 can isolate its state. The non-bundle app starts a worktree-built daemon with its
 own identity, socket and shims; it does not replace the installed build. The
 label override is validated at daemon start, carried into the daemon's
