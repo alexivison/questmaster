@@ -219,13 +219,8 @@ private final class ModalScaleView: NSView {
         entrance.wantsLayer = true
         addSubview(entrance)
         hosting.sizingOptions = [.intrinsicContentSize]
-        hosting.translatesAutoresizingMaskIntoConstraints = false
         hosting.onLayout = { [weak self] in self?.applyScale() }
         entrance.addSubview(hosting)
-        NSLayoutConstraint.activate([
-            hosting.centerXAnchor.constraint(equalTo: entrance.centerXAnchor),
-            hosting.centerYAnchor.constraint(equalTo: entrance.centerYAnchor),
-        ])
     }
 
     @available(*, unavailable)
@@ -278,6 +273,7 @@ private final class ModalScaleView: NSView {
             bounds = fitBounds
         }
         entrance.frame = bounds
+        placeHosting()
         if targetTransform == nil {
             // The first transform is where the modal starts, so an entrance change made before this layout animates from it.
             entrance.layer?.transform = Self.aboutCentre(shown, size: entrance.bounds.size)
@@ -311,6 +307,18 @@ private final class ModalScaleView: NSView {
         layer.transform = target
         layer.removeAnimation(forKey: Self.entranceKey)
         layer.add(animation, forKey: Self.entranceKey)
+    }
+
+    /// Centres the hosted content at its intrinsic size, by hand: Auto Layout rounds a view's frame to whole device pixels,
+    /// and under a fractional fit that shortened the sheet by a point on a 1x display.
+    private func placeHosting() {
+        let size = hosting.intrinsicContentSize
+        hosting.frame = CGRect(
+            x: (entrance.bounds.width - size.width) / 2,
+            y: (entrance.bounds.height - size.height) / 2,
+            width: size.width,
+            height: size.height
+        )
     }
 
     /// `scale` about the centre of a layer `size` wide and high. AppKit anchors a layer-backed view at its origin, so the
