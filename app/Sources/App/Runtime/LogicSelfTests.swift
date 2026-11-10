@@ -9,6 +9,9 @@ import WebKit
 
 @MainActor
 enum LogicSelfTests {
+    private static let selfTestWaitTimeout: TimeInterval = 10
+    private static let socketPollTimeoutMilliseconds: Int32 = 10_000
+
     private static let cases: [(name: String, body: @MainActor () throws -> Void)] = [
         ("testAppBackendResolverFeedsLaunchConfiguration", testAppBackendResolverFeedsLaunchConfiguration),
         ("testLaunchFlagMappingTable", testLaunchFlagMappingTable),
@@ -231,6 +234,10 @@ enum LogicSelfTests {
     ]
 
     private static let caseTimeoutSeconds: TimeInterval = 120
+    // Keep the grandchild's inherited pipe open long enough to prove the reader returns by process state.
+    private static let heldPipeGrandchildLifetime: TimeInterval = 30
+    // The 150 ms process deadline plus TERM/KILL and pipe-drain waits leaves about 0.5 s for host scheduling.
+    private static let boundedProcessTimeoutWatchdog: TimeInterval = 1.5
 
     static func runIfRequested() -> Bool {
         guard CommandLine.arguments.contains("--run-logic-tests") else {
@@ -400,13 +407,16 @@ enum LogicSelfTests {
     private static func testPortraitRingAnimatesByItsMode() throws {
         let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
         let geometry = TrackerPlateDesign.collapsedCircleStatus
-        let bash = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-2), typicalMS: 6000)
+        let now = Date(timeIntervalSinceReferenceDate: 1_800_000_000)
+        let bash = TrackerCast(tool: "Bash", startedAt: now.addingTimeInterval(-2), typicalMS: 6000)
 
         let outside = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        outside.now = { now }
         outside.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
         try expect(outside.fillAnimation == nil && outside.pulseAnimation == nil, "a ring outside a window should not animate")
 
         let status = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        status.now = { now }
         window.contentView = status
         status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
         try expect(status.fillAnimation == nil && status.spinAnimation == nil && status.pulseAnimation == nil, "a steady ring should not move")
@@ -418,7 +428,7 @@ enum LogicSelfTests {
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
         guard let fill = status.fillAnimation, let pulse = status.pulseAnimation else { throw TestFailure("a cast with a learned duration should fill the ring, then pulse") }
         try expect(abs(fill.duration - 4) < 0.1 && (fill.toValue as? CGFloat) == 1, "2s into a 6s tool the ring should fill to full in 4s, got \(fill.duration)")
-        try expect(abs(pulse.beginTime - CACurrentMediaTime() - 4) < 0.2, "the pulse should start when the ring is full")
+        try expect(abs(pulse.beginTime - fill.beginTime - fill.duration) < 0.01, "the pulse should start when the ring is full")
         try expect(pulse.timingFunction === Motion.breathingTimingFunction, "the ring's pulse should breathe on the breathing easing")
         try expect(status.spinAnimation == nil, "a filling ring should not spin")
 
@@ -557,11 +567,10 @@ enum LogicSelfTests {
             func unconfigured() -> Int {
                 statusViews(in: hosting).filter { $0.geometry == nil }.count
             }
-            let deadline = Date().addingTimeInterval(10)
-            while (control() == nil || unconfigured() > 0), Date() < deadline {
+            try expect(waitUntil {
                 hosting.layoutSubtreeIfNeeded()
-                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-            }
+                return control() != nil && unconfigured() == 0
+            }, "\(description): status views should mount and configure")
             guard let control = control() else {
                 throw TestFailure("\(description): the control status view never mounted (hosting subviews: \(hosting.subviews.count), status views: \(statusViews(in: hosting).count))")
             }
@@ -888,10 +897,12 @@ enum LogicSelfTests {
         try expect(!clock.isRunning, "a clock with no subscribers should not run")
         for _ in 0..<100 { clock.subscribe() }
         try expect(clock.timersStarted == 1, "100 subscribers should share one timer, got \(clock.timersStarted)")
-        let start = Date()
-        try expect(waitUntil { clock.ticks >= 4 }, "the clock should tick")
-        let elapsed = Date().timeIntervalSince(start)
-        try expect(Double(clock.ticks) <= clock.framesPerSecond * elapsed + 2, "100 subscribers should not multiply the ticks: \(clock.ticks) in \(elapsed)s")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for second in 1...4 {
+            clock.tick(at: now.addingTimeInterval(TimeInterval(second)))
+        }
+        try expect(clock.ticks == 4, "the shared clock should deliver each tick once, got \(clock.ticks)")
+        try expect(clock.time == now.addingTimeInterval(4).timeIntervalSinceReferenceDate, "the clock should retain the latest tick time")
         for _ in 0..<99 { clock.unsubscribe() }
         try expect(clock.isRunning, "the clock should run while one subscriber is left")
         clock.unsubscribe()
@@ -926,7 +937,7 @@ enum LogicSelfTests {
         window.show()
         defer { window.close() }
         let startedBefore = clock.timersStarted
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         try expect(!clock.isRunning && clock.timersStarted == startedBefore, "fixed and hidden times should not start the clock")
 
         hosting.rootView = column(idleEntries + Array(repeating: live, count: 30))
@@ -942,23 +953,26 @@ enum LogicSelfTests {
     /// motion), a finishing cast neither, and nothing animates outside a window.
     private static func testCastFillAnimatesOnlyWhileCastingInAWindow() throws {
         let window = HeadlessWindow(size: CGSize(width: 300, height: 40))
-        let started = Date().addingTimeInterval(-2)
+        let now = Date(timeIntervalSinceReferenceDate: 1_800_000_000)
+        let started = now.addingTimeInterval(-2)
         let bash = TrackerCast(tool: "Bash", startedAt: started, typicalMS: 6000)
-        let overrun = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-9), typicalMS: 6000)
+        let overrun = TrackerCast(tool: "Bash", startedAt: now.addingTimeInterval(-9), typicalMS: 6000)
         let mcp = TrackerCast(tool: "mcp__linear__save_issue", startedAt: started, typicalMS: 0)
 
         let outside = TrackerCastFillNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 13))
+        outside.now = { now }
         outside.configure(cast: bash, isFinishing: false, reduceMotion: false)
         try expect(outside.fillAnimation == nil && outside.pulseAnimation == nil, "a bar outside a window should not animate")
 
         let fill = TrackerCastFillNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 13))
+        fill.now = { now }
         window.contentView = fill
         fill.configure(cast: bash, isFinishing: false, reduceMotion: false)
         guard let animation = fill.fillAnimation, let pulse = fill.pulseAnimation else {
             throw TestFailure("a cast with a learned duration should fill, then pulse")
         }
         try expect(abs(animation.duration - 4) < 0.1, "2s into a 6s tool the fill should run 4s to full, got \(animation.duration)")
-        try expect(abs(pulse.beginTime - CACurrentMediaTime() - 4) < 0.2, "the pulse should start when the bar is full")
+        try expect(abs(pulse.beginTime - animation.beginTime - animation.duration) < 0.01, "the pulse should start when the bar is full")
         try expect(pulse.repeatCount == .infinity && pulse.autoreverses, "the pulse should breathe until the tool ends")
         try expect(pulse.timingFunction === Motion.breathingTimingFunction, "the bar's pulse should breathe on the breathing easing")
         try expect(!fill.isShimmering, "a learned duration should not shimmer")
@@ -1150,11 +1164,12 @@ enum LogicSelfTests {
         let mounted = views(under: view).map(ObjectIdentifier.init)
 
         /// Switches to `next` from a clean slate (a finished fade stays on its layer until Core Animation's next commit) and
-        /// returns how many icon layers fade, once the first shows.
+        /// returns how many icon layers have an installed fade.
         func fadeCount(after next: SelectedSessionPanelContent, _ what: String) throws -> Int {
             icons(in: view).forEach { $0.layer?.removeAllAnimations() }
             model.content = next
-            try expect(waitUntil { shownOpacity(in: view) < 1 }, "\(what) should start clear and fade in on its layer")
+            // The presentation layer can be absent until Core Animation commits its first frame; the installed animation is stable evidence.
+            try expect(waitUntil { fades(in: view).count == 1 }, "\(what) should install one fade on its icon layer")
             return fades(in: view).count
         }
         /// Switches to `next` from a clean slate and, once `landed`, expects nothing to fade.
@@ -1162,7 +1177,7 @@ enum LogicSelfTests {
             icons(in: view).forEach { $0.layer?.removeAllAnimations() }
             model.content = next
             try expect(waitUntil(landed), "\(what) should land")
-            pump(0.1)
+            try pumpOneMainRunLoopTurn()
             try expect(fades(in: view).isEmpty, "\(what) shouldn't fade")
         }
 
@@ -1676,11 +1691,11 @@ enum LogicSelfTests {
         controller.switchTerminal(to: legacy.sessionID)
         try expect(host.labels == ["default"] && routes.pending.count == 1, "cached route should attach before refresh completes")
         routes.pending[0](.failure(ServeClientError.connect("daemon restarting")))
-        pump(0.02)
+        try pumpOneMainRunLoopTurn()
         controller.switchTerminal(to: legacy.sessionID)
         try expect(host.labels == ["default", "default"] && routes.pending.count == 2, "refresh failure should retain the cached route")
         routes.pending[1](.success([named]))
-        pump(0.02)
+        try pumpOneMainRunLoopTurn()
         controller.switchTerminal(to: named.sessionID)
         try expect(host.labels == ["default", "default", "questmaster"], "route refresh should replace the cached label")
     }
@@ -1735,7 +1750,7 @@ enum LogicSelfTests {
         controller.switchTerminal(to: legacy.sessionID) { completed = $0 }
         try expect(routes.pending.count == 1, "cached route should refresh during attach")
         routes.pending[0](.success([named]))
-        pump(0.02)
+        try pumpOneMainRunLoopTurn()
         try expect(completed == nil && host.labels == ["default"], "a refreshed route should wait for the first attach result")
         host.finishDefaultFailure?()
         try expect(host.labels == ["default", "questmaster"] && completed == true && controller.attachedRoute == named,
@@ -1906,7 +1921,7 @@ enum LogicSelfTests {
             waitUntil { !subviews(of: host).contains { $0 is WKWebView } },
             "the blocked pane should replace the page view when the blocker fails"
         )
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         try expect(webView.url == nil && !webView.isLoading, "no page should load when the blocker fails, got \(String(describing: webView.url))")
         let bitmap = try snapshot(host, size: artifactViewerSize, scale: 1)
         try expect(
@@ -2172,7 +2187,9 @@ enum LogicSelfTests {
             window.contentView = view
             window.show()
             defer { window.close() }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            view.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            try pumpOneMainRunLoopTurn()
             let bitmap = try snapshot(view, size: size, scale: 1)
             guard let base = fill.usingColorSpace(.deviceRGB) else {
                 throw TestFailure("could not read the panel fill")
@@ -3170,8 +3187,7 @@ enum LogicSelfTests {
         try expect(window.frame.size == windowSize, "a presented modal must not resize the window, got \(window.frame.size) from \(windowSize)")
 
         holder.item = nil
-        RunLoop.main.run(until: Date().addingTimeInterval(MotionStep.fast.seconds / 3))
-        try expect(stack.isEmpty, "a dismissed modal should stop counting as open at once, so keys go back underneath")
+        try expect(waitUntil { stack.isEmpty }, "a dismissed modal should stop counting as open at once, so keys go back underneath")
         try expect(stack.entries.count == 1 && stack.entries[0].closing, "a dismissed modal should stay mounted, closing, while it fades out")
         try expect(!host.isHidden, "the host should stay visible until the fade-out ends")
         try expect(waitUntil { stack.entries.isEmpty && host.isHidden }, "the modal fade-out should finish and hide the host")
@@ -3361,7 +3377,11 @@ enum LogicSelfTests {
                     coordinator.focusTerminal()
                 }
             )
-            stack.present(id: id, AnyView(NewSessionSheetView(presentation: presentation, dismiss: { stack.dismiss(id: id) })))
+            var dismissalCompleted = false
+            stack.present(id: id, AnyView(NewSessionSheetView(
+                presentation: presentation,
+                dismiss: { stack.dismiss(id: id, onDismissed: { dismissalCompleted = true }) }
+            )))
             let expected = start == .prompt ? "ModalPromptEditorTextView" : "SinkView"
             try expect(waitUntil {
                 let holder = String(describing: window.firstResponder.map { type(of: $0) })
@@ -3377,12 +3397,10 @@ enum LogicSelfTests {
             }
             let submitted = responders.count
             _ = monitor.onKeyDown(try keyEvent("\r", keyCode: 36, modifierFlags: .command))
-            // Keep the run loop active past the fade and delayed focus restores to catch a late sheet responder.
-            func observeFocusFor(_ seconds: TimeInterval) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-            observeFocusFor(0.6)
-            for _ in 0..<5 {
-                observeFocusFor(0.05)
-            }
+            try expect(waitUntil {
+                summoned == "qm-new" && dismissalCompleted && stack.entries.isEmpty && host.isHidden && window.firstResponder === terminal.view
+            }, "\(start): dismissal should complete and restore terminal focus")
+            try waitForMainQueueTurn()
             try expect(summoned == "qm-new", "\(start): Summon should succeed, got \(String(describing: summoned))")
             try expect(stack.entries.isEmpty && host.isHidden, "\(start): the sheet should be gone")
             try expect(window.firstResponder === terminal.view, "\(start): focus should end on the new terminal, got \(String(describing: window.firstResponder))")
@@ -3706,7 +3724,8 @@ enum LogicSelfTests {
         window.contentView = container
         window.show()
         defer { window.close() }
-        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+        try expect(waitUntil { !scrollViews(in: shell).isEmpty }, "the Quest Log should mount its list")
+        shell.layoutSubtreeIfNeeded()
         let layout = QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize)
         let listSize = CGSize(width: layout.listWidth, height: layout.listHeight)
         guard let list = scrollViews(in: shell).first(where: { $0.frame.size == listSize }) else {
@@ -4088,8 +4107,9 @@ enum LogicSelfTests {
             window.contentView = view
             window.show()
             defer { window.close() }
-            // `cacheDisplay` needs the hosted SwiftUI tree's first draw, which has no completion signal.
-            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            view.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            try pumpOneMainRunLoopTurn()
             guard let bitmap = NSBitmapImageRep(
                 bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
@@ -4173,10 +4193,6 @@ enum LogicSelfTests {
             window.show()
             let shellSectionHeight = min(CGFloat(shells) * TrackerShellMetrics.rowHeight, TrackerShellMetrics.maxHeight)
             try expect(LogicSelfTests.waitUntil { scrollView(height: shellSectionHeight) != nil }, "the tracker shell section should finish laying out")
-        }
-
-        func observePointerMove(_ seconds: TimeInterval) {
-            RunLoop.main.run(until: Date().addingTimeInterval(seconds))
         }
 
         func close() {
@@ -4334,7 +4350,7 @@ enum LogicSelfTests {
         defer { hovered.close() }
         PointerHighlight.cursor.pointerMoved(to: "shell-13")
         hovered.store.setCurrentTerminalSessionID("shell-13")
-        hovered.observePointerMove(0.8)
+        try waitForMainQueueTurn()
         guard let hoveredScroll = hovered.scrollView(height: TrackerShellMetrics.maxHeight) else {
             throw TestFailure("no 175pt scroll view after the pointer moved the cursor")
         }
@@ -5015,13 +5031,13 @@ enum LogicSelfTests {
         QuestLogDebug.parchmentDraws = 0
         store.open()
         stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        try expect(waitUntil { QuestLogDebug.parchmentDraws > 0 }, "opening should draw the Quest Log parchment")
+        try waitForMainQueueTurn()
         try expect(!host.isHidden, "opening should show the Quest Log")
         try expect((1...2).contains(QuestLogDebug.parchmentDraws), "the parchment should draw once for the opening, not per unroll frame; drew \(QuestLogDebug.parchmentDraws) times")
 
         store.close()
         stack.dismiss(id: QuestLogModal.stackID)
-        RunLoop.main.run(until: Date().addingTimeInterval(MotionStep.fast.seconds / 3))
         try expect(!host.isHidden, "the Quest Log should stay visible while it fades out")
         try expect(waitUntil { host.isHidden }, "the Quest Log host should hide when its fade-out finishes")
         try expect(host.isHidden, "the Quest Log host should hide once the fade-out ends")
@@ -5521,7 +5537,7 @@ enum LogicSelfTests {
                 switchBeforeMutation: switchTo != nil,
                 clearTerminalOnSuccess: clear
             ) { finished = true }
-            try waitForMainQueue("the mutation to settle", timeout: 2, until: { finished || failures.value > 0 })
+            try waitForMainQueue("the mutation to settle", until: { finished || failures.value > 0 })
             try waitForMainQueueTurn()
             return (endedCount.value, switches.value)
         }
@@ -5926,10 +5942,9 @@ enum LogicSelfTests {
             try? UnixSocketIO.write(line + Data("\nnext".utf8), to: writer)
             written.signal()
         }
-        try UnixSocketIO.setReadTimeout(on: fds[0], seconds: 5)
         let read = try UnixSocketIO.readLine(from: fds[0])
         // The sockets close only once the writer is done, so it never writes to a closed one.
-        _ = written.wait(timeout: .now() + 5)
+        try waitForSemaphore(written, description: "the large socket write")
         try expect(read == line, "readLine should return the whole line, newline and later bytes excluded (got \(read.count) bytes)")
     }
 
@@ -5944,13 +5959,14 @@ enum LogicSelfTests {
         let three = serveTrackerLine("wire-three", padding: 100_000)
 
         try harness.write(String(one.prefix(40)))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        try harness.waitForRead()
         try harness.write(String(one.dropFirst(40)) + "\n" + String(two.prefix(30)))
+        try harness.waitForRead()
         try waitForMainQueue("the first line", until: { harness.wireLabels == ["wire-one"] })
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         try expect(harness.wireLabels == ["wire-one"], "a line without its newline should wait, got \(harness.wireLabels)")
 
         try harness.write(String(two.dropFirst(30)) + "\n\n")
+        try harness.waitForRead()
         let bytes = Array((three + "\n").utf8)
         for start in stride(from: 0, to: bytes.count, by: 1_000) {
             try UnixSocketIO.write(Data(bytes[start..<min(start + 1_000, bytes.count)]), to: harness.daemon)
@@ -5979,9 +5995,9 @@ enum LogicSelfTests {
             written.signal()
         }
 
-        try expect(readsClosed(daemon, within: 10), "the client should close a connection whose frame outgrows the cap")
+        try expect(readsClosed(daemon), "the client should close a connection whose frame outgrows the cap")
         // The daemon end closes only once the writer is done with it.
-        try expect(written.wait(timeout: .now() + 10) == .success, "the oversized write should end once the client hangs up")
+        try waitForSemaphore(written, description: "the oversized socket write")
         try waitForMainQueue("a reconnect after the oversized frame", until: { harness.connects >= 2 })
         try waitForMainQueueTurn()
         try expect(harness.wireLabels == ["wire-before", "wire-at-cap"], "only the whole lines should arrive, got \(harness.wireLabels)")
@@ -6000,7 +6016,7 @@ enum LogicSelfTests {
         ]
         try harness.write(lines.joined(separator: "\n") + "\n")
 
-        try expect(readsClosed(harness.daemon, within: 10), "the client should close the connection at the mismatched line")
+        try expect(readsClosed(harness.daemon), "the client should close the connection at the mismatched line")
         try waitForMainQueue("a reconnect after the mismatch", until: { harness.connects >= 2 })
         try waitForMainQueueTurn()
         try expect(harness.wireLabels == ["wire-before"], "nothing from the mismatched line on should arrive, got \(harness.wireLabels)")
@@ -6033,11 +6049,9 @@ enum LogicSelfTests {
         try harness.write(serveTrackerLine("wire-live") + "\n")
         try waitForMainQueue("the live line", until: { harness.wireLabels == ["wire-live"] })
 
-        let started = Date()
         harness.client.stop()
-        try expect(Date().timeIntervalSince(started) < 0.1, "stop should return without waiting for the loop")
-        try expect(readsClosed(harness.daemon, within: 1), "stop should close a connected socket at once")
-        try expect(serveLoopExits(harness.client, within: 1), "the loop should exit once stopped")
+        try expect(readsClosed(harness.daemon), "stop should close a connected socket at once")
+        try expect(serveLoopExits(harness.client), "the loop should exit once stopped")
         try expect(harness.connects == 1, "a stopped client should not connect again, got \(harness.connects) connects")
     }
 
@@ -6051,31 +6065,34 @@ enum LogicSelfTests {
         let release = DispatchSemaphore(value: 0)
         let client = UnixSocketServeClient(connect: {
             connecting.signal()
-            _ = release.wait(timeout: .now() + 10)
+            release.wait()
             return clientEnd
         }, invalidate: {})
         client.start(onUpdate: { _ in })
-        try expect(connecting.wait(timeout: .now() + 5) == .success, "the client should start connecting")
+        try waitForSemaphore(connecting, description: "the blocked connect to begin")
 
-        client.stop()
+        let stopReturned = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            client.stop()
+            stopReturned.signal()
+        }
+        try waitForSemaphore(stopReturned, description: "stop to return while connect remains blocked")
         release.signal()
-        try expect(readsClosed(fds[1], within: 1), "a socket connected after stop should close at once")
-        try expect(serveLoopExits(client, within: 1), "the loop should exit once stopped")
+        try expect(readsClosed(fds[1]), "a socket connected after stop should close at once")
+        try expect(serveLoopExits(client), "the loop should exit once stopped")
     }
 
     /// Stop wakes the wait between failed connects instead of sleeping it out.
     private static func testServeClientStopEndsTheRetryWait() throws {
-        let counter = ConnectCounter()
+        let retryWaitStarted = DispatchSemaphore(value: 0)
         let client = UnixSocketServeClient(connect: {
-            _ = counter.increment()
             throw ServeClientError.connect("no daemon in this test")
-        }, invalidate: {})
+        }, invalidate: {}, onRetryWait: { retryWaitStarted.signal() }, retryDelays: [60 * 60])
         client.start(onUpdate: { _ in })
-        // The fourth failure starts the longest wait (one second).
-        try waitForMainQueue("four failed connects", until: { counter.value >= 4 })
+        try waitForSemaphore(retryWaitStarted, description: "the client to enter its one-hour retry wait")
 
         client.stop()
-        try expect(serveLoopExits(client, within: 0.5), "stop should end the retry wait at once")
+        try expect(serveLoopExits(client), "stop should end the retry wait at once")
     }
 
     /// A write to a socket whose other end has gone (a daemon that hung up, or a stop's shutdown before the serve
@@ -6100,18 +6117,17 @@ enum LogicSelfTests {
         close(peer)
 
         var failed = false
-        for _ in 0..<3 where !failed {
+        while !failed {
             do { try UnixSocketIO.write(Data("{}\n".utf8), to: client) } catch { failed = true }
         }
         try expect(failed, "a write to a peer that hung up should fail")
     }
 
-    /// Whether the client's connection loop has returned within `timeout`: it runs on the client's serial queue, so a
-    /// block queued behind it runs only once it does.
-    private static func serveLoopExits(_ client: UnixSocketServeClient, within timeout: TimeInterval) -> Bool {
+    /// A barrier queued behind the connection loop runs only after it returns.
+    private static func serveLoopExits(_ client: UnixSocketServeClient) -> Bool {
         let exited = DispatchSemaphore(value: 0)
         client.queue.async { exited.signal() }
-        return exited.wait(timeout: .now() + timeout) == .success
+        return exited.wait(timeout: .now() + selfTestWaitTimeout) == .success
     }
 
     /// One serve tracker event line, without its newline, labelled by `observed_at` and padded by `padding` bytes.
@@ -6120,17 +6136,17 @@ enum LogicSelfTests {
         return "{\"protocol_version\":\(version),\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"\(label)\",\"sessions\":[],\"padding\":\"\(pad)\"}}"
     }
 
-    /// Reads `fd` until its peer closes (true), or `timeout` passes first (false).
-    private static func readsClosed(_ fd: Int32, within timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
+    /// Reads `fd` until its peer closes. The self-test case watchdog catches a broken loop that never closes it.
+    private static func readsClosed(_ fd: Int32) -> Bool {
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
-            let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else { return false }
             var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-            guard poll(&ready, 1, Int32(remaining * 1000)) == 1 else { return false }
+            let result = poll(&ready, 1, socketPollTimeoutMilliseconds)
+            if result < 0 && errno == EINTR { continue }
+            guard result == 1 else { return false }
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count == 0 || (count < 0 && errno == ECONNRESET) { return true }
+            if count < 0 && errno == EINTR { continue }
             if count < 0 { return false }
         }
     }
@@ -6142,6 +6158,7 @@ enum LogicSelfTests {
         let daemon: Int32
         let client: UnixSocketServeClient
         private let counter: ConnectCounter
+        private let reads: DispatchSemaphore
         /// The `observed_at` labels of the tracker updates that reached the client's callback, in order, on the main
         /// queue. Only `wire-` labels count: the client also reports its own connection status as updates.
         private(set) var wireLabels: [String] = []
@@ -6161,14 +6178,16 @@ enum LogicSelfTests {
             }
             let clientEnd = fds[0]
             let counter = ConnectCounter()
+            let reads = DispatchSemaphore(value: 0)
             daemon = fds[1]
             self.counter = counter
+            self.reads = reads
             client = UnixSocketServeClient(connect: {
                 guard counter.increment() == 1 else {
                     throw ServeClientError.connect("the test daemon accepts one connection")
                 }
                 return clientEnd
-            }, invalidate: {})
+            }, invalidate: {}, onRead: { reads.signal() })
         }
 
         func start() {
@@ -6184,6 +6203,10 @@ enum LogicSelfTests {
 
         func write(_ text: String) throws {
             try UnixSocketIO.write(Data(text.utf8), to: daemon)
+        }
+
+        func waitForRead() throws {
+            try LogicSelfTests.waitForSemaphore(reads, description: "the client to read socket bytes")
         }
 
         func finish() {
@@ -6204,6 +6227,7 @@ enum LogicSelfTests {
         func increment() -> Int {
             lock.lock(); defer { lock.unlock() }
             count += 1
+            DispatchQueue.main.async {}
             return count
         }
     }
@@ -6975,7 +6999,7 @@ enum LogicSelfTests {
         window.contentView = scrollView
         window.show()
         defer { window.close() }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        try waitForMainQueueTurn()
 
         try expect(
             scrollView.contentView.bounds.width == scrollView.bounds.width,
@@ -6988,7 +7012,7 @@ enum LogicSelfTests {
         scrollView.hasVerticalScroller = true
         scrollView.scrollerStyle = .legacy
         scrollView.tile()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        try waitForMainQueueTurn()
 
         try expect(
             scrollView.contentView.bounds.width == scrollView.bounds.width,
@@ -7063,8 +7087,15 @@ enum LogicSelfTests {
         return FollowerFixture(window: window, scrollView: scrollView, documentView: documentView, follower: follower)
     }
 
-    private static func pump(_ seconds: TimeInterval) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    private static func pumpOneMainRunLoopTurn() throws {
+        // Queue a real main-thread event so absence checks observe one complete turn.
+        try waitForMainQueueTurn()
+    }
+
+    private static func waitForSemaphore(_ semaphore: DispatchSemaphore, description: String) throws {
+        guard semaphore.wait(timeout: .now() + selfTestWaitTimeout) == .success else {
+            throw TestFailure("timed out after \(selfTestWaitTimeout)s waiting for \(description)")
+        }
     }
 
     /// Stops or restarts the clock for `view`'s layer tree. While it is stopped, a glide or fade holds its start
@@ -7074,7 +7105,7 @@ enum LogicSelfTests {
         view.layer?.speed = held ? 0 : 1
     }
 
-    /// Pumps the run loop until `condition` holds, for at most five seconds, and reports whether it did.
+    /// Pumps the run loop until `condition` holds; the per-case watchdog bounds a broken wait.
     /// `f` opens the filter while the dock shows the worker log, j/k and Space then work its rows instead of scrolling
     /// the feed, and Esc, losing the keys or leaving the worker log close it.
     private static func testDockPaneRoutesTheWorkerLogFilterKeys() throws {
@@ -7160,7 +7191,7 @@ enum LogicSelfTests {
         window.contentView = dock
         window.show(key: true)
         defer { window.close() }
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         // Window coordinates run up from the bottom; the icons sit `dockTopBarIconCentre` down, the x 30 in from the right
         // edge less its half width.
         let iconY = size.height - ShellMetrics.dockTopBarIconCentre
@@ -7173,7 +7204,7 @@ enum LogicSelfTests {
                     throw TestFailure("could not create a mouse event")
                 }
                 window.sendEvent(event)
-                pump(0.05)
+                try pumpOneMainRunLoopTurn()
             }
         }
         try click(filterX, iconY)
@@ -7198,7 +7229,7 @@ enum LogicSelfTests {
         window.contentView = fits
         window.show()
         defer { window.close() }
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         try expect(descendant(NSScrollView.self, in: fits) == nil, "a dropdown with room for its rows should not scroll")
 
         let cap: CGFloat = 120
@@ -7340,7 +7371,7 @@ enum LogicSelfTests {
             window.contentView = hosting
             window.show()
             defer { window.close() }
-            pump(0.2)
+            try pumpOneMainRunLoopTurn()
             hosting.layoutSubtreeIfNeeded()
             let bitmap = try snapshot(hosting, size: size, scale: 2)
             // The chip's label starts 10 in from the row's 20 inset.
@@ -7370,7 +7401,7 @@ enum LogicSelfTests {
         window.contentView = hosting
         window.show()
         defer { window.close() }
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         hosting.layoutSubtreeIfNeeded()
         guard let scrollView = descendant(NSScrollView.self, in: hosting) else {
             throw TestFailure("the feed should scroll")
@@ -7379,7 +7410,7 @@ enum LogicSelfTests {
         let linePitch = WorkerChatMetrics.lineHeight + WorkerChatMetrics.itemGap
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: WorkerChatMetrics.inset + 10 * linePitch - 8))
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        pump(0.2)
+        try pumpOneMainRunLoopTurn()
         let bitmap = try snapshot(hosting, size: size, scale: 2)
         guard let base = AppPalette.panel.usingColorSpace(.deviceRGB) else {
             throw TestFailure("the panel colour should convert")
@@ -7427,7 +7458,7 @@ enum LogicSelfTests {
         window.contentView = hosting
         window.show()
         defer { window.close() }
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         hosting.layoutSubtreeIfNeeded()
         let scale: CGFloat = 2
         let bitmap = try snapshot(hosting, size: size, scale: scale)
@@ -7480,7 +7511,7 @@ enum LogicSelfTests {
         window.show()
         defer { window.close() }
         func ink() throws -> (top: CGFloat, bottom: CGFloat)? {
-            pump(0.3)
+            try pumpOneMainRunLoopTurn()
             hosting.layoutSubtreeIfNeeded()
             return inkEdges(try snapshot(hosting, size: size, scale: 2), scale: 2, columns: 0..<Int(size.width), rows: 0..<Int(size.height), over: AppPalette.panel)
         }
@@ -7493,14 +7524,14 @@ enum LogicSelfTests {
     }
 
     /// The tab row alone at the panel's width, over the panel fill, selecting `selected`. Assign `rootView` to change it.
-    private static func tabRowHost(workers: [WorkerLogWorker], selected: String?) -> (window: HeadlessWindow, hosting: NSHostingView<AnyView>, size: CGSize) {
+    private static func tabRowHost(workers: [WorkerLogWorker], selected: String?) throws -> (window: HeadlessWindow, hosting: NSHostingView<AnyView>, size: CGSize) {
         let size = CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height)
         let hosting = NSHostingView(rootView: tabRow(workers: workers, selected: selected))
         hosting.frame = NSRect(origin: .zero, size: size)
         let window = HeadlessWindow(size: size)
         window.contentView = hosting
         window.show()
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         hosting.layoutSubtreeIfNeeded()
         return (window, hosting, size)
     }
@@ -7527,9 +7558,9 @@ enum LogicSelfTests {
         }
         let blocks = String(repeating: "\u{2588}", count: 6)
         let workers = (1...2).map { WorkerLogWorker(id: "w\($0)", name: blocks) }
-        let host = tabRowHost(workers: workers, selected: nil)
+        let host = try tabRowHost(workers: workers, selected: nil)
         defer { host.window.close() }
-        pump(0.2)
+        try pumpOneMainRunLoopTurn()
         let scale: CGFloat = 2
         let bitmap = try snapshot(host.hosting, size: host.size, scale: scale)
         guard let base = AppPalette.panel.usingColorSpace(.deviceRGB) else {
@@ -7567,7 +7598,7 @@ enum LogicSelfTests {
     private static func testWorkerLogTabsScrollToTheSelection() throws {
         let names = ["Implement ABC-123", "Fix UI Bug", "Review API", "Add Tests", "Update Docs", "Audit Security", "Write Changelog", "Check Migrations", "Triage Reports"]
         let workers = names.enumerated().map { WorkerLogWorker(id: "w\($0.offset + 1)", name: $0.element) }
-        let host = tabRowHost(workers: workers, selected: nil)
+        let host = try tabRowHost(workers: workers, selected: nil)
         defer { host.window.close() }
         guard let scrollView = descendant(NSScrollView.self, in: host.hosting), let documentView = scrollView.documentView else {
             throw TestFailure("the tab row should scroll")
@@ -7584,7 +7615,7 @@ enum LogicSelfTests {
         host.hosting.rootView = tabRow(workers: workers, selected: nil)
         try expect(waitUntil { clip.bounds.origin.x <= 1 }, "selecting All should scroll back to the start, got \(clip.bounds.origin.x)")
 
-        let few = tabRowHost(workers: Array(workers.prefix(3)), selected: "w3")
+        let few = try tabRowHost(workers: Array(workers.prefix(3)), selected: "w3")
         defer { few.window.close() }
         guard let fewScroll = descendant(NSScrollView.self, in: few.hosting), let fewDocument = fewScroll.documentView else {
             throw TestFailure("a short tab row should still be a scroll view")
@@ -7597,7 +7628,7 @@ enum LogicSelfTests {
     private static func testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs() throws {
         let blocks = String(repeating: "\u{2588}", count: 80)
         let workers = (1...2).map { WorkerLogWorker(id: "w\($0)", name: blocks) }
-        let host = tabRowHost(workers: workers, selected: nil)
+        let host = try tabRowHost(workers: workers, selected: nil)
         defer { host.window.close() }
         guard let scrollView = descendant(NSScrollView.self, in: host.hosting) else {
             throw TestFailure("the tab row should scroll")
@@ -7633,13 +7664,13 @@ enum LogicSelfTests {
             try expect(inner > 0.6, "the \(side) fade should reach full strength by its inner end, got \(inner)")
         }
 
-        pump(0.2)
+        try pumpOneMainRunLoopTurn()
         try expectFade(try snapshot(host.hosting, size: host.size, scale: scale), edge: { width - $0 }, "trailing")
 
         // Scrolled into the middle of the first tab, tabs hang past both edges.
         scrollView.contentView.scroll(to: NSPoint(x: 200, y: 0))
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         let middle = try snapshot(host.hosting, size: host.size, scale: scale)
         try expectFade(middle, edge: { width - $0 }, "trailing")
         try expectFade(middle, edge: { $0 }, "leading")
@@ -7660,7 +7691,7 @@ enum LogicSelfTests {
         try expect(overflowing.left < 1, "overflowing tabs should start at the leading edge, got \(overflowing.left) on the left")
 
         // The Worker Log's row was always centred; the Quest Log's change must not move it.
-        let worker = tabRowHost(workers: (1...2).map { WorkerLogWorker(id: "w\($0)", name: "Worker \($0)") }, selected: nil)
+        let worker = try tabRowHost(workers: (1...2).map { WorkerLogWorker(id: "w\($0)", name: "Worker \($0)") }, selected: nil)
         defer { worker.window.close() }
         guard let workerTabs = descendant(NSScrollView.self, in: worker.hosting) else {
             throw TestFailure("the Worker Log's tab row should scroll")
@@ -7749,7 +7780,7 @@ enum LogicSelfTests {
             let window = HeadlessWindow(size: size)
             window.contentView = hosting
             window.show()
-            pump(0.3)
+            try pumpOneMainRunLoopTurn()
             hosting.layoutSubtreeIfNeeded()
             return (window, hosting)
         }
@@ -7875,13 +7906,14 @@ enum LogicSelfTests {
         throw TestFailure("the name should draw past the logo")
     }
 
+    /// Runs main-run-loop events until `condition` holds or the named self-test wait timeout expires.
     private static func waitUntil(_ condition: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = Date().addingTimeInterval(selfTestWaitTimeout)
         while !condition() {
-            if Date() >= deadline {
+            guard Date() < deadline else {
                 return false
             }
-            pump(0.005)
+            _ = RunLoop.main.run(mode: .default, before: deadline)
         }
         return true
     }
@@ -8138,7 +8170,7 @@ enum LogicSelfTests {
             throw TestFailure("the first arrival should add a fade band")
         }
         // The clock is stopped, so the first fade is still in flight however long the run loop takes.
-        pump(0.5)
+        try pumpOneMainRunLoopTurn()
         try expect(first.animation(forKey: WorkerChatMotion.enterKey) === firstFade, "a fade should hold while the clock is stopped")
 
         fixture.follower.noteLinesUpdate(revision: 2, trimCount: 0, appended: true)
@@ -8261,7 +8293,7 @@ enum LogicSelfTests {
         guard let arrival = waitForArrival(on: documentView) else {
             throw TestFailure("an arrival while following should fade its rows in and glide them")
         }
-        pump(0.5)
+        try pumpOneMainRunLoopTurn()
         try expect(arrival.band.animation(forKey: WorkerChatMotion.enterKey) === arrival.fade, "the fade should hold while the clock is stopped")
         try expect(documentView.layer?.animation(forKey: WorkerChatMotion.glideKey) === arrival.glide, "the glide should hold while the clock is stopped")
         try expect(fadeBands(on: documentView).count == 1, "one arrival should add one fade band, got \(fadeBands(on: documentView).count)")
@@ -8413,7 +8445,7 @@ enum LogicSelfTests {
         guard let arrival = waitForArrival(on: documentView) else {
             throw TestFailure("an arrival in a short feed should fade its rows in and lift them into place")
         }
-        pump(0.5)
+        try pumpOneMainRunLoopTurn()
         try expect(arrival.band.animation(forKey: WorkerChatMotion.enterKey) === arrival.fade, "the fade should hold while the clock is stopped")
         try expect(documentView.layer?.animation(forKey: WorkerChatMotion.glideKey) === arrival.glide, "the lift should hold while the clock is stopped")
         try expect(fadeBands(on: documentView).count == 1, "one arrival should add one fade band, got \(fadeBands(on: documentView).count)")
@@ -8479,14 +8511,15 @@ enum LogicSelfTests {
 
     private static func waitForMainQueue(
         _ description: String,
-        timeout: TimeInterval = 10,
         until condition: () -> Bool
     ) throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline {
-            RunLoop.main.run(until: min(Date().addingTimeInterval(0.01), deadline))
+        let deadline = Date().addingTimeInterval(selfTestWaitTimeout)
+        while !condition() {
+            guard Date() < deadline else {
+                throw TestFailure("timed out after \(selfTestWaitTimeout)s waiting for \(description)")
+            }
+            _ = RunLoop.main.run(mode: .default, before: deadline)
         }
-        try expect(condition(), "timed out waiting for \(description) after \(Int(timeout)) seconds")
     }
 
     private static func waitForMainQueueTurn() throws {
@@ -8747,34 +8780,43 @@ enum LogicSelfTests {
             environment: [:], deadline: 0.15
         )
         try expect(result.outcome == .timeout, "the child must time out after TERM and KILL")
-        try expect(ProcessInfo.processInfo.systemUptime - started < 1.5, "the timed out child must be reaped promptly")
+        try expect(ProcessInfo.processInfo.systemUptime - started < boundedProcessTimeoutWatchdog, "the timed out child must be reaped promptly")
     }
 
     private static func testBoundedProcessReapsWithHeldOpenPipe() throws {
-        let started = ProcessInfo.processInfo.systemUptime
+        let pidURL = FileManager.default.temporaryDirectory.appendingPathComponent("qm-held-pipe-\(UUID().uuidString).pid")
+        defer {
+            if let rawPID = try? String(contentsOf: pidURL, encoding: .utf8), let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                _ = Darwin.kill(pid, SIGKILL)
+            }
+            try? FileManager.default.removeItem(at: pidURL)
+        }
         let result = try BoundedProcess.run(
             executable: "/bin/sh",
-            arguments: ["-c", "sleep 3 & exit 0"],
-            environment: [:]
+            arguments: ["-c", "/bin/sleep \(Int(heldPipeGrandchildLifetime)) & echo $! > \"$QM_TEST_CHILD_PID_FILE\"; exit 0"],
+            environment: ["QM_TEST_CHILD_PID_FILE": pidURL.path]
         )
         try expect(result.outcome == .exit(0), "the direct child must exit successfully")
-        try expect(ProcessInfo.processInfo.systemUptime - started < 1, "a grandchild holding the pipe must not delay reap")
+        guard let rawPID = try? String(contentsOf: pidURL, encoding: .utf8),
+              let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw TestFailure("the grandchild should record its PID")
+        }
+        try expect(Darwin.kill(pid, 0) == 0, "a live grandchild should still hold the pipe when the direct child is reaped")
     }
 
     private static func testConnectReturnsToMainPromptlyWithBlockedRunner() throws {
         let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
         let entered = DispatchSemaphore(value: 0)
         let attach = AsyncTerminalAttach<String>()
-        let started = ProcessInfo.processInfo.systemUptime
         attach.request(work: { entered.signal(); release.wait(); return .success("ready") }, completion: { _ in })
-        let elapsed = ProcessInfo.processInfo.systemUptime - started
-        try expect(elapsed < 0.1, "connect request must return to the main actor within 100 ms")
-        try expect(entered.wait(timeout: .now() + 1) == .success, "the fake runner must start")
+        try waitForSemaphore(entered, description: "the attach runner to enter its blocked work")
         release.signal()
     }
 
     private static func testOutOfOrderConnectsOnlyNewestMutates() throws {
         let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
         let entered = DispatchSemaphore(value: 0)
         var calls = 0
         var applied: [String] = []
@@ -8785,7 +8827,7 @@ enum LogicSelfTests {
             return .success("result-\(calls)")
         }
         attach.request(work: work) { result in if case .success(let value) = result { applied.append(value) } }
-        try expect(entered.wait(timeout: .now() + 1) == .success, "the first runner must be blocked")
+        try waitForSemaphore(entered, description: "the first attach runner to enter its blocked work")
         attach.request(work: work) { result in if case .success(let value) = result { applied.append(value) } }
         release.signal()
         try expect(waitUntil { applied.count == 1 }, "the newest completion must arrive")
@@ -8861,27 +8903,32 @@ enum LogicSelfTests {
     }
 
     private static func testEditorWindowOpensOffMain() throws {
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
         let done = DispatchSemaphore(value: 0)
         var ranOnMain = true
-        let started = ProcessInfo.processInfo.systemUptime
         ArtifactExternalOpener.dispatchEditorWindow(run: {
             ranOnMain = Thread.isMainThread
+            entered.signal()
+            release.wait()
             done.signal()
         })
-        try expect(ProcessInfo.processInfo.systemUptime - started < 0.1, "editor dispatch must return to the UI promptly")
-        try expect(done.wait(timeout: .now() + 1) == .success && !ranOnMain, "editor tmux work must run off main")
+        try waitForSemaphore(entered, description: "editor work to start off the main thread")
+        release.signal()
+        try waitForSemaphore(done, description: "editor work to finish")
+        try expect(!ranOnMain, "editor tmux work must run off main")
     }
 
     private static func testLoginEnvironmentNeverBlocksUI() throws {
         let entered = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
         let cache = LoginShellEnvironmentCache(load: { entered.signal(); release.wait(); return ["PATH": "/test"] })
         cache.preload()
-        try expect(entered.wait(timeout: .now() + 1) == .success, "the login probe must begin")
-        let started = ProcessInfo.processInfo.systemUptime
+        try waitForSemaphore(entered, description: "the login environment probe to start")
         let pending = cache.environment()
-        try expect(ProcessInfo.processInfo.systemUptime - started < 0.1 && pending.isEmpty,
-                   "a UI caller must use the current environment while the login probe loads")
+        try expect(pending.isEmpty, "a UI caller must use the current environment while the login probe loads")
         release.signal()
         try expect(waitUntil { cache.environment()["PATH"] == "/test" }, "the loaded login environment must become available")
     }

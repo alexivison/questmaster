@@ -5,6 +5,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,10 @@ import (
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
+
+// A private tmux server and its panes are OS processes; these waits are
+// watchdogs for their observable state, not latency assertions.
+const sessionIntegrationWaitTimeout = 30 * time.Second
 
 // Deleting a stopped session must not kill a live session whose name starts
 // with it. A bare kill-session -t qm-123 kills qm-123-456.
@@ -86,7 +91,7 @@ func TestIntegrationConcurrentContinueKeepsWinner(t *testing.T) {
 	}
 	reattached := 0
 	for range 2 {
-		o := <-outcomes
+		o := receiveSessionTestValue(t, outcomes, "Continue operation to finish")
 		if o.err != nil {
 			t.Errorf("Continue: %v", o.err)
 		}
@@ -163,18 +168,9 @@ func TestIntegrationSessionClosedHookCleansTheClosedSession(t *testing.T) {
 	closed := start(1700000201)
 	live := start(1700000202)
 
-	if err := svc.Client.KillSession(t.Context(), closed.SessionID); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Lstat(closed.RuntimeDir); errors.Is(err, os.ErrNotExist) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("session-closed hook did not remove %s", closed.RuntimeDir)
-		}
-		time.Sleep(20 * time.Millisecond)
+	killSessionAndWaitForCleanup(t, t.Context(), runner, store.Root(), closed.SessionID)
+	if _, err := os.Lstat(closed.RuntimeDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("session-closed hook did not remove %s (err=%v)", closed.RuntimeDir, err)
 	}
 	if _, err := os.Stat(filepath.Join(live.RuntimeDir, "session-name")); err != nil {
 		t.Fatalf("live session's runtime dir touched: %v", err)
@@ -245,7 +241,7 @@ func sessionPanes(t *testing.T, runner tmux.Runner, sessionID string) []livePane
 
 func waitForPane(t *testing.T, runner tmux.Runner, sessionID string, ok func(livePane) bool) livePane {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(sessionIntegrationWaitTimeout)
 	for {
 		panes := sessionPanes(t, runner, sessionID)
 		if len(panes) == 1 && ok(panes[0]) {
@@ -295,12 +291,15 @@ func TestIntegrationStartWithBaseIndexOne(t *testing.T) {
 func TestIntegrationContinueRespawnsADeadAgentPane(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	runner := baseIndexOneRunner(t)
-	// The first run exits 17; a respawn finds the marker and stays up.
-	svc := fakeAgentService(t, runner, `marker="$(dirname "$0")/started"
-if [ -e "$marker" ]; then exec sleep 600; fi
+	// The first run exits 17; the respawn writes a marker before it stays up.
+	marker := filepath.Join(t.TempDir(), "agent-started")
+	respawned := marker + ".respawned"
+	svc := fakeAgentService(t, runner, fmt.Sprintf(`marker=%q
+respawned=%q
+if [ -e "$marker" ]; then : > "$respawned"; exec sleep 600; fi
 : > "$marker"
 exit 17
-`)
+`, marker, respawned))
 	svc.Now = func() int64 { return 1700000303 }
 	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), ResumeIDs: map[string]string{"claude": "resume-17"}})
 	if err != nil {
@@ -315,7 +314,7 @@ exit 17
 	if !got.Reattach || !got.Respawned || got.AgentExit != "exit 17" {
 		t.Fatalf("Continue = %+v, want a reattach that respawned an agent which exited 17", got)
 	}
-	time.Sleep(300 * time.Millisecond) // a respawn that exits again would show by now
+	waitForFile(t, respawned)
 	alive := waitForPane(t, runner, result.SessionID, func(p livePane) bool { return p.dead == "0" })
 	if alive.id != dead.id || alive.role != tmux.RoleAgent {
 		t.Fatalf("respawned pane = %+v, want the agent pane %s alive", alive, dead.id)
@@ -326,5 +325,19 @@ exit 17
 	}
 	if m.ExtraString("last_agent_exit") != "exit 17" || m.ExtraString("claude_session_id") != "resume-17" {
 		t.Fatalf("manifest after respawn: last_agent_exit=%q claude_session_id=%q", m.ExtraString("last_agent_exit"), m.ExtraString("claude_session_id"))
+	}
+}
+
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(sessionIntegrationWaitTimeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for private tmux pane to write %s", path)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

@@ -152,6 +152,8 @@ final class TrackerPortraitStatusNSView: NSView {
     private let spinner = SpinnerRing()
     private let finishFill = CAShapeLayer()
     private let flash = CAShapeLayer()
+    // Tests provide a fixed instant for elapsed-time animation decisions.
+    var now: () -> Date = { Date() }
     /// The exit: an arc that completes to full and a flash over it, in a layer that fades out.
     private let exit = CALayer()
     private let exitArc = CAShapeLayer()
@@ -276,7 +278,7 @@ final class TrackerPortraitStatusNSView: NSView {
         finishFill.opacity = 0
         flash.strokeColor = light.cgColor
         flash.opacity = 0
-        var animations: [() -> Void] = []
+        var animations: [(TimeInterval) -> Void] = []
         switch applied.ring {
         case .none:
             break
@@ -298,30 +300,33 @@ final class TrackerPortraitStatusNSView: NSView {
                     around: middle, side: side,
                     ringPath: geometry.ringPath(around: CGPoint(x: side / 2, y: side / 2)), lineWidth: geometry.ringLineWidth
                 )
-                animations.append { self.spinner.startSpinning() }
+                animations.append { _ in self.spinner.startSpinning() }
             }
         case .filling(let cast):
             arc.isHidden = false
             head.isHidden = false
             pulse.isHidden = false
             let typical = cast.typicalDuration ?? 1
-            let elapsed = Date().timeIntervalSince(cast.startedAt)
+            let elapsed = now().timeIntervalSince(cast.startedAt)
             let fraction = CGFloat(TrackerCastFill.fraction(elapsed: elapsed, typical: typical))
             setSweep(fraction: fraction, headFraction: geometry.headFraction)
             let timeToFull = TrackerCastFill.timeToFull(elapsed: elapsed, typical: typical)
-            animations.append { self.addFill(from: fraction, over: timeToFull, headFraction: geometry.headFraction) }
+            animations.append { beganAt in
+                self.addFill(from: fraction, over: timeToFull, headFraction: geometry.headFraction, beganAt: beganAt)
+            }
             if !applied.reduceMotion {
-                animations.append { self.addPulse(after: timeToFull) }
+                animations.append { beganAt in self.addPulse(after: timeToFull, beganAt: beganAt) }
             }
         }
         if flashes && !applied.reduceMotion {
             finishFill.isHidden = false
             flash.isHidden = false
-            animations.append { self.addFlash() }
+            animations.append { _ in self.addFlash() }
         }
         CATransaction.commit()
         guard window != nil else { return }
-        animations.forEach { $0() }
+        let beganAt = CACurrentMediaTime()
+        animations.forEach { $0(beganAt) }
     }
 
     private func setSweep(fraction: CGFloat, headFraction: CGFloat) {
@@ -330,15 +335,14 @@ final class TrackerPortraitStatusNSView: NSView {
         head.strokeEnd = fraction
     }
 
-    private func addFill(from fraction: CGFloat, over duration: TimeInterval, headFraction: CGFloat) {
+    private func addFill(from fraction: CGFloat, over duration: TimeInterval, headFraction: CGFloat, beganAt: TimeInterval) {
         guard duration > 0 else { return }
-        let now = CACurrentMediaTime()
         func sweep(_ keyPath: String, from: CGFloat, to: CGFloat) -> CABasicAnimation {
             let animation = CABasicAnimation(keyPath: keyPath)
             animation.fromValue = from
             animation.toValue = to
             animation.duration = duration
-            animation.beginTime = now
+            animation.beginTime = beganAt
             animation.fillMode = .forwards
             animation.isRemovedOnCompletion = false
             return animation
@@ -349,7 +353,7 @@ final class TrackerPortraitStatusNSView: NSView {
     }
 
     /// Once the ring is full it breathes like the cast bar's overrun pulse, until the tool ends.
-    private func addPulse(after delay: TimeInterval) {
+    private func addPulse(after delay: TimeInterval, beganAt: TimeInterval) {
         let breath = CABasicAnimation(keyPath: "opacity")
         breath.fromValue = 0
         breath.toValue = TrackerCastFillNSView.pulsePeak
@@ -357,7 +361,7 @@ final class TrackerPortraitStatusNSView: NSView {
         breath.autoreverses = true
         breath.repeatCount = .infinity
         breath.timingFunction = Motion.breathingTimingFunction
-        breath.beginTime = CACurrentMediaTime() + delay
+        breath.beginTime = beganAt + delay
         pulse.add(breath, forKey: Self.pulseKey)
     }
 

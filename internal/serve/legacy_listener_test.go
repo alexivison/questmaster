@@ -64,6 +64,9 @@ func (s *Server) Serve(ctx context.Context) error {
 		os.Remove(path) //nolint:errcheck
 		return fmt.Errorf("restrict socket permissions: %w", err)
 	}
+	if s.onListen != nil {
+		s.onListen()
+	}
 	defer os.Remove(path) //nolint:errcheck
 	defer ln.Close()      //nolint:errcheck
 

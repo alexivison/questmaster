@@ -5,11 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmux/tmuxtest"
@@ -117,6 +114,8 @@ func TestBackfillRechecksAfterLifecycleLock(t *testing.T) {
 				return "", nil
 			}))
 			r := New(store, map[string]*tmux.Client{"default": tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) { return "", nil })), "questmaster": named}, func() string { return "questmaster" }, nil)
+			waitingForLock := make(chan struct{})
+			r.beforeLifecycleLock = func() { close(waitingForLock) }
 			held, release := make(chan struct{}), make(chan struct{})
 			lockDone := make(chan error, 1)
 			go func() {
@@ -139,29 +138,9 @@ func TestBackfillRechecksAfterLifecycleLock(t *testing.T) {
 			}
 			done := make(chan outcome, 1)
 			go func() { result, err := r.Backfill(t.Context()); done <- outcome{result, err} }()
-			// Observe this Backfill inside the blocking lifecycle-lock acquisition,
-			// rather than releasing it after an unrelated inventory call.
-			deadline := time.NewTimer(3 * time.Second)
-			defer deadline.Stop()
-			ticker := time.NewTicker(time.Millisecond)
-			defer ticker.Stop()
-		waiting:
-			for {
-				select {
-				case got := <-done:
-					t.Fatalf("backfill completed while lifecycle lock held: %+v", got)
-				case <-deadline.C:
-					t.Fatal("backfill did not wait on lifecycle lock")
-				case <-ticker.C:
-					stack := make([]byte, 256*1024)
-					n := runtime.Stack(stack, true)
-					for _, goroutine := range strings.Split(string(stack[:n]), "\n\n") {
-						if strings.Contains(goroutine, "tmuxroute.(*Router).Backfill") && strings.Contains(goroutine, "state.lockFile(") && strings.Contains(goroutine, "WithLifecycleLockContext(") {
-							break waiting
-						}
-					}
-				}
-			}
+			// Backfill snapshots inventory before taking the lifecycle lock. This
+			// signal proves the snapshot is complete while the lock is still held.
+			<-waitingForLock
 			if becomesLive {
 				live.Store(true)
 			} else {

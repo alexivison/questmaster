@@ -446,7 +446,7 @@ func TestSessionClosedLockTimeoutExitsZero(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	go func() { _ = svc.Store.WithLifecycleLock(id, func() error { close(entered); <-release; return nil }) }()
-	<-entered
+	_ = receiveSessionTestValue(t, entered, "lifecycle lock to be acquired")
 	defer close(release)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()

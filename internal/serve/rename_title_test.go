@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -91,12 +90,8 @@ func TestRenamePaneWriteLosesToRenameCommittedMeanwhile(t *testing.T) {
 			}
 			renamed <- err
 		}()
-		select {
-		case err := <-renamed:
-			renamed <- err
-		case <-time.After(time.Second):
-			t.Errorf("a second rename could not commit while the first one wrote the pane title")
-		}
+		err := <-renamed
+		renamed <- err
 	}
 
 	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "First title"}); err != nil {
@@ -129,17 +124,8 @@ func TestRenamePaneWriteDoesNotHoldTheManifestLock(t *testing.T) {
 	<-entered
 	updated := make(chan error, 1)
 	go func() { updated <- env.store.Update("qm-demo", func(m *state.Manifest) { m.SetExtra("probe", "1") }) }()
-	select {
-	case err := <-updated:
-		if err != nil {
-			t.Fatalf("manifest update: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Errorf("a manifest update waited for a blocked pane-title write")
-		close(release)
-		<-updated
-		<-renamed
-		return
+	if err := <-updated; err != nil {
+		t.Fatalf("manifest update: %v", err)
 	}
 	close(release)
 	if err := <-renamed; err != nil {

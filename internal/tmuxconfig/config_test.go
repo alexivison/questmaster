@@ -214,12 +214,11 @@ func TestCheckReturnsDiagnosticsWithoutWaitingForDetachedChild(t *testing.T) {
 	if err := os.WriteFile(file, []byte("set -g mouse on\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	started := time.Now()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	errors, err := tmuxconfig.Check(ctx, file)
-	if err != nil || len(errors) != 1 || !strings.Contains(errors[0], "syntax error") || time.Since(started) > 10*time.Second {
-		t.Fatalf("Check waited or lost diagnostics: errors=%q error=%v elapsed=%s", errors, err, time.Since(started))
+	if err != nil || len(errors) != 1 || !strings.Contains(errors[0], "syntax error") {
+		t.Fatalf("Check waited or lost diagnostics: errors=%q error=%v", errors, err)
 	}
 }
 

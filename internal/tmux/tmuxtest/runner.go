@@ -31,6 +31,9 @@ const (
 	// maxSocketPathBytes is the longest socket path the harness accepts.
 	maxSocketPathBytes = sunPathSize - 1
 	commandTimeout     = 10 * time.Second
+	// tmux server shutdown is OS-scheduled; this is a cleanup watchdog, not a latency assertion.
+	serverExitTimeout = 30 * time.Second
+	serverExitPoll    = 50 * time.Millisecond
 )
 
 // errNoSocket reports a tmux call that is not addressed to a private socket.
@@ -144,10 +147,56 @@ func runTmux(ctx context.Context, socket string, argv []string) (string, error) 
 // cleanups run.
 func stopServer(t testing.TB, socket string) {
 	t.Helper()
+	pid, pidErr := runTmux(context.Background(), socket, []string{"-S", socket, "display-message", "-p", "#{pid}"})
+	if pidErr != nil && !isNoServer(pidErr) {
+		t.Errorf("read private tmux server pid %s: %v", socket, pidErr)
+	}
 	_, err := runTmux(context.Background(), socket, []string{"-S", socket, "kill-server"})
 	if err != nil && !isNoServer(err) {
 		t.Errorf("kill private tmux server %s: %v", socket, err)
+		return
 	}
+	if pidErr == nil {
+		if err := waitForServerExit(context.Background(), pid); err != nil {
+			t.Errorf("wait for private tmux server %s to exit: %v", socket, err)
+		}
+	}
+}
+
+func waitForServerExit(ctx context.Context, pid string) error {
+	deadline := time.NewTimer(serverExitTimeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(serverExitPoll)
+	defer ticker.Stop()
+	for {
+		stopped, err := serverStopped(ctx, pid)
+		if err != nil {
+			return fmt.Errorf("check server pid %s: %w", pid, err)
+		}
+		if stopped {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("server pid %s still running after %s", pid, serverExitTimeout)
+		case <-ticker.C:
+		}
+	}
+}
+
+func serverStopped(ctx context.Context, pid string) (bool, error) {
+	out, err := exec.CommandContext(ctx, "ps", "-o", "stat=", "-p", pid).Output()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	stat := strings.TrimSpace(string(out))
+	return stat == "" || strings.HasPrefix(stat, "Z"), nil
 }
 
 func isNoServer(err error) bool {

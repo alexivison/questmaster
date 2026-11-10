@@ -25,6 +25,19 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
+const (
+	// These tests observe separate CLI and daemon processes, so their file and socket events need a generous CI watchdog.
+	daemonProcessWaitTimeout   = 45 * time.Second
+	daemonProcessSocketTimeout = 10 * time.Second
+	daemonProcessPollInterval  = 20 * time.Millisecond
+	daemonProcessFastPoll      = 10 * time.Millisecond
+	daemonProcessIdleGrace     = 300 * time.Millisecond
+	daemonProcessLiveWorkCheck = 400 * time.Millisecond
+	daemonProcessStopCheck     = 300 * time.Millisecond
+)
+
+func daemonProcessDeadline() time.Time { return time.Now().Add(daemonProcessWaitTimeout) }
+
 func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	store := state.OpenStore(h.root)
@@ -54,7 +67,7 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command(h.bin, "daemon", "run", "--jobs", "--idle-grace=300ms")
+	cmd := exec.Command(h.bin, "daemon", "run", "--jobs", "--idle-grace="+daemonProcessIdleGrace.String())
 	cmd.Env = h.env
 	var output bytes.Buffer
 	cmd.Stdout = &output
@@ -69,10 +82,10 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		select {
 		case <-done:
-		case <-time.After(3 * time.Second):
+		case <-time.After(daemonProcessWaitTimeout):
 		}
 	})
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := daemonProcessDeadline()
 	var status map[string]any
 	var statusErr error
 	for time.Now().Before(deadline) {
@@ -80,18 +93,18 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 		if statusErr == nil && status["running"] == true && status["has_work"] == true {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if statusErr != nil || status["running"] != true || status["has_work"] != true {
 		t.Fatalf("job not active: %v %v\n%s", status, statusErr, output.String())
 	}
 	statusPath := state.PullRequestStatusPath(h.root)
-	deadline = time.Now().Add(30 * time.Second)
+	deadline = daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(statusPath); err == nil {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if _, err := os.Stat(statusPath); err != nil {
 		t.Fatalf("job did not fetch: %v\n%s", err, output.String())
@@ -104,7 +117,8 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 	if !ok || len(prs) != 1 || prs[0].(map[string]any)["status"].(map[string]any)["title"] != "PR" {
 		t.Fatalf("CLI refresh result: %v", refreshed)
 	}
-	time.Sleep(400 * time.Millisecond)
+	// Observe past the idle grace to prove the live watcher keeps the process alive.
+	time.Sleep(daemonProcessLiveWorkCheck)
 	if status := h.must("daemon", "status"); status["running"] != true {
 		t.Fatalf("job idled with live watcher: %v", status)
 	}
@@ -116,7 +130,7 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("daemon exit: %v\n%s", err, output.String())
 		}
-	case <-time.After(30 * time.Second):
+	case <-time.After(daemonProcessWaitTimeout):
 		t.Fatalf("daemon did not idle out\n%s", output.String())
 	}
 }
@@ -206,13 +220,13 @@ func newDaemonHarness(t *testing.T, root string) *daemonHarness {
 	h := &daemonHarness{t: t, bin: bin, home: home, root: root, env: append(os.Environ(), "HOME="+home, "QUESTMASTER_STATE_ROOT="+root)}
 	t.Cleanup(func() {
 		_, _ = h.command("daemon", "stop")
-		deadline := time.Now().Add(3 * time.Second)
+		deadline := daemonProcessDeadline()
 		for time.Now().Before(deadline) {
 			status, err := h.command("daemon", "status")
 			if err == nil && status["running"] == false {
 				return
 			}
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(daemonProcessPollInterval)
 		}
 		status, err := h.command("daemon", "status")
 		if err == nil {
@@ -230,7 +244,7 @@ func (h *daemonHarness) command(args ...string) (map[string]any, error) {
 }
 
 func (h *daemonHarness) commandBin(bin string, args ...string) (map[string]any, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), daemonProcessSocketTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = h.env
@@ -256,20 +270,20 @@ func (h *daemonHarness) must(args ...string) map[string]any {
 
 func (h *daemonHarness) waitStopped() {
 	h.t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		result, err := h.command("daemon", "status")
 		if err == nil && result["running"] == false {
 			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	h.t.Fatal("daemon did not stop")
 }
 
 func (h *daemonHarness) waitGeneration(generation float64) map[string]any {
 	h.t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := daemonProcessDeadline()
 	var last map[string]any
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -277,7 +291,7 @@ func (h *daemonHarness) waitGeneration(generation float64) map[string]any {
 		if lastErr == nil && last["generation"] == generation {
 			return last
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	h.t.Fatalf("timed out waiting for daemon generation %.0f: last status=%+v, error=%v", generation, last, lastErr)
 	return nil
@@ -328,7 +342,8 @@ func TestDaemonConcurrentStartAndStop(t *testing.T) {
 		t.Fatalf("stop returned before exit: %+v", stopped)
 	}
 	h.waitStopped()
-	time.Sleep(300 * time.Millisecond)
+	// Observe past the idle grace to catch a stopped daemon that restarts late.
+	time.Sleep(daemonProcessStopCheck)
 	if after := h.must("daemon", "status"); after["running"] != false {
 		t.Fatalf("leftover run: %+v", after)
 	}
@@ -350,7 +365,7 @@ func TestDaemonExitHandoff(t *testing.T) {
 			old := h.must("daemon", "start")
 			release := filepath.Join(h.root, "daemon", "release-drain")
 			t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
-			deadline := time.Now().Add(5 * time.Second)
+			deadline := daemonProcessDeadline()
 			for {
 				if _, err := os.Stat(filepath.Join(h.root, "daemon", "draining")); err == nil {
 					break
@@ -358,7 +373,7 @@ func TestDaemonExitHandoff(t *testing.T) {
 				if time.Now().After(deadline) {
 					t.Fatal("idle listener did not close")
 				}
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(daemonProcessFastPoll)
 			}
 			if resume {
 				if err := os.WriteFile(filepath.Join(h.root, "daemon", "work"), nil, 0o600); err != nil {
@@ -409,7 +424,6 @@ func TestDaemonExitHandoff(t *testing.T) {
 			if status := h.must("daemon", "status"); status["pid"] != pid {
 				t.Fatalf("handoff status: %+v", status)
 			}
-			time.Sleep(150 * time.Millisecond)
 			ps := exec.Command("ps", "-eo", "pid=,command=")
 			out, err := ps.Output()
 			if err != nil {
@@ -528,13 +542,13 @@ func TestDaemonCanonicalAndDevJobs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = devRun.Process.Signal(syscall.SIGTERM); _ = devRun.Wait() })
 	var child map[string]any
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		child, err = h.commandBin(dev, "daemon", "status")
 		if err == nil && child["running"] == true {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if err != nil || child["running"] != true {
 		t.Fatalf("dev did not start: %v", err)
@@ -579,12 +593,12 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 	socket := status["socket"].(string)
 	check := func() (bool, error) {
 		t.Helper()
-		conn, err := net.DialTimeout("unix", socket, 5*time.Second)
+		conn, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 		if err != nil {
 			return false, fmt.Errorf("dial upgrade socket: %w", err)
 		}
 		defer conn.Close()
-		_ = conn.SetDeadline(time.Now().Add(20 * time.Second))
+		_ = conn.SetDeadline(time.Now().Add(daemonProcessWaitTimeout))
 		dec := json.NewDecoder(conn)
 		var handshake map[string]any
 		if err := dec.Decode(&handshake); err != nil {
@@ -654,14 +668,14 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 	if mustCheck() {
 		t.Fatal("hung probe accepted")
 	}
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := daemonProcessDeadline()
 	var pidText []byte
 	for time.Now().Before(deadline) {
 		pidText, err = os.ReadFile(childPIDFile)
 		if err == nil && len(pidText) > 0 {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if len(pidText) == 0 {
 		t.Fatalf("timed out waiting for hung probe child PID file: %v", err)
@@ -670,9 +684,9 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(15 * time.Second)
+	deadline = daemonProcessDeadline()
 	for time.Now().Before(deadline) && syscall.Kill(childPID, 0) == nil {
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if syscall.Kill(childPID, 0) == nil {
 		_ = syscall.Kill(childPID, syscall.SIGKILL)
@@ -683,7 +697,7 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 	if err := os.Rename(candidate, h.bin); err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(45 * time.Second)
+	deadline = daemonProcessDeadline()
 	var lastErr error
 	recognized := false
 	for time.Now().Before(deadline) {
@@ -693,7 +707,7 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 			break
 		}
 		lastErr = err
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if !recognized {
 		t.Fatalf("timed out waiting for valid replacement to be recognized: last probe error=%v", lastErr)
@@ -787,7 +801,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	before := h.must("daemon", "start")
 	socket := before["socket"].(string)
-	held, err := net.DialTimeout("unix", socket, 5*time.Second)
+	held, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -799,7 +813,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 	if err := oldDecoder.Decode(&oldHello); err != nil || oldHello.Generation != 1 {
 		t.Fatalf("initial handshake: %+v %v", oldHello, err)
 	}
-	subConn, err := net.DialTimeout("unix", socket, 5*time.Second)
+	subConn, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -864,14 +878,14 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 				close(firstDial)
 				first = false
 			}
-			time.Sleep(2 * time.Millisecond)
+			time.Sleep(daemonProcessFastPoll)
 		}
 	}()
 	select {
 	case <-firstDial:
 	case err := <-dialError:
 		t.Fatalf("socket dial failed before re-exec: %v", err)
-	case <-time.After(30 * time.Second):
+	case <-time.After(daemonProcessWaitTimeout):
 		t.Fatal("timed out waiting for an initial socket connection before re-exec")
 	}
 	check := h.must("daemon", "check-upgrade")
@@ -889,12 +903,12 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 	if after["generation"] != float64(2) || after["pid"] != before["pid"] || after["socket"] != socket {
 		t.Fatalf("re-exec changed daemon identity: before=%+v after=%+v", before, after)
 	}
-	_ = held.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = held.SetReadDeadline(time.Now().Add(daemonProcessSocketTimeout))
 	var staleReply map[string]any
 	if err := oldDecoder.Decode(&staleReply); !errors.Is(err, io.EOF) {
 		t.Fatalf("old connection did not close on re-exec: %v %+v", err, staleReply)
 	}
-	_ = subConn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = subConn.SetReadDeadline(time.Now().Add(daemonProcessSocketTimeout))
 	for {
 		subLine = nil
 		err := subDecoder.Decode(&subLine)
@@ -905,7 +919,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 			t.Fatalf("old subscription did not close on re-exec: %v %+v", err, subLine)
 		}
 	}
-	fresh, err := net.DialTimeout("unix", socket, time.Second)
+	fresh, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -917,7 +931,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 		t.Fatalf("replacement handshake: %+v %v", freshHello, err)
 	}
 	fresh.Close()
-	freshSub, err := net.DialTimeout("unix", socket, time.Second)
+	freshSub, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -959,7 +973,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 }
 
 func daemonRequest(socket, method string) error {
-	conn, err := net.DialTimeout("unix", socket, time.Second)
+	conn, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 	if err != nil {
 		return err
 	}
@@ -1012,25 +1026,25 @@ func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 	t.Cleanup(func() { _ = run.Process.Kill(); _ = run.Wait() })
 	c := daemon.Config{Root: h.root, Home: h.home, Executable: helper}
 	var before daemon.Record
-	deadline := time.Now().Add(45 * time.Second)
+	deadline := daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		before, _ = daemon.Status(c)
 		if before.Running && before.Jobs {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if !before.Running || !before.Jobs {
 		t.Fatalf("timed out waiting for helper with jobs: %+v", before)
 	}
 	holdDone := make(chan error, 1)
 	go func() { holdDone <- daemonRequest(before.Socket, "hold") }()
-	deadline = time.Now().Add(45 * time.Second)
+	deadline = daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(filepath.Join(h.root, "daemon", "hold-started")); err == nil {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if _, err := os.Stat(filepath.Join(h.root, "daemon", "hold-started")); err != nil {
 		t.Fatalf("timed out waiting for hold request to dispatch: %v", err)
@@ -1049,23 +1063,23 @@ func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 		for {
 			record, err := daemon.CheckUpgrade(c)
 			if err == nil && !record.UpgradeStarted {
-				time.Sleep(20 * time.Millisecond)
+				time.Sleep(daemonProcessPollInterval)
 				continue
 			}
 			checkDone <- upgradeResult{record, err}
 			return
 		}
 	}()
-	deadline = time.Now().Add(45 * time.Second)
+	deadline = daemonProcessDeadline()
 	for {
 		select {
 		case result := <-checkDone:
 			t.Fatalf("upgrade passed in-flight work: %+v %v", result.record, result.err)
 		default:
 		}
-		conn, err := net.DialTimeout("unix", before.Socket, 5*time.Second)
+		conn, err := net.DialTimeout("unix", before.Socket, daemonProcessSocketTimeout)
 		if err == nil {
-			_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			_ = conn.SetReadDeadline(daemonProcessDeadline())
 			var hello struct {
 				Accepting bool `json:"accepting"`
 			}
@@ -1078,7 +1092,7 @@ func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for upgrade to stop accepting requests: %v", err)
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	data, err := os.ReadFile(filepath.Join(h.root, "daemon", "canonical.json"))
 	if err != nil {
@@ -1099,29 +1113,29 @@ func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 		if result.err != nil || !result.record.UpgradeStarted {
 			t.Fatalf("upgrade was not started after request: %+v %v", result.record, result.err)
 		}
-	case <-time.After(45 * time.Second):
+	case <-time.After(daemonProcessWaitTimeout):
 		t.Fatal("timed out waiting for upgrade after request")
 	}
-	deadline = time.Now().Add(45 * time.Second)
+	deadline = daemonProcessDeadline()
 	var after daemon.Record
 	for time.Now().Before(deadline) {
 		after, _ = daemon.Status(c)
 		if after.Generation == 2 {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if after.Generation != 2 || after.PID != before.PID || !after.Jobs {
 		t.Fatalf("timed out waiting for helper upgrade: before=%+v after=%+v", before, after)
 	}
 	var starts []byte
-	deadline = time.Now().Add(45 * time.Second)
+	deadline = daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		starts, _ = os.ReadFile(filepath.Join(h.root, "daemon", "job-starts"))
 		if len(starts) >= 2 {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if len(starts) < 2 {
 		t.Fatalf("timed out waiting for jobs to restart: starts=%q", starts)
@@ -1204,14 +1218,14 @@ func TestDaemonBadHandoffFallsBackToLockedStart(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = run.Process.Kill(); _ = run.Wait() })
-			deadline := time.Now().Add(5 * time.Second)
+			deadline := daemonProcessDeadline()
 			var status map[string]any
 			for time.Now().Before(deadline) {
 				status, _ = h.command("daemon", "status")
 				if status["running"] == true {
 					break
 				}
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(daemonProcessFastPoll)
 			}
 			if status["running"] != true || status["generation"] != float64(1) || status["pid"] != float64(run.Process.Pid) {
 				t.Fatalf("bad handoff did not start normally: %+v", status)
@@ -1281,21 +1295,21 @@ func TestDaemonEnvironmentFromPollutedPaneReachesBothSessionMutations(t *testing
 	}
 	t.Cleanup(func() { _ = run.Process.Kill(); _ = run.Wait() })
 	c := daemon.Config{Root: h.root, Home: h.home, Executable: helper}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := daemonProcessDeadline()
 	var record daemon.Record
 	for time.Now().Before(deadline) {
 		record, _ = daemon.Status(c)
 		if record.Running {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(daemonProcessFastPoll)
 	}
 	if !record.Running {
 		t.Fatal("helper daemon did not start")
 	}
 	call := func(method string, data any) map[string]any {
 		t.Helper()
-		conn, err := net.DialTimeout("unix", record.Socket, time.Second)
+		conn, err := net.DialTimeout("unix", record.Socket, daemonProcessSocketTimeout)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1397,13 +1411,13 @@ func TestDaemonIdleExitAndSIGTERM(t *testing.T) {
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := daemonProcessDeadline()
 		for time.Now().Before(deadline) {
 			status, err := h.command("daemon", "status")
 			if err == nil && status["running"] == true {
 				return cmd
 			}
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(daemonProcessPollInterval)
 		}
 		t.Fatal("run did not become ready")
 		return nil

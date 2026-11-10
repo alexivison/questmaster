@@ -37,6 +37,34 @@ func classBackfillJobForTest(store *state.Store, client *tmux.Client) *ClassBack
 	return NewClassBackfillJob(store, client, router)
 }
 
+func holdClassBackfillRescans(job *ClassBackfillJob) (<-chan struct{}, chan<- struct{}) {
+	passes := make(chan struct{}, 4)
+	rescans := make(chan struct{})
+	job.waitForRescan = func(ctx context.Context, _ time.Duration) bool {
+		select {
+		case passes <- struct{}{}:
+		case <-ctx.Done():
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-rescans:
+			return true
+		}
+	}
+	return passes, rescans
+}
+
+func assertClassBackfillWaiting(t *testing.T, done <-chan error) {
+	t.Helper()
+	select {
+	case err := <-done:
+		t.Fatalf("Run returned before cancellation: %v", err)
+	default:
+	}
+}
+
 func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 	store, err := state.NewStore(t.TempDir())
 	if err != nil {
@@ -77,6 +105,7 @@ func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 	runner := &classBackfillRunner{sessions: strings.Join(liveIDs, "\n")}
 	job := classBackfillJobForTest(store, tmux.NewClient(runner))
 	job.randomIndex = func(int) int { return 0 }
+	passes, _ := holdClassBackfillRescans(job)
 	if !job.HasWork() {
 		t.Fatal("HasWork() = false before classless masters are backfilled")
 	}
@@ -84,33 +113,18 @@ func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- job.Run(ctx) }()
-	deadline := time.NewTimer(3 * time.Second)
-	ticker := time.NewTicker(time.Millisecond)
-	defer deadline.Stop()
-	defer ticker.Stop()
-	for job.HasWork() {
-		select {
-		case err := <-done:
-			cancel()
-			t.Fatalf("Run returned before cancellation: %v", err)
-		case <-deadline.C:
-			cancel()
-			t.Fatal("class backfill did not finish")
-		case <-ticker.C:
-		}
-	}
-	select {
-	case err := <-done:
+	_ = receiveSessionTestValue(t, passes, "first class-backfill pass") // follows all manifest writes
+	assertClassBackfillWaiting(t, done)
+	if job.HasWork() {
 		cancel()
-		t.Fatalf("Run returned after a complete pass: %v", err)
-	default:
+		t.Fatal("HasWork() = true after the completed pass")
 	}
 	if runner.calls != 1 {
 		cancel()
 		t.Fatalf("tmux list calls = %d, want one completed pass", runner.calls)
 	}
 	cancel()
-	if err := <-done; err != nil {
+	if err := receiveSessionTestValue(t, done, "class-backfill job to stop after success"); err != nil {
 		t.Fatalf("Run after cancellation: %v", err)
 	}
 
@@ -164,6 +178,7 @@ func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
 	}
 	job := classBackfillJobForTest(store, tmux.NewClient(&classBackfillRunner{sessions: "qm-later"}))
 	job.randomIndex = func(int) int { return 0 }
+	passes, rescans := holdClassBackfillRescans(job)
 	job.rescanInterval = 200 * time.Millisecond
 	if !job.HasWork() {
 		t.Fatal("HasWork() = false before the first pass")
@@ -172,19 +187,8 @@ func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- job.Run(ctx) }()
-	deadline := time.NewTimer(3 * time.Second)
-	ticker := time.NewTicker(time.Millisecond)
-	defer deadline.Stop()
-	defer ticker.Stop()
-	for job.HasWork() {
-		select {
-		case err := <-done:
-			t.Fatalf("Run returned before cancellation: %v", err)
-		case <-deadline.C:
-			t.Fatal("first backfill pass did not finish")
-		case <-ticker.C:
-		}
-	}
+	_ = receiveSessionTestValue(t, passes, "first class-backfill pass")
+	assertClassBackfillWaiting(t, done)
 	if err := store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID: "qm-later",
 		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
@@ -194,28 +198,18 @@ func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
 	if job.HasWork() {
 		t.Fatal("HasWork() = true between successful passes")
 	}
-	time.Sleep(20 * time.Millisecond)
-	if job.HasWork() {
-		t.Fatal("HasWork() = true before the rescan interval")
+	rescans <- struct{}{}
+	_ = receiveSessionTestValue(t, passes, "class-backfill rescan")
+	assertClassBackfillWaiting(t, done)
+	manifest, err := store.Read("qm-later")
+	if err != nil {
+		t.Fatalf("read later master: %v", err)
 	}
-	for {
-		manifest, err := store.Read("qm-later")
-		if err != nil {
-			t.Fatalf("read later master: %v", err)
-		}
-		if manifest.DisplayClass() != "" {
-			break
-		}
-		select {
-		case err := <-done:
-			t.Fatalf("Run returned before cancellation: %v", err)
-		case <-deadline.C:
-			t.Fatal("rescan did not backfill the later master")
-		case <-ticker.C:
-		}
+	if manifest.DisplayClass() == "" {
+		t.Fatal("rescan did not backfill the later master")
 	}
 	cancel()
-	if err := <-done; err != nil {
+	if err := receiveSessionTestValue(t, done, "class-backfill job to stop after cancellation"); err != nil {
 		t.Fatalf("Run after cancellation: %v", err)
 	}
 }
@@ -233,23 +227,13 @@ func TestClassBackfillJobSkipsTmuxForEmptyRescans(t *testing.T) {
 	}
 	job := classBackfillJobForTest(store, tmux.NewClient(runner))
 	job.rescanInterval = 20 * time.Millisecond
+	passes, rescans := holdClassBackfillRescans(job)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- job.Run(ctx) }()
 	defer cancel()
-	deadline := time.NewTimer(time.Second)
-	ticker := time.NewTicker(time.Millisecond)
-	defer deadline.Stop()
-	defer ticker.Stop()
-	for job.HasWork() {
-		select {
-		case err := <-done:
-			t.Fatalf("Run returned before cancellation: %v", err)
-		case <-deadline.C:
-			t.Fatal("initial backfill pass did not finish")
-		case <-ticker.C:
-		}
-	}
+	_ = receiveSessionTestValue(t, passes, "initial class-backfill pass")
+	assertClassBackfillWaiting(t, done)
 	manifest, err := store.Read("qm-rescan")
 	if err != nil {
 		t.Fatalf("read backfilled master: %v", err)
@@ -257,20 +241,17 @@ func TestClassBackfillJobSkipsTmuxForEmptyRescans(t *testing.T) {
 	if manifest.DisplayClass() == "" {
 		t.Fatal("initial pass did not backfill classless master")
 	}
-	time.Sleep(60 * time.Millisecond)
+	rescans <- struct{}{}
+	_ = receiveSessionTestValue(t, passes, "empty class-backfill rescan")
+	assertClassBackfillWaiting(t, done)
 	if job.HasWork() {
 		t.Fatal("HasWork() = true after empty rescan")
 	}
 	if runner.calls != 1 {
 		t.Fatalf("tmux list calls = %d, want only the initial classless pass", runner.calls)
 	}
-	select {
-	case err := <-done:
-		t.Fatalf("Run returned from successful empty rescans: %v", err)
-	default:
-	}
 	cancel()
-	if err := <-done; err != nil {
+	if err := receiveSessionTestValue(t, done, "class-backfill job to stop after empty rescan"); err != nil {
 		t.Fatalf("Run after cancellation: %v", err)
 	}
 }

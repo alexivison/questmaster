@@ -5,9 +5,14 @@ import QuestmasterCore
 final class UnixSocketServeClient {
     private let connect: () throws -> Int32
     private let invalidate: () -> Void
+    // A self-test can synchronize on a partial socket read without sleeping.
+    private let onRead: (() -> Void)?
+    // A self-test can stop after the client has entered its condition wait.
+    private let onRetryWait: (() -> Void)?
     /// Runs the connection loop. Internal so a self-test can tell when the loop has returned.
     let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
-    private let retryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
+    private static let defaultRetryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
+    private let retryDelays: [TimeInterval]
     static let maxBufferedLineBytes = 1_048_576
     private static let pendingCompactionThreshold = 64 * 1024
     /// `stop()` runs on its caller's thread while the loop may be blocked in a read, a connect or a retry wait, so the
@@ -25,9 +30,18 @@ final class UnixSocketServeClient {
     }
 
     /// `connect` hands over a connected socket; a self-test passes one end of a socket pair.
-    init(connect: @escaping () throws -> Int32, invalidate: @escaping () -> Void) {
+    init(
+        connect: @escaping () throws -> Int32,
+        invalidate: @escaping () -> Void,
+        onRead: (() -> Void)? = nil,
+        onRetryWait: (() -> Void)? = nil,
+        retryDelays: [TimeInterval]? = nil
+    ) {
         self.connect = connect
         self.invalidate = invalidate
+        self.onRead = onRead
+        self.onRetryWait = onRetryWait
+        self.retryDelays = retryDelays ?? Self.defaultRetryDelays
     }
 
     /// Streams tracker updates, each carrying `.connected`, and every other connection state as an update of its own.
@@ -145,6 +159,8 @@ final class UnixSocketServeClient {
         let deadline = Date(timeIntervalSinceNow: seconds)
         control.lock()
         defer { control.unlock() }
+        // Stop waits for this lock, so the test notification cannot race ahead of the condition wait.
+        onRetryWait?()
         while !stopped, control.wait(until: deadline) {}
     }
 
@@ -201,6 +217,7 @@ final class UnixSocketServeClient {
             if pending.distance(from: parseOffset, to: pending.endIndex) > Self.maxBufferedLineBytes {
                 return .dropped
             }
+            onRead?()
         }
         return .stopped
     }

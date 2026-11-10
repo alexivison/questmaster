@@ -82,6 +82,24 @@ type FileChangeSource struct {
 	watched     map[string]struct{}
 }
 
+type fileChangeTimer interface {
+	C() <-chan time.Time
+	Stop() bool
+	Reset(time.Duration) bool
+}
+
+type realFileChangeTimer struct{ timer *time.Timer }
+
+func (t realFileChangeTimer) C() <-chan time.Time { return t.timer.C }
+func (t realFileChangeTimer) Stop() bool          { return t.timer.Stop() }
+func (t realFileChangeTimer) Reset(d time.Duration) bool {
+	return t.timer.Reset(d)
+}
+
+func newFileChangeTimer(d time.Duration) fileChangeTimer {
+	return realFileChangeTimer{timer: time.NewTimer(d)}
+}
+
 // NewFileChangeSource creates and starts the serve file watcher. clockInterval
 // drives only elapsed/runtime clock fields; state changes are watcher-driven.
 func NewFileChangeSource(ctx context.Context, snapshotter *Snapshotter, clockInterval time.Duration) (*FileChangeSource, error) {
@@ -193,6 +211,16 @@ func (s *FileChangeSource) watchDir(dir string) error {
 }
 
 func (s *FileChangeSource) run(ctx context.Context, clockInterval time.Duration) {
+	s.runWith(ctx, clockInterval, s.watcher.Events, s.watcher.Errors, newFileChangeTimer)
+}
+
+func (s *FileChangeSource) runWith(
+	ctx context.Context,
+	clockInterval time.Duration,
+	events <-chan fsnotify.Event,
+	watcherErrors <-chan error,
+	newTimer func(time.Duration) fileChangeTimer,
+) {
 	defer s.wg.Done()
 
 	var ticker *time.Ticker
@@ -204,26 +232,26 @@ func (s *FileChangeSource) run(ctx context.Context, clockInterval time.Duration)
 	}
 
 	var pending Change
-	var debounce *time.Timer
+	var debounce fileChangeTimer
 	var debounceC <-chan time.Time
-	var maxWait *time.Timer
+	var maxWait fileChangeTimer
 	var maxWaitC <-chan time.Time
-	resetTimer := func(timer *time.Timer, d time.Duration) {
+	resetTimer := func(timer fileChangeTimer, d time.Duration) {
 		if !timer.Stop() {
 			select {
-			case <-timer.C:
+			case <-timer.C():
 			default:
 			}
 		}
 		timer.Reset(d)
 	}
-	stopTimer := func(timer *time.Timer) {
+	stopTimer := func(timer fileChangeTimer) {
 		if timer == nil {
 			return
 		}
 		if !timer.Stop() {
 			select {
-			case <-timer.C:
+			case <-timer.C():
 			default:
 			}
 		}
@@ -234,10 +262,10 @@ func (s *FileChangeSource) run(ctx context.Context, clockInterval time.Duration)
 		}
 		pending = mergeChanges(pending, change)
 		if debounce == nil {
-			debounce = time.NewTimer(watchDebounceWindow)
-			debounceC = debounce.C
-			maxWait = time.NewTimer(watchDebounceMaxWait)
-			maxWaitC = maxWait.C
+			debounce = newTimer(watchDebounceWindow)
+			debounceC = debounce.C()
+			maxWait = newTimer(watchDebounceMaxWait)
+			maxWaitC = maxWait.C()
 			return
 		}
 		resetTimer(debounce, watchDebounceWindow)
@@ -270,7 +298,7 @@ func (s *FileChangeSource) run(ctx context.Context, clockInterval time.Duration)
 			flush()
 		case <-maxWaitC:
 			flush()
-		case event, ok := <-s.watcher.Events:
+		case event, ok := <-events:
 			if !ok {
 				flush()
 				return
@@ -281,7 +309,7 @@ func (s *FileChangeSource) run(ctx context.Context, clockInterval time.Duration)
 			for _, change := range s.handleEvent(event) {
 				queue(change)
 			}
-		case _, ok := <-s.watcher.Errors:
+		case _, ok := <-watcherErrors:
 			if !ok {
 				flush()
 				return

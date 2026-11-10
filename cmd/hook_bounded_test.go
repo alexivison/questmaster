@@ -47,8 +47,14 @@ func TestHookCodexLargeToolEndClosesToolWithoutRetainingResponse(t *testing.T) {
 	if err != nil || len(before.Panes["agent"].RunningTools) != 1 {
 		t.Fatalf("running tool before tool_end: state=%+v err=%v", before, err)
 	}
-	// Let the recorded duration exceed the store's one-millisecond floor.
-	time.Sleep(2 * time.Millisecond)
+	if err := state.UpdateSessionState(sessionID, func(ss *state.SessionState) bool {
+		pane := ss.Panes["agent"]
+		pane.RunningTools[0].StartedAt = time.Now().Add(-time.Second)
+		ss.Panes["agent"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("seed a recordable tool duration: %v", err)
+	}
 	runtime.GC()
 	var start, end runtime.MemStats
 	runtime.ReadMemStats(&start)

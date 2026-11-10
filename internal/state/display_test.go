@@ -252,11 +252,14 @@ func TestStoreSetDisplayColorParticipatesInLastWriteWins(t *testing.T) {
 	}
 	repoColors := NewRepoColorStore(root)
 	repoIdentity := "/repo/.git"
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+	repoColors.now = func() time.Time { return now }
 
 	if err := repoColors.Set(repoIdentity, "red"); err != nil {
 		t.Fatalf("set repo red: %v", err)
 	}
-	time.Sleep(time.Millisecond)
+	now = now.Add(time.Second)
 	if err := store.SetDisplayColor("qm-color", "violet"); err != nil {
 		t.Fatalf("set session violet: %v", err)
 	}
@@ -282,7 +285,7 @@ func TestStoreSetDisplayColorParticipatesInLastWriteWins(t *testing.T) {
 		t.Fatalf("effective color after session write = %q, want violet", got)
 	}
 
-	time.Sleep(time.Millisecond)
+	now = now.Add(time.Second)
 	if err := repoColors.Set(repoIdentity, "green"); err != nil {
 		t.Fatalf("set repo green: %v", err)
 	}

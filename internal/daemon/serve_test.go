@@ -83,7 +83,11 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 	}
 	serverConn, clientConn := net.Pipe()
 	defer clientConn.Close()
-	go s.handle(serverConn)
+	serveDone := make(chan struct{})
+	go func() {
+		s.handle(serverConn)
+		close(serveDone)
+	}()
 	dec, enc := json.NewDecoder(clientConn), json.NewEncoder(clientConn)
 	var greeting hello
 	if err := dec.Decode(&greeting); err != nil || greeting.Generation != 1 {
@@ -175,13 +179,7 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 		t.Fatalf("unchanged snapshot emitted duplicate: %+v", duplicate)
 	}
 	clientConn.Close()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if s.clients() == 0 {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	<-serveDone
 	if s.clients() != 0 {
 		t.Fatal("closed subscription remained a daemon client")
 	}

@@ -23,10 +23,9 @@ func TestServerRunDoesNotWaitForDetachedChildOutput(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	started := time.Now()
 	out, err := SocketServer("/tmp/qm-private/tmux.sock").Run(ctx, "list-sessions")
-	if err != nil || out != "ready" || time.Since(started) > 10*time.Second {
-		t.Fatalf("Run waited for a detached child: output=%q error=%v elapsed=%s", out, err, time.Since(started))
+	if err != nil || out != "ready" {
+		t.Fatalf("Run waited for a detached child: output=%q error=%v", out, err)
 	}
 }
 

@@ -120,6 +120,7 @@ func TestClassBackfillPreservesOldManifestRecencyForPrune(t *testing.T) {
 	if err := os.Chtimes(manifestPath, oldTime, oldTime); err != nil {
 		t.Fatalf("age manifest: %v", err)
 	}
+	watcher := watchManifestDirectory(t, root)
 	beforeInfo, err := os.Stat(manifestPath)
 	if err != nil {
 		t.Fatalf("stat old manifest: %v", err)
@@ -130,28 +131,10 @@ func TestClassBackfillPreservesOldManifestRecencyForPrune(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- job.Run(ctx) }()
-	deadline := time.NewTimer(3 * time.Second)
-	ticker := time.NewTicker(time.Millisecond)
-	defer deadline.Stop()
-	defer ticker.Stop()
-	for job.HasWork() {
-		select {
-		case err := <-done:
-			cancel()
-			t.Fatalf("backfill job returned before completing: %v", err)
-		case <-deadline.C:
-			cancel()
-			t.Fatal("backfill job did not finish")
-		case <-ticker.C:
-		}
-	}
+	after := waitForManifestDisplayClass(t, watcher, store, "qm-old", done)
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("backfill job: %v", err)
-	}
-	after, err := store.Read("qm-old")
-	if err != nil {
-		t.Fatalf("read backfilled manifest: %v", err)
 	}
 	if _, err := state.ValidateSessionClass(after.DisplayClass()); err != nil {
 		t.Fatalf("backfilled class = %q, want a valid non-empty class: %v", after.DisplayClass(), err)

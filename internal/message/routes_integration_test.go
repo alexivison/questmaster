@@ -14,6 +14,10 @@ import (
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
+// These tests wait for real private tmux panes to render sent keys; the
+// deadline is only a startup/scheduling watchdog.
+const routeIntegrationWaitTimeout = 30 * time.Second
+
 func TestIntegrationMixedMessages(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	t.Setenv("HOME", t.TempDir())
@@ -61,7 +65,7 @@ func TestIntegrationMixedMessages(t *testing.T) {
 		out, err := client.Capture(context.Background(), tmux.SessionTarget(id), 30)
 		return err == nil && strings.Contains(out, marker)
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(routeIntegrationWaitTimeout)
 	for !contains(legacy, "qm-master", "report-marker") || !contains(named, "qm-worker", "send-marker") || !contains(named, "qm-worker", "broadcast-marker") {
 		if time.Now().After(deadline) {
 			t.Fatal("routed messages missing from recipient panes")

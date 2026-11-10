@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/session"
@@ -100,18 +99,13 @@ func TestSessionClosedRefreshesTrackerLiveness(t *testing.T) {
 	if err != nil || afterFile.Mode() != beforeFile.Mode() {
 		t.Fatalf("manifest mode changed: %v, %v", afterFile, err)
 	}
-	select {
-	case change := <-changes:
-		if !change.Lifecycle || !slices.Contains(change.SessionIDs, id) {
-			t.Fatalf("close change = %+v", change)
-		}
-		snapshotter.Invalidate(change)
-		after, err := snapshotter.TrackerForChange(change)
-		if err != nil || len(after.Sessions) != 1 || after.Sessions[0].Status != "stopped" || after.Sessions[0].State != "stopped" {
-			t.Fatalf("tracker after close = %+v, %v", after, err)
-		}
-	case <-time.After(2 * time.Second):
-		cached, err := snapshotter.TrackerForChange(serve.Change{Clock: true})
-		t.Fatalf("close produced no tracker lifecycle change; cached tracker = %+v, %v", cached, err)
+	change := <-changes
+	if !change.Lifecycle || !slices.Contains(change.SessionIDs, id) {
+		t.Fatalf("close change = %+v", change)
+	}
+	snapshotter.Invalidate(change)
+	after, err := snapshotter.TrackerForChange(change)
+	if err != nil || len(after.Sessions) != 1 || after.Sessions[0].Status != "stopped" || after.Sessions[0].State != "stopped" {
+		t.Fatalf("tracker after close = %+v, %v", after, err)
 	}
 }

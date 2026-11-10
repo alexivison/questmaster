@@ -379,21 +379,11 @@ func TestUpdateAndLogWithEventsKeepsExpansionAtomic(t *testing.T) {
 	case <-time.After(20 * time.Millisecond):
 	}
 	close(releaseExpansion)
-	select {
-	case err := <-firstDone:
-		if err != nil {
-			t.Fatalf("expanded event update: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expanded event update did not finish")
+	if err := <-firstDone; err != nil {
+		t.Fatalf("expanded event update: %v", err)
 	}
-	select {
-	case err := <-stopDone:
-		if err != nil {
-			t.Fatalf("stop update: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("stop update did not finish")
+	if err := <-stopDone; err != nil {
+		t.Fatalf("stop update: %v", err)
 	}
 
 	data, err := os.ReadFile(SessionStateLogPath(root, id))

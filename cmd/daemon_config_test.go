@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/state"
@@ -76,33 +75,12 @@ func TestDaemonClassBackfillUsesAbsoluteStateRootAfterChdir(t *testing.T) {
 	if err := os.Chdir(t.TempDir()); err != nil {
 		t.Fatalf("change working directory: %v", err)
 	}
+	watcher := watchManifestDirectory(t, store.Root())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- config.Jobs[0].Run(ctx) }()
-	deadline := time.NewTimer(3 * time.Second)
-	ticker := time.NewTicker(time.Millisecond)
-	defer deadline.Stop()
-	defer ticker.Stop()
-	for {
-		manifest, err := store.Read("qm-relative-root")
-		if err != nil {
-			cancel()
-			t.Fatalf("read master: %v", err)
-		}
-		if manifest.DisplayClass() != "" {
-			break
-		}
-		select {
-		case err := <-done:
-			cancel()
-			t.Fatalf("backfill returned before cancellation: %v", err)
-		case <-deadline.C:
-			cancel()
-			t.Fatal("backfill did not persist class in the original state root")
-		case <-ticker.C:
-		}
-	}
+	waitForManifestDisplayClass(t, watcher, store, "qm-relative-root", done)
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("backfill after cancellation: %v", err)

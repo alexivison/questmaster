@@ -25,6 +25,10 @@ import (
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
+// Private tmux sessions and their panes are external processes; these
+// deadlines are watchdogs for observed state, not latency assertions.
+const privateTmuxWaitTimeout = 30 * time.Second
+
 type rolloutFixture struct {
 	store  *state.Store
 	legacy *tmuxtest.Runner
@@ -105,7 +109,7 @@ func captureContains(t *testing.T, client *tmux.Client, id, marker string) bool 
 
 func waitForCapture(t *testing.T, client *tmux.Client, id, marker string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(privateTmuxWaitTimeout)
 	for !captureContains(t, client, id, marker) {
 		if time.Now().After(deadline) {
 			t.Fatalf("%s never captured %q", id, marker)
@@ -334,7 +338,7 @@ func TestIntegrationServerDeathIsolated(t *testing.T) {
 	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(privateTmuxWaitTimeout)
 	for {
 		alive, err := f.new.HasSession(t.Context(), started.SessionID)
 		if err == nil && !alive {

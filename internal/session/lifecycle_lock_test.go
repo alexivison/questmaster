@@ -118,13 +118,13 @@ func TestStartPausedAfterRegisteringWhileItsMasterIsDeleted(t *testing.T) {
 	ctx := t.Context()
 
 	started := startWorker(svc, ctx)
-	<-pause.paused
+	_ = receiveSessionTestValue(t, pause.paused, "Start to reach the held tmux call")
 	deleted := deleteMaster(svc, ctx)
 	deleteErr, deleteDone := waitBriefly(deleted)
 	close(pause.release)
-	start := <-started
+	start := receiveSessionTestValue(t, started, "Start to finish")
 	if !deleteDone {
-		deleteErr = <-deleted
+		deleteErr = receiveSessionTestValue(t, deleted, "Delete to finish")
 	}
 
 	if deleteErr != nil {
@@ -142,15 +142,15 @@ func TestStartWhileItsMasterIsDeletedAfterReadingItsWorkers(t *testing.T) {
 	ctx := t.Context()
 
 	deleted := deleteMaster(svc, ctx)
-	<-pause.paused
+	_ = receiveSessionTestValue(t, pause.paused, "Delete to reach the held tmux call")
 	started := startWorker(svc, ctx)
 	start, startDone := waitBriefly(started)
 	close(pause.release)
-	if err := <-deleted; err != nil {
+	if err := receiveSessionTestValue(t, deleted, "Delete to finish"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if !startDone {
-		start = <-started
+		start = receiveSessionTestValue(t, started, "Start to finish")
 	}
 
 	assertNoOrphanWorker(t, svc, runner, start)
@@ -245,16 +245,10 @@ func TestContinueRollbackRunsAfterTheDeadline(t *testing.T) {
 		_, err := svc.Continue(deadline, id)
 		continued <- err
 	}()
-	select {
-	case <-reachedLaunch:
-		deadline.expire()
-	case err := <-continued:
-		t.Fatalf("Continue ended before the launch step: %v", err)
-	case <-time.After(30 * time.Second):
-		t.Fatal("timed out waiting for Continue to reach set-environment")
-	}
+	_ = receiveSessionTestValue(t, reachedLaunch, "Continue to reach its launch step")
+	deadline.expire()
 
-	if err := <-continued; !errors.Is(err, context.DeadlineExceeded) {
+	if err := receiveSessionTestValue(t, continued, "Continue rollback to finish"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Continue error = %v, want the lifecycle deadline", err)
 	}
 

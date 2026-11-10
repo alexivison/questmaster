@@ -32,22 +32,24 @@ type server struct {
 	lock, jobsLock  *os.File
 	listener        net.Listener
 	socketInfo      os.FileInfo
-	mu              sync.Mutex
-	record          Record
-	lastActivity    time.Time
-	active          int
-	stop            chan struct{}
-	upgrade         chan string
-	upgrading       bool
-	nextUpgradeTry  time.Time
-	runtime         *serve.Server
-	sourceMu        sync.Mutex
-	source          serve.ChangeSource
-	sourceClients   int
-	jobsCancel      context.CancelFunc
-	jobsDone        chan struct{}
-	jobsRequested   bool
-	nextJobsTry     time.Time
+	// onStoppedAccepting lets tests synchronize with shutdown's quiesce point.
+	onStoppedAccepting func()
+	mu                 sync.Mutex
+	record             Record
+	lastActivity       time.Time
+	active             int
+	stop               chan struct{}
+	upgrade            chan string
+	upgrading          bool
+	nextUpgradeTry     time.Time
+	runtime            *serve.Server
+	sourceMu           sync.Mutex
+	source             serve.ChangeSource
+	sourceClients      int
+	jobsCancel         context.CancelFunc
+	jobsDone           chan struct{}
+	jobsRequested      bool
+	nextJobsTry        time.Time
 }
 
 func setDetached(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }
@@ -340,7 +342,7 @@ func (s *server) handle(conn net.Conn) {
 	dec := json.NewDecoder(conn)
 	for {
 		var req serve.Request
-		_ = conn.SetReadDeadline(time.Now().Add(s.config.ReadIdleTimeout))
+		_ = conn.SetReadDeadline(s.config.now().Add(s.config.ReadIdleTimeout))
 		if err := dec.Decode(&req); err != nil {
 			return
 		}
@@ -504,6 +506,9 @@ func (s *server) shutdown(idle bool) error {
 	s.mu.Lock()
 	s.record.Accepting = false
 	s.mu.Unlock()
+	if s.onStoppedAccepting != nil {
+		s.onStoppedAccepting()
+	}
 	if !idle {
 		if err := s.closeListener(); err != nil {
 			return err

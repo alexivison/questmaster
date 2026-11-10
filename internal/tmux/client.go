@@ -286,6 +286,7 @@ func (e *ExitError) IsConnectionError() bool {
 type Client struct {
 	runner      Runner
 	SendTimeout time.Duration
+	after       func(time.Duration) <-chan time.Time
 
 	cacheMu              sync.Mutex
 	listSessionsTTL      time.Duration
@@ -297,7 +298,7 @@ type Client struct {
 // NewClient creates a Client that runs every command on server. Production
 // passes DefaultServer(); tests pass a fake Runner.
 func NewClient(server Runner) *Client {
-	return &Client{runner: server, SendTimeout: DefaultSendTimeout}
+	return &Client{runner: server, SendTimeout: DefaultSendTimeout, after: time.After}
 }
 
 // CacheListSessions enables a short-lived cache for the expensive tmux

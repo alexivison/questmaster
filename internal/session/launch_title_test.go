@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -71,12 +70,8 @@ func TestLaunchedPaneTitleLosesToRenameCommittedMeanwhile(t *testing.T) {
 			}
 			renamed <- err
 		}()
-		select {
-		case err := <-renamed:
-			renamed <- err
-		case <-time.After(time.Second):
-			t.Errorf("a rename could not commit while the launched pane's title was written")
-		}
+		err := <-renamed
+		renamed <- err
 	}
 	writes.install(runner)
 
@@ -105,23 +100,14 @@ func TestLaunchedPaneTitleWriteDoesNotHoldTheManifestLock(t *testing.T) {
 
 	synced := make(chan error, 1)
 	go func() { synced <- svc.syncLaunchedPaneTitle(t.Context(), sessionID, "%1") }()
-	<-entered
+	_ = receiveSessionTestValue(t, entered, "pane title write to enter the held call")
 	updated := make(chan error, 1)
 	go func() { updated <- svc.Store.Update(sessionID, func(m *state.Manifest) { m.SetExtra("probe", "1") }) }()
-	select {
-	case err := <-updated:
-		if err != nil {
-			t.Fatalf("manifest update: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Errorf("a manifest update waited for a blocked pane-title write")
-		close(release)
-		<-updated
-		<-synced
-		return
+	if err := receiveSessionTestValue(t, updated, "manifest update to finish while title write is blocked"); err != nil {
+		t.Fatalf("manifest update: %v", err)
 	}
 	close(release)
-	if err := <-synced; err != nil {
+	if err := receiveSessionTestValue(t, synced, "pane title sync to finish"); err != nil {
 		t.Fatalf("sync launched pane title: %v", err)
 	}
 }
