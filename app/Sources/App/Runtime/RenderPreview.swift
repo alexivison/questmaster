@@ -2248,7 +2248,7 @@ enum RenderPreview {
         case editTagsSearching
         /// edit-quest-all-types.png: every type chosen, so the dropdown has no rows and does not show.
         case editAllTypes
-        /// edit-quest-size-focused.png: the size select focused, its value shown.
+        /// edit-quest-size-focused.png: the size select focused, reading "Size: M".
         case editSizeFocused
 
         /// The quest's tags for an Edit Quest preview; nil for New Quest.

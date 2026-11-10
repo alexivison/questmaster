@@ -153,23 +153,30 @@ struct NewQuestSheetView: View {
         )
     }
 
-    /// The size select: a field box showing the size, or its placeholder while there is none. ←/→ and h/l step it, and a
-    /// click does. It has no text, so the sink holds its keys.
+    /// The size select: a field box reading "Size: M", or the "Size..." placeholder while there is none. The label is
+    /// highlighted meta text and the value the field's body text, neither bold. ←/→ and h/l step it, and a click does.
+    /// It has no text, so the sink holds its keys.
     private var sizeField: some View {
         let size = model.form.sizeText
         let isEmpty = size.isEmpty
-        return BaselineText(
-            isEmpty ? "Size..." : size,
-            font: AppFonts.questLogBody,
-            color: isEmpty ? AppPalette.textMeta : AppPalette.textBody,
-            baseline: FormFieldMetrics.baseline
-        )
+        return HStack(spacing: Space.row) {
+            if isEmpty {
+                sizeRun("Size...", color: AppPalette.textMeta)
+            } else {
+                sizeRun("Size:", color: AppPalette.metaHighlighted)
+                sizeRun(size, color: AppPalette.textBody)
+            }
+        }
         .padding(.horizontal, FormFieldMetrics.textInset)
         .frame(maxWidth: .infinity, minHeight: FormFieldMetrics.height, maxHeight: FormFieldMetrics.height, alignment: .topLeading)
         .fieldChrome(focused: model.form.focusedField == .size)
         .contentShape(Rectangle())
         .onTapGesture { model.clickedSize() }
         .accessibilityLabel("Size \(isEmpty ? "none" : size)")
+    }
+
+    private func sizeRun(_ text: String, color: NSColor) -> some View {
+        BaselineText(text, font: AppFonts.questLogBody, color: color, baseline: FormFieldMetrics.baseline)
     }
 
     private var contentBox: some View {
