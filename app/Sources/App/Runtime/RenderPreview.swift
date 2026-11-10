@@ -2349,7 +2349,8 @@ enum RenderPreview {
             let shell = shellWithHeaderView(size: size, trackerVisible: true, dockVisible: true)
             let stack = InWindowModalStack()
             (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
-            recordAnimation("quest-log-open-gif", root: shell, size: size, crop: modalCrop, duration: 0.75 * Motion.slowdown, to: dir) {
+            // The Quest Log at its fit is 1280 x 860 in this window: the crop takes all of it, with the scrim around.
+            recordAnimation("quest-log-open-gif", root: shell, size: size, crop: CGRect(x: 40, y: 10, width: 1320, height: 880), duration: 0.75 * Motion.slowdown, capturesLayers: true, to: dir) {
                 stack.presentQuestLog(questLogModal(questLogStore()))
             }
         }

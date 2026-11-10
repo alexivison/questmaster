@@ -562,8 +562,8 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 
 | Step | Seconds | Role |
 |---|---|---|
-| `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade |
-| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
+| `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade, a modal's scale back on close |
+| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in and scale-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
 
 - **One easing:** ease out, quick at first and settling, as the cubic Bézier (0, 0, 0.58, 1), the system's own `.easeOut`.
   `Motion.timingFunction` is its Core Animation and AppKit form, `Motion.animation(_:after:)` its SwiftUI form, and
@@ -579,6 +579,11 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   from the SwiftUI environment (the status ring, the cast bar) skips on that and takes its step lengths from
   `Motion.duration`; the ring's exit and crossfade are skipped under it, so the ring just goes. The logic-test runner
   starts every case with it off.
+- **Modal entrance.** Every in-window modal fades in and scales from 0.97 to 1 about its centre over `standard`, and on
+  close fades out and scales back over `fast` (`ModalLayer`, then `ModalScaleView`). The fit to the window is the scale
+  view's AppKit bounds, so events and text geometry map exactly. The entrance is a Core Animation transform on a child
+  view that AppKit never scales: animating the bounds moved a native scroll view's offset during the scale (the Quest
+  Log list's first row). While the transform runs, nothing in the modal takes a click; it takes them once it has settled.
 - **Sequencing** is a step too: `Motion.animation(.standard, after: .fast)` starts one step late (the Quest Log's paper
   unrolls as the modal's fade-in ends, then the ink follows).
 - **One-shot only.** The terminal shares the main thread, so a transition runs once and nothing keeps running. Prefer

@@ -88,6 +88,10 @@ enum LogicSelfTests {
         ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
         ("testQuestLogListStartsWithItsFirstRowWhole", testQuestLogListStartsWithItsFirstRowWhole),
         ("testQuestLogFilterFieldTakesClicksWhenTheModalIsScaledDown", testQuestLogFilterFieldTakesClicksWhenTheModalIsScaledDown),
+        ("testModalEntranceScalesAboutItsCentre", testModalEntranceScalesAboutItsCentre),
+        ("testModalEntranceRoutesClicksToWhereItDraws", testModalEntranceRoutesClicksToWhereItDraws),
+        ("testModalEntranceIsSkippedUnderReduceMotion", testModalEntranceIsSkippedUnderReduceMotion),
+        ("testModalCloseScalesBackAboutItsCentre", testModalCloseScalesBackAboutItsCentre),
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges", testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges),
@@ -3757,6 +3761,178 @@ enum LogicSelfTests {
             hit.map { $0 === host || $0.isDescendant(of: host) } ?? false,
             "a click on the field's centre should reach the modal, got \(String(describing: hit))"
         )
+    }
+
+    /// The Quest Log in a 1000 x 800 window, read frame by frame. The modal's drawn rect comes from the presentation of the
+    /// layer that carries its scale, so an entrance or a close in flight shows.
+    @MainActor private struct QuestLogModalFrames {
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 800))
+        let stack = InWindowModalStack()
+        let host: InWindowModalHost
+        let store: QuestLogStore
+
+        init() {
+            store = QuestLogStore()
+            store.sync(quests: [QuestItem(id: "q1", content: "Quest 1")], repos: [])
+            host = InWindowModalHost(stack: stack)
+            host.frame = NSRect(origin: .zero, size: window.frame.size)
+            window.contentView = host
+            window.show()
+        }
+
+        /// The hosted content's hosting view, which the modal file keeps private: found by class name.
+        var hostedView: NSView? { Self.view(named: "ModalHostingView", in: host) }
+
+        /// The view whose layer carries the modal's scale: the hosted content's superview.
+        var coordinateView: NSView? { hostedView?.superview }
+
+        /// Whether the entrance (or a close) is running: no click reaches the modal then.
+        var isScaling: Bool { !(coordinateView?.layer?.animationKeys() ?? []).isEmpty }
+
+        /// The Quest Log's content at the fit to the window, centred, once it has settled.
+        var fittedRect: CGRect {
+            let content = hostedView?.intrinsicContentSize ?? .zero
+            let margin = ShellMetrics.gap * 2
+            let fit = min(1, (host.bounds.width - margin) / content.width, (host.bounds.height - margin) / content.height)
+            let size = CGSize(width: content.width * fit, height: content.height * fit)
+            return CGRect(x: host.bounds.midX - size.width / 2, y: host.bounds.midY - size.height / 2, width: size.width, height: size.height)
+        }
+
+        func present() {
+            store.open()
+            stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        }
+
+        /// Where the modal's content is drawn now, in the host's coordinates; nil while SwiftUI hasn't drawn it yet.
+        var drawnRect: CGRect? {
+            guard let coordinates = coordinateView, let hosted = hostedView, let coordinateLayer = coordinates.layer, let hostLayer = host.layer else {
+                return nil
+            }
+            let presented = coordinateLayer.presentation() ?? coordinateLayer
+            let corners = [CGPoint(x: hosted.frame.minX, y: hosted.frame.minY), CGPoint(x: hosted.frame.maxX, y: hosted.frame.maxY)]
+                .map { presented.convert($0, to: hostLayer) }
+            return CGRect(
+                x: min(corners[0].x, corners[1].x), y: min(corners[0].y, corners[1].y),
+                width: abs(corners[1].x - corners[0].x), height: abs(corners[1].y - corners[0].y)
+            )
+        }
+
+        /// Runs `begin`, then every frame for `seconds`: `perFrame` gets each drawn rect, and the rects are returned.
+        func sample(for seconds: TimeInterval, begin: () -> Void = {}, perFrame: (CGRect) throws -> Void = { _ in }) rethrows -> [CGRect] {
+            begin()
+            var drawn: [CGRect] = []
+            let began = Date()
+            while Date().timeIntervalSince(began) < seconds {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+                if let rect = drawnRect {
+                    drawn.append(rect)
+                    try perFrame(rect)
+                }
+            }
+            return drawn
+        }
+
+        private static func view(named name: String, in root: NSView) -> NSView? {
+            if String(describing: type(of: root)) == name {
+                return root
+            }
+            return root.subviews.lazy.compactMap { view(named: name, in: $0) }.first
+        }
+    }
+
+    private static func sameRect(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 0.5) -> Bool {
+        abs(lhs.minX - rhs.minX) < tolerance && abs(lhs.minY - rhs.minY) < tolerance
+            && abs(lhs.width - rhs.width) < tolerance && abs(lhs.height - rhs.height) < tolerance
+    }
+
+    /// The entrance scales the modal about its centre. Its drawn rect keeps the window's centre at every frame, it starts a
+    /// little smaller than the fit and never overshoots it, and it ends exactly at the fit.
+    private static func testModalEntranceScalesAboutItsCentre() throws {
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        let drawn = try scene.sample(for: 0.6, begin: scene.present)
+        guard let smallest = drawn.map(\.width).min() else {
+            throw TestFailure("the Quest Log should be drawn while it enters")
+        }
+        let fitted = scene.fittedRect
+        try expect(sameRect(drawn.last ?? .zero, fitted), "the entrance should end at the fit \(fitted), drawn \(drawn.last ?? .zero)")
+        try expect(smallest < fitted.width - 1, "the entrance should draw the modal smaller than the fit at first, smallest \(smallest)")
+        try expect(smallest >= fitted.width * 0.96, "the entrance should start from about 0.97 of the fit, smallest \(smallest) of \(fitted.width)")
+        try expect(drawn.allSatisfy { $0.width <= fitted.width + 0.5 }, "the entrance should never draw the modal above the fit")
+        let centre = CGPoint(x: scene.host.bounds.midX, y: scene.host.bounds.midY)
+        for rect in drawn {
+            try expect(
+                abs(rect.midX - centre.x) < 0.5 && abs(rect.midY - centre.y) < 0.5,
+                "the modal should stay centred on \(centre) while it scales, but was drawn at \(rect)"
+            )
+        }
+    }
+
+    /// While the entrance runs nothing in the modal takes a click, so none lands on a control at the wrong place. Once it
+    /// has settled a click just inside the drawn edge reaches the modal, and one just outside doesn't.
+    private static func testModalEntranceRoutesClicksToWhereItDraws() throws {
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        // The scale view covers the window, so a click outside the modal lands on it; only the hosted content counts as the modal.
+        func reachesModal(_ point: CGPoint) -> Bool {
+            let inWindow = scene.host.convert(point, to: nil)
+            guard let hit = scene.window.contentView?.superview?.hitTest(inWindow), let hosted = scene.hostedView else {
+                return false
+            }
+            return hit === hosted || hit.isDescendant(of: hosted)
+        }
+        var scalingFrames = 0
+        let drawn = try scene.sample(for: 0.6, begin: scene.present) { rect in
+            guard scene.isScaling else {
+                return
+            }
+            scalingFrames += 1
+            try expect(!reachesModal(CGPoint(x: rect.midX, y: scene.host.bounds.midY)), "no click should reach the modal while it scales")
+        }
+        try expect(scalingFrames > 0, "the entrance should be sampled while it runs")
+        try expect(!scene.isScaling && drawn.last != nil, "the entrance should finish within the sample")
+        let fitted = scene.fittedRect
+        let y = scene.host.bounds.midY
+        try expect(reachesModal(CGPoint(x: fitted.minX + 4, y: y)), "a click 4pt inside the settled edge should reach the modal, drawn at \(fitted)")
+        try expect(!reachesModal(CGPoint(x: fitted.minX - 4, y: y)), "a click 4pt outside the settled edge should not reach the modal, drawn at \(fitted)")
+    }
+
+    /// Under Reduce Motion the modal is drawn at its fit from its first frame, and nothing animates.
+    private static func testModalEntranceIsSkippedUnderReduceMotion() throws {
+        let reducesMotion = Motion.reducesMotion
+        Motion.reducesMotion = { true }
+        defer { Motion.reducesMotion = reducesMotion }
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        var animated = false
+        let drawn = try scene.sample(for: 0.4, begin: scene.present) { _ in
+            animated = animated || scene.isScaling
+        }
+        try expect(!drawn.isEmpty, "the Quest Log should be drawn under Reduce Motion")
+        let fitted = scene.fittedRect
+        try expect(drawn.allSatisfy { sameRect($0, fitted) }, "under Reduce Motion every frame should be the fit \(fitted), got \(drawn.first ?? .zero)")
+        try expect(!animated, "under Reduce Motion the entrance should add no animation")
+    }
+
+    /// Closing scales the modal back to its start scale about its centre, before it is removed.
+    private static func testModalCloseScalesBackAboutItsCentre() throws {
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        _ = try scene.sample(for: 0.6, begin: scene.present)
+        let fitted = scene.fittedRect
+        let drawn = try scene.sample(for: 0.25, begin: { scene.stack.dismiss(id: QuestLogModal.stackID) })
+        guard let smallest = drawn.map(\.width).min() else {
+            throw TestFailure("the Quest Log should be drawn while it closes")
+        }
+        try expect(smallest < fitted.width - 1, "the close should draw the modal smaller than the fit, smallest \(smallest)")
+        try expect(smallest >= fitted.width * 0.96, "the close should end at about 0.97 of the fit, smallest \(smallest) of \(fitted.width)")
+        let centre = CGPoint(x: scene.host.bounds.midX, y: scene.host.bounds.midY)
+        for rect in drawn {
+            try expect(
+                abs(rect.midX - centre.x) < 0.5 && abs(rect.midY - centre.y) < 0.5,
+                "the modal should stay centred on \(centre) while it closes, but was drawn at \(rect)"
+            )
+        }
     }
 
     private static func testQuestLogOpensScrolledToTheKeptSelection() throws {
