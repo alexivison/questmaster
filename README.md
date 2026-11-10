@@ -88,6 +88,25 @@ as written.
 
 Subcommands are agent-first: most lifecycle, messaging, list, and status commands emit JSON for noninteractive success output. Utility commands such as `version`, `agent query`, `hooks`, and `artifact` use text; `questmaster read --text` prints raw pane text.
 
+Install Questmaster's built-in skills explicitly:
+
+```sh
+questmaster skills install
+questmaster skills status
+questmaster skills install --dry-run
+questmaster skills install --check
+questmaster skills uninstall --dry-run
+questmaster skills uninstall
+```
+
+The shared `$HOME/.agents/skills` destination serves Codex, Pi, and OpenCode;
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills` is Claude's user skill directory.
+These user-level locations make installed skills available across projects in
+their compatible harnesses. Questmaster changes these directories only through
+explicit skill commands; app launch and upgrade do not install or update skills.
+`--dry-run` previews changes, and `--check` reports whether installed files
+match the bundled skills.
+
 Install or inspect generated agent hooks:
 
 ```sh
