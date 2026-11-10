@@ -1157,11 +1157,12 @@ enum LogicSelfTests {
         let mounted = views(under: view).map(ObjectIdentifier.init)
 
         /// Switches to `next` from a clean slate (a finished fade stays on its layer until Core Animation's next commit) and
-        /// returns how many icon layers fade, once the first shows.
+        /// returns how many icon layers have an installed fade.
         func fadeCount(after next: SelectedSessionPanelContent, _ what: String) throws -> Int {
             icons(in: view).forEach { $0.layer?.removeAllAnimations() }
             model.content = next
-            try expect(waitUntil { shownOpacity(in: view) < 1 }, "\(what) should start clear and fade in on its layer")
+            // The presentation layer can be absent until Core Animation commits its first frame; the installed animation is stable evidence.
+            try expect(waitUntil { fades(in: view).count == 1 }, "\(what) should install one fade on its icon layer")
             return fades(in: view).count
         }
         /// Switches to `next` from a clean slate and, once `landed`, expects nothing to fade.
