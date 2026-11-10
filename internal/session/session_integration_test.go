@@ -168,18 +168,9 @@ func TestIntegrationSessionClosedHookCleansTheClosedSession(t *testing.T) {
 	closed := start(1700000201)
 	live := start(1700000202)
 
-	if err := svc.Client.KillSession(t.Context(), closed.SessionID); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(sessionIntegrationWaitTimeout)
-	for {
-		if _, err := os.Lstat(closed.RuntimeDir); errors.Is(err, os.ErrNotExist) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("session-closed hook did not remove %s", closed.RuntimeDir)
-		}
-		time.Sleep(20 * time.Millisecond)
+	killSessionAndWaitForCleanup(t, t.Context(), runner, store.Root(), closed.SessionID)
+	if _, err := os.Lstat(closed.RuntimeDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("session-closed hook did not remove %s (err=%v)", closed.RuntimeDir, err)
 	}
 	if _, err := os.Stat(filepath.Join(live.RuntimeDir, "session-name")); err != nil {
 		t.Fatalf("live session's runtime dir touched: %v", err)

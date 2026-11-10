@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/alexivison/questmaster/internal/tmux/tmuxtest"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
+	"github.com/fsnotify/fsnotify"
 )
 
 // The private server invokes this test binary through a temporary qm shim.
@@ -34,6 +36,10 @@ func TestIntegrationCleanupHelper(t *testing.T) {
 	}
 }
 
+func cleanupHelperDonePath(root, id string) string {
+	return filepath.Join(root, "cleanup-helper-done-"+id)
+}
+
 func privateCleanupServer(t *testing.T, roots ...string) (*state.Store, *tmuxtest.Runner) {
 	t.Helper()
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "test_named")
@@ -51,7 +57,14 @@ func privateCleanupServer(t *testing.T, roots ...string) (*state.Store, *tmuxtes
 		t.Fatal(err)
 	}
 	shim := filepath.Join(shimDir, "questmaster")
-	script := "#!/bin/sh\nexport QM_TEST_CLEANUP_HELPER=1\nexport QM_TEST_CLEANUP_ID=\"$6\"\nexec " + config.ShellQuote(exe) + " -test.run '^TestIntegrationCleanupHelper$'\n"
+	script := "#!/bin/sh\n" +
+		"export QM_TEST_CLEANUP_HELPER=1\n" +
+		"export QM_TEST_CLEANUP_ID=\"$6\"\n" +
+		"export QM_TEST_CLEANUP_DONE_DIR=" + config.ShellQuote(root) + "\n" +
+		config.ShellQuote(exe) + " -test.run '^TestIntegrationCleanupHelper$'\n" +
+		"helper_exit_code=$?\n" +
+		"printf '%s\\n' \"$helper_exit_code\" > \"$QM_TEST_CLEANUP_DONE_DIR/cleanup-helper-done-$QM_TEST_CLEANUP_ID\"\n" +
+		"exit \"$helper_exit_code\"\n"
 	if err := os.WriteFile(shim, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -59,14 +72,96 @@ func privateCleanupServer(t *testing.T, roots ...string) (*state.Store, *tmuxtes
 	if err := tmuxconfig.Prepare(root); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	paths := tmuxconfig.Paths(root)
 	runner := tmuxtest.NewRunnerWithConfig(t, paths.Config, paths.Enforced)
 	t.Setenv("QM_TEST_SOCKET", runner.Socket())
+	t.Cleanup(func() {
+		cleanupPrivateServerSessions(t, root, runner)
+	})
 	store, err := state.NewStore(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return store, runner
+}
+
+func cleanupPrivateServerSessions(t *testing.T, root string, runner *tmuxtest.Runner) {
+	t.Helper()
+	sessions, err := runner.Run(context.Background(), "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		if privateServerIsStopped(err) {
+			return
+		}
+		t.Errorf("list private sessions during cleanup: %v", err)
+		return
+	}
+	for _, id := range strings.Fields(sessions) {
+		killSessionAndWaitForCleanup(t, context.Background(), runner, root, id)
+	}
+}
+
+func privateServerIsStopped(err error) bool {
+	var exitErr *tmux.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+	return strings.Contains(exitErr.Stderr, "no server running") ||
+		strings.Contains(exitErr.Stderr, "No such file or directory")
+}
+
+func killSessionAndWaitForCleanup(t *testing.T, ctx context.Context, runner tmux.Runner, root, id string) {
+	t.Helper()
+	marker := cleanupHelperDonePath(root, id)
+	if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("clear prior cleanup completion marker for %s: %v", id, err)
+	}
+	if _, err := runner.Run(ctx, "kill-session", "-t", tmux.SessionTarget(id)); err != nil {
+		t.Fatalf("kill session %s: %v", id, err)
+	}
+	waitForCleanupHelper(t, root, id)
+}
+
+func waitForCleanupHelper(t *testing.T, root, id string) {
+	t.Helper()
+	marker := cleanupHelperDonePath(root, id)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatalf("watch close-hook completion: %v", err)
+	}
+	defer watcher.Close()
+	if err := watcher.Add(root); err != nil {
+		t.Fatalf("watch state root for close-hook completion: %v", err)
+	}
+	timer := time.NewTimer(sessionIntegrationWaitTimeout)
+	defer timer.Stop()
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			if data, readErr := os.ReadFile(filepath.Join(root, "helper-error")); readErr == nil {
+				t.Fatalf("cleanup handler for %s: %s", id, data)
+			}
+			return
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat close-hook completion for %s: %v", id, err)
+		}
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				t.Fatalf("close-hook completion watcher stopped for %s", id)
+			}
+			if filepath.Clean(event.Name) == marker {
+				continue
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok || err != nil {
+				t.Fatalf("close-hook completion watcher for %s: %v", id, err)
+			}
+		case <-timer.C:
+			t.Fatalf("timed out after %s waiting for close-hook helper for %s to exit", sessionIntegrationWaitTimeout, id)
+		}
+	}
 }
 
 func TestIntegrationLastSessionCleanupRuns(t *testing.T) {
@@ -86,9 +181,7 @@ func TestIntegrationLastSessionCleanupRuns(t *testing.T) {
 		}
 	}
 	for _, id := range ids {
-		if _, err := runner.Run(t.Context(), "kill-session", "-t", tmux.SessionTarget(id)); err != nil {
-			t.Fatal(err)
-		}
+		killSessionAndWaitForCleanup(t, t.Context(), runner, store.Root(), id)
 	}
 	waitForCleanupDirs(t, store.Root(), ids...)
 }
@@ -131,9 +224,7 @@ func TestIntegrationContinueMasterAfterCloseHooks(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, id := range order {
-				if err := client.KillSession(t.Context(), id); err != nil {
-					t.Fatal(err)
-				}
+				killSessionAndWaitForCleanup(t, t.Context(), runner, store.Root(), id)
 			}
 			waitForCleanupDirs(t, store.Root(), order...)
 			result, err := svc.Continue(t.Context(), master)
@@ -152,23 +243,14 @@ func TestIntegrationContinueMasterAfterCloseHooks(t *testing.T) {
 
 func waitForCleanupDirs(t *testing.T, root string, ids ...string) {
 	t.Helper()
-	deadline := time.Now().Add(sessionIntegrationWaitTimeout)
-	for time.Now().Before(deadline) {
-		allGone := true
-		for _, id := range ids {
-			if _, err := os.Stat(state.NewRuntimeDir(root, id)); err == nil {
-				allGone = false
-			}
+	for _, id := range ids {
+		if _, err := os.Stat(cleanupHelperDonePath(root, id)); err != nil {
+			t.Fatalf("close-hook helper for %s did not finish before runtime cleanup check: %v", id, err)
 		}
-		if allGone {
-			return
+		if _, err := os.Stat(state.NewRuntimeDir(root, id)); !os.IsNotExist(err) {
+			t.Fatalf("runtime dir for %s still exists after close-hook helper exited (err=%v)", id, err)
 		}
-		time.Sleep(20 * time.Millisecond)
 	}
-	if data, err := os.ReadFile(filepath.Join(root, "helper-error")); err == nil {
-		t.Fatalf("cleanup handler: %s", data)
-	}
-	t.Fatalf("runtime dirs for %v remain", ids)
 }
 
 func TestIntegrationDelayedCleanupDoesNotHarmContinue(t *testing.T) {
