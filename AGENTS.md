@@ -160,6 +160,15 @@ Invariants that aren't obvious from the code:
   restart refuse running servers with a missing or foreign root marker. A manifest
   without the field predates it and keeps its old path until the session stops
   (`Manifest.RuntimeDirOrLegacy`, the one legacy branch).
+- **Closing is not deleting.** `SessionClosed` preserves the manifest and the
+  master's `workers` membership, so stopped workers remain in the tracker and
+  Worker Log and a master Continue can resume them (including on reattach).
+  Delete and prune deregister workers before removing their manifests;
+  `message.Service.Workers` prunes entries with neither a manifest nor a live
+  session. Cascade reads only the master's list, so workers deregistered by
+  older close hooks need one manual Continue each to restore membership.
+  The close handler rewrites its own manifest through `Store.Update` to signal
+  the daemon's liveness watcher; runtime-directory removal alone is not watched.
 - **The user's default server has no operational route.** `ProbeDefaultSessions`
   is the one remaining reader, used by audit, stopped-manifest backfill and
   cleanup guards to detect managed sessions that remain there. It runs only `list-sessions` through

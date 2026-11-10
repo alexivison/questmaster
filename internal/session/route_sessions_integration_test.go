@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,6 +91,63 @@ func TestIntegrationLastSessionCleanupRuns(t *testing.T) {
 		}
 	}
 	waitForCleanupDirs(t, store.Root(), ids...)
+}
+
+func TestIntegrationContinueMasterAfterCloseHooks(t *testing.T) {
+	tmuxtest.RequireIntegration(t)
+	for _, order := range [][]string{
+		{"qm-worker", "qm-master"},
+		{"qm-master", "qm-worker"},
+		{"qm-worker"},
+	} {
+		t.Run(strings.Join(order, " then "), func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("SHELL", "/bin/sh")
+			store, runner := privateCleanupServer(t)
+			client := tmux.NewClient(runner)
+			svc := NewService(store, client, "")
+			svc.Router = tmuxroute.New(store, map[string]*tmux.Client{"test_named": client}, func() string { return "test_named" }, nil)
+			cli := filepath.Join(t.TempDir(), "test-agent")
+			if err := os.WriteFile(cli, []byte("#!/bin/sh\nexec /bin/sleep 60\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			master, worker := "qm-master", "qm-worker"
+			for _, id := range []string{master, worker} {
+				createTestManifest(t, store, id, id, t.TempDir(), "")
+				if err := store.Update(id, func(m *state.Manifest) {
+					m.TmuxServer = "test_named"
+					m.Agents[0].CLI = cli
+					if id == worker {
+						m.SetExtra("parent_session", master)
+					}
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := store.AddWorker(master, worker); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.Continue(t.Context(), master); err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range order {
+				if err := client.KillSession(t.Context(), id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			waitForCleanupDirs(t, store.Root(), order...)
+			result, err := svc.Continue(t.Context(), master)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(result.RevivedWorkers, []string{worker}) || len(result.FailedWorkers) != 0 {
+				t.Fatalf("Continue after close hooks = %+v", result)
+			}
+			if alive, err := client.HasSession(t.Context(), worker); err != nil || !alive {
+				t.Fatalf("continued worker alive = %v, %v", alive, err)
+			}
+		})
+	}
 }
 
 func waitForCleanupDirs(t *testing.T, root string, ids ...string) {

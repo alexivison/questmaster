@@ -10,8 +10,9 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
-// SessionClosed cleans a named-server session after tmux has closed it. The
-// lifecycle lock fences a delayed hook from a later Continue incarnation.
+// SessionClosed cleans a named-server session after tmux has closed it. Worker
+// membership survives closing so Continue can revive it and its log stays visible.
+// The lifecycle lock fences a delayed hook from a later Continue incarnation.
 func (s *Service) SessionClosed(ctx context.Context, server, sessionID string) error {
 	if err := validateSessionID(sessionID); err != nil {
 		return err
@@ -46,8 +47,9 @@ func (s *Service) SessionClosed(ctx context.Context, server, sessionID string) e
 		if _, err := s.persistPiResumeFromActivity(sessionID); err != nil {
 			return err
 		}
-		s.deregisterFromParent(sessionID)
 		s.removeRuntimeDir(sessionID)
-		return nil
+		// Manifest writes invalidate the daemon's liveness view; closing no
+		// longer rewrites the parent, so signal through this session instead.
+		return s.Store.Update(sessionID, func(*state.Manifest) {})
 	})
 }

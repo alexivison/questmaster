@@ -403,7 +403,7 @@ func TestSessionClosedSkipsMovedServer(t *testing.T) {
 	}
 }
 
-func TestSessionClosedDeregistersAndRemoves(t *testing.T) {
+func TestSessionClosedPreservesMembershipAndRemovesRuntime(t *testing.T) {
 	svc, _, _ := routedService(t)
 	master, worker := "qm-clean-master", "qm-clean-worker"
 	createTestManifest(t, svc.Store, master, "master", t.TempDir(), "master")
@@ -432,7 +432,7 @@ func TestSessionClosedDeregistersAndRemoves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.Workers) != 0 {
+	if len(m.Workers) != 1 || m.Workers[0] != worker {
 		t.Fatalf("workers = %v", m.Workers)
 	}
 	if _, err := svc.Store.Read(worker); err != nil {
