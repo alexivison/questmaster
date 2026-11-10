@@ -2,8 +2,9 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The one filter chip: "@project questmaster" in 12pt muted text, 15 high, at most 145 wide, radius 4.5, `item`
-/// fill, `line` border. Click to remove it, as Backspace in an empty field does.
+/// The one filter chip: "@project questmaster", its kind ("@project") in `textMetaHighlighted` and its title in 12pt
+/// muted text, 15 high, at most 145 wide, radius 4.5, `item` fill, `line` border. Click to remove it, as Backspace in an
+/// empty field does.
 struct FilterChip: View {
     var token: ArtifactFilterToken
     /// Whether the chip names its kind ("@type Bug"), as the Quest Log's do, or shows the title alone.
@@ -17,11 +18,19 @@ struct FilterChip: View {
         static let textInset = Space.row
     }
 
+    /// One text, so it truncates as a whole: the kind, then the title with its leading space.
+    private var text: Text {
+        guard showsKind else {
+            return Text(token.title).foregroundStyle(AppPalette.muted.swiftUI)
+        }
+        return Text(token.kind.prefix).foregroundStyle(AppPalette.metaHighlighted.swiftUI)
+            + Text(" \(token.title)").foregroundStyle(AppPalette.muted.swiftUI)
+    }
+
     var body: some View {
         Button(action: onRemove) {
-            Text(showsKind ? "\(token.kind.prefix) \(token.title)" : token.title)
+            text
                 .font(AppFonts.questLogBody.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .padding(.horizontal, Metrics.textInset)

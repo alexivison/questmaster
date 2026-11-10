@@ -221,6 +221,7 @@ enum LogicSelfTests {
         ("testWorkerLogChipsStayUnderTheTopBarInEveryState", testWorkerLogChipsStayUnderTheTopBarInEveryState),
         ("testWorkerChatFeedFadesInUnderItsHeader", testWorkerChatFeedFadesInUnderItsHeader),
         ("testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem", testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem),
+        ("testFilterChipDrawsItsKindInMetaHighlightedAndItsTitleInBody", testFilterChipDrawsItsKindInMetaHighlightedAndItsTitleInBody),
         ("testWorkerLogChipShowsOnlyWhileAMasterIsAttached", testWorkerLogChipShowsOnlyWhileAMasterIsAttached),
         ("testWorkerLogTabsUseTheChatFontAndFiveAroundEachDiamond", testWorkerLogTabsUseTheChatFontAndFiveAroundEachDiamond),
         ("testWorkerLogTabsScrollToTheSelection", testWorkerLogTabsScrollToTheSelection),
@@ -7436,6 +7437,44 @@ enum LogicSelfTests {
         }
     }
 
+    /// `view` as it draws on the panel colour in a headless window, at `scale`: the bitmap the colour tests sample.
+    private static func drawnBitmap<V: View>(_ view: V, size: CGSize, scale: CGFloat) throws -> NSBitmapImageRep {
+        let hosting = NSHostingView(rootView: AnyView(view.frame(width: size.width, height: size.height, alignment: .topLeading).background(AppPalette.panel.swiftUI)))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size)
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        try pumpOneMainRunLoopTurn()
+        hosting.layoutSubtreeIfNeeded()
+        return try snapshot(hosting, size: size, scale: scale)
+    }
+
+    /// The brightest pixel in the points `columns`: a glyph's stem reaches the text colour, whatever the font.
+    private static func brightestInk(_ bitmap: NSBitmapImageRep, scale: CGFloat, columns: Range<CGFloat>) -> NSColor? {
+        var best: (sum: CGFloat, color: NSColor)?
+        for x in Int(columns.lowerBound * scale)..<Int(columns.upperBound * scale) {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                    continue
+                }
+                let sum = color.redComponent + color.greenComponent + color.blueComponent
+                if sum > (best?.sum ?? 0) {
+                    best = (sum, color)
+                }
+            }
+        }
+        return best?.color
+    }
+
+    private static func expectInkColor(_ actual: NSColor?, _ expected: NSColor, _ label: String) throws {
+        guard let actual, let expected = expected.usingColorSpace(.deviceRGB) else {
+            throw TestFailure("\(label) should draw")
+        }
+        let distance = abs(actual.redComponent - expected.redComponent) + abs(actual.greenComponent - expected.greenComponent) + abs(actual.blueComponent - expected.blueComponent)
+        try expect(distance < 0.03, "\(label) should be \(expected), got \(actual)")
+    }
+
     /// Selected Filter Item.svg's chip: the label "Action:" in regular `textMetaHighlighted`, then the ticked names in bold
     /// `textBody`, and the chip grows with its text by exactly the characters it gains.
     private static func testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem() throws {
@@ -7452,45 +7491,29 @@ enum LogicSelfTests {
         try expect(manager.weight(of: AppFonts.chipValue) > manager.weight(of: AppFonts.questLogBody), "the value should be bolder than the label")
 
         let size = CGSize(width: 400, height: Space.row + ControlHeight.compact)
-        let hosting = NSHostingView(rootView: AnyView(chip("Status").frame(width: size.width, height: size.height, alignment: .topLeading).background(AppPalette.panel.swiftUI)))
-        hosting.frame = NSRect(origin: .zero, size: size)
-        let window = HeadlessWindow(size: size)
-        window.contentView = hosting
-        window.show()
-        defer { window.close() }
-        try pumpOneMainRunLoopTurn()
-        hosting.layoutSubtreeIfNeeded()
         let scale: CGFloat = 2
-        let bitmap = try snapshot(hosting, size: size, scale: scale)
-        /// The brightest pixel in the points `from..<to`: a glyph's stem reaches the text colour, whatever the font.
-        func brightest(_ from: CGFloat, _ to: CGFloat) -> NSColor? {
-            var best: (sum: CGFloat, color: NSColor)?
-            for x in Int(from * scale)..<Int(to * scale) {
-                for y in 0..<Int(size.height * scale) {
-                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
-                        continue
-                    }
-                    let sum = color.redComponent + color.greenComponent + color.blueComponent
-                    if sum > (best?.sum ?? 0) {
-                        best = (sum, color)
-                    }
-                }
-            }
-            return best?.color
-        }
-        func expectColor(_ actual: NSColor?, _ expected: NSColor, _ label: String) throws {
-            guard let actual, let expected = expected.usingColorSpace(.deviceRGB) else {
-                throw TestFailure("\(label) should draw")
-            }
-            let distance = abs(actual.redComponent - expected.redComponent) + abs(actual.greenComponent - expected.greenComponent) + abs(actual.blueComponent - expected.blueComponent)
-            try expect(distance < 0.03, "\(label) should be \(expected), got \(actual)")
-        }
+        let bitmap = try drawnBitmap(chip("Status"), size: size, scale: scale)
         // The chip's text starts past the row's inset, its border and `Space.item`.
         let labelStart = WorkerChatMetrics.inset + Token.Size.divider + Space.item
         let labelAdvance = ("A" as NSString).size(withAttributes: [.font: AppFonts.questLogBody]).width
         let valueStart = labelStart + 7 * labelAdvance + ClearableChipMetrics.labelGap
-        try expectColor(brightest(labelStart, labelStart + 7 * labelAdvance), AppPalette.muted, "the label")
-        try expectColor(brightest(valueStart, valueStart + 6 * advance), AppPalette.textBody, "the value")
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: labelStart..<(labelStart + 7 * labelAdvance)), AppPalette.metaHighlighted, "the label")
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: valueStart..<(valueStart + 6 * advance)), AppPalette.textBody, "the value")
+    }
+
+    /// The filter chip's kind ("@type") is `textMetaHighlighted` and its title, after the kind's space, the body colour, both
+    /// regular 12pt: the kind reads as a label, as the Worker Log's "Action:" does.
+    private static func testFilterChipDrawsItsKindInMetaHighlightedAndItsTitleInBody() throws {
+        let chip = FilterChip(token: ArtifactFilterToken(kind: .type, value: "bug", title: "Bug"), onRemove: {})
+        let size = try fittingSize(of: chip)
+        let scale: CGFloat = 2
+        let bitmap = try drawnBitmap(chip, size: size, scale: scale)
+        let advance = ("A" as NSString).size(withAttributes: [.font: AppFonts.questLogBody]).width
+        // The text starts `Space.row` in; the kind is five characters, then the title's leading space.
+        let kindStart = Space.row
+        let titleStart = kindStart + 6 * advance
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: kindStart..<(kindStart + 5 * advance)), AppPalette.metaHighlighted, "the kind")
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: titleStart..<(titleStart + 3 * advance)), AppPalette.textBody, "the title")
     }
 
     /// The ticks outlive the attached master, but a log with nothing attached stays blank, chip and all.
