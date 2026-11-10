@@ -18,7 +18,7 @@ struct NewSessionLogicTests {
         cyclingASingleAgentListDoesNotResetModelOptions()
         effortSelectStartsUnconfiguredAndTakesResolvedOptions()
         effortSegmentIsInertWithoutLevels()
-        effortKeysCycleOnlyWhereAnECannotBeTyped()
+        segmentKeysCycleOnlyWhereAnECannotBeTyped()
         submittingNeedsOnlyAPath()
         suggestionListHighlightsWrapsAndDismisses()
         agentChangeDropsTheResolvedEffortList()
@@ -308,22 +308,19 @@ struct NewSessionLogicTests {
         expect(model.effortLabel == NewSessionFormModel.defaultEffortLabel, "cycling should reach default, the harness's own level")
     }
 
-    private static func effortKeysCycleOnlyWhereAnECannotBeTyped() {
-        func cycles(_ characters: String, control: Bool = false, option: Bool = false, _ field: NewSessionField, _ mode: PickerFieldMode = .select) -> Bool {
+    private static func segmentKeysCycleOnlyWhereAnECannotBeTyped() {
+        func cycles(_ characters: String, control: Bool = false, option: Bool = false, _ mode: PickerFieldMode = .select) -> Bool {
             var modifiers: Set<Keymap.Modifier> = []
             if control { modifiers.insert(.control) }
             if option { modifiers.insert(.option) }
-            return NewSessionEffortKey.cycles(Keymap.KeyPress(keyCode: 14, character: characters, modifiers: modifiers), field: field, mode: mode)
+            return PickerSegmentKey.cycles(Keymap.KeyPress(keyCode: 14, character: characters, modifiers: modifiers), mode: mode)
         }
-        expect(cycles("e", .model, .select), "e should cycle in the model field's SELECT state")
-        expect(!cycles("e", .model, .search), "e should type while searching")
-        expect(cycles("e", control: true, .model, .select) && cycles("e", control: true, .model, .search), "⌃e should cycle in both states")
-        expect(!cycles("´", option: true, .model, .search), "⌥e is the accent dead key, not an effort key")
-        for field in [NewSessionField.path, .title, .agent, .color, .prompt] {
-            expect(!cycles("e", field) && !cycles("e", control: true, field), "no effort key with \(field) focused")
-        }
-        expect(!NewSessionEffortKey.cycles(Keymap.KeyPress(keyCode: 14, character: "E"), field: .model, mode: .select), "E (shift) is not the effort key")
-        expect(Keymap.chords(for: .cycleEffort).contains(.code(14, [.control])), "⌃e is the e key with control")
+        expect(cycles("e", .select), "e should cycle in the model field's SELECT state")
+        expect(!cycles("e", .search), "e should type while searching")
+        expect(cycles("e", control: true, .select) && cycles("e", control: true, .search), "⌃e should cycle in both states")
+        expect(!cycles("´", option: true, .search), "⌥e is the accent dead key, not a segment key")
+        expect(!PickerSegmentKey.cycles(Keymap.KeyPress(keyCode: 14, character: "E"), mode: .select), "E (shift) is not the segment key")
+        expect(Keymap.chords(for: .cycleSegment).contains(.code(14, [.control])), "⌃e is the e key with control")
     }
 
     private static func submittingNeedsOnlyAPath() {

@@ -7,11 +7,14 @@ final class NewQuestSheetPresenter: ObservableObject {
     @Published var presentation: NewQuestSheetPresentation?
 
     /// `projects`: the projects the field searches. `initialProject`: the one it opens on, the current
-    /// session's repo for a new quest and the quest's own when editing.
+    /// session's repo for a new quest and the quest's own when editing. `initialTypes` and `initialSize` are the
+    /// quest's tags, shown by an edit only.
     func present(
         projects: [NewQuestProjectOption],
         initialProject: NewQuestProjectOption?,
         initialContent: String = "",
+        initialTypes: [String] = [],
+        initialSize: String = "",
         questID: String = "",
         sessionID: String?,
         mutationClient: ServeMutationSending,
@@ -22,6 +25,8 @@ final class NewQuestSheetPresenter: ObservableObject {
             projects: projects,
             initialProject: initialProject,
             initialContent: initialContent,
+            initialTypes: initialTypes,
+            initialSize: initialSize,
             questID: questID,
             sessionID: sessionID ?? "",
             mutationClient: mutationClient,
@@ -40,6 +45,8 @@ struct NewQuestSheetPresentation: Identifiable {
     let projects: [NewQuestProjectOption]
     let initialProject: NewQuestProjectOption?
     let initialContent: String
+    let initialTypes: [String]
+    let initialSize: String
     let questID: String
     let sessionID: String
     let mutationClient: ServeMutationSending
@@ -48,7 +55,7 @@ struct NewQuestSheetPresentation: Identifiable {
 }
 
 /// new-quest.svg: the project field (projects by name, or directories for a typed path) and the content
-/// filling the rest.
+/// filling the rest. Edit Quest adds the tags field between them, its size segment at its end.
 struct NewQuestSheetView: View {
     @StateObject private var model: NewQuestSheetModel
 
@@ -71,7 +78,11 @@ struct NewQuestSheetView: View {
         ) {
             VStack(spacing: ModalFormMetrics.fieldSpacing) {
                 projectField
-                    .zIndex(1)
+                    .zIndex(2)
+                if model.form.isEditing {
+                    tagsField
+                        .zIndex(1)
+                }
                 contentBox
             }
             .background(FocusSink(nonce: model.sinkNonce))
@@ -120,6 +131,45 @@ struct NewQuestSheetView: View {
         )
     }
 
+    /// The types, as the field's text, with the size segment at its end. Its dropdown lists the types as checkboxes
+    /// while the field has focus.
+    private var tagsField: some View {
+        FormTextField(
+            text: Binding(get: { model.form.tags.text }, set: { model.form.tags.typeQuery($0) }),
+            placeholder: "Types...",
+            focusNonce: model.tagsFocusNonce,
+            focused: model.form.focusedField == .tags,
+            onFocusChanged: { editing in
+                if editing {
+                    model.focusTags()
+                }
+            }
+        ) {
+            sizeSegment
+        }
+        .suggestionDropdown(model.form.showsTagRows ? tagsDropdown : nil)
+    }
+
+    private var tagsDropdown: SuggestionDropdown {
+        let tags = model.form.tags
+        return SuggestionDropdown(
+            rows: tags.rows.map(\.displayName),
+            highlightedIndex: tags.highlightedIndex,
+            onSelect: { model.toggleTagRow($0) },
+            checkedRows: tags.checkedRows
+        )
+    }
+
+    /// "| S" at the field's end, as the effort segment is drawn. A click cycles it, wherever focus is.
+    private var sizeSegment: some View {
+        FormFieldSegment(text: model.form.tags.sizeLabel, color: AppPalette.textMeta)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                model.clickedTagSize()
+            }
+            .accessibilityLabel("Size \(model.form.tags.sizeLabel)")
+    }
+
     private var contentBox: some View {
         ModalPromptEditor(
             text: Binding(get: { model.form.content }, set: { model.form.content = $0 }),
@@ -142,6 +192,8 @@ final class NewQuestSheetModel: ObservableObject {
     @Published var paths = SuggestionList()
     /// Bumped as a search starts, to put the caret in the project text.
     @Published private(set) var projectFocusNonce = 0
+    /// Bumped as the tags field starts a search, to put the caret in its text.
+    @Published private(set) var tagsFocusNonce = 0
     /// Bumped as the project field returns to SELECT, to take the caret out.
     @Published private(set) var sinkNonce = 0
 
@@ -158,7 +210,9 @@ final class NewQuestSheetModel: ObservableObject {
             initialProject: presentation.initialProject,
             isEditing: !presentation.questID.isEmpty,
             projects: presentation.projects,
-            home: NSHomeDirectory()
+            home: NSHomeDirectory(),
+            types: presentation.initialTypes,
+            size: presentation.initialSize
         )
         questID = presentation.questID
         mutationClient = presentation.mutationClient
@@ -202,6 +256,32 @@ final class NewQuestSheetModel: ObservableObject {
             return
         }
         form.focusedField = field
+    }
+
+    /// A click on a row toggles that type, with the field focused and the dropdown open.
+    func toggleTagRow(_ index: Int) {
+        guard !form.submitting else {
+            return
+        }
+        focusTags()
+        form.tags.toggleRow(at: index)
+    }
+
+    /// A click on the size segment cycles it, wherever focus is.
+    func clickedTagSize() {
+        guard !form.submitting else {
+            return
+        }
+        form.tags.cycleSize()
+    }
+
+    /// The tags field takes focus in SELECT, with no caret, and its dropdown shows. A click on its text does the same.
+    func focusTags() {
+        guard !form.submitting else {
+            return
+        }
+        form.focusedField = .tags
+        sinkNonce += 1
     }
 
     /// A click into the project text: the click's caret starts a search.
@@ -279,7 +359,7 @@ final class NewQuestSheetModel: ObservableObject {
     private var modalKeyContext: ModalKeyContext {
         ModalKeyContext(
             focus: form.modalFocus,
-            fieldCount: NewQuestField.allCases.count,
+            fieldCount: form.fields.count,
             hasTextFields: true,
             submitting: form.submitting,
             submits: true
@@ -287,10 +367,35 @@ final class NewQuestSheetModel: ObservableObject {
     }
 
     private func handleFieldKey(_ event: NSEvent) -> Bool {
-        guard form.focusedField == .project else {
+        switch form.focusedField {
+        case .project:
+            return handleProjectFieldKey(event)
+        case .tags:
+            return handleTagsFieldKey(event)
+        case .content:
             return false
         }
-        return handleProjectFieldKey(event)
+    }
+
+    /// The tags field's keys (`QuestTagsField.handle`), with the caret following its mode as the project's does.
+    private func handleTagsFieldKey(_ event: NSEvent) -> Bool {
+        let before = form.tags.mode
+        defer {
+            followTags(from: before)
+        }
+        return form.tags.handle(event.keymapPress)
+    }
+
+    /// Moves the caret into or out of the tags text as its search starts or ends (`PickerFieldMode.caretChange`).
+    private func followTags(from before: PickerFieldMode) {
+        switch PickerFieldMode.caretChange(from: before, to: form.tags.mode, fieldFocused: form.focusedField == .tags) {
+        case .intoText:
+            tagsFocusNonce += 1
+        case .outOfText:
+            sinkNonce += 1
+        case nil:
+            break
+        }
     }
 
     /// The project field's keys, before the sheet's: the shared picker keys (`PickerFieldKey`) for the project
@@ -356,7 +461,7 @@ final class NewQuestSheetModel: ObservableObject {
         let before = form.projectMode
         form.moveFocus(delta)
         follow(from: before)
-        if form.focusedField == .project {
+        if form.focusedField == .project || form.focusedField == .tags {
             sinkNonce += 1
         }
     }

@@ -7,13 +7,6 @@ import SwiftUI
 /// the design's 28 snapped to the dropdown row height, with the header on the same band.
 enum WorkerLogFilterMetrics {
     static let rowHeight = ControlHeight.control
-    static let checkboxSide = Space.section
-    /// The checkbox's border and check, drawn inside the box.
-    static let boxStroke: CGFloat = 1.5
-    static let checkStroke: CGFloat = 1.5
-    static let checkLeft = CGPoint(x: 0.26, y: 0.5)
-    static let checkBottom = CGPoint(x: 0.44, y: 0.68)
-    static let checkRight = CGPoint(x: 0.74, y: 0.32)
 }
 
 /// The Action chip under the dock's top bar: the ticked names in bold, and its x clears the ticks. It grows with them.
@@ -126,7 +119,7 @@ private struct WorkerLogFilterRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            WorkerLogCheckbox(isChecked: isChecked, markColor: look.text.color)
+            CheckBox(isChecked: isChecked, markColor: look.text.color)
                 .padding(.trailing, Space.item)
             Text(action.title)
                 .font(AppFonts.questLogBody.swiftUI)
@@ -141,36 +134,5 @@ private struct WorkerLogFilterRow: View {
         .accessibilityLabel(action.title)
         .accessibilityValue(isChecked ? "Checked" : "Unchecked")
         .accessibilityAddTraits(.isButton)
-    }
-}
-
-/// The checkbox of Filter Item.svg: a `textMeta` border, and a check in the row's text colour while checked.
-private struct WorkerLogCheckbox: View {
-    let isChecked: Bool
-    let markColor: NSColor
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: Token.Radius.hairline)
-            .strokeBorder(AppPalette.textMeta.swiftUI, lineWidth: WorkerLogFilterMetrics.boxStroke)
-            .frame(width: WorkerLogFilterMetrics.checkboxSide, height: WorkerLogFilterMetrics.checkboxSide)
-            .overlay {
-                if isChecked {
-                    CheckShape()
-                        .stroke(markColor.swiftUI, style: StrokeStyle(lineWidth: WorkerLogFilterMetrics.checkStroke, lineCap: .round, lineJoin: .round))
-                }
-            }
-    }
-}
-
-private struct CheckShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        func point(_ unit: CGPoint) -> CGPoint {
-            CGPoint(x: rect.minX + unit.x * rect.width, y: rect.minY + unit.y * rect.height)
-        }
-        var path = Path()
-        path.move(to: point(WorkerLogFilterMetrics.checkLeft))
-        path.addLine(to: point(WorkerLogFilterMetrics.checkBottom))
-        path.addLine(to: point(WorkerLogFilterMetrics.checkRight))
-        return path
     }
 }

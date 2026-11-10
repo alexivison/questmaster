@@ -196,14 +196,22 @@ public enum ServeMutationRequests {
             "quest_id": try required("quest_id", questID),
             "content": try required("content", payload.content),
         ]
+        // An absent field leaves the quest's tags as they were; an empty one clears them.
+        var lists: [String: [String]] = [:]
+        if let types = payload.types {
+            lists["types"] = types
+        }
+        if let size = payload.size {
+            data["size"] = size
+        }
         guard payload.projectChanged else {
-            return ServeMutationRequest(method: "quest.edit", data: data)
+            return ServeMutationRequest(method: "quest.edit", data: data, lists: lists)
         }
         data["project_changed"] = "true"
         data["project_id"] = payload.projectID
         data["project_path"] = payload.projectPath
         data["project_name"] = payload.projectName
-        return ServeMutationRequest(method: "quest.edit", data: data)
+        return ServeMutationRequest(method: "quest.edit", data: data, lists: lists)
     }
 
     public static func questDelete(questID: String) throws -> ServeMutationRequest {

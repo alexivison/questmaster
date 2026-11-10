@@ -2,6 +2,8 @@ import Foundation
 
 public enum NewQuestField: CaseIterable, Equatable {
     case project
+    /// Edit Quest only: New Quest stays tagless, for quick jotting.
+    case tags
     case content
 }
 
@@ -60,13 +62,27 @@ public struct NewQuestSubmitPayload: Equatable {
     public var projectName: String
     /// False when an edit leaves the quest's project as it was, so the edit sends content only.
     public var projectChanged: Bool
+    /// An edit's types, sent only when the user changed them (empty clears them). Nil leaves them as they were.
+    public var types: [String]?
+    /// An edit's size, sent only when the user changed it ("" clears it). Nil leaves it as it was.
+    public var size: String?
 
-    public init(content: String, projectID: String = "", projectPath: String = "", projectName: String = "", projectChanged: Bool = true) {
+    public init(
+        content: String,
+        projectID: String = "",
+        projectPath: String = "",
+        projectName: String = "",
+        projectChanged: Bool = true,
+        types: [String]? = nil,
+        size: String? = nil
+    ) {
         self.content = content
         self.projectID = projectID
         self.projectPath = projectPath
         self.projectName = projectName
         self.projectChanged = projectChanged
+        self.types = types
+        self.size = size
     }
 }
 
@@ -82,14 +98,21 @@ public enum NewQuestDestination: Equatable {
 /// name and then by path; text starting with / or ~ is a path instead, with directory suggestions.
 public struct NewQuestFormModel: Equatable {
     public var content: String
-    /// Leaving the project field ends its search, keeping what was typed.
+    /// Leaving the project field ends its search, keeping what was typed; leaving the tags field ends its search.
     public var focusedField: NewQuestField {
         didSet {
             if focusedField != .project, projectMode == .search {
                 endProjectSearch(keepingText: true)
             }
+            if focusedField != .tags, tags.mode == .search {
+                tags.endSearch()
+            }
         }
     }
+    /// The tags field: Edit Quest only (`fields`).
+    public var tags: QuestTagsField
+    /// The tags the form opened with, so an edit sends only the ones the user changed.
+    private let openedTags: QuestTagsField
     public var submitting: Bool
     public var errorMessage: String?
     /// The project the form opened with: the current session's repo for a new quest, the quest's own
@@ -117,7 +140,9 @@ public struct NewQuestFormModel: Equatable {
         initialProject: NewQuestProjectOption? = nil,
         isEditing: Bool = false,
         projects: [NewQuestProjectOption] = [],
-        home: String = ""
+        home: String = "",
+        types: [String] = [],
+        size: String = ""
     ) {
         self.home = home
         self.content = content
@@ -129,9 +154,22 @@ public struct NewQuestFormModel: Equatable {
         let opening = initialProject.flatMap { $0.isNoProject ? nil : $0 } ?? (isEditing ? .noProject : nil)
         chosenProject = opening
         projectText = opening?.displayName ?? ""
+        let openingTags = QuestTagsField(types: types, size: size)
+        tags = openingTags
+        openedTags = openingTags
         focusedField = opening == nil ? .project : .content
         submitting = false
         errorMessage = nil
+    }
+
+    /// The fields Tab moves through, top to bottom: New Quest has no tags field.
+    public var fields: [NewQuestField] {
+        isEditing ? NewQuestField.allCases : NewQuestField.allCases.filter { $0 != .tags }
+    }
+
+    /// The tags dropdown shows while its field has focus and a type matches what is typed.
+    public var showsTagRows: Bool {
+        focusedField == .tags && !tags.rows.isEmpty
     }
 
     // MARK: Project field
@@ -318,7 +356,7 @@ public struct NewQuestFormModel: Equatable {
     }
 
     public mutating func moveFocus(_ delta: Int) {
-        let fields = NewQuestField.allCases
+        let fields = self.fields
         guard let index = fields.firstIndex(of: focusedField) else {
             focusedField = .content
             return
@@ -334,6 +372,22 @@ public struct NewQuestFormModel: Equatable {
         errorMessage = message?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The types an edit sends, when the user changed them. An empty list clears them. Add sends none.
+    private var typesUpdate: [String]? {
+        guard isEditing, tags.selected != openedTags.selected else {
+            return nil
+        }
+        return tags.selectedTypes.map(\.rawValue)
+    }
+
+    /// The size an edit sends, when the user changed it. "" clears it. Add sends none.
+    private var sizeUpdate: String? {
+        guard isEditing, tags.size != openedTags.size else {
+            return nil
+        }
+        return tags.size?.rawValue ?? ""
+    }
+
     /// The opening project while it is still the one named; any other project or path goes as its path
     /// alone, and serve gives it the id and name `quest add --project` would.
     public mutating func submitPayload() -> NewQuestSubmitPayload? {
@@ -343,12 +397,14 @@ public struct NewQuestFormModel: Equatable {
         }
         errorMessage = nil
         let content = Self.clean(content)
+        let types = typesUpdate
+        let size = sizeUpdate
         let openedWithProject = !(initialProject?.isNoProject ?? true)
         let path: String
         switch destination {
         case .noProject, nil:
             // A new quest goes unfiled; an edit clears its project only if it had one.
-            return NewQuestSubmitPayload(content: content, projectChanged: openedWithProject && isEditing)
+            return NewQuestSubmitPayload(content: content, projectChanged: openedWithProject && isEditing, types: types, size: size)
         case .project(let project):
             path = project.projectPath
         case .path(let typed):
@@ -360,10 +416,12 @@ public struct NewQuestFormModel: Equatable {
                 projectID: initialProject.projectID,
                 projectPath: initialProject.projectPath,
                 projectName: initialProject.projectName,
-                projectChanged: !isEditing
+                projectChanged: !isEditing,
+                types: types,
+                size: size
             )
         }
-        return NewQuestSubmitPayload(content: content, projectPath: Self.clean(path))
+        return NewQuestSubmitPayload(content: content, projectPath: Self.clean(path), types: types, size: size)
     }
 
     private static func clean(_ value: String) -> String {

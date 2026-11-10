@@ -26,6 +26,9 @@ enum RenderPreview {
         render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-init.png")
         render(newQuestSheetView(.typingPath), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(newQuestSheetView(.searchingProjects), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-projects.png")
+        render(newQuestSheetView(.editNoTags), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-no-tags.png")
+        render(newQuestSheetView(.editTagged), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags.png")
+        render(newQuestSheetView(.editTagsOpen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags-open.png")
         render(colorInputView(previewing: false), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input.png")
         render(colorInputView(previewing: true), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input-preview.png")
         let editSession = TrackerEditSession(sessionID: "qm-1", title: "Small Fixes", color: "orange", allowsColor: true)
@@ -2199,6 +2202,24 @@ enum RenderPreview {
         case typingPath
         /// user-new-quest-project-search.png: "questm" typed, the matching project listed.
         case searchingProjects
+        /// edit-quest-no-tags.png: Edit Quest for a quest with no types and no size.
+        case editNoTags
+        /// edit-quest-tags.png: a size and several types, the tags field not focused.
+        case editTagged
+        /// edit-quest-tags-open.png: the tags field focused, its dropdown open with checked and unchecked rows.
+        case editTagsOpen
+
+        /// The quest's tags for an Edit Quest preview; nil for New Quest.
+        var editedTags: (types: [String], size: String)? {
+            switch self {
+            case .empty, .typingPath, .searchingProjects:
+                return nil
+            case .editNoTags:
+                return (types: [], size: "")
+            case .editTagged, .editTagsOpen:
+                return (types: ["bug", "feature", "research"], size: "M")
+            }
+        }
     }
 
     @MainActor
@@ -2207,12 +2228,15 @@ enum RenderPreview {
         let projects = ["questmaster", "scry", "dotfiles"].map { name in
             NewQuestProjectOption(projectID: "\(code)/\(name)/.git", projectPath: "\(code)/\(name)", projectName: name)
         }
+        let edited = preview.editedTags
         let sheet = NewQuestSheetModel(
             presentation: NewQuestSheetPresentation(
                 projects: projects,
-                initialProject: nil,
+                initialProject: edited == nil ? nil : projects[0],
                 initialContent: preview == .empty ? "" : "Add more meta data to shell sessions",
-                questID: "",
+                initialTypes: edited?.types ?? [],
+                initialSize: edited?.size ?? "",
+                questID: edited == nil ? "" : "qst-1",
                 sessionID: "",
                 mutationClient: SettingsPreviewMutationClient(),
                 directoryClient: nil,
@@ -2221,13 +2245,16 @@ enum RenderPreview {
             dismiss: {}
         )
         switch preview {
-        case .empty:
+        case .empty, .editNoTags, .editTagged:
             break
         case .typingPath:
             sheet.form.startProjectSearch(.seed("/Users/aleksi.tuo"))
             sheet.paths.show(["/Users/aleksi.tuominen/Code", "/Users/aleksi.tuominen/Code/Scry", "/Users/aleksi.tuominen/Code/Questmaster"])
         case .searchingProjects:
             sheet.form.startProjectSearch(.seed("questm"))
+        case .editTagsOpen:
+            sheet.form.focusedField = .tags
+            sheet.form.tags.moveHighlight(1)
         }
         return NewQuestSheetView(model: sheet)
     }

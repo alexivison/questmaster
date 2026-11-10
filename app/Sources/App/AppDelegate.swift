@@ -1134,6 +1134,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             projects: questProjectOptions(),
             initialProject: ownProject ?? questProject(id: quest.projectID),
             initialContent: quest.content,
+            initialTypes: quest.types,
+            initialSize: quest.size,
             questID: quest.id,
             sessionID: runtimeStore.currentTerminalSessionID,
             mutationClient: mutationClient,
