@@ -32,8 +32,6 @@ struct TextTabRow: View {
     let areaFocused: Bool
     /// The tab under the pointer, for the renders.
     var previewHoveredIndex: Int?
-    /// Where the tabs sit when they are narrower than the row.
-    var alignment: Alignment = .center
     let onSelect: (Int) -> Void
 
     @State private var hiddenSides = TextTabHiddenSides()
@@ -57,7 +55,7 @@ struct TextTabRow: View {
                             .id(index)
                         }
                     }
-                    .frame(minWidth: viewport.size.width, alignment: alignment)
+                    .frame(minWidth: viewport.size.width)
                     .background(ScrollerHider())
                     .background(TextTabScrollWatcher { hiddenSides = $0 })
                 }
