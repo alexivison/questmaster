@@ -65,6 +65,8 @@ type Server struct {
 	// Nil uses modelsuggest's process-wide cached resolver.
 	ReasoningEfforts func(context.Context, string, string) []string
 	PRRefresh        func(context.Context, []string, bool) (map[string]prstatus.HostResult, error)
+	// onListen synchronizes the in-package socket test transport after binding.
+	onListen func()
 }
 
 // HandleRequest serves daemon runtime requests after the transport gate.

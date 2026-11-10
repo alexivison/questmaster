@@ -24,7 +24,9 @@ type ClassBackfillJob struct {
 	router         *tmuxroute.Router
 	randomIndex    func(int) int
 	rescanInterval time.Duration
-	hasWork        atomic.Bool
+	// waitForRescan is replaceable so tests can release another pass without waiting on wall time.
+	waitForRescan func(context.Context, time.Duration) bool
+	hasWork       atomic.Bool
 }
 
 // NewClassBackfillJob creates the daemon job with production random selection.
@@ -39,6 +41,7 @@ func NewClassBackfillJob(store *state.Store, tmuxClient *tmux.Client, routers ..
 		router:         router,
 		randomIndex:    rand.IntN,
 		rescanInterval: classBackfillRescanInterval,
+		waitForRescan:  waitForClassBackfillRescan,
 	}
 	job.hasWork.Store(true)
 	return job
@@ -61,13 +64,20 @@ func (j *ClassBackfillJob) Run(ctx context.Context) error {
 		}
 		j.hasWork.Store(false)
 
-		timer := time.NewTimer(j.rescanInterval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		if !j.waitForRescan(ctx, j.rescanInterval) {
 			return nil
-		case <-timer.C:
 		}
+	}
+}
+
+func waitForClassBackfillRescan(ctx context.Context, interval time.Duration) bool {
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 

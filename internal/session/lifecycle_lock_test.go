@@ -245,14 +245,8 @@ func TestContinueRollbackRunsAfterTheDeadline(t *testing.T) {
 		_, err := svc.Continue(deadline, id)
 		continued <- err
 	}()
-	select {
-	case <-reachedLaunch:
-		deadline.expire()
-	case err := <-continued:
-		t.Fatalf("Continue ended before the launch step: %v", err)
-	case <-time.After(30 * time.Second):
-		t.Fatal("timed out waiting for Continue to reach set-environment")
-	}
+	<-reachedLaunch
+	deadline.expire()
 
 	if err := <-continued; !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Continue error = %v, want the lifecycle deadline", err)

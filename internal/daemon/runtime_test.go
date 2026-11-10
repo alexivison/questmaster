@@ -57,11 +57,7 @@ func TestPRJobQuiesceMidFetchKeepsLastStatus(t *testing.T) {
 	s := &server{dir: dir, jobsRequested: true, config: Config{Jobs: []Job{job}, JobDrainTimeout: time.Second}}
 	s.tryJobsLock()
 	defer s.stopJobs()
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("fetch did not start")
-	}
+	<-started
 	if !s.quiesceJobs() {
 		t.Fatal("fetch did not drain")
 	}
@@ -84,12 +80,17 @@ func TestShutdownLetsDispatchedRequestFinish(t *testing.T) {
 	t.Parallel()
 	started := make(chan struct{})
 	release := make(chan struct{})
+	stoppedAccepting := make(chan struct{})
 	runtime := &serve.Server{MutationRunner: mutationRunnerFunc(func(context.Context, []string, []byte) ([]byte, error) {
 		close(started)
 		<-release
 		return []byte("{}"), nil
 	})}
-	s := &server{config: Config{PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second}, runtime: runtime, id: "canonical", record: Record{Root: "test", Accepting: true, Generation: 1}}
+	s := &server{
+		config:  Config{PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second},
+		runtime: runtime, id: "canonical", record: Record{Root: "test", Accepting: true, Generation: 1},
+		onStoppedAccepting: func() { close(stoppedAccepting) },
+	}
 	serverConn, clientConn := net.Pipe()
 	defer clientConn.Close()
 	go s.handle(serverConn)
@@ -105,19 +106,7 @@ func TestShutdownLetsDispatchedRequestFinish(t *testing.T) {
 	<-started
 	done := make(chan error, 1)
 	go func() { done <- s.shutdown(false) }()
-	deadline := time.Now().Add(time.Second)
-	for {
-		s.mu.Lock()
-		accepting := s.record.Accepting
-		s.mu.Unlock()
-		if !accepting {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("shutdown did not quiesce")
-		}
-		time.Sleep(time.Millisecond)
-	}
+	<-stoppedAccepting
 	select {
 	case <-done:
 		t.Fatal("shutdown discarded dispatched work")
@@ -387,7 +376,17 @@ func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 	}
 }
 
-func TestConnectionSurvivesReadDeadlinesAndPreventsIdleExit(t *testing.T) {
+type deadlineCountingConn struct {
+	net.Conn
+	readDeadlines atomic.Int32
+}
+
+func (c *deadlineCountingConn) SetReadDeadline(deadline time.Time) error {
+	c.readDeadlines.Add(1)
+	return c.Conn.SetReadDeadline(deadline)
+}
+
+func TestConnectionRenewsReadDeadlineForEachRequestAndPreventsIdleExit(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "daemon")
@@ -408,7 +407,8 @@ func TestConnectionSurvivesReadDeadlinesAndPreventsIdleExit(t *testing.T) {
 		}
 		os.Remove(socket)
 	}()
-	serverConn, clientConn := net.Pipe()
+	serverPipe, clientConn := net.Pipe()
+	serverConn := &deadlineCountingConn{Conn: serverPipe}
 	defer clientConn.Close()
 	go s.handle(serverConn)
 	dec, enc := json.NewDecoder(clientConn), json.NewEncoder(clientConn)
@@ -417,7 +417,6 @@ func TestConnectionSurvivesReadDeadlinesAndPreventsIdleExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 9; i++ {
-		time.Sleep(50 * time.Millisecond)
 		if err := enc.Encode(request{Method: "status", ProtocolVersion: ProtocolVersion}); err != nil {
 			t.Fatal(err)
 		}
@@ -425,6 +424,9 @@ func TestConnectionSurvivesReadDeadlinesAndPreventsIdleExit(t *testing.T) {
 		if err := dec.Decode(&reply); err != nil || !reply.OK {
 			t.Fatalf("request %d: %v %+v", i, err, reply)
 		}
+	}
+	if got := serverConn.readDeadlines.Load(); got < 9 {
+		t.Fatalf("read deadlines set = %d, want one for each of 9 requests", got)
 	}
 	if s.clients() != 1 {
 		t.Fatal("live connection was not counted")
@@ -459,17 +461,9 @@ func TestJobRestartsAfterPanic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { runJob(ctx, job, time.Millisecond); close(done) }()
-	select {
-	case <-job.restarted:
-	case <-time.After(time.Second):
-		t.Fatal("job did not restart")
-	}
+	<-job.restarted
 	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("job did not stop")
-	}
+	<-done
 	if job.runs.Load() != 2 {
 		t.Fatalf("runs = %d", job.runs.Load())
 	}
@@ -590,6 +584,7 @@ func TestClientRejectsMismatchedHandshake(t *testing.T) {
 
 func TestCheckUpgradeGetsProbeDeadlineAfterHandshake(t *testing.T) {
 	t.Parallel()
+	const responseAfterHelloDeadline = 1200 * time.Millisecond // The hello deadline is one second; the follow-up probe must still work.
 	root, home := t.TempDir(), t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "daemon"), 0o700); err != nil {
 		t.Fatal(err)
@@ -621,7 +616,7 @@ func TestCheckUpgradeGetsProbeDeadlineAfterHandshake(t *testing.T) {
 		if json.NewDecoder(conn).Decode(&req) != nil {
 			return
 		}
-		time.Sleep(1200 * time.Millisecond)
+		time.Sleep(responseAfterHelloDeadline)
 		data, _ := json.Marshal(Record{Identity: "canonical", UpgradeAvailable: true})
 		_ = json.NewEncoder(conn).Encode(response{OK: true, Data: data})
 	}()

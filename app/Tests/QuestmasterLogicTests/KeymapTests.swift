@@ -293,7 +293,7 @@ controlPageAndHalfPageChords()
 
     private static func gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter() {
         var tracker = GPrefixTracker()
-        let start = Date()
+        let start = Date(timeIntervalSinceReferenceDate: 0)
         expect(tracker.handleG(now: start) == .pendingSecondG, "first g should arm the chord")
         expect(tracker.handleG(now: start.addingTimeInterval(0.2)) == .jumpToTop, "second g within the window should resolve to jumpToTop")
 
@@ -306,7 +306,7 @@ controlPageAndHalfPageChords()
 
     private static func gPrefixTrackerResetClearsPendingState() {
         var tracker = GPrefixTracker()
-        let start = Date()
+        let start = Date(timeIntervalSinceReferenceDate: 0)
         expect(tracker.handleG(now: start) == .pendingSecondG, "first g should arm the chord")
         tracker.reset()
         expect(

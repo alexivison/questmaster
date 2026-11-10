@@ -77,13 +77,9 @@ func TestClaudeNativeWritesFrameWithoutTmux(t *testing.T) {
 	if delivery != DeliveryAccepted {
 		t.Fatalf("Claude native delivery = %q, want %q", delivery, DeliveryAccepted)
 	}
-	select {
-	case frame := <-received:
-		if frame.Message.Content != "<cross-session-message from-name=\"Questmaster\">\n[FROM:external] hello\n</cross-session-message>" || len(sent) != 0 {
-			t.Fatalf("frame = %+v, tmux = %v", frame, sent)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Claude did not receive frame")
+	frame := <-received
+	if frame.Message.Content != "<cross-session-message from-name=\"Questmaster\">\n[FROM:external] hello\n</cross-session-message>" || len(sent) != 0 {
+		t.Fatalf("frame = %+v, tmux = %v", frame, sent)
 	}
 }
 

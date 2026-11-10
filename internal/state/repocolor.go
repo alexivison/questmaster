@@ -30,6 +30,7 @@ type RepoColor struct {
 // each other.
 type RepoColorStore struct {
 	path string
+	now  func() time.Time
 }
 
 // NewRepoColorStore returns a store backed by <root>/repo-colors.json.
@@ -91,7 +92,7 @@ func (s *RepoColorStore) Set(identity, color string) error {
 		if strings.TrimSpace(color) == "" {
 			delete(m, identity)
 		} else {
-			m[identity] = RepoColor{Color: NormalizeDisplayColor(color), UpdatedAt: NowColorStamp()}
+			m[identity] = RepoColor{Color: NormalizeDisplayColor(color), UpdatedAt: s.colorStamp()}
 		}
 		return s.writeLocked(m)
 	})
@@ -145,7 +146,19 @@ func isRepoColorCorruptError(err error) bool {
 // session color and a repo color stamp their change time with it; the
 // nanosecond precision keeps two near-simultaneous recolors from tying.
 func NowColorStamp() string {
-	return time.Now().UTC().Format(time.RFC3339Nano)
+	return colorStampAt(time.Now())
+}
+
+func colorStampAt(now time.Time) string {
+	return now.UTC().Format(time.RFC3339Nano)
+}
+
+func (s *RepoColorStore) colorStamp() string {
+	now := time.Now
+	if s.now != nil {
+		now = s.now
+	}
+	return colorStampAt(now())
 }
 
 // ParseColorStamp parses a color change timestamp, returning the zero time for

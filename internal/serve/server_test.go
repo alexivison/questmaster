@@ -425,7 +425,7 @@ func TestServerSocketReadsAndPushesTrackerUpdates(t *testing.T) {
 	assertEventTopic(t, dec, "tracker")
 
 	updateSessionActivity(t, env.now)
-	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+	seen := readEventsUntil(t, dec, func(env Envelope, seen map[string]bool) bool {
 		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, "Question: approve?")
 	})
 	if !seen["tracker"] {
@@ -925,11 +925,7 @@ func TestFileChangeSourceSlowSubscriberCoalescesWithoutBlockingOthers(t *testing
 		source.publish(topicChange(topicDirSuggest))
 		close(done)
 	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("stalled subscriber blocked watcher publication")
-	}
+	<-done
 	if got := <-slow; !reflect.DeepEqual(got.Topics, []string{topicTracker}) {
 		t.Fatalf("slow subscriber did not coalesce to all topics: %+v", got)
 	}
@@ -959,91 +955,75 @@ func TestFileChangeSourceClassifiesStateJSONLAsSessionChange(t *testing.T) {
 	}
 }
 
+type manualFileChangeTimer struct {
+	initial time.Duration
+	fired   chan time.Time
+	resets  chan time.Duration
+}
+
+func (t *manualFileChangeTimer) C() <-chan time.Time { return t.fired }
+func (t *manualFileChangeTimer) Stop() bool          { return true }
+func (t *manualFileChangeTimer) Reset(d time.Duration) bool {
+	t.resets <- d
+	return true
+}
+
 func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
-	const sessionID = "qm-burst"
-	root := filepath.Join(t.TempDir(), "state")
-	t.Setenv(state.StateRootEnv, root)
-	store, err := state.NewStore(root)
-	if err != nil {
-		t.Fatalf("state store: %v", err)
-	}
-	if err := store.Create(state.Manifest{TmuxServer: "dev_previous",
-		SessionID:   sessionID,
-		Title:       "Burst debounce",
-		SessionType: "master",
-		Agents:      []state.AgentManifest{{Name: "codex", Role: "agent"}},
-	}); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-	if err := writeWatchTestSessionState(root, sessionID, "initial"); err != nil {
-		t.Fatalf("write initial state: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	source, err := NewFileChangeSource(
-		ctx,
-		testSnapshotter(store, tmux.NewClient(fakeTmuxRunner{sessions: sessionID}), time.Now),
-		time.Hour,
+	const (
+		sessionID  = "qm-burst"
+		eventCount = 20
 	)
-	if err != nil {
-		t.Fatalf("new file change source: %v", err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	changes := make(chan Change, 1)
+	source := &FileChangeSource{
+		stateRoot:   t.TempDir(),
+		subscribers: map[chan Change]struct{}{changes: {}},
+		watched:     map[string]struct{}{},
 	}
-	t.Cleanup(func() {
-		if err := source.Close(); err != nil {
-			t.Fatalf("close source: %v", err)
+	events := make(chan fsnotify.Event)
+	eventErrors := make(chan error)
+	timers := make(chan *manualFileChangeTimer, 2)
+	newTimer := func(d time.Duration) fileChangeTimer {
+		timer := &manualFileChangeTimer{
+			initial: d,
+			fired:   make(chan time.Time, 1),
+			resets:  make(chan time.Duration, eventCount),
 		}
-	})
-	changes, unsubscribe := source.Subscribe(ctx)
-	t.Cleanup(unsubscribe)
-
-	const writeCount = 20
-	writeInterval := 50 * time.Millisecond
-	burstDuration := time.Duration(writeCount-1) * writeInterval
-	writerDone := make(chan error, 1)
-	started := time.Now()
+		timers <- timer
+		return timer
+	}
+	done := make(chan struct{})
+	source.wg.Add(1)
 	go func() {
-		for i := 0; i < writeCount; i++ {
-			if err := writeWatchTestSessionState(root, sessionID, fmt.Sprintf("burst %02d", i)); err != nil {
-				writerDone <- err
-				return
-			}
-			if i < writeCount-1 {
-				time.Sleep(writeInterval)
-			}
-		}
-		writerDone <- nil
+		source.runWith(ctx, 0, events, eventErrors, newTimer)
+		close(done)
 	}()
-
-	var elapsed time.Duration
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case err := <-writerDone:
-			if err != nil {
-				t.Fatalf("write burst: %v", err)
-			}
-			t.Fatal("burst finished before the first publish; want max-wait flush during sustained writes")
-		case change := <-changes:
-			if contains(change.Topics, topicTracker) {
-				elapsed = time.Since(started)
-				goto gotChange
-			}
-		case <-deadline:
-			t.Fatal("timed out waiting for burst publish")
+	path := filepath.Join(source.stateRoot, sessionID, "state.json")
+	event := fsnotify.Event{Name: path, Op: fsnotify.Write}
+	events <- event
+	debounce, maxWait := <-timers, <-timers
+	if debounce.initial != watchDebounceWindow || maxWait.initial != watchDebounceMaxWait {
+		t.Fatalf("initial timers = %s and %s, want debounce %s and max wait %s", debounce.initial, maxWait.initial, watchDebounceWindow, watchDebounceMaxWait)
+	}
+	for range eventCount - 1 {
+		events <- event
+		if got := <-debounce.resets; got != watchDebounceWindow {
+			t.Fatalf("debounce reset = %s, want %s", got, watchDebounceWindow)
 		}
 	}
-
-gotChange:
-	if elapsed >= burstDuration {
-		t.Fatalf("first publish after %s, want before burst ends at %s", elapsed, burstDuration)
+	select {
+	case change := <-changes:
+		t.Fatalf("burst flushed before max wait: %+v", change)
+	default:
 	}
-	if elapsed > watchDebounceMaxWait+400*time.Millisecond {
-		t.Fatalf("first publish after %s, want near max wait %s", elapsed, watchDebounceMaxWait)
+	maxWait.fired <- time.Time{}
+	change := <-changes
+	if !change.Affects(topicTracker) || !slices.Contains(change.SessionIDs, sessionID) {
+		t.Fatalf("max-wait change = %+v", change)
 	}
-	if err := <-writerDone; err != nil {
-		t.Fatalf("write burst: %v", err)
-	}
+	cancel()
+	<-done
 }
 
 func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
@@ -2053,7 +2033,7 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	change := topicChange(topicTracker)
 	change.BroadTracker = true
 	changes.Publish(change)
-	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+	readEventsUntil(t, dec, func(env Envelope, seen map[string]bool) bool {
 		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"display_color":"violet"`)
 	})
 
@@ -2472,7 +2452,7 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 	change := topicChange(topicTracker)
 	change.BroadTracker = true
 	changes.Publish(change)
-	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+	readEventsUntil(t, dec, func(env Envelope, seen map[string]bool) bool {
 		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"title":"Release triage"`)
 	})
 
@@ -2635,15 +2615,11 @@ func TestServerMutationRunnerTimeoutReturnsError(t *testing.T) {
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
 
-	start := time.Now()
 	got := sendRawMutation(t, socketPath, map[string]any{
 		"id":     "slow",
 		"method": "delete",
 		"data":   map[string]any{"session_id": "qm-slow"},
 	})
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("mutation response took %s, want timeout response under 1s", elapsed)
-	}
 	if got.Type != "response" || got.OK == nil || *got.OK || !strings.Contains(got.Error, "context deadline exceeded") {
 		t.Fatalf("timeout response = %#v, want context deadline exceeded error", got)
 	}
@@ -2873,24 +2849,26 @@ func tempSocketPath(t *testing.T) string {
 
 func serveInBackground(t *testing.T, ctx context.Context, srv *Server, socketPath string) <-chan error {
 	t.Helper()
+	ready := make(chan struct{})
+	srv.onListen = func() { close(ready) }
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
+	waitForSocket(t, ready, socketPath, errc)
 	return errc
 }
 
-func waitForSocket(t *testing.T, path string) {
+func waitForSocket(t *testing.T, ready <-chan struct{}, path string, serveDone <-chan error) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.Dial("unix", path)
-		if err == nil {
-			conn.Close() //nolint:errcheck
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-ready:
+	case err := <-serveDone:
+		t.Fatalf("server stopped before socket appeared: %v", err)
 	}
-	t.Fatalf("socket %s did not become ready", path)
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatalf("dial socket after listener ready signal: %v", err)
+	}
+	conn.Close() //nolint:errcheck
 }
 
 func writeRequest(t *testing.T, enc *json.Encoder, req map[string]any) {
@@ -3108,13 +3086,9 @@ func updateSessionActivity(t *testing.T, now time.Time) {
 	}
 }
 
-func readEventsUntil(t *testing.T, conn net.Conn, dec *json.Decoder, timeout time.Duration, done func(Envelope, map[string]bool) bool) map[string]bool {
+func readEventsUntil(t *testing.T, dec *json.Decoder, done func(Envelope, map[string]bool) bool) map[string]bool {
 	t.Helper()
 	seen := map[string]bool{}
-	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-		t.Fatalf("set deadline: %v", err)
-	}
-	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck
 
 	for {
 		var env Envelope

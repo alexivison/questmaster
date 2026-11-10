@@ -75,7 +75,7 @@ func (c *Client) send(ctx context.Context, lockDir, target, text string) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(sendEnterDelay):
+	case <-c.after(sendEnterDelay):
 	}
 	if _, err := c.livePane(ctx, pane); err != nil {
 		return fmt.Errorf("before enter: %w", err)

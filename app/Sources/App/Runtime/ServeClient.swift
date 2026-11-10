@@ -5,6 +5,8 @@ import QuestmasterCore
 final class UnixSocketServeClient {
     private let connect: () throws -> Int32
     private let invalidate: () -> Void
+    // A self-test can synchronize on a partial socket read without sleeping.
+    private let onRead: (() -> Void)?
     /// Runs the connection loop. Internal so a self-test can tell when the loop has returned.
     let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
     private let retryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
@@ -25,9 +27,10 @@ final class UnixSocketServeClient {
     }
 
     /// `connect` hands over a connected socket; a self-test passes one end of a socket pair.
-    init(connect: @escaping () throws -> Int32, invalidate: @escaping () -> Void) {
+    init(connect: @escaping () throws -> Int32, invalidate: @escaping () -> Void, onRead: (() -> Void)? = nil) {
         self.connect = connect
         self.invalidate = invalidate
+        self.onRead = onRead
     }
 
     /// Streams tracker updates, each carrying `.connected`, and every other connection state as an update of its own.
@@ -201,6 +204,7 @@ final class UnixSocketServeClient {
             if pending.distance(from: parseOffset, to: pending.endIndex) > Self.maxBufferedLineBytes {
                 return .dropped
             }
+            onRead?()
         }
         return .stopped
     }

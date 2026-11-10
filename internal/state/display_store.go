@@ -5,6 +5,7 @@ package state
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // SetDisplayColor updates a non-worker session's display color in its manifest.
@@ -30,12 +31,16 @@ func (s *Store) SetDisplayColor(sessionID, color string) error {
 			}
 			return
 		}
+		stamp := time.Now
+		if s.now != nil {
+			stamp = s.now
+		}
 		if m.Display == nil {
-			m.Display = NewDisplayMetadata(color)
+			m.Display = &DisplayMetadata{Color: NormalizeDisplayColor(color)}
 		} else {
 			m.Display.Color = NormalizeDisplayColor(color)
 		}
-		m.Display.ColorChangedAt = NowColorStamp()
+		m.Display.ColorChangedAt = colorStampAt(stamp())
 	})
 }
 

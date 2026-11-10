@@ -656,21 +656,62 @@ func TestSend_Success(t *testing.T) {
 func TestSend_VerifiesCommandArgs(t *testing.T) {
 	t.Parallel()
 
-	var textSentAt time.Time
-	var enterDelay time.Duration
+	textSent := make(chan struct{})
+	enterSent := make(chan struct{})
+	enterGate := make(chan time.Time)
+	defer close(enterGate)
 	m := paneMock(func(args []string) (string, error, bool) {
 		if args[0] == "send-keys" {
 			if args[len(args)-1] == "Enter" {
-				enterDelay = time.Since(textSentAt)
+				close(enterSent)
 			} else {
-				textSentAt = time.Now()
+				close(textSent)
 			}
 		}
 		return "", nil, false
 	})
 	c := NewClient(m)
+	// The fake timer makes the Enter ordering check independent of scheduler latency.
+	var requestedDelay time.Duration
+	var timerStartedBeforeText bool
+	timerCreated := make(chan struct{})
+	c.after = func(delay time.Duration) <-chan time.Time {
+		requestedDelay = delay
+		select {
+		case <-textSent:
+		default:
+			timerStartedBeforeText = true
+		}
+		close(timerCreated)
+		return enterGate
+	}
 
-	if result := c.Send(t.Context(), t.TempDir(), "=qm-s:0.1", "test msg"); !result.Submitted {
+	ctx, lockDir := t.Context(), t.TempDir()
+	resultCh := make(chan SendResult, 1)
+	go func() {
+		resultCh <- c.Send(ctx, lockDir, "=qm-s:0.1", "test msg")
+	}()
+	<-textSent
+	select {
+	case <-timerCreated:
+	case <-enterSent:
+		t.Fatal("Enter was sent before the delay timer was created")
+	case result := <-resultCh:
+		t.Fatalf("Send returned before creating the delay timer: %+v", result)
+	}
+	select {
+	case <-enterSent:
+		t.Fatal("Enter was sent before the delay timer fired")
+	default:
+	}
+	if requestedDelay != sendEnterDelay {
+		t.Fatalf("Enter delay = %s, want %s", requestedDelay, sendEnterDelay)
+	}
+	if timerStartedBeforeText {
+		t.Fatal("Enter delay timer started before text was sent")
+	}
+	enterGate <- time.Time{}
+	if result := <-resultCh; !result.Submitted {
 		t.Fatalf("Send: %v", result.Err)
 	}
 
@@ -680,9 +721,6 @@ func TestSend_VerifiesCommandArgs(t *testing.T) {
 	}
 	if got := sentKeys(m); !slices.EqualFunc(got, want, slices.Equal) {
 		t.Fatalf("send-keys calls = %q, want %q", got, want)
-	}
-	if enterDelay < 120*time.Millisecond {
-		t.Errorf("Enter followed text after %s; Codex can treat it as pasted newline within 120ms", enterDelay)
 	}
 }
 

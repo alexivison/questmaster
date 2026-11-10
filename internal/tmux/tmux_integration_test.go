@@ -24,7 +24,9 @@ import (
 )
 
 const (
-	serverExitTimeout = 5 * time.Second
+	// Real tmux startup and process exit are scheduler-dependent; this is a
+	// watchdog for the private server, not an assertion about its latency.
+	serverExitTimeout = 30 * time.Second
 	serverExitPoll    = 50 * time.Millisecond
 )
 

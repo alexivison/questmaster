@@ -202,6 +202,8 @@ final class TrackerCastFillNSView: NSView {
     private let band = CAGradientLayer()
     private let flash = CALayer()
     private let pulse = CALayer()
+    // Tests provide a fixed instant for elapsed-time animation decisions.
+    var now: () -> Date = { Date() }
     private var applied: (cast: TrackerCast, isFinishing: Bool, reduceMotion: Bool, size: CGSize)?
 
     override init(frame frameRect: NSRect) {
@@ -292,7 +294,7 @@ final class TrackerCastFillNSView: NSView {
         wash.isHidden = !shimmers
         band.isHidden = !shimmers || applied.reduceMotion
         fill.isHidden = shimmers
-        let elapsed = Date().timeIntervalSince(applied.cast.startedAt)
+        let elapsed = now().timeIntervalSince(applied.cast.startedAt)
         let fraction = applied.isFinishing ? 1 : typical.map { TrackerCastFill.fraction(elapsed: elapsed, typical: $0) } ?? 0
         fill.position.x = fillCenter(fraction: fraction, width: size.width)
         CATransaction.commit()
@@ -301,8 +303,9 @@ final class TrackerCastFillNSView: NSView {
             if !applied.reduceMotion { addFlash() }
         } else if let typical {
             let timeToFull = TrackerCastFill.timeToFull(elapsed: elapsed, typical: typical)
-            addFill(from: fraction, over: timeToFull, width: size.width)
-            if !applied.reduceMotion { addPulse(after: timeToFull) }
+            let beganAt = CACurrentMediaTime()
+            addFill(from: fraction, over: timeToFull, width: size.width, beganAt: beganAt)
+            if !applied.reduceMotion { addPulse(after: timeToFull, beganAt: beganAt) }
         } else if !applied.reduceMotion {
             addShimmer(width: size.width)
         }
@@ -314,20 +317,20 @@ final class TrackerCastFillNSView: NSView {
         CGFloat(fraction) * width - width / 2
     }
 
-    private func addFill(from fraction: Double, over duration: TimeInterval, width: CGFloat) {
+    private func addFill(from fraction: Double, over duration: TimeInterval, width: CGFloat, beganAt: TimeInterval) {
         guard duration > 0 else { return }
         let animation = CABasicAnimation(keyPath: "position.x")
         animation.fromValue = fillCenter(fraction: fraction, width: width)
         animation.toValue = fillCenter(fraction: 1, width: width)
         animation.duration = duration
-        animation.beginTime = CACurrentMediaTime()
+        animation.beginTime = beganAt
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
         fill.add(animation, forKey: Self.fillKey)
     }
 
     /// Once the bar is full, its light overlay breathes up and back each `pulsePeriod` until the tool ends.
-    private func addPulse(after delay: TimeInterval) {
+    private func addPulse(after delay: TimeInterval, beganAt: TimeInterval) {
         let breath = CABasicAnimation(keyPath: "opacity")
         breath.fromValue = 0
         breath.toValue = Self.pulsePeak
@@ -335,7 +338,7 @@ final class TrackerCastFillNSView: NSView {
         breath.autoreverses = true
         breath.repeatCount = .infinity
         breath.timingFunction = Motion.breathingTimingFunction
-        breath.beginTime = CACurrentMediaTime() + delay
+        breath.beginTime = beganAt + delay
         pulse.add(breath, forKey: Self.pulseKey)
     }
 

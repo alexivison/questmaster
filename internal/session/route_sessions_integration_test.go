@@ -152,7 +152,7 @@ func TestIntegrationContinueMasterAfterCloseHooks(t *testing.T) {
 
 func waitForCleanupDirs(t *testing.T, root string, ids ...string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(sessionIntegrationWaitTimeout)
 	for time.Now().Before(deadline) {
 		allGone := true
 		for _, id := range ids {

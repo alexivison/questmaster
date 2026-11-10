@@ -231,31 +231,27 @@ func TestPullRequestsRegistryRewritePushesTracker(t *testing.T) {
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case change := <-changes:
-		if !change.BroadTracker || !change.Affects(topicTracker) {
-			t.Fatalf("change = %#v", change)
-		}
-		var output bytes.Buffer
-		var baseline Envelope
-		if err := json.Unmarshal(bytes.TrimSpace(first.Bytes()), &baseline); err != nil {
-			t.Fatal(err)
-		}
-		baselineBytes, _ := json.Marshal(baseline.Data)
-		if err := srv.pushChanged(ctx, json.NewEncoder(&output), []string{topicTracker}, map[string][]byte{topicTracker: baselineBytes}, change); err != nil {
-			t.Fatal(err)
-		}
-		var pushed struct {
-			Data TrackerSnapshot `json:"data"`
-		}
-		if err := json.Unmarshal(output.Bytes(), &pushed); err != nil {
-			t.Fatalf("no tracker push: %v", err)
-		}
-		if pushed.Data.Sessions[trackerSessionIndex(pushed.Data.Sessions, "qm-demo")].PullRequestsRev == "" {
-			t.Fatal("push lacked PR revision")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("registry rewrite did not publish")
+	change := <-changes
+	if !change.BroadTracker || !change.Affects(topicTracker) {
+		t.Fatalf("change = %#v", change)
+	}
+	var output bytes.Buffer
+	var baseline Envelope
+	if err := json.Unmarshal(bytes.TrimSpace(first.Bytes()), &baseline); err != nil {
+		t.Fatal(err)
+	}
+	baselineBytes, _ := json.Marshal(baseline.Data)
+	if err := srv.pushChanged(ctx, json.NewEncoder(&output), []string{topicTracker}, map[string][]byte{topicTracker: baselineBytes}, change); err != nil {
+		t.Fatal(err)
+	}
+	var pushed struct {
+		Data TrackerSnapshot `json:"data"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &pushed); err != nil {
+		t.Fatalf("no tracker push: %v", err)
+	}
+	if pushed.Data.Sessions[trackerSessionIndex(pushed.Data.Sessions, "qm-demo")].PullRequestsRev == "" {
+		t.Fatal("push lacked PR revision")
 	}
 }
 
@@ -284,26 +280,22 @@ func TestPullRequestStatusRewritePushesTracker(t *testing.T) {
 	if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{ref.Key: {Title: "New status", ChangedAt: env.now.Format(time.RFC3339)}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case change := <-changes:
-		if !change.BroadTracker || !change.Affects(topicTracker) {
-			t.Fatalf("change=%#v", change)
-		}
-		var output bytes.Buffer
-		baselineBytes, _ := json.Marshal(baseline)
-		if err := srv.pushChanged(ctx, json.NewEncoder(&output), []string{topicTracker}, map[string][]byte{topicTracker: baselineBytes}, change); err != nil {
-			t.Fatal(err)
-		}
-		var pushed struct {
-			Data TrackerSnapshot `json:"data"`
-		}
-		if err := json.Unmarshal(output.Bytes(), &pushed); err != nil {
-			t.Fatalf("no tracker push: %v", err)
-		}
-		if pushed.Data.Sessions[trackerSessionIndex(pushed.Data.Sessions, "qm-demo")].PullRequestsRev == oldRev {
-			t.Fatal("status push kept old revision")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("status rewrite did not publish")
+	change := <-changes
+	if !change.BroadTracker || !change.Affects(topicTracker) {
+		t.Fatalf("change=%#v", change)
+	}
+	var output bytes.Buffer
+	baselineBytes, _ := json.Marshal(baseline)
+	if err := srv.pushChanged(ctx, json.NewEncoder(&output), []string{topicTracker}, map[string][]byte{topicTracker: baselineBytes}, change); err != nil {
+		t.Fatal(err)
+	}
+	var pushed struct {
+		Data TrackerSnapshot `json:"data"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &pushed); err != nil {
+		t.Fatalf("no tracker push: %v", err)
+	}
+	if pushed.Data.Sessions[trackerSessionIndex(pushed.Data.Sessions, "qm-demo")].PullRequestsRev == oldRev {
+		t.Fatal("status push kept old revision")
 	}
 }

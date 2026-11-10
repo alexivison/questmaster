@@ -85,6 +85,8 @@ type Router struct {
 	factory        func(string) (*tmux.Client, error)
 	defaultProbe   func(context.Context) ([]string, bool, error)
 	labelRecordErr error
+	// beforeLifecycleLock synchronizes the in-package backfill ordering test.
+	beforeLifecycleLock func()
 }
 
 func New(store *state.Store, clients map[string]*tmux.Client, creation func() string, namedConfigFiles []string) *Router {

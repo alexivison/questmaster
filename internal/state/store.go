@@ -25,6 +25,7 @@ var (
 // Store manages manifest files on disk with flock-based locking.
 type Store struct {
 	root string
+	now  func() time.Time
 }
 
 // EnsurePrivateStateRoot creates root if needed and tightens existing roots to

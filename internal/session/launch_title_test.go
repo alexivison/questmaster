@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -71,12 +70,8 @@ func TestLaunchedPaneTitleLosesToRenameCommittedMeanwhile(t *testing.T) {
 			}
 			renamed <- err
 		}()
-		select {
-		case err := <-renamed:
-			renamed <- err
-		case <-time.After(time.Second):
-			t.Errorf("a rename could not commit while the launched pane's title was written")
-		}
+		err := <-renamed
+		renamed <- err
 	}
 	writes.install(runner)
 
@@ -108,17 +103,8 @@ func TestLaunchedPaneTitleWriteDoesNotHoldTheManifestLock(t *testing.T) {
 	<-entered
 	updated := make(chan error, 1)
 	go func() { updated <- svc.Store.Update(sessionID, func(m *state.Manifest) { m.SetExtra("probe", "1") }) }()
-	select {
-	case err := <-updated:
-		if err != nil {
-			t.Fatalf("manifest update: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Errorf("a manifest update waited for a blocked pane-title write")
-		close(release)
-		<-updated
-		<-synced
-		return
+	if err := <-updated; err != nil {
+		t.Fatalf("manifest update: %v", err)
 	}
 	close(release)
 	if err := <-synced; err != nil {

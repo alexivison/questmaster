@@ -57,6 +57,9 @@ func (r *Router) Backfill(ctx context.Context) (BackfillResult, error) {
 				continue
 			}
 			lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			if r.beforeLifecycleLock != nil {
+				r.beforeLifecycleLock()
+			}
 			err := r.store.WithLifecycleLockContext(lockCtx, id, func() error {
 				m, err := r.store.Read(id)
 				if err != nil {

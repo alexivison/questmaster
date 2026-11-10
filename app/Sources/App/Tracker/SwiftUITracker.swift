@@ -960,13 +960,17 @@ final class TrackerPulseClock {
         // Common modes keep the clock running while the user scrolls the list or drags a split.
         let timer = Timer(timeInterval: 1 / framesPerSecond, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.ticks += 1
-                self?.time = Date.now.timeIntervalSinceReferenceDate
+                self?.tick(at: .now)
             }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
         timersStarted += 1
+    }
+
+    func tick(at date: Date) {
+        ticks += 1
+        time = date.timeIntervalSinceReferenceDate
     }
 
     func unsubscribe() {

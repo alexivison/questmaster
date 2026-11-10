@@ -3,11 +3,12 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
-	"time"
 )
 
 // Delete must leave the manifest's lock file where it is. A caller blocked on
@@ -48,13 +49,21 @@ func TestStoreLockHasOneHolderWhileASessionIsDeletedAndRecreated(t *testing.T) {
 		goroutines = 8
 		iterations = 300
 	)
-	var holders, overlaps atomic.Int32
+	var overlaps atomic.Int32
 	hold := func() error {
-		if holders.Add(1) > 1 {
-			overlaps.Add(1)
+		probe, err := os.OpenFile(s.lockPath(id), os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return err
 		}
-		time.Sleep(20 * time.Microsecond)
-		holders.Add(-1)
+		defer probe.Close()
+		err = syscall.Flock(int(probe.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			overlaps.Add(1)
+			return syscall.Flock(int(probe.Fd()), syscall.LOCK_UN)
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			return err
+		}
 		return nil
 	}
 

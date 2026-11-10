@@ -17,7 +17,10 @@ import (
 
 	qmagent "github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/fsnotify/fsnotify"
 )
+
+const openCodeGateWaitTimeout = 20 * time.Second
 
 func runOpenCodeHookStub() int {
 	data, err := io.ReadAll(os.Stdin)
@@ -41,18 +44,36 @@ func runOpenCodeHookStub() int {
 		}
 	}
 	if event == "tool.execute.before" {
+		watcher, err := fsnotify.NewWatcher()
+		if err != nil {
+			return 1
+		}
+		defer watcher.Close()
+		if err := watcher.Add(root); err != nil {
+			return 1
+		}
 		if err := os.WriteFile(filepath.Join(root, "before-started"), nil, 0o600); err != nil {
 			return 1
 		}
-		deadline := time.Now().Add(10 * time.Second)
+		timer := time.NewTimer(openCodeGateWaitTimeout)
+		defer timer.Stop()
+	waitForRelease:
 		for {
-			if _, err := os.Stat(filepath.Join(root, "before-release")); err == nil {
-				break
-			}
-			if time.Now().After(deadline) {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return 1
+				}
+				if filepath.Clean(event.Name) == filepath.Join(root, "before-release") {
+					break waitForRelease
+				}
+			case <-timer.C:
 				return 1
+			case err, ok := <-watcher.Errors:
+				if !ok || err != nil {
+					return 1
+				}
 			}
-			time.Sleep(5 * time.Millisecond)
 		}
 	}
 	var signals chan os.Signal
@@ -64,9 +85,7 @@ func runOpenCodeHookStub() int {
 	if event == "test.timeout" {
 		<-signals
 		log("test.timeout.sigterm")
-		for {
-			time.Sleep(time.Second)
-		}
+		select {}
 	}
 	if err := os.WriteFile(filepath.Join(root, event+".json"), data, 0o600); err != nil {
 		return 1
@@ -245,17 +264,25 @@ func TestOpenCodePluginForwardsToolExecutionHooks(t *testing.T) {
 		t.Fatalf("create capture dir: %v", err)
 	}
 	script := `import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, watch, writeFileSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 const { QuestmasterOpenCode } = await import(pathToFileURL(process.env.QM_PLUGIN));
 const hooks = await QuestmasterOpenCode();
+const waitForFile = (path) => new Promise((resolve, reject) => {
+  if (existsSync(path)) return resolve();
+  const watcher = watch(dirname(path), (_event, filename) => {
+    if (String(filename) === basename(path) && existsSync(path)) { watcher.close(); resolve(); }
+  });
+  watcher.once("error", (error) => { watcher.close(); reject(error); });
+  if (existsSync(path)) { watcher.close(); resolve(); }
+});
 const input = { tool: "bash", sessionID: "ses-1", callID: "call-1" };
 const args = { command: "go test ./..." };
 let beforeReturned = false;
+const beforeStarted = waitForFile(process.env.QM_CAPTURE + "/before-started");
 const beforeCall = hooks["tool.execute.before"](input, { args }).then(() => { beforeReturned = true; });
-const untilBefore = Date.now() + 10000;
-while (!existsSync(process.env.QM_CAPTURE + "/before-started") && Date.now() < untilBefore) await new Promise((resolve) => setTimeout(resolve, 10));
-assert.ok(existsSync(process.env.QM_CAPTURE + "/before-started"), "before hook child did not start");
+await beforeStarted;
 const wasAsync = beforeReturned;
 writeFileSync(process.env.QM_CAPTURE + "/before-release", "");
 await beforeCall;
@@ -265,9 +292,7 @@ const failedPart = { type: "message.part.updated", properties: { part: { id: "pr
 await hooks.event({ event: failedPart });
 const wait = async (name) => {
   const path = process.env.QM_CAPTURE + "/" + name + ".json";
-  const until = Date.now() + 10000;
-  while (!existsSync(path) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.ok(existsSync(path), name + " hook was not emitted");
+  await waitForFile(path);
   return JSON.parse(readFileSync(path, "utf8"));
 };
 const before = await wait("tool.execute.before");
@@ -276,15 +301,20 @@ const failed = await wait("message.part.updated");
 assert.deepEqual(before.event.properties, { ...input, args: { command: args.command } });
 assert.deepEqual(after.event.properties, { ...input, metadata: { sessionId: "ses-child" } });
 assert.deepEqual(failed.event, failedPart);
+const afterTimeout = new Promise((resolve, reject) => {
+  const path = process.env.QM_CAPTURE + "/order.log";
+  const lines = () => readFileSync(path, "utf8").trim().split("\n");
+  const hasEntry = () => lines().some((line) => line.startsWith("test.after-timeout:"));
+  if (hasEntry()) return resolve(lines());
+  const watcher = watch(process.env.QM_CAPTURE, (_event, filename) => {
+    if (String(filename) === "order.log" && hasEntry()) { watcher.close(); resolve(lines()); }
+  });
+  watcher.once("error", (error) => { watcher.close(); reject(error); });
+  if (hasEntry()) { watcher.close(); resolve(lines()); }
+});
 await hooks.event({ event: { type: "test.timeout" } });
 await hooks.event({ event: { type: "test.after-timeout" } });
-const untilTimeout = Date.now() + 10000;
-let lines = [];
-while (Date.now() < untilTimeout) {
-  lines = readFileSync(process.env.QM_CAPTURE + "/order.log", "utf8").trim().split("\n");
-  if (lines.some((line) => line.startsWith("test.after-timeout:"))) break;
-  await new Promise((resolve) => setTimeout(resolve, 10));
-}
+const lines = await afterTimeout;
 const at = (prefix) => Number(lines.find((line) => line.startsWith(prefix + ":"))?.split(":")[1]);
 assert.ok(at("test.timeout") > 0 && at("test.timeout.sigterm") > 0 && at("test.after-timeout") > 0, "timeout path did not signal and continue");
 assert.ok(at("test.timeout.sigterm") - at("test.timeout") >= 70, "queue advanced before the timeout kill grace elapsed");
