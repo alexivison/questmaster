@@ -3790,19 +3790,10 @@ enum LogicSelfTests {
         /// Whether the entrance (or a close) is running: no click reaches the modal then.
         var isScaling: Bool { !(coordinateView?.layer?.animationKeys() ?? []).isEmpty }
 
-        /// Whether the entrance has finished and the hosted content has laid out at its intrinsic size. SwiftUI can take longer
-        /// than a short sample to settle its text on a busy runner, so the tests read the fit only once this holds.
-        var isSettled: Bool {
-            guard let hosted = hostedView, !isScaling else {
-                return false
-            }
-            let size = hosted.intrinsicContentSize
-            return abs(hosted.frame.width - size.width) < 0.5 && abs(hosted.frame.height - size.height) < 0.5
-        }
-
-        /// The Quest Log's content at the fit to the window, centred, once it has settled.
+        /// The Quest Log's laid-out content at the fit to the window, centred. The fit reads the frame the content is drawn
+        /// at: on a busy runner SwiftUI's reported intrinsic size can differ from that frame.
         var fittedRect: CGRect {
-            let content = hostedView?.intrinsicContentSize ?? .zero
+            let content = hostedView?.frame.size ?? .zero
             let margin = ShellMetrics.gap * 2
             let fit = min(1, (host.bounds.width - margin) / content.width, (host.bounds.height - margin) / content.height)
             let size = CGSize(width: content.width * fit, height: content.height * fit)
@@ -3865,7 +3856,8 @@ enum LogicSelfTests {
         guard let smallest = drawn.map(\.width).min() else {
             throw TestFailure("the Quest Log should be drawn while it enters")
         }
-        try expect(waitUntil { scene.isSettled }, "the entrance should finish and the Quest Log lay out at its size")
+        try expect(waitUntil { !scene.isScaling }, "the entrance should finish")
+        pump(0.2)
         let fitted = scene.fittedRect
         let settled = scene.drawnRect ?? .zero
         try expect(sameRect(settled, fitted), "the entrance should end at the fit \(fitted), drawn \(settled)")
@@ -3904,7 +3896,8 @@ enum LogicSelfTests {
         }
         try expect(scalingFrames > 0, "the entrance should be sampled while it runs")
         try expect(drawn.last != nil, "the Quest Log should be drawn once the sample ends")
-        try expect(waitUntil { scene.isSettled }, "the entrance should finish and the Quest Log lay out at its size")
+        try expect(waitUntil { !scene.isScaling }, "the entrance should finish")
+        pump(0.2)
         let fitted = scene.fittedRect
         let y = scene.host.bounds.midY
         try expect(reachesModal(CGPoint(x: fitted.minX + 4, y: y)), "a click 4pt inside the settled edge should reach the modal, drawn at \(fitted)")
@@ -3924,7 +3917,8 @@ enum LogicSelfTests {
         }
         try expect(!drawn.isEmpty, "the Quest Log should be drawn under Reduce Motion")
         try expect(!animated, "under Reduce Motion the entrance should add no animation")
-        try expect(waitUntil { scene.isSettled }, "the Quest Log should lay out at its size")
+        try expect(waitUntil { !scene.isScaling }, "the Quest Log should be drawn at rest")
+        pump(0.2)
         let fitted = scene.fittedRect
         try expect(sameRect(scene.drawnRect ?? .zero, fitted), "under Reduce Motion the modal should be drawn at the fit \(fitted)")
         // The first frame is already the fit's width, within the layout's own settling.
@@ -3938,7 +3932,8 @@ enum LogicSelfTests {
         let scene = QuestLogModalFrames()
         defer { scene.window.close() }
         _ = try scene.sample(for: 0.6, begin: scene.present)
-        try expect(waitUntil { scene.isSettled }, "the Quest Log should settle before it closes")
+        try expect(waitUntil { !scene.isScaling }, "the Quest Log should be drawn at rest before it closes")
+        pump(0.2)
         let fitted = scene.fittedRect
         let drawn = try scene.sample(for: 0.25, begin: { scene.stack.dismiss(id: QuestLogModal.stackID) })
         guard let smallest = drawn.map(\.width).min() else {
