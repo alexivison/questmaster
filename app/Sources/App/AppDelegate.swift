@@ -431,8 +431,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             quests: tracker.quests,
             repos: tracker.repos,
             projects: tracker.projects,
-            query: questLogFilter.textQuery,
-            projectIDs: questLogFilter.projectIDs
+            filter: questLogFilter.search
         )
     }
 

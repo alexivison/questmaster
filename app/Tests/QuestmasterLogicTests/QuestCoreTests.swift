@@ -3,12 +3,15 @@ import QuestmasterCore
 
 struct QuestCoreTests {
     static func run() {
-        displayGroupsProjectsAlphabeticallyThenNoProject()
-        displayFallsBackToProjectColorWithoutLiveSession()
-        displayFiltersByProjectID()
-        displayFiltersByTextAndProjectTokens()
+        flatListIsNewestCreatedFirstAcrossProjects()
         displayOrdersByCreatedNotUpdated()
-        displayScrollsSectionStartsWithTheirTitle()
+        projectTabsFollowTheUsersOrderAndOnlyListProjectsWithQuests()
+        noProjectQuestsAppearOnlyUnderAll()
+        tabFallsBackToAllWhenItsProjectLosesItsLastQuest()
+        tabsStepWithBracketsAndWrap()
+        tagFiltersMatchAnySelectedTagWithinAGroupAndAllGroups()
+        selectionRecoversAcrossTabAndFilterChanges()
+        questTagChipsNameSizeFirstThenTypesInOrder()
         displayRecoversDeletedSelectionToPreviousQuest()
         questLogPageSplitsTitleAndKeepsBodyVerbatim()
         questLogPageFooterUsesProjectAndDay()
@@ -23,7 +26,7 @@ struct QuestCoreTests {
         questLogStoreScrollsByPagesAndOnlyTakesItsOwnCommands()
         questLogStoreJumpsToTheEdgesAndAsksForAScroll()
         questLogStoreMovesRowsWithJAndKOnly()
-        displayEdgeSelectionJumpsToFirstAndLastAcrossSections()
+        displayEdgeSelectionJumpsToFirstAndLastQuest()
         newQuestFormBuildsPayload()
         newQuestFormNeedsAProjectAndContent()
         newQuestContentKeepsTabAsText()
@@ -39,23 +42,17 @@ struct QuestCoreTests {
         print("QuestCoreTests: all tests passed")
     }
 
-    private static func displayGroupsProjectsAlphabeticallyThenNoProject() {
-        // repo-a has a live tracker session but sorts after inactive repo-b's
-        // title, proving sections interleave by title rather than splitting
-        // into an active-first block.
+    private static func flatListIsNewestCreatedFirstAcrossProjects() {
+        // Projects don't group the list: a newer quest in another project sits above an older one.
         let quests = [
-            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", projectName: "Alpha Beta", updatedAt: "2026-07-03T01:00:00Z"),
-            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Zeta Repo", updatedAt: "2026-07-03T02:00:00Z"),
-            QuestItem(id: "qst-none", content: "No project", updatedAt: "2026-07-03T04:00:00Z"),
+            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", projectName: "Beta", createdAt: "2026-07-03T01:00:00Z"),
+            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Alpha", createdAt: "2026-07-03T02:00:00Z"),
+            QuestItem(id: "qst-none", content: "No project", createdAt: "2026-07-03T04:00:00Z"),
         ]
-        let repos = [
-            TrackerRepo(id: "repo-a", name: "Zeta Repo", color: "green", sessions: []),
-        ]
-        let sections = QuestDisplayState.sections(quests: quests, repos: repos)
-        expect(sections.map(\.id) == ["repo-b", "repo-a", "no-project"], "section order = \(sections.map(\.id))")
-        expect(sections[0].quests.map(\.id) == ["qst-b"], "repo-b active quests mismatch")
-        expect(QuestDisplayState.recoveredSelection(current: nil, in: sections) == "qst-b", "selection should recover first visible quest")
-        expect(QuestDisplayState.movedSelection(current: "qst-b", delta: 1, in: sections) == "qst-a", "selection should move across sections")
+        let visible = QuestDisplayState.visibleQuests(quests: quests, filter: QuestListFilter(), projectID: nil)
+        expect(visible.map(\.id) == ["qst-none", "qst-a", "qst-b"], "one list, newest created first: \(visible.map(\.id))")
+        expect(QuestDisplayState.recoveredSelection(current: nil, in: visible) == "qst-none", "selection should recover to the newest quest")
+        expect(QuestDisplayState.movedSelection(current: "qst-none", delta: 1, in: visible) == "qst-a", "selection should move across projects")
     }
 
     private static func questLogPageSplitsTitleAndKeepsBodyVerbatim() {
@@ -100,12 +97,12 @@ struct QuestCoreTests {
 
     private static func questLogStoreSyncsThroughTheFilter() {
         let store = QuestLogStore()
-        store.sync(quests: logQuests, repos: [], query: "one")
-        expect(QuestDisplayState.flatQuests(in: store.sections).map(\.id) == ["a1", "b1"], "text should filter the list")
-        store.sync(quests: logQuests, repos: [], projectIDs: ["b"])
-        expect(store.selectedID == "b1", "a filtered-out selection should recover to a visible quest, got \(String(describing: store.selectedID))")
-        store.sync(quests: logQuests, repos: [], query: "nothing matches")
-        expect(store.sections.isEmpty && store.selectedID == nil, "no matches should leave nothing selected")
+        store.sync(quests: logQuests, repos: [], filter: QuestListFilter(text: "one"))
+        expect(store.visibleQuests.map(\.id) == ["b1", "a1"], "text should filter the list")
+        store.selectTab(2)
+        expect(store.visibleQuests.map(\.id) == ["b1"], "the tab should narrow the text filter's list")
+        store.sync(quests: logQuests, repos: [], filter: QuestListFilter(text: "nothing matches"))
+        expect(store.visibleQuests.isEmpty && store.selectedID == nil, "no matches should leave nothing selected")
     }
 
     private static func questLogWrapsGreedilyWithoutPushingWordsDown() {
@@ -119,6 +116,109 @@ struct QuestCoreTests {
         expect(QuestLogPage.wrapped("fits", columns: 0) == "fits", "zero columns leaves the text alone")
     }
 
+    private static func projectTabsFollowTheUsersOrderAndOnlyListProjectsWithQuests() {
+        let quests = [
+            QuestItem(id: "qst-a", content: "A", projectID: "repo-a", projectName: "Alpha", createdAt: "2026-07-03T01:00:00Z"),
+            QuestItem(id: "qst-x", content: "X", projectID: "repo-x", projectName: "Xray", createdAt: "2026-07-03T02:00:00Z"),
+            QuestItem(id: "qst-b", content: "B", projectID: "repo-b", projectName: "Beta", createdAt: "2026-07-03T03:00:00Z"),
+            QuestItem(id: "qst-none", content: "None", createdAt: "2026-07-03T04:00:00Z"),
+        ]
+        let listed = [
+            TrackerProject(id: "repo-b", name: "Beta", color: "green"),
+            TrackerProject(id: "repo-a", name: "Alpha", color: "green"),
+        ]
+        let tabs = QuestDisplayState.projectTabs(quests: quests, repos: [], projects: listed)
+        expect(tabs.map(\.projectID) == ["repo-b", "repo-a", "repo-x"], "tabs should follow the project order, unlisted last: \(tabs.map(\.projectID))")
+        expect(tabs.map(\.title) == ["Beta", "Alpha", "Xray"], "tab titles should follow the same order: \(tabs.map(\.title))")
+        expect(QuestDisplayState.projectTabs(quests: [quests[3]], repos: [], projects: listed).isEmpty, "a quest without a project should give no tab")
+    }
+
+    private static func noProjectQuestsAppearOnlyUnderAll() {
+        let quests = [
+            QuestItem(id: "qst-a", content: "A", projectID: "a", projectName: "alpha", createdAt: "2026-07-03T01:00:00Z"),
+            QuestItem(id: "qst-none", content: "None", createdAt: "2026-07-03T02:00:00Z"),
+        ]
+        let store = QuestLogStore()
+        store.sync(quests: quests, repos: [])
+        expect(store.tabTitles == ["All", "alpha"], "only projects with quests get a tab: \(store.tabTitles)")
+        expect(store.visibleQuests.map(\.id) == ["qst-none", "qst-a"], "All should show the quest without a project")
+        store.selectTab(1)
+        expect(store.visibleQuests.map(\.id) == ["qst-a"], "a project tab should hide the quest without a project")
+        store.selectTab(0)
+        store.select("qst-none")
+        expect(store.selectedPage?.project == "No project", "a quest without a project should say so in its footer")
+    }
+
+    private static func tabFallsBackToAllWhenItsProjectLosesItsLastQuest() {
+        let store = QuestLogStore()
+        store.sync(quests: logQuests, repos: [])
+        store.selectTab(2)
+        expect(store.selectedProjectID == "b" && store.selectedTabIndex == 2, "the beta tab should be selected")
+        store.sync(quests: Array(logQuests.prefix(2)), repos: [])
+        expect(store.selectedProjectID == nil && store.selectedTabIndex == 0, "a tab whose project has no quests left should fall back to All")
+        expect(store.visibleQuests.map(\.id) == ["a1", "a2"], "All should show what is left: \(store.visibleQuests.map(\.id))")
+        store.selectTab(1)
+        store.sync(quests: logQuests, repos: [])
+        expect(store.selectedProjectID == "a", "a tab should stay selected while its project has quests")
+    }
+
+    private static func tabsStepWithBracketsAndWrap() {
+        let store = QuestLogStore()
+        store.sync(quests: logQuests, repos: [])
+        expect(store.handle(.nextTab) == nil && store.selectedTabIndex == 1, "] should step to the first project tab")
+        _ = store.handle(.nextTab)
+        expect(store.selectedTabIndex == 2, "] should step to the next tab")
+        _ = store.handle(.nextTab)
+        expect(store.selectedTabIndex == 0, "] past the last tab should wrap to All")
+        _ = store.handle(.previousTab)
+        expect(store.selectedTabIndex == 2, "[ from All should wrap to the last tab")
+        store.selectTab(7)
+        expect(store.selectedTabIndex == 2, "a tab index outside the tabs should do nothing")
+    }
+
+    private static func tagFiltersMatchAnySelectedTagWithinAGroupAndAllGroups() {
+        let quests = [
+            QuestItem(id: "bug-small", content: "Fix the save button", types: ["bug"], size: "S", projectID: "p", createdAt: "2026-07-03T05:00:00Z"),
+            QuestItem(id: "decision-small", content: "Pick a tab order", types: ["decision"], size: "S", createdAt: "2026-07-03T04:00:00Z"),
+            QuestItem(id: "feature-research-large", content: "Sync the save state", types: ["feature", "research"], size: "L", createdAt: "2026-07-03T03:00:00Z"),
+            QuestItem(id: "untagged", content: "Save somewhere", createdAt: "2026-07-03T02:00:00Z"),
+        ]
+        func ids(_ filter: QuestListFilter, projectID: String? = nil) -> [String] {
+            QuestDisplayState.visibleQuests(quests: quests, filter: filter, projectID: projectID).map(\.id)
+        }
+        expect(ids(QuestListFilter(types: ["bug"])) == ["bug-small"], "one type should match the quests that carry it")
+        expect(ids(QuestListFilter(types: ["bug", "research"])) == ["bug-small", "feature-research-large"], "types in one group should match any of them")
+        expect(ids(QuestListFilter(sizes: ["S", "L"])) == ["bug-small", "decision-small", "feature-research-large"], "sizes in one group should match any of them, untagged quests excluded")
+        expect(ids(QuestListFilter(types: ["bug", "decision"], sizes: ["S"])) == ["bug-small", "decision-small"], "a type group and a size group should both have to match")
+        expect(ids(QuestListFilter(types: ["research"], sizes: ["S"])).isEmpty, "no quest is both research and small")
+        expect(ids(QuestListFilter(text: "save", types: ["bug", "feature"])) == ["bug-small", "feature-research-large"], "text should narrow the tag matches")
+        expect(ids(QuestListFilter(text: "pick", sizes: ["S"])) == ["decision-small"], "text, then size, should keep one quest")
+        expect(ids(QuestListFilter(types: ["bug"]), projectID: "q").isEmpty, "the tab should narrow the tag matches too")
+        expect(ids(QuestListFilter(types: ["bug"]), projectID: "p") == ["bug-small"], "the tab's own quests should still match")
+    }
+
+    private static func selectionRecoversAcrossTabAndFilterChanges() {
+        let store = QuestLogStore()
+        store.sync(quests: logQuests, repos: [])
+        expect(store.selectedID == "b1", "the newest quest should be selected first, got \(String(describing: store.selectedID))")
+        store.select("a2")
+        store.selectTab(2)
+        expect(store.selectedID == "b1", "a tab that drops the selection should recover to the quest above it, got \(String(describing: store.selectedID))")
+        store.selectTab(1)
+        expect(store.selectedID == "a1", "a tab with no quest above the selection should recover to the first quest, got \(String(describing: store.selectedID))")
+        store.sync(quests: logQuests, repos: [], filter: QuestListFilter(text: "two"))
+        expect(store.selectedID == "a2", "a filter that drops the selection should recover into what is left, got \(String(describing: store.selectedID))")
+        store.sync(quests: logQuests, repos: [], filter: QuestListFilter(text: "nothing matches"))
+        expect(store.selectedID == nil && store.visibleQuests.isEmpty, "no matches should leave nothing selected")
+    }
+
+    private static func questTagChipsNameSizeFirstThenTypesInOrder() {
+        let quest = QuestItem(id: "q", content: "T", types: ["cleanup", "bug", "other"], size: "M")
+        expect(QuestDisplayState.tagChipNames(for: quest) == ["M", "Bug", "Cleanup"], "size first, then the types in the fixed order, unknown tags left out: \(QuestDisplayState.tagChipNames(for: quest))")
+        expect(QuestDisplayState.tagChipNames(for: QuestItem(id: "q", content: "T")).isEmpty, "an untagged quest should have no chips")
+        expect(QuestTagType.improvement.displayName == "Improvement" && QuestSize.large.rawValue == "L", "tag IDs should map to their names")
+    }
+
     private static let logQuests = [
         QuestItem(id: "a1", content: "A one", projectID: "a", projectName: "alpha", createdAt: "2026-07-03T02:00:00Z"),
         QuestItem(id: "a2", content: "A two", projectID: "a", projectName: "alpha", createdAt: "2026-07-03T01:00:00Z"),
@@ -128,18 +228,19 @@ struct QuestCoreTests {
     private static func questLogStoreSelectsMovesAndRecovers() {
         let store = QuestLogStore()
         store.sync(quests: logQuests, repos: [])
-        expect(store.selectedID == "a1", "first sync should select the first quest, got \(String(describing: store.selectedID))")
-        expect(store.selectedPage?.project == "alpha", "page project should be the section title")
+        expect(store.selectedID == "b1", "first sync should select the newest quest, got \(String(describing: store.selectedID))")
+        expect(store.selectedPage?.project == "beta", "page project should be the quest's project name")
+        _ = store.handle(.move(1))
+        expect(store.selectedID == "a1", "j should move to the next quest")
         _ = store.handle(.move(1))
         _ = store.handle(.move(1))
-        expect(store.selectedID == "b1", "j should move across sections")
-        _ = store.handle(.move(1))
-        expect(store.selectedID == "a1", "j should wrap to the top")
+        expect(store.selectedID == "b1", "j should wrap to the top")
         _ = store.handle(.move(-1))
-        expect(store.selectedID == "b1", "k should wrap to the bottom")
-        store.select("a2")
+        expect(store.selectedID == "a2", "k should wrap to the bottom")
+        store.select("a1")
         store.select("missing")
-        expect(store.selectedID == "a2", "clicking selects; an unknown id is ignored")
+        expect(store.selectedID == "a1", "clicking selects; an unknown id is ignored")
+        store.select("a2")
         store.sync(quests: [logQuests[0], logQuests[2]], repos: [])
         expect(store.selectedID == "a1", "a deleted selection should fall back to the quest above it")
         store.sync(quests: [], repos: [])
@@ -149,12 +250,11 @@ struct QuestCoreTests {
     private static func questLogStoreTargetsMarkedQuestsInListOrder() {
         let store = QuestLogStore()
         store.sync(quests: logQuests, repos: [])
-        expect(store.targets.map(\.id) == ["a1"], "with nothing marked the selection is the target")
-        store.select("b1")
+        expect(store.targets.map(\.id) == ["b1"], "with nothing marked the selection is the target")
         _ = store.handle(.toggleMark)
-        store.select("a1")
+        store.select("a2")
         _ = store.handle(.toggleMark)
-        expect(store.targets.map(\.id) == ["a1", "b1"], "marked targets should follow list order, got \(store.targets.map(\.id))")
+        expect(store.targets.map(\.id) == ["b1", "a2"], "marked targets should follow list order, got \(store.targets.map(\.id))")
         _ = store.handle(.toggleMark)
         expect(store.markedIDs == ["b1"], "space again should unmark")
         store.sync(quests: Array(logQuests.prefix(2)), repos: [])
@@ -181,10 +281,11 @@ struct QuestCoreTests {
         expect(store.handle(.start) == nil && store.handle(.edit) == nil, "an empty log has nothing to act on")
         store.sync(quests: logQuests, repos: [])
         store.open()
-        expect(store.handle(.start) == .start([logQuests[0]]), "s should start the selected quest")
-        expect(store.handle(.edit) == .edit(logQuests[0]), "e should edit the selected quest")
-        expect(store.handle(.delete) == .delete([logQuests[0]]), "d should delete the selected quest")
-        expect(store.handle(.copy) == .copy([logQuests[0]]), "y should copy the selected quest")
+        let newest = logQuests[2]
+        expect(store.handle(.start) == .start([newest]), "s should start the selected quest")
+        expect(store.handle(.edit) == .edit(newest), "e should edit the selected quest")
+        expect(store.handle(.delete) == .delete([newest]), "d should delete the selected quest")
+        expect(store.handle(.copy) == .copy([newest]), "y should copy the selected quest")
         expect(store.handle(.close) == .close, "esc should close")
         _ = store.handle(.toggleMark)
         store.close()
@@ -194,7 +295,7 @@ struct QuestCoreTests {
         store.open()
         expect(store.openGeneration == generation + 1, "each opening counts once, so the opening animation plays once per open")
         store.close()
-        expect(store.selectedID == "a1", "closing should keep the selection for the next open")
+        expect(store.selectedID == "b1", "closing should keep the selection for the next open")
     }
 
     private static func questLogStoreScrollsByPagesAndOnlyTakesItsOwnCommands() {
@@ -202,7 +303,7 @@ struct QuestCoreTests {
         expect(store.handle(.page(1)) == nil, "with nothing selected there is no page to scroll")
         store.sync(quests: logQuests, repos: [])
         expect(store.handle(.page(1)) == .scrollPage(0.9) && store.handle(.halfPage(-1)) == .scrollPage(-0.5), "page keys scroll by 0.9 and half pages")
-        expect(store.handle(.open) == nil && store.handle(.previousTab) == nil && store.handle(.jumpToTopPrefix) == nil, "Return, the tabs and a lone g do nothing in the Quest Log")
+        expect(store.handle(.open) == nil && store.handle(.jumpToTopPrefix) == nil, "Return and a lone g do nothing in the Quest Log")
         expect(store.handle(.refresh) == nil && store.handle(.editRepo) == nil && store.handle(.toggleWorkersCollapsed) == nil, "the tracker's and Watcher's keys do nothing in the Quest Log")
     }
 
@@ -225,7 +326,7 @@ struct QuestCoreTests {
     private static func questLogStoreJumpsToTheEdgesAndAsksForAScroll() {
         let store = QuestLogStore()
         store.sync(quests: logQuests, repos: [])
-        let ids = QuestDisplayState.flatQuests(in: store.sections).map(\.id)
+        let ids = store.visibleQuests.map(\.id)
         let nonce = store.scrollNonce
         _ = store.handle(.jumpToBottom)
         expect(store.selectedID == ids.last && store.scrollNonce == nonce + 1, "G should select the last quest and ask for a scroll")
@@ -235,54 +336,16 @@ struct QuestCoreTests {
         expect(store.selectedID == ids.first && store.scrollNonce == nonce + 3, "gg should select the first quest and ask for a scroll")
     }
 
-    private static func displayEdgeSelectionJumpsToFirstAndLastAcrossSections() {
+    private static func displayEdgeSelectionJumpsToFirstAndLastQuest() {
         let quests = [
-            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", projectName: "Alpha Beta", updatedAt: "2026-07-03T01:00:00Z"),
-            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Zeta Repo", updatedAt: "2026-07-03T02:00:00Z"),
-            QuestItem(id: "qst-none", content: "No project", updatedAt: "2026-07-03T04:00:00Z"),
+            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", projectName: "Beta", createdAt: "2026-07-03T01:00:00Z"),
+            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Alpha", createdAt: "2026-07-03T02:00:00Z"),
+            QuestItem(id: "qst-none", content: "No project", createdAt: "2026-07-03T04:00:00Z"),
         ]
-        let sections = QuestDisplayState.sections(quests: quests, repos: [TrackerRepo(id: "repo-a", name: "Zeta Repo", color: "green", sessions: [])])
-        let ids = QuestDisplayState.flatQuests(in: sections).map(\.id)
-        expect(QuestDisplayState.edgeSelection(atStart: true, in: sections) == ids.first, "gg should land on the first quest across sections")
-        expect(QuestDisplayState.edgeSelection(atStart: false, in: sections) == "qst-none", "G should land on the last quest across sections")
+        let visible = QuestDisplayState.visibleQuests(quests: quests, filter: QuestListFilter(), projectID: nil)
+        expect(QuestDisplayState.edgeSelection(atStart: true, in: visible) == "qst-none", "gg should land on the newest quest")
+        expect(QuestDisplayState.edgeSelection(atStart: false, in: visible) == "qst-b", "G should land on the oldest quest")
         expect(QuestDisplayState.edgeSelection(atStart: true, in: []) == nil, "edge selection with no quests should be nil")
-    }
-
-    private static func displayFallsBackToProjectColorWithoutLiveSession() {
-        let quests = [
-            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Alpha Repo", updatedAt: "2026-07-03T02:00:00Z"),
-        ]
-        let projects = [
-            TrackerProject(id: "repo-a", name: "Alpha Repo", color: "green"),
-        ]
-        let sections = QuestDisplayState.sections(quests: quests, repos: [], projects: projects)
-        expect(sections.map(\.color) == ["green"], "section color should fall back to the persisted project color = \(sections.map(\.color))")
-    }
-
-    private static func displayFiltersByProjectID() {
-        let quests = [
-            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", updatedAt: "2026-07-03T02:00:00Z"),
-            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", updatedAt: "2026-07-03T01:00:00Z"),
-        ]
-        let sections = QuestDisplayState.sections(
-            quests: quests,
-            repos: [TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [])],
-            projectID: "repo-b"
-        )
-        expect(sections.map(\.id) == ["repo-b"], "project filter sections = \(sections.map(\.id))")
-        expect(sections.first?.quests.map(\.id) == ["qst-b"], "project filter quests mismatch")
-    }
-
-    private static func displayFiltersByTextAndProjectTokens() {
-        let quests = [
-            QuestItem(id: "qst-a", content: "Ship the filter", projectID: "repo-a"),
-            QuestItem(id: "qst-b", content: "Ship the page", projectID: "repo-b"),
-            QuestItem(id: "qst-c", content: "Tidy notes", projectID: "repo-b"),
-        ]
-        let byText = QuestDisplayState.sections(quests: quests, repos: [], query: "  ship ")
-        expect(QuestDisplayState.flatQuests(in: byText).map(\.id).sorted() == ["qst-a", "qst-b"], "text should match case-insensitively, trimmed")
-        let both = QuestDisplayState.sections(quests: quests, repos: [], query: "ship", projectIDs: ["repo-b"])
-        expect(QuestDisplayState.flatQuests(in: both).map(\.id) == ["qst-b"], "text and project tokens should both apply")
     }
 
     private static func displayOrdersByCreatedNotUpdated() {
@@ -292,16 +355,8 @@ struct QuestCoreTests {
             QuestItem(id: "qst-tie-b", content: "Tie b", projectID: "p", createdAt: "2026-07-03T00:00:00Z"),
             QuestItem(id: "qst-tie-a", content: "Tie a", projectID: "p", createdAt: "2026-07-03T00:00:00Z"),
         ]
-        let order = QuestDisplayState.flatQuests(in: QuestDisplayState.sections(quests: quests, repos: [])).map(\.id)
+        let order = QuestDisplayState.visibleQuests(quests: quests, filter: QuestListFilter(), projectID: nil).map(\.id)
         expect(order == ["qst-new", "qst-tie-a", "qst-tie-b", "qst-old-edited"], "quests should sort newest created first, ties by id, edits not moving them: \(order)")
-    }
-
-    private static func displayScrollsSectionStartsWithTheirTitle() {
-        let sections = QuestDisplayState.sections(quests: logQuests, repos: [])
-        expect(QuestDisplayState.scrollTarget(for: "a1", in: sections) == .top, "the first quest should scroll the list to the top")
-        expect(QuestDisplayState.scrollTarget(for: "b1", in: sections) == .sectionStart(sectionID: "b"), "a section's first quest should bring its title along")
-        expect(QuestDisplayState.scrollTarget(for: "a2", in: sections) == .row(id: "a2"), "other quests scroll to their row")
-        expect(QuestDisplayState.scrollTarget(for: "missing", in: sections) == nil && QuestDisplayState.scrollTarget(for: nil, in: sections) == nil, "nothing to scroll to")
     }
 
     private static func displayRecoversDeletedSelectionToPreviousQuest() {
@@ -310,14 +365,14 @@ struct QuestCoreTests {
             QuestItem(id: "qst-deleted", content: "Deleted", createdAt: "2026-07-03T02:00:00Z"),
             QuestItem(id: "qst-below", content: "Below", createdAt: "2026-07-03T01:00:00Z"),
         ]
-        let before = QuestDisplayState.sections(quests: quests, repos: [])
-        let after = QuestDisplayState.sections(quests: [quests[0], quests[2]], repos: [])
+        let before = QuestDisplayState.visibleQuests(quests: quests, filter: QuestListFilter(), projectID: nil)
+        let after = QuestDisplayState.visibleQuests(quests: [quests[0], quests[2]], filter: QuestListFilter(), projectID: nil)
 
         expect(
             QuestDisplayState.recoveredSelection(
                 current: "qst-deleted",
                 in: after,
-                previouslyDisplayedQuests: QuestDisplayState.flatQuests(in: before)
+                previouslyDisplayedQuests: before
             ) == "qst-above",
             "deleted quest should select the previous visible quest"
         )

@@ -111,7 +111,7 @@ struct ListKeysTests {
         expect(command(press("[", keyCode: 33), .workerLogMenu) == .previousTab, "[ should step the Worker Log's tabs with the dropdown open")
         expect(command(press("[", keyCode: 33), .tracker) == nil, "the tracker has no tabs, so [ does nothing")
         expect(command(press("]", keyCode: 30), .watcher) == nil, "Watcher has no tabs")
-        expect(command(press("]", keyCode: 30), .questLog) == nil, "the Quest Log has no tabs")
+        expect(command(press("]", keyCode: 30), .questLog) == .nextTab, "] should step the Quest Log's project tabs")
         expect(command(press("[", [.control], keyCode: 33), .artifacts) == nil, "⌃[ is Esc, not a tab")
     }
 

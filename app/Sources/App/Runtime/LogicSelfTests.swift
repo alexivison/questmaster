@@ -86,6 +86,8 @@ enum LogicSelfTests {
         ("testRestoringFocusAfterTheLastModalKeepsAFieldsCaret", testRestoringFocusAfterTheLastModalKeepsAFieldsCaret),
         ("testClosingAChildKeepsTheUncoveredFieldsSelection", testClosingAChildKeepsTheUncoveredFieldsSelection),
         ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
+        ("testQuestLogListStartsWithItsFirstRowWhole", testQuestLogListStartsWithItsFirstRowWhole),
+        ("testQuestLogFilterFieldTakesClicksWhenTheModalIsScaledDown", testQuestLogFilterFieldTakesClicksWhenTheModalIsScaledDown),
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges", testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges),
@@ -3541,7 +3543,7 @@ enum LogicSelfTests {
         let filter = QuestLogFilter()
         var sent: [ListCommand] = []
         var leaves = 0
-        filter.onChange = { store.sync(quests: quests, repos: [], query: filter.textQuery, projectIDs: filter.projectIDs) }
+        filter.onChange = { store.sync(quests: quests, repos: [], filter: filter.search) }
         filter.onMoveSelection = { command in
             sent.append(command)
             _ = store.handle(command)
@@ -3676,6 +3678,87 @@ enum LogicSelfTests {
     }
 
     /// The log is rebuilt per opening; it opens scrolled to the selection it kept, not at the top.
+    /// A freshly opened log lists its first row whole below the filter, in the window's shell as the render draws it.
+    /// A native scroll view left under a scale animation keeps the offset the scale leaves, so the modal must not scale
+    /// over the list while it appears.
+    private static func testQuestLogListStartsWithItsFirstRowWhole() throws {
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            view.subviews.flatMap { ((($0 as? NSScrollView).map { [$0] }) ?? []) + scrollViews(in: $0) }
+        }
+        let size = CGSize(width: 1440, height: 900)
+        let shell = RenderPreview.questLogWindowView()
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        shell.frame = container.bounds
+        container.addSubview(shell)
+        let window = HeadlessWindow(size: size)
+        window.contentView = container
+        window.show()
+        defer { window.close() }
+        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+        let layout = QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize)
+        let listSize = CGSize(width: layout.listWidth, height: layout.listHeight)
+        guard let list = scrollViews(in: shell).first(where: { $0.frame.size == listSize }) else {
+            throw TestFailure("the Quest Log should have a list scroll view of \(listSize)")
+        }
+        let offset = list.contentView.bounds.origin.y
+        let topInset = list.contentInsets.top
+        try expect(
+            abs(offset + topInset) < 0.5,
+            "a list at its top should show its first row whole: scroll offset \(offset), top inset \(topInset)"
+        )
+    }
+
+    /// A modal fitted below 1 must route events where it draws. A 700 x 600 window fits the fixed sheet (1280 x 860) at
+    /// 0.516; the filter field's centre, converted through AppKit's own conversions, must reach the modal.
+    private static func testQuestLogFilterFieldTakesClicksWhenTheModalIsScaledDown() throws {
+        func textFields(in view: NSView) -> [NSTextField] {
+            view.subviews.flatMap { ((($0 as? NSTextField).map { [$0] }) ?? []) + textFields(in: $0) }
+        }
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q1", content: "Quest 1")], repos: [])
+        let size = CGSize(width: 700, height: 600)
+        let window = HeadlessWindow(size: size)
+        let stack = InWindowModalStack()
+        let host = InWindowModalHost(stack: stack)
+        host.frame = .zero
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        host.frame = NSRect(origin: .zero, size: size)
+        try expect(waitUntil { !hasAnimations(in: host.layer) && !textFields(in: host).isEmpty }, "the Quest Log's filter field should appear")
+        guard let field = textFields(in: host).first else {
+            throw TestFailure("the Quest Log should have a text field")
+        }
+        let centre = NSPoint(x: field.bounds.midX, y: field.bounds.midY)
+        let inWindow = field.convert(centre, to: nil)
+        try expect(NSRect(origin: .zero, size: size).contains(inWindow), "the field's centre should be in the window, got \(inWindow)")
+        let inHost = host.convert(inWindow, from: nil)
+        let backInWindow = host.convert(inHost, to: nil)
+        try expect(
+            abs(backInWindow.x - inWindow.x) < 0.5 && abs(backInWindow.y - inWindow.y) < 0.5,
+            "converting to the host and back should return the same point, got \(backInWindow) for \(inWindow)"
+        )
+        // AppKit's own conversion carries the fit: the field's window width is its width times the fit.
+        let fit = min(
+            (size.width - 2 * ShellMetrics.gap) / QuestLogMetrics.sheetSize.width,
+            (size.height - 2 * ShellMetrics.gap) / QuestLogMetrics.sheetSize.height
+        )
+        let windowWidth = field.convert(field.bounds, to: nil).width
+        try expect(
+            abs(windowWidth / field.bounds.width - fit) < 0.01,
+            "the field should draw at the fit \(fit) in the window, got \(windowWidth / field.bounds.width)"
+        )
+        // A click on the field's centre reaches the modal. SwiftUI routes events inside its hosting view, so the field
+        // itself need not be the deepest AppKit hit.
+        let hit = window.contentView?.superview?.hitTest(inWindow)
+        try expect(
+            hit.map { $0 === host || $0.isDescendant(of: host) } ?? false,
+            "a click on the field's centre should reach the modal, got \(String(describing: hit))"
+        )
+    }
+
     private static func testQuestLogOpensScrolledToTheKeptSelection() throws {
         func scrollViews(in view: NSView) -> [NSScrollView] {
             view.subviews.flatMap { ((($0 as? NSScrollView).map { [$0] }) ?? []) + scrollViews(in: $0) }
@@ -3700,7 +3783,8 @@ enum LogicSelfTests {
                 return height > list.contentView.bounds.height && list.contentView.bounds.origin.y > 0
             }
         }, "the Quest Log should finish laying out and scroll to the kept selection")
-        let list = scrollViews(in: host).min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }
+        // The tab row and the page's ink scroll too; the list is the tallest document.
+        let list = scrollViews(in: host).max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }
         guard let list, let height = list.documentView?.frame.height, height > list.contentView.bounds.height else {
             throw TestFailure("the 40-quest list should overflow its scroll view")
         }
@@ -4587,7 +4671,7 @@ enum LogicSelfTests {
         }
         let store = QuestLogStore()
         store.sync(quests: [QuestItem(id: "q", content: "A quest")], repos: [])
-        try check("Quest Log filter", QuestLogView(store: store, filter: QuestLogFilter(), onCommand: { _ in }), size: QuestLogView.size)
+        try check("Quest Log filter", QuestLogView(store: store, filter: QuestLogFilter(), layout: QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize), onCommand: { _ in }), size: QuestLogMetrics.sheetSize)
         let newSession = NewSessionSheetPresenter()
         newSession.present(initialPath: "/tmp/gjpqy", mutationClient: StubMutationClient(result: .failure(TestFailure("unused"))), directoryClient: nil, onSuccess: { _ in })
         if let presentation = newSession.presentation {
@@ -7071,7 +7155,7 @@ enum LogicSelfTests {
 
     /// The tab row alone at the panel's width, over the panel fill, selecting `selected`. Assign `rootView` to change it.
     private static func tabRowHost(workers: [WorkerLogWorker], selected: String?) -> (window: HeadlessWindow, hosting: NSHostingView<AnyView>, size: CGSize) {
-        let size = CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height)
+        let size = CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height)
         let hosting = NSHostingView(rootView: tabRow(workers: workers, selected: selected))
         hosting.frame = NSRect(origin: .zero, size: size)
         let window = HeadlessWindow(size: size)
@@ -7092,9 +7176,9 @@ enum LogicSelfTests {
         try expect(AppFonts.workerTab.pointSize == 12 && AppFonts.workerTabSelected.pointSize == 12, "the tabs should be 12pt, got \(AppFonts.workerTab.pointSize)")
         let font = AppFonts.workerTab
         let line = (font.ascender - font.descender + font.leading).rounded(.up)
-        try expect(WorkerLogTabMetrics.height >= line, "the row should hold a line of its text (\(line)), got \(WorkerLogTabMetrics.height) high")
-        try expect(WorkerLogTabMetrics.labelBaseline - font.ascender >= 0 && WorkerLogTabMetrics.labelBaseline - font.descender <= WorkerLogTabMetrics.height, "and the baseline should keep the whole line inside it")
-        try expect(WorkerLogTabMetrics.separatorGap == Space.row, "a tab should sit a `Space.row` from its diamond")
+        try expect(TextTabMetrics.height >= line, "the row should hold a line of its text (\(line)), got \(TextTabMetrics.height) high")
+        try expect(TextTabMetrics.labelBaseline - font.ascender >= 0 && TextTabMetrics.labelBaseline - font.descender <= TextTabMetrics.height, "and the baseline should keep the whole line inside it")
+        try expect(TextTabMetrics.separatorGap == Space.row, "a tab should sit a `Space.row` from its diamond")
 
         // The ink measurements need the design font: a fallback's advance is fractional (the system monospaced face's is
         // 7.418), so the text's edges land between pixels and the ink gaps read up to a point short (CI has no JetBrains Mono).
@@ -7113,7 +7197,7 @@ enum LogicSelfTests {
             throw TestFailure("the panel colour should convert")
         }
         // The row of pixels through the diamonds' centres: the blocks and the diamonds are the ink on it, and the text of All.
-        let row = Int((WorkerLogTabMetrics.labelBaseline - WorkerLogTabMetrics.svgDiamondRaise) * scale)
+        let row = Int((TextTabMetrics.labelBaseline - TextTabMetrics.svgDiamondRaise) * scale)
         var runs: [(start: CGFloat, end: CGFloat)] = []
         var start: Int?
         for column in 0..<Int(host.size.width * scale) {
@@ -7128,12 +7212,12 @@ enum LogicSelfTests {
         }
         try expect(runs.count >= 4, "the diamonds and blocks should draw four runs at the end of the row, got \(runs)")
         let (firstDiamond, firstBlock, secondDiamond, secondBlock) = (runs[runs.count - 4], runs[runs.count - 3], runs[runs.count - 2], runs[runs.count - 1])
-        let gap = WorkerLogTabMetrics.separatorGap
+        let gap = TextTabMetrics.separatorGap
         for (label, measured) in [("tab to its diamond", firstBlock.start - firstDiamond.end), ("first tab to the next diamond", secondDiamond.start - firstBlock.end), ("diamond to the next tab", secondBlock.start - secondDiamond.end)] {
             try expect(abs(measured - gap) <= 0.75, "\(label) should be \(gap) apart, got \(measured)")
         }
         let diamondWidth = secondDiamond.end - secondDiamond.start
-        try expect(abs(diamondWidth - WorkerLogTabMetrics.svgDiamondDiagonal) <= 0.75, "the diamond should be \(WorkerLogTabMetrics.svgDiamondDiagonal) across, got \(diamondWidth)")
+        try expect(abs(diamondWidth - TextTabMetrics.svgDiamondDiagonal) <= 0.75, "the diamond should be \(TextTabMetrics.svgDiamondDiagonal) across, got \(diamondWidth)")
         let blockWidth = firstBlock.end - firstBlock.start
         let advance = ("\u{2588}" as NSString).size(withAttributes: [.font: font]).width
         try expect(abs(blockWidth - 6 * advance) <= 1.25, "six blocks should be six 12pt advances (\(6 * advance)) wide, got \(blockWidth)")
@@ -7184,7 +7268,7 @@ enum LogicSelfTests {
         }
         let scale: CGFloat = 2
         let width = host.size.width
-        let fade = WorkerLogTabMetrics.fadeWidth
+        let fade = TextTabMetrics.fadeWidth
         /// The block's coverage in the column at `x` points: its distance from the panel fill, as a share of `full`.
         func coverage(_ bitmap: NSBitmapImageRep, atX x: CGFloat, full: CGFloat) -> CGFloat {
             let column = Int(x * scale)
@@ -7273,7 +7357,7 @@ enum LogicSelfTests {
         }
         let frames = all.map(frame).sorted { $0.minY < $1.minY }
         let (row, feed) = (frames[0], frames[1])
-        try expect(row.height == WorkerLogTabMetrics.height, "the tab row should be \(WorkerLogTabMetrics.height) high, got \(row.height)")
+        try expect(row.height == TextTabMetrics.height, "the tab row should be \(TextTabMetrics.height) high, got \(row.height)")
         try expect(abs(row.minY - WorkerLogTabMetrics.bottomInset) < 0.5, "the row should end \(WorkerLogTabMetrics.bottomInset) above the panel's bottom, got \(row.minY)")
         try expect(abs(feed.minY - row.maxY) < 0.5, "the feed should end where the row begins, got its bottom at \(feed.minY) over the row's top at \(row.maxY)")
         try expect(feed.width == DockWidthPreference.panelWidth, "the feed should span the panel, got \(feed.width)")

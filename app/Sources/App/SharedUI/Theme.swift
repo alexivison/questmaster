@@ -269,6 +269,8 @@ enum AppFonts {
     static let questLogBody = monospaced(size: 12)
     static let questLogRowSelected = monospaced(size: 12, weight: .bold)
     static let questLogTitle = monospaced(size: 14, weight: .bold)
+    /// A Quest Log row's tag chip.
+    static let questTag = monospaced(size: 10)
     static let questLogButton = monospaced(size: 12, weight: .bold)
     /// A selection chip's value: the current selection, in bold.
     static let chipValue = monospaced(size: 12, weight: .bold)

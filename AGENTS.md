@@ -467,6 +467,16 @@ fields (`ModalKeyContext.hasTextFields`), and the focused part decides the rest:
 - **The Quest Log** applies the rule per focused part: its filter is a text field, its list is a list
   (`ListCapabilities.modalMoves`). With no suggestion showing, the filter's ↑/↓ are the caret's (`FilterFieldKey`'s
   `arrowsMoveList` is off there), while ⌃p and ⌃n still move the list, as vim's previous and next do.
+- **The Quest Log's list** is one flat list, newest created first (ties by id), not grouped by project
+  (`QuestDisplayState.visibleQuests`). Project tabs (`TextTabRow`, the Worker Log's text tabs) sit above the filter:
+  All, then one tab per project that has quests, in the Settings project order; quests without a project show only
+  under All. `[` and `]` step the tabs. The selected tab lives in `QuestLogStore` and survives closing the log; it falls
+  back to All when its project has no quests left. The filter takes free text plus `@type:` and `@size:` tokens
+  (`QuestListFilter`): any selected tag within a group matches, and the text, the tags and the tab must all match.
+  A row shows its title, then its tag chips (size first, then types in `QuestTags` order); an untagged row is title only.
+- **The Quest Log's size** is fixed at `QuestLogMetrics.sheetSize` (1280 x 860). A smaller window shrinks the modal through
+  the shared fit in `ModalScaleView`, as other modals do. `QuestLogLayout` places the parts: the page keeps its proportions
+  and takes the height, the left column takes the width.
 
 Non-modal lists (the tracker, the dock's lists, Watcher, the Worker Log) keep their own keys, arrows included
 (`ListKeyResolver`'s `moveUp` and `moveDown`).
@@ -491,7 +501,7 @@ is a multiple of 5, and spacing takes one of four steps (`Space` in
 | `Space.group` | 40 | between groups of blocks: the selected-session panel → the list |
 
 Control heights are one family (`ControlHeight`): `chip` 15, `compact` 25
-(pill tabs, Quest Log rows), `control` 30 (buttons, dropdown rows), `field` 35
+(pill tabs, Quest Log title lines), `control` 30 (buttons, dropdown rows), `field` 35
 (fields, filters, the Settings picker), `bar` 40 (the dock top bar, artifact
 rows), `row` 50. A shape drawn from a design at another height keeps its path's
 own height as an `svg…` constant and scales to the control's.
