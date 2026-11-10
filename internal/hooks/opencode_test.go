@@ -36,13 +36,7 @@ func runOpenCodeHookStub() int {
 		return 1
 	}
 	root, event := os.Getenv("QM_CAPTURE"), payload.Event.Type
-	log := func(name string) {
-		f, err := os.OpenFile(filepath.Join(root, "order.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-		if err == nil {
-			fmt.Fprintf(f, "%s:%d\n", name, time.Now().UnixMilli())
-			f.Close()
-		}
-	}
+	log := func(name string) error { return appendOpenCodeCaptureLog(root, name) }
 	if event == "tool.execute.before" {
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
@@ -52,7 +46,7 @@ func runOpenCodeHookStub() int {
 		if err := watcher.Add(root); err != nil {
 			return 1
 		}
-		if err := os.WriteFile(filepath.Join(root, "before-started"), nil, 0o600); err != nil {
+		if err := writeOpenCodeCaptureFile(root, "before-started", nil); err != nil {
 			return 1
 		}
 		timer := time.NewTimer(openCodeGateWaitTimeout)
@@ -81,16 +75,48 @@ func runOpenCodeHookStub() int {
 		signals = make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGTERM)
 	}
-	log(event)
+	if err := log(event); err != nil {
+		return 1
+	}
 	if event == "test.timeout" {
 		<-signals
-		log("test.timeout.sigterm")
+		if err := log("test.timeout.sigterm"); err != nil {
+			return 1
+		}
 		select {}
 	}
-	if err := os.WriteFile(filepath.Join(root, event+".json"), data, 0o600); err != nil {
+	if err := writeOpenCodeCaptureFile(root, event+".json", data); err != nil {
 		return 1
 	}
 	return 0
+}
+
+// Publish complete snapshots so filesystem watchers cannot observe a created but partially written capture file.
+func writeOpenCodeCaptureFile(root, name string, data []byte) error {
+	temp, err := os.CreateTemp(root, ".capture-*")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, filepath.Join(root, name))
+}
+
+func appendOpenCodeCaptureLog(root, name string) error {
+	path := filepath.Join(root, "order.log")
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	data = fmt.Appendf(data, "%s:%d\n", name, time.Now().UnixMilli())
+	return writeOpenCodeCaptureFile(root, "order.log", data)
 }
 
 func newTestOpenCodeInstaller(t *testing.T) *OpenCodeInstaller {
