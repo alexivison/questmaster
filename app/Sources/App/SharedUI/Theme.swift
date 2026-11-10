@@ -16,7 +16,8 @@ enum AppPalette {
     static let text = StateColor.textSelected.color
     static let muted = StateColor.textBody.color
     static let dim = StateColor.textMeta.color
-    /// The label of a labelled field, such as the Edit Quest sheet's "Size:": the meta step, highlighted.
+    /// The label before a value: the Edit Quest sheet's "Size:", the Worker Log chip's "Action:", a filter chip's kind
+    /// ("@type"). The meta step, highlighted.
     static let metaHighlighted = StateColor.textMetaHighlighted.color
     /// "On", for toggles only (the action bar). Never selected or focused.
     static let brassActive = StateColor.brassActive.color

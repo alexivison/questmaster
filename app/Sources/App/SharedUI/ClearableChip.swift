@@ -3,7 +3,7 @@ import QuestmasterCore
 import SwiftUI
 
 /// A chip for a selection that can be cleared (the Worker Log's filter), measured from Selected Filter Item.svg: 25
-/// high in the field chrome's `item` fill and `line` border, a muted label (`textMetaHighlighted`), its value, a divider
+/// high in the field chrome's `item` fill and `line` border, a label in `textMetaHighlighted`, its value, a divider
 /// and an x. The value is the current selection, so it is bold `textBody`. The x clears;
 /// the chip itself is no button. Unlike the 15-high `FilterChip`, which a click removes whole, it holds any content.
 struct ClearableChip<Value: View>: View {
@@ -19,7 +19,7 @@ struct ClearableChip<Value: View>: View {
             HStack(spacing: ClearableChipMetrics.labelGap) {
                 Text(label)
                     .font(AppFonts.questLogBody.swiftUI)
-                    .foregroundStyle(AppPalette.muted.swiftUI)
+                    .foregroundStyle(AppPalette.metaHighlighted.swiftUI)
                 value()
             }
             .padding(.trailing, Space.item)
