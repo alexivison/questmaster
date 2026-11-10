@@ -55,7 +55,7 @@ struct NewQuestSheetPresentation: Identifiable {
 }
 
 /// new-quest.svg: the project field (projects by name, or directories for a typed path) and the content
-/// filling the rest. Edit Quest adds the tags field between them, its size segment at its end.
+/// filling the rest. Edit Quest adds the types field and the size select between them.
 struct NewQuestSheetView: View {
     @StateObject private var model: NewQuestSheetModel
 
@@ -82,6 +82,7 @@ struct NewQuestSheetView: View {
                 if model.form.isEditing {
                     tagsField
                         .zIndex(1)
+                    sizeField
                 }
                 contentBox
             }
@@ -131,43 +132,44 @@ struct NewQuestSheetView: View {
         )
     }
 
-    /// The types, as the field's text, with the size segment at its end. Its dropdown lists the types as checkboxes
-    /// while the field has focus.
+    /// The types: the filter's field (`FilterBar`) with the chosen types as chips. The typed text is the query, and the
+    /// types it matches hang under the field while it has focus.
     private var tagsField: some View {
-        FormTextField(
-            text: Binding(get: { model.form.tags.text }, set: { model.form.tags.typeQuery($0) }),
-            placeholder: "Types...",
+        FilterBar(
+            tokens: model.form.tags.tokens,
+            query: Binding(get: { model.form.tags.query }, set: { model.form.tags.typeQuery($0) }),
+            placeholder: model.form.tags.selectedTypes.isEmpty ? "Types..." : "",
+            prompt: nil,
+            showsChipKind: false,
             focusNonce: model.tagsFocusNonce,
-            focused: model.form.focusedField == .tags,
-            onFocusChanged: { editing in
-                if editing {
-                    model.focusTags()
-                }
-            }
-        ) {
-            sizeSegment
-        }
-        .suggestionDropdown(model.form.showsTagRows ? tagsDropdown : nil)
-    }
-
-    private var tagsDropdown: SuggestionDropdown {
-        let tags = model.form.tags
-        return SuggestionDropdown(
-            rows: tags.rows.map(\.displayName),
-            highlightedIndex: tags.highlightedIndex,
-            onSelect: { model.toggleTagRow($0) },
-            checkedRows: tags.checkedRows
+            suggestions: model.tagSuggestions,
+            highlightedSuggestionID: model.highlightedTagSuggestionID,
+            accessibilityLabel: "Types",
+            previewFocused: model.form.focusedField == .tags,
+            onCommand: { _ in false },
+            onFocusChanged: { model.tagsFocusChanged($0) },
+            onRemoveToken: { model.removeTag($0) },
+            onSelectSuggestion: { model.chooseTag($0) }
         )
     }
 
-    /// "| S" at the field's end, as the effort segment is drawn. A click cycles it, wherever focus is.
-    private var sizeSegment: some View {
-        FormFieldSegment(text: model.form.tags.sizeLabel, color: AppPalette.textMeta)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                model.clickedTagSize()
-            }
-            .accessibilityLabel("Size \(model.form.tags.sizeLabel)")
+    /// The size select: a field box showing the size, or its placeholder while there is none. ←/→ and h/l step it, and a
+    /// click does. It has no text, so the sink holds its keys.
+    private var sizeField: some View {
+        let size = model.form.sizeText
+        let isEmpty = size.isEmpty
+        return BaselineText(
+            isEmpty ? "Size..." : size,
+            font: AppFonts.questLogBody,
+            color: isEmpty ? AppPalette.textMeta : AppPalette.textBody,
+            baseline: FormFieldMetrics.baseline
+        )
+        .padding(.horizontal, FormFieldMetrics.textInset)
+        .frame(maxWidth: .infinity, minHeight: FormFieldMetrics.height, maxHeight: FormFieldMetrics.height, alignment: .topLeading)
+        .fieldChrome(focused: model.form.focusedField == .size)
+        .contentShape(Rectangle())
+        .onTapGesture { model.clickedSize() }
+        .accessibilityLabel("Size \(isEmpty ? "none" : size)")
     }
 
     private var contentBox: some View {
@@ -258,29 +260,75 @@ final class NewQuestSheetModel: ObservableObject {
         form.focusedField = field
     }
 
-    /// A click on a row toggles that type, with the field focused and the dropdown open.
-    func toggleTagRow(_ index: Int) {
-        guard !form.submitting else {
+    /// A click on a type's row, or its suggestion: the type becomes a chip, and the text keeps the caret.
+    func chooseTag(_ suggestion: ArtifactFilterSuggestion) {
+        guard !form.submitting, let type = QuestTagType(rawValue: suggestion.value) else {
             return
         }
-        focusTags()
-        form.tags.toggleRow(at: index)
+        focusTagsText()
+        form.tags.choose(type)
     }
 
-    /// A click on the size segment cycles it, wherever focus is.
-    func clickedTagSize() {
-        guard !form.submitting else {
+    /// A chip's x: the type goes back to the rows, and the text takes the caret as the Quest Log's filter does.
+    func removeTag(_ token: ArtifactFilterToken) {
+        guard !form.submitting, let type = QuestTagType(rawValue: token.value) else {
             return
         }
-        form.tags.cycleSize()
+        focusTagsText()
+        form.tags.remove(type)
     }
 
-    /// The tags field takes focus in SELECT, with no caret, and its dropdown shows. A click on its text does the same.
-    func focusTags() {
+    /// The types text took or lost keyboard focus. Taking it is a click on the field.
+    func tagsFocusChanged(_ focused: Bool) {
+        guard focused else {
+            return
+        }
+        focusedByClick(.tags)
+    }
+
+    /// The types the field lists, as the filter's suggestions (`FilterBar`): each type's name, with no count.
+    var tagSuggestions: [ArtifactFilterSuggestion] {
+        form.tags.rows.map(Self.tagSuggestion)
+    }
+
+    var highlightedTagSuggestionID: String? {
+        form.tags.highlightedRow.map { Self.tagSuggestion($0).id }
+    }
+
+    private static func tagSuggestion(_ type: QuestTagType) -> ArtifactFilterSuggestion {
+        ArtifactFilterSuggestion(
+            mode: .value,
+            kind: .type,
+            value: type.rawValue,
+            title: type.displayName,
+            detail: "",
+            tokenTitle: type.displayName
+        )
+    }
+
+    /// A click on the size select takes focus and steps the size, as a click on the colour's swatch does.
+    func clickedSize() {
         guard !form.submitting else {
             return
         }
-        form.focusedField = .tags
+        focusSelect(.size)
+        form.cycleSize(1)
+    }
+
+    /// ←/→ and h/l on the size select (`ModalKeys`).
+    private func cycleSize(_ step: Int) {
+        form.cycleSize(step)
+    }
+
+    /// The types text takes the caret: a click, Tab, or a chip's x (which leaves the field's own focus with the text).
+    private func focusTagsText() {
+        focusedByClick(.tags)
+        tagsFocusNonce += 1
+    }
+
+    /// A select takes focus with no caret. The sink takes it from the text fields, so the select's keys reach the sheet.
+    private func focusSelect(_ field: NewQuestField) {
+        focusedByClick(field)
         sinkNonce += 1
     }
 
@@ -352,7 +400,8 @@ final class NewQuestSheetModel: ObservableObject {
             fieldKey: { self.handleFieldKey($0) },
             submit: { self.submit() },
             cancel: { self.cancel() },
-            moveFocus: { self.moveFocus($0) }
+            moveFocus: { self.moveFocus($0) },
+            cycle: { self.cycleSize($0) }
         ).handle(event)
     }
 
@@ -371,30 +420,9 @@ final class NewQuestSheetModel: ObservableObject {
         case .project:
             return handleProjectFieldKey(event)
         case .tags:
-            return handleTagsFieldKey(event)
-        case .content:
+            return form.tags.handle(event.keymapPress)
+        case .size, .content:
             return false
-        }
-    }
-
-    /// The tags field's keys (`QuestTagsField.handle`), with the caret following its mode as the project's does.
-    private func handleTagsFieldKey(_ event: NSEvent) -> Bool {
-        let before = form.tags.mode
-        defer {
-            followTags(from: before)
-        }
-        return form.tags.handle(event.keymapPress)
-    }
-
-    /// Moves the caret into or out of the tags text as its search starts or ends (`PickerFieldMode.caretChange`).
-    private func followTags(from before: PickerFieldMode) {
-        switch PickerFieldMode.caretChange(from: before, to: form.tags.mode, fieldFocused: form.focusedField == .tags) {
-        case .intoText:
-            tagsFocusNonce += 1
-        case .outOfText:
-            sinkNonce += 1
-        case nil:
-            break
         }
     }
 
@@ -461,8 +489,13 @@ final class NewQuestSheetModel: ObservableObject {
         let before = form.projectMode
         form.moveFocus(delta)
         follow(from: before)
-        if form.focusedField == .project || form.focusedField == .tags {
+        switch form.focusedField {
+        case .project, .size:
             sinkNonce += 1
+        case .tags:
+            tagsFocusNonce += 1
+        case .content:
+            break
         }
     }
 

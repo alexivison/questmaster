@@ -150,6 +150,13 @@ enum LogicSelfTests {
         ("testNewSessionEscapePutsADropdownAwayBeforeClosing", testNewSessionEscapePutsADropdownAwayBeforeClosing),
         ("testNewQuestTypedPathSubmitsAPathOnlyProject", testNewQuestTypedPathSubmitsAPathOnlyProject),
         ("testNewQuestReturnKeepsATypedPathUnlessARowWasChosen", testNewQuestReturnKeepsATypedPathUnlessARowWasChosen),
+        ("testEditQuestTypesFieldListsTheOpenTypesAsSuggestions", testEditQuestTypesFieldListsTheOpenTypesAsSuggestions),
+        ("testEditQuestTabReachesTheSizeSelect", testEditQuestTabReachesTheSizeSelect),
+        ("testEditQuestSizeSelectCyclesWithHLAndArrows", testEditQuestSizeSelectCyclesWithHLAndArrows),
+        ("testEditQuestSizeIsSentOnlyWhenChanged", testEditQuestSizeIsSentOnlyWhenChanged),
+        ("testEditQuestTypesReturnAddsOnlyWhileTheQueryMatches", testEditQuestTypesReturnAddsOnlyWhileTheQueryMatches),
+        ("testEditQuestReturnWithNoQuerySubmits", testEditQuestReturnWithNoQuerySubmits),
+        ("testEditQuestSpaceBackspaceAndETypeInTheTypesField", testEditQuestSpaceBackspaceAndETypeInTheTypesField),
         ("testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch", testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch),
         ("testNewQuestEscapeClosesWhileSubmitting", testNewQuestEscapeClosesWhileSubmitting),
         ("testNewSessionControlRRefreshesModelsFromTheModelField", testNewSessionControlRRefreshesModelsFromTheModelField),
@@ -6414,6 +6421,98 @@ enum LogicSelfTests {
         try expect(sheet.handle(try keyEvent("k", keyCode: 40, modifierFlags: .control)), "⌃k should come back")
         try expect(sheet.form.focusedField == .project && sheet.form.projectMode == .select && sheet.form.projectText == "s", "back in SELECT with the text kept")
         try expect(sheet.sinkNonce == sinkBefore + 1, "SELECT should take the caret out of the text")
+    }
+
+    /// An Edit Quest sheet for quest qst-1 with the given types and size.
+    private static func editQuestSheet(types: [String] = [], size: String = "") -> NewQuestSheetModel {
+        NewQuestSheetModel(
+            presentation: NewQuestSheetPresentation(
+                projects: [NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a")],
+                initialProject: NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a"),
+                initialContent: "Quest",
+                initialTypes: types,
+                initialSize: size,
+                questID: "qst-1",
+                sessionID: "",
+                mutationClient: StubMutationClient(result: .failure(StubMutationError())),
+                directoryClient: nil,
+                onSuccess: {}
+            ),
+            dismiss: {}
+        )
+    }
+
+    /// The types field lists the open types as its suggestions and shows the chosen ones as chips, in their fixed order.
+    private static func testEditQuestTypesFieldListsTheOpenTypesAsSuggestions() throws {
+        let sheet = editQuestSheet(types: ["research", "bug"])
+        try expect(sheet.tagSuggestions.map(\.title) == ["Improvement", "Feature", "Decision", "Cleanup"], "the open types should be the suggestions, in order")
+        try expect(sheet.form.tags.tokens.map(\.title) == ["Bug", "Research"], "the chips should be the chosen types in their fixed order")
+        sheet.form.tags.typeQuery("dec")
+        try expect(sheet.highlightedTagSuggestionID == sheet.tagSuggestions.first?.id, "the best match should be the highlighted suggestion")
+    }
+
+    /// Tab moves the focus through the types, the size select, then the content, and the select takes the caret out of the text.
+    private static func testEditQuestTabReachesTheSizeSelect() throws {
+        let sheet = editQuestSheet()
+        sheet.form.focusedField = .project
+        try expect(sheet.handle(try keyEvent("", keyCode: 48)) && sheet.form.focusedField == .tags, "Tab should reach the types")
+        let sinkBefore = sheet.sinkNonce
+        try expect(sheet.handle(try keyEvent("", keyCode: 48)) && sheet.form.focusedField == .size, "Tab should reach the size")
+        try expect(sheet.sinkNonce == sinkBefore + 1, "the size select should take the caret out of the text")
+        try expect(sheet.handle(try keyEvent("", keyCode: 48)) && sheet.form.focusedField == .content, "Tab should reach the content")
+    }
+
+    /// The Size select steps with h/l and ←/→ (`ModalKeys`), ↑ does nothing, and a click steps it and keeps it focused.
+    private static func testEditQuestSizeSelectCyclesWithHLAndArrows() throws {
+        let sheet = editQuestSheet(size: "M")
+        sheet.form.focusedField = .size
+        try expect(sheet.handle(try keyEvent("h", keyCode: 4)) && sheet.form.size == .small, "h should step the size back")
+        try expect(sheet.handle(try keyEvent("l", keyCode: 37)) && sheet.form.size == .medium, "l should step the size forward")
+        try expect(sheet.handle(try keyEvent("", keyCode: 124)) && sheet.form.size == .large, "→ should step the size forward")
+        try expect(sheet.handle(try keyEvent("", keyCode: 123)) && sheet.form.size == .medium, "← should step the size back")
+        try expect(sheet.handle(try keyEvent("", keyCode: 126)) && sheet.form.size == .medium, "↑ should do nothing on the select")
+        sheet.clickedSize()
+        try expect(sheet.form.size == .large && sheet.form.focusedField == .size, "a click should step the size and keep the select focused")
+    }
+
+    /// An untouched size sends nothing; a step sends the new size, and a step back to none sends the empty value that clears it.
+    private static func testEditQuestSizeIsSentOnlyWhenChanged() throws {
+        let untouched = editQuestSheet(size: "M")
+        try expect(untouched.form.submitPayload()?.size == nil, "an untouched size should send nothing")
+        let stepped = editQuestSheet(size: "M")
+        stepped.form.cycleSize(1)
+        try expect(stepped.form.submitPayload()?.size == "L", "a changed size should be sent")
+        let cleared = editQuestSheet(size: "M")
+        cleared.form.cycleSize(1)
+        cleared.form.cycleSize(1)
+        try expect(cleared.form.submitPayload()?.size == "", "a size stepped back to none should send the empty value")
+    }
+
+    /// Return adds the highlighted type only while the typed query has a match.
+    private static func testEditQuestTypesReturnAddsOnlyWhileTheQueryMatches() throws {
+        let sheet = editQuestSheet()
+        sheet.form.focusedField = .tags
+        sheet.form.tags.typeQuery("bu")
+        try expect(sheet.handle(try keyEvent("\r", keyCode: 36)) && sheet.form.tags.selectedTypes == [.bug], "Return should add the matching type")
+        try expect(sheet.form.tags.query == "", "adding the type should clear the query")
+    }
+
+    /// Return with no query submits the sheet and adds no type, so a stray Return on the types field can't change it.
+    private static func testEditQuestReturnWithNoQuerySubmits() throws {
+        let sheet = editQuestSheet()
+        sheet.form.focusedField = .tags
+        try expect(sheet.handle(try keyEvent("\r", keyCode: 36)), "Return should be consumed by the submit")
+        try expect(sheet.form.tags.selected.isEmpty, "Return with no query should add no type")
+        try expect(sheet.form.submitting, "Return with no query should submit the form")
+    }
+
+    /// Space is taken and types nothing; Backspace in an empty query removes the last chip; e types, and leaves the size alone.
+    private static func testEditQuestSpaceBackspaceAndETypeInTheTypesField() throws {
+        let sheet = editQuestSheet(types: ["bug", "research"])
+        sheet.form.focusedField = .tags
+        try expect(sheet.handle(try keyEvent(" ", keyCode: 49)) && sheet.form.tags.selectedTypes == [.bug, .research], "Space should be taken and choose nothing")
+        try expect(sheet.handle(try keyEvent("\u{7F}", keyCode: 51)) && sheet.form.tags.selectedTypes == [.bug], "Backspace in an empty query should remove the last chip")
+        try expect(!sheet.handle(try keyEvent("e", keyCode: 14)) && sheet.form.size == nil, "e should type into the types field and leave the size alone")
     }
 
     private static func testNewQuestEscapeClosesWhileSubmitting() throws {

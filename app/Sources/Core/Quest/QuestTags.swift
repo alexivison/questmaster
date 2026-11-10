@@ -21,11 +21,11 @@ public enum QuestSize: String, CaseIterable, Equatable {
     case medium = "M"
     case large = "L"
 
-    /// The size a size segment cycles to after `size`: none, S, M, L, then none again. Nil is no size.
-    public static func next(after size: QuestSize?) -> QuestSize? {
-        guard let size, let index = allCases.firstIndex(of: size) else {
-            return allCases.first
-        }
-        return allCases.indices.contains(index + 1) ? allCases[index + 1] : nil
+    /// The size `step` places from `size` in the Size select's order: none, S, M, L, wrapping. Nil is no size.
+    public static func cycled(from size: QuestSize?, by step: Int) -> QuestSize? {
+        let order: [QuestSize?] = [nil] + allCases.map(Optional.init)
+        let index = order.firstIndex(of: size) ?? 0
+        let count = order.count
+        return order[((index + step) % count + count) % count]
     }
 }

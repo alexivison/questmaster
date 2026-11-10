@@ -6,6 +6,8 @@ import SwiftUI
 /// fill, `line` border. Click to remove it, as Backspace in an empty field does.
 struct FilterChip: View {
     var token: ArtifactFilterToken
+    /// Whether the chip names its kind ("@type Bug"), as the Quest Log's do, or shows the title alone.
+    var showsKind = true
     var onRemove: () -> Void
 
     private enum Metrics {
@@ -17,7 +19,7 @@ struct FilterChip: View {
 
     var body: some View {
         Button(action: onRemove) {
-            Text("\(token.kind.prefix) \(token.title)")
+            Text(showsKind ? "\(token.kind.prefix) \(token.title)" : token.title)
                 .font(AppFonts.questLogBody.swiftUI)
                 .foregroundStyle(AppPalette.muted.swiftUI)
                 .lineLimit(1)
@@ -37,19 +39,26 @@ struct FilterChip: View {
 /// The one filter field (the Quest Log's and the artifact dock's), measured from user-quests-modal-v3.svg and
 /// artifacts.svg: the shared field chrome 35 high, "/" 10 in, then the token chips and the text field, 10 apart.
 /// While it has focus the shared dropdown hangs 5 under it with `suggestions` (empty hides it). Its text is 12pt.
+/// The Edit Quest sheet's types field is one too, with no `prompt`.
 struct FilterBar: View {
     let tokens: [ArtifactFilterToken]
     @Binding var query: String
     let placeholder: String
+    /// The glyph before the chips, the filter's "/". Nil for a field with no glyph.
+    var prompt: String? = "/"
+    /// Whether the chips name their kind. The types field's chips are the names alone.
+    var showsChipKind = true
     /// A change focuses the field (`CommandTextField`).
     let focusNonce: Int
     let suggestions: [ArtifactFilterSuggestion]
     let highlightedSuggestionID: String?
     let accessibilityLabel: String
-    /// Renders the field as focused (RenderPreview).
+    /// Draws the field focused for a host that keeps its own focus state (RenderPreview, the Edit Quest sheet).
     var previewFocused = false
     var onCommand: (Keymap.KeyPress) -> Bool
     var onEndEditing: () -> Void = {}
+    /// The text field took or lost keyboard focus.
+    var onFocusChanged: (Bool) -> Void = { _ in }
     var onRemoveToken: (ArtifactFilterToken) -> Void
     var onSelectSuggestion: (ArtifactFilterSuggestion) -> Void
 
@@ -58,14 +67,42 @@ struct FilterBar: View {
 
     private var showsFocus: Bool { focused || previewFocused }
 
+    /// Whether the text follows a glyph or a chip, which is where its lead applies. First in the field, it sits on the inset.
+    private var hasLeadingElement: Bool { prompt != nil || !tokens.isEmpty }
+
     var body: some View {
+        // The bar takes the width it is offered. Its chips and text are laid over it and clipped at its edge, so chips
+        // past the edge can't widen the form; the dropdown hangs below the clip.
+        Color.clear
+            .frame(height: FilterBarMetrics.height)
+            .overlay(alignment: .leading) {
+                fieldContent
+            }
+            .clipped()
+            .fieldChrome(focused: showsFocus)
+            .overlay(alignment: .topLeading) {
+                if showsFocus && !suggestions.isEmpty {
+                    SuggestionDropdown(
+                        filterSuggestions: suggestions,
+                        highlightedID: highlightedSuggestionID,
+                        onSelect: onSelectSuggestion
+                    )
+                    .offset(y: FilterBarMetrics.height + FormFieldMetrics.suggestionsGap)
+                }
+            }
+            .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var fieldContent: some View {
         HStack(spacing: FilterBarMetrics.spacing) {
-            Text("/")
-                .font(AppFonts.questLogBody.swiftUI)
-                .foregroundStyle(AppPalette.textMeta.swiftUI)
-                .offset(x: FilterBarMetrics.slashGlyphNudge)
+            if let prompt {
+                Text(prompt)
+                    .font(AppFonts.questLogBody.swiftUI)
+                    .foregroundStyle(AppPalette.textMeta.swiftUI)
+                    .offset(x: FilterBarMetrics.slashGlyphNudge)
+            }
             ForEach(tokens) { token in
-                FilterChip(token: token, onRemove: { onRemoveToken(token) })
+                FilterChip(token: token, showsKind: showsChipKind, onRemove: { onRemoveToken(token) })
             }
             CommandTextField(
                 text: $query,
@@ -73,31 +110,19 @@ struct FilterBar: View {
                 focusNonce: focusNonce,
                 onCommand: onCommand,
                 onEndEditing: onEndEditing,
-                onFocusChanged: { focused = $0 },
+                onFocusChanged: { focused = $0; onFocusChanged($0) },
                 font: AppFonts.questLogBody,
                 textColor: AppPalette.textBody,
                 placeholderColor: AppPalette.textMeta
             )
             // The field is as tall as its font's whole line (KeyTextField); this places that frame by its first
             // baseline, as the forms' fields are, so the text lands where the designs set it whatever the frame's height.
-            .padding(.leading, FilterBarMetrics.textFieldLead)
+            .padding(.leading, hasLeadingElement ? FilterBarMetrics.textFieldLead : 0)
             .alignmentGuide(VerticalAlignment.center) { _ in FilterBarMetrics.textFieldCenterGuide }
             .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, FilterBarMetrics.inset)
         .frame(height: FilterBarMetrics.height)
-        .fieldChrome(focused: showsFocus)
-        .overlay(alignment: .topLeading) {
-            if showsFocus && !suggestions.isEmpty {
-                SuggestionDropdown(
-                    filterSuggestions: suggestions,
-                    highlightedID: highlightedSuggestionID,
-                    onSelect: onSelectSuggestion
-                )
-                .offset(y: FilterBarMetrics.height + FormFieldMetrics.suggestionsGap)
-            }
-        }
-        .accessibilityLabel(accessibilityLabel)
     }
 }
 
