@@ -29,6 +29,9 @@ enum RenderPreview {
         render(newQuestSheetView(.editNoTags), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-no-tags.png")
         render(newQuestSheetView(.editTagged), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags.png")
         render(newQuestSheetView(.editTagsOpen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags-open.png")
+        render(newQuestSheetView(.editTagsSearching), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags-search.png")
+        render(newQuestSheetView(.editAllTypes), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-all-types.png")
+        render(newQuestSheetView(.editSizeFocused), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-size-focused.png")
         render(colorInputView(previewing: false), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input.png")
         render(colorInputView(previewing: true), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input-preview.png")
         let editSession = TrackerEditSession(sessionID: "qm-1", title: "Small Fixes", color: "orange", allowsColor: true)
@@ -2237,10 +2240,16 @@ enum RenderPreview {
         case searchingProjects
         /// edit-quest-no-tags.png: Edit Quest for a quest with no types and no size.
         case editNoTags
-        /// edit-quest-tags.png: a size and several types, the tags field not focused.
+        /// edit-quest-tags.png: three types chosen and a size, the types field not focused.
         case editTagged
-        /// edit-quest-tags-open.png: the tags field focused, its dropdown open with checked and unchecked rows.
+        /// edit-quest-tags-open.png: the types field focused with no query: its dropdown lists the types still open.
         case editTagsOpen
+        /// edit-quest-tags-search.png: the types field focused with "e" typed: the dropdown lists the open types it matches.
+        case editTagsSearching
+        /// edit-quest-all-types.png: every type chosen, so the dropdown has no rows and does not show.
+        case editAllTypes
+        /// edit-quest-size-focused.png: the size select focused, reading "Size: M".
+        case editSizeFocused
 
         /// The quest's tags for an Edit Quest preview; nil for New Quest.
         var editedTags: (types: [String], size: String)? {
@@ -2249,8 +2258,10 @@ enum RenderPreview {
                 return nil
             case .editNoTags:
                 return (types: [], size: "")
-            case .editTagged, .editTagsOpen:
+            case .editTagged, .editTagsOpen, .editTagsSearching, .editSizeFocused:
                 return (types: ["bug", "feature", "research"], size: "M")
+            case .editAllTypes:
+                return (types: QuestTagType.allCases.map(\.rawValue), size: "L")
             }
         }
     }
@@ -2278,7 +2289,7 @@ enum RenderPreview {
             dismiss: {}
         )
         switch preview {
-        case .empty, .editNoTags, .editTagged:
+        case .empty, .editNoTags, .editTagged, .editAllTypes:
             break
         case .typingPath:
             sheet.form.startProjectSearch(.seed("/Users/aleksi.tuo"))
@@ -2287,7 +2298,11 @@ enum RenderPreview {
             sheet.form.startProjectSearch(.seed("questm"))
         case .editTagsOpen:
             sheet.form.focusedField = .tags
-            sheet.form.tags.moveHighlight(1)
+        case .editTagsSearching:
+            sheet.form.focusedField = .tags
+            sheet.form.tags.typeQuery("e")
+        case .editSizeFocused:
+            sheet.form.focusedField = .size
         }
         return NewQuestSheetView(model: sheet)
     }

@@ -68,11 +68,11 @@ extension Keymap {
         case cycleRight
         case optionCycleLeft
         case optionCycleRight
-        /// The segment at a picker field's end: the model's effort, the tags' size (`PickerSegmentKey`).
+        /// The segment at a picker field's end: the model's effort (`PickerSegmentKey`).
         case cycleSegment
         case cycleClass
-        /// Space in the tags dropdown: toggles the highlighted row.
-        case toggleRow
+        /// Space in the tags field: it types nothing, since no type name has a space (`QuestTagsField`).
+        case space
         case refreshModels
         case recentPaths
         case backspace
@@ -141,7 +141,7 @@ extension Keymap {
         case .optionCycleRight: return [.code(124, [.option])]
         case .cycleSegment: return [.character("e"), .code(14, [.control])]
         case .cycleClass: return [.code(14, [.control])]
-        case .toggleRow: return [.code(49)]
+        case .space: return [.code(49)]
         case .refreshModels: return [.code(15, [.control])]
         case .recentPaths: return [.character("r", [.control])]
         case .backspace: return [.code(51)]

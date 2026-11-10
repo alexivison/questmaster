@@ -4,6 +4,8 @@ public enum NewQuestField: CaseIterable, Equatable {
     case project
     /// Edit Quest only: New Quest stays tagless, for quick jotting.
     case tags
+    /// Edit Quest only: the size select, after the tags.
+    case size
     case content
 }
 
@@ -98,21 +100,21 @@ public enum NewQuestDestination: Equatable {
 /// name and then by path; text starting with / or ~ is a path instead, with directory suggestions.
 public struct NewQuestFormModel: Equatable {
     public var content: String
-    /// Leaving the project field ends its search, keeping what was typed; leaving the tags field ends its search.
+    /// Leaving the project field ends its search, keeping what was typed.
     public var focusedField: NewQuestField {
         didSet {
             if focusedField != .project, projectMode == .search {
                 endProjectSearch(keepingText: true)
             }
-            if focusedField != .tags, tags.mode == .search {
-                tags.endSearch()
-            }
         }
     }
-    /// The tags field: Edit Quest only (`fields`).
+    /// The types, a filter field (`QuestTagsField`): Edit Quest only (`fields`).
     public var tags: QuestTagsField
-    /// The tags the form opened with, so an edit sends only the ones the user changed.
-    private let openedTags: QuestTagsField
+    /// The size, nil for none. The size select cycles it (`cycleSize`): Edit Quest only.
+    public private(set) var size: QuestSize?
+    /// The types and size the form opened with, so an edit sends only the ones the user changed.
+    private let openedTypes: Set<QuestTagType>
+    private let openedSize: QuestSize?
     public var submitting: Bool
     public var errorMessage: String?
     /// The project the form opened with: the current session's repo for a new quest, the quest's own
@@ -154,22 +156,32 @@ public struct NewQuestFormModel: Equatable {
         let opening = initialProject.flatMap { $0.isNoProject ? nil : $0 } ?? (isEditing ? .noProject : nil)
         chosenProject = opening
         projectText = opening?.displayName ?? ""
-        let openingTags = QuestTagsField(types: types, size: size)
+        let openingTags = QuestTagsField(types: types)
         tags = openingTags
-        openedTags = openingTags
+        openedTypes = openingTags.selected
+        let openingSize = QuestSize(rawValue: size)
+        self.size = openingSize
+        openedSize = openingSize
         focusedField = opening == nil ? .project : .content
         submitting = false
         errorMessage = nil
     }
 
-    /// The fields Tab moves through, top to bottom: New Quest has no tags field.
+    /// The fields Tab moves through, top to bottom: New Quest has no tags or size field.
     public var fields: [NewQuestField] {
-        isEditing ? NewQuestField.allCases : NewQuestField.allCases.filter { $0 != .tags }
+        isEditing ? NewQuestField.allCases : NewQuestField.allCases.filter { !Self.editOnlyFields.contains($0) }
     }
 
-    /// The tags dropdown shows while its field has focus and a type matches what is typed.
-    public var showsTagRows: Bool {
-        focusedField == .tags && !tags.rows.isEmpty
+    private static let editOnlyFields: Set<NewQuestField> = [.tags, .size]
+
+    /// The size's text: "" for none, which the select shows as its placeholder.
+    public var sizeText: String {
+        size?.rawValue ?? ""
+    }
+
+    /// The Size select's step: ←/→ and h/l (`ModalKeys`), or a click (+1).
+    public mutating func cycleSize(_ step: Int) {
+        size = QuestSize.cycled(from: size, by: step)
     }
 
     // MARK: Project field
@@ -350,9 +362,16 @@ public struct NewQuestFormModel: Equatable {
     }
 
     /// What the focused field is, for the shared modal keys (`ModalKeys`). The content is a prompt, which keeps Tab as
-    /// text, as New Session's prompt does.
+    /// text, as New Session's prompt does. The size is a select: it has no text, so ←/→ and h/l step it.
     public var modalFocus: ModalKeyContext.Focus {
-        focusedField == .content ? .prompt : .line
+        switch focusedField {
+        case .content:
+            return .prompt
+        case .size:
+            return .select
+        case .project, .tags:
+            return .line
+        }
     }
 
     public mutating func moveFocus(_ delta: Int) {
@@ -374,7 +393,7 @@ public struct NewQuestFormModel: Equatable {
 
     /// The types an edit sends, when the user changed them. An empty list clears them. Add sends none.
     private var typesUpdate: [String]? {
-        guard isEditing, tags.selected != openedTags.selected else {
+        guard isEditing, tags.selected != openedTypes else {
             return nil
         }
         return tags.selectedTypes.map(\.rawValue)
@@ -382,10 +401,10 @@ public struct NewQuestFormModel: Equatable {
 
     /// The size an edit sends, when the user changed it. "" clears it. Add sends none.
     private var sizeUpdate: String? {
-        guard isEditing, tags.size != openedTags.size else {
+        guard isEditing, size != openedSize else {
             return nil
         }
-        return tags.size?.rawValue ?? ""
+        return size?.rawValue ?? ""
     }
 
     /// The opening project while it is still the one named; any other project or path goes as its path
