@@ -258,7 +258,7 @@ final class NewSessionSheetModel: ObservableObject {
     }
 
     /// The model field's own keys, taken while it has focus and before the text system sees them: the effort
-    /// keys (`NewSessionEffortKey`) and ⌃r (`NewSessionModelRefreshKey`), then the shared picker keys
+    /// keys (`PickerSegmentKey`) and ⌃r (`NewSessionModelRefreshKey`), then the shared picker keys
     /// (`PickerFieldKey`). The effort re-resolves only when the text changes.
     private func handleModelFieldKey(_ event: NSEvent) -> Bool {
         let press = event.keymapPress
@@ -266,7 +266,7 @@ final class NewSessionSheetModel: ObservableObject {
         defer {
             state.followModelMode(from: before)
         }
-        if NewSessionEffortKey.cycles(press, field: .model, mode: before) {
+        if PickerSegmentKey.cycles(press, mode: before) {
             cycleEffort(1)
             return true
         }

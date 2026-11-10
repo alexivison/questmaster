@@ -43,6 +43,7 @@ timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("DisplayClassificationTests") { DisplayClassificationTests.run() }
         timed("ArtifactCoreTests") { ArtifactCoreTests.run() }
         timed("QuestCoreTests") { QuestCoreTests.run() }
+        timed("QuestTagsTests") { QuestTagsTests.run() }
 timed("ProjectOrderTests") { ProjectOrderTests.run() }
         timed("ProjectSettingsTests") { ProjectSettingsTests.run() }
         timed("ShellChromeTests") { ShellChromeTests.run() }

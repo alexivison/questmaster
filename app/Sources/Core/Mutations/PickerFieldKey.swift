@@ -55,6 +55,18 @@ public enum PickerFieldKey {
     }
 }
 
+/// The keys that cycle a segment at a field's end: the model's reasoning effort and the tags field's size. ⌃e cycles
+/// in both of a picker's states, and plain e in SELECT, where an e can't be typed. The field's own handler asks only
+/// while its field has focus.
+public enum PickerSegmentKey {
+    public static func cycles(_ press: Keymap.KeyPress, mode: PickerFieldMode) -> Bool {
+        guard Keymap.matches(press, .cycleSegment) else {
+            return false
+        }
+        return press.modifiers.contains(.control) || mode == .select
+    }
+}
+
 /// What Tab does in a typed path's field (`SuggestionList.tabOutcome`).
 public enum PathTabOutcome: Equatable {
     /// The path becomes this: the highlighted row, or the completion from disk. The rows close.
