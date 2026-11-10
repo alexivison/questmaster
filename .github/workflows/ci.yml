@@ -170,4 +170,7 @@ jobs:
           qm="$(QUESTMASTER_STATE_ROOT="$RUNNER_TEMP/state" "$RUNNER_TEMP/state/bin/current/qm" version --json | plutil -extract version raw -o - -)"
           echo "git describe $want, Info.plist $plist, stable qm $qm"
           [ "$plist" = "$want" ] && [ "$qm" = "$want" ]
+          skills="$(HOME="$RUNNER_TEMP/home" CLAUDE_CONFIG_DIR="$RUNNER_TEMP/home/.claude" QUESTMASTER_STATE_ROOT="$RUNNER_TEMP/state" "$RUNNER_TEMP/state/bin/current/qm" skills status)"
+          printf '%s\n' "$skills" | grep -Fq questmaster-watch-pr
+          printf '%s\n' "$skills" | grep -Fq questmaster-write-quest
           codesign --verify --deep --strict "$app"
