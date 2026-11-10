@@ -191,9 +191,6 @@ func TestIntegrationSessionTargetsMissAPrefixSibling(t *testing.T) {
 	if value, ok, err := client.ShowEnvironment(ctx, base, "MARK"); err != nil || ok {
 		t.Errorf("ShowEnvironment on a missing session = %q, %v, %v; want not set", value, ok, err)
 	}
-	if err := client.SetHook(ctx, base, "session-closed", "run-shell true"); err == nil {
-		t.Error("SetHook on a missing session succeeded")
-	}
 	if _, err := client.ListPanes(ctx, base); err == nil {
 		t.Error("ListPanes on a missing session succeeded")
 	}

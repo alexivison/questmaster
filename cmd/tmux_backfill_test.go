@@ -16,6 +16,7 @@ import (
 )
 
 func TestBackfillPreservesResumeAndWatches(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_example")
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
@@ -37,9 +38,16 @@ func TestBackfillPreservesResumeAndWatches(t *testing.T) {
 	if err := store.Create(state.Manifest{SessionID: "qm-set", TmuxServer: "dev_example"}); err != nil {
 		t.Fatal(err)
 	}
-	watches := []byte(`{"watches":[{"session_id":"qm-absent","url":"https://example.com/pr/1"}]}`)
+	ref, err := state.ParsePullRequestRef("example/example-app#1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.WatchPullRequest(root, "qm-absent", ref, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
 	watchPath := filepath.Join(root, "pull_requests.json")
-	if err := os.WriteFile(watchPath, watches, 0600); err != nil {
+	watches, err := os.ReadFile(watchPath)
+	if err != nil {
 		t.Fatal(err)
 	}
 	runner := func(_ context.Context, args ...string) (string, error) {
@@ -74,6 +82,18 @@ func TestBackfillPreservesResumeAndWatches(t *testing.T) {
 	}
 	aged := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	path := filepath.Join(root, "qm-absent.json")
+	old, err := store.Read("qm-absent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.UpdatedAt = "2026-01-01T00:00:00Z"
+	data, err := json.Marshal(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chtimes(path, aged, aged); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +134,10 @@ func TestBackfillPreservesResumeAndWatches(t *testing.T) {
 	if live.TmuxServer != "" {
 		t.Fatal("live ownership rewritten")
 	}
-	data, _ := os.ReadFile(watchPath)
+	data, err = os.ReadFile(watchPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Equal(data, watches) {
 		t.Fatal("watches changed")
 	}
@@ -124,5 +147,39 @@ func TestBackfillPreservesResumeAndWatches(t *testing.T) {
 	}
 	if counts.Updated != 0 || counts.SkippedAlreadySet != 3 {
 		t.Fatalf("non-idempotent=%+v", counts)
+	}
+}
+
+func TestBackfillSnapshotFailureReportsZeroCounts(t *testing.T) {
+	store := state.OpenStore(t.TempDir())
+	if err := store.Create(state.Manifest{SessionID: "qm-stopped"}); err != nil {
+		t.Fatal(err)
+	}
+	empty := tmux.NewClient(auditRunner(func(context.Context, ...string) (string, error) { return "", nil }))
+	unavailable := tmux.NewClient(auditRunner(func(context.Context, ...string) (string, error) { return "", context.DeadlineExceeded }))
+	router := tmuxroute.New(store, map[string]*tmux.Client{"questmaster": empty, "default": unavailable}, func() string { return "questmaster" }, nil)
+	var out bytes.Buffer
+	cmd := NewRootCmd(WithDeps(store, empty), WithTmuxRouter(router))
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"tmux", "audit", "--backfill"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("snapshot error was swallowed")
+	}
+	var got struct {
+		Backfill tmuxroute.BackfillResult `json:"backfill"`
+		Error    string                   `json:"error"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Backfill.Updated != 0 || got.Backfill.Failed != 0 || got.Error == "" {
+		t.Fatalf("error result=%+v", got)
+	}
+	m, err := store.Read("qm-stopped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.TmuxServer != "" {
+		t.Fatal("failed snapshot wrote ownership")
 	}
 }

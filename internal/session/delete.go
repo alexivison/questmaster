@@ -18,7 +18,13 @@ func (s *Service) Delete(ctx context.Context, sessionID string) (int, error) {
 	}
 	dropped := 0
 	err := s.locked(ctx, []string{sessionID}, func(ctx context.Context) error {
-		if m, err := s.Store.Read(sessionID); err == nil && m.AgentSessionType() == "master" {
+		m, readErr := s.Store.Read(sessionID)
+		if readErr == nil {
+			if _, err := s.router().Route(m); err != nil {
+				return err
+			}
+		}
+		if readErr == nil && m.AgentSessionType() == "master" {
 			for _, workerID := range m.Workers {
 				if err := s.locked(ctx, []string{workerID}, func(ctx context.Context) error {
 					if err := s.killRecordedOrOrphan(ctx, workerID); err != nil {
@@ -61,9 +67,14 @@ func (s *Service) killRecordedOrOrphan(ctx context.Context, sessionID string) er
 	}
 	router := s.router()
 	router.Invalidate() // a cached absence cannot justify deleting an orphan
-	inventory, err := router.CompleteInventory(ctx)
+	inventory, err := router.AuditInventory(ctx)
 	if err != nil {
 		return err
+	}
+	for _, row := range inventory.Rows {
+		if row.ID == sessionID && row.Label == "default" {
+			return fmt.Errorf("session %s is live on default; migrate it before deleting its metadata", sessionID)
+		}
 	}
 	for _, row := range inventory.Rows {
 		if row.ID != sessionID {

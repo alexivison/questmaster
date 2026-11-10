@@ -188,8 +188,8 @@ func (r *Router) handle(label string) (Handle, error) {
 
 func (r *Router) Route(m state.Manifest) (Handle, error) {
 	label := string(m.TmuxServer)
-	if label == "" {
-		return Handle{}, fmt.Errorf("session %s is missing tmux_server; run qm tmux audit --backfill for stopped manifests", m.SessionID)
+	if m.NeedsTmuxBackfill() {
+		return Handle{}, fmt.Errorf("session %s has no dedicated tmux_server (recorded %q); run qm tmux audit --backfill for stopped manifests", m.SessionID, label)
 	}
 	return r.handle(label)
 }
@@ -226,10 +226,11 @@ func (r *Router) RecordedHandles() ([]Handle, error) {
 			return nil, err
 		}
 		for _, m := range manifests {
-			if m.TmuxServer != "" {
-				if err := tmux.ValidateNamedLabel(string(m.TmuxServer)); err != nil {
-					continue
-				}
+			if m.NeedsTmuxBackfill() {
+				continue
+			}
+			if err := tmux.ValidateNamedLabel(string(m.TmuxServer)); err != nil {
+				continue
 			}
 			if _, err := r.Route(m); err != nil {
 				return nil, err
@@ -305,10 +306,46 @@ func (r *Router) CompleteInventory(ctx context.Context) (Inventory, error) {
 	return inv, nil
 }
 
-// LiveIDs returns the union of observed session names only when every server
-// answered. Destructive callers must never treat unavailable as empty.
-func (r *Router) LiveIDs(ctx context.Context) (map[string]bool, error) {
+// AuditInventory adds the read-only default observation to a complete dedicated
+// inventory. Cleanup uses it to preserve or refuse default sessions, never route them.
+func (r *Router) AuditInventory(ctx context.Context) (Inventory, error) {
 	inv, err := r.CompleteInventory(ctx)
+	if err != nil {
+		return inv, err
+	}
+	return r.includeDefaultProbe(ctx, inv)
+}
+
+func (r *Router) includeDefaultProbe(ctx context.Context, inv Inventory) (Inventory, error) {
+	ids, present, err := r.probeDefault(ctx)
+	server := ServerInventory{Label: "default", Outcome: Available}
+	if err != nil {
+		server.Outcome = Unavailable
+		server.Error = err.Error()
+	} else if !present {
+		server.Outcome = Absent
+	}
+	inv.Servers = append([]ServerInventory{server}, inv.Servers...)
+	if err != nil {
+		return inv, fmt.Errorf("tmux server default unavailable: %w", err)
+	}
+	for _, id := range ids {
+		inv.Rows = append(inv.Rows, Row{Label: "default", ID: id})
+	}
+	counts := make(map[string]int, len(inv.Rows))
+	for _, row := range inv.Rows {
+		counts[row.ID]++
+	}
+	for i := range inv.Rows {
+		inv.Rows[i].Conflict = counts[inv.Rows[i].ID] > 1
+	}
+	return inv, nil
+}
+
+// LiveIDs includes the read-only default probe so cleanup cannot discard
+// metadata for sessions it cannot route. Any incomplete observation refuses cleanup.
+func (r *Router) LiveIDs(ctx context.Context) (map[string]bool, error) {
+	inv, err := r.AuditInventory(ctx)
 	if err != nil {
 		return nil, err
 	}

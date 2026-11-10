@@ -249,14 +249,15 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 		if manifestErr != nil {
 			return s.refreshTracker()
 		}
-		handle, routeErr := s.router.Route(manifest)
-		if routeErr != nil {
-			return s.refreshTracker()
-		}
-		if _, live := liveSessions[handle.Label()+"\x00"+sessionID]; live {
-			next.Sessions[idx].Status = "active"
-		} else {
-			next.Sessions[idx].Status = "stopped"
+		next.Sessions[idx].Status = "stopped"
+		if !manifest.NeedsTmuxBackfill() {
+			handle, routeErr := s.router.Route(manifest)
+			if routeErr != nil {
+				return s.refreshTracker()
+			}
+			if _, live := liveSessions[handle.Label()+"\x00"+sessionID]; live {
+				next.Sessions[idx].Status = "active"
+			}
 		}
 		if next.Sessions[idx].Status == "active" {
 			_, _ = state.MarkSessionObserved(sessionID, observedAt)

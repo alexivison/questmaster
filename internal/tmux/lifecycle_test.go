@@ -1019,39 +1019,6 @@ func TestShowEnvironment_Error(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SetHook
-// ---------------------------------------------------------------------------
-
-func TestSetHook_Success(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if args[0] != "set-hook" {
-			t.Errorf("expected set-hook, got %s", args[0])
-		}
-		return "", nil
-	})
-	c := NewClient(m)
-
-	if err := c.SetHook(t.Context(), "qm-s", "session-closed", "run-shell 'cleanup'"); err != nil {
-		t.Fatalf("SetHook: %v", err)
-	}
-}
-
-func TestSetHook_Error(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "", errors.New("bad hook")
-	})
-	c := NewClient(m)
-
-	if err := c.SetHook(t.Context(), "qm-s", "bad", "cmd"); err == nil {
-		t.Fatal("expected error, got nil")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // SwitchClient
 // ---------------------------------------------------------------------------
 

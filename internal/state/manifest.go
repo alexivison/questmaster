@@ -58,6 +58,12 @@ type Manifest struct {
 	Extra map[string]json.RawMessage `json:"-"`
 }
 
+// NeedsTmuxBackfill marks historical ownership that cannot name a route.
+// Aggregates treat these manifests as stopped; targeted actions require backfill.
+func (m Manifest) NeedsTmuxBackfill() bool {
+	return m.TmuxServer == "" || m.TmuxServer == "default"
+}
+
 // TmuxServer records the tmux socket label used when the session was created.
 // Routing requires a nonempty dedicated label; audit --backfill upgrades stopped manifests.
 type TmuxServer string

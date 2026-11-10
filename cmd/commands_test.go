@@ -93,7 +93,7 @@ func runCmdInput(t *testing.T, store *state.Store, runner tmux.Runner, in io.Rea
 	client := tmux.NewClient(ownedTestRunner{runner: runner, root: store.Root()})
 	root := NewRootCmd(
 		WithDeps(store, client),
-		WithTmuxRouter(tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)),
+		WithTmuxRouter(tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(allPassRunner()), "dev_previous": client}, func() string { return "dev_previous" }, nil)),
 	)
 	var out bytes.Buffer
 	if in != nil {
@@ -118,7 +118,7 @@ func runCmdInputErr(t *testing.T, store *state.Store, runner tmux.Runner, in io.
 	client := tmux.NewClient(ownedTestRunner{runner: runner, root: store.Root()})
 	root := NewRootCmd(
 		WithDeps(store, client),
-		WithTmuxRouter(tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)),
+		WithTmuxRouter(tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(allPassRunner()), "dev_previous": client}, func() string { return "dev_previous" }, nil)),
 	)
 	var out bytes.Buffer
 	if in != nil {

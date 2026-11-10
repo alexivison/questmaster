@@ -18,6 +18,7 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // ---------------------------------------------------------------------------
@@ -1642,6 +1643,7 @@ func TestDelete_RunningSession(t *testing.T) {
 func TestDelete_MasterCascadesWorkers(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
+	svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{"questmaster": svc.Client, "default": tmux.NewClient(runnerFuncForDefault(func(context.Context, ...string) (string, error) { return "", nil }))}, func() string { return "questmaster" }, nil)
 
 	masterID := "qm-delmaster"
 	runningWorkerID := "qm-delmaster-w1"

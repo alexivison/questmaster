@@ -70,6 +70,13 @@ func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *
 		if backfill {
 			counts, err := router.Backfill(cmd.Context())
 			if err != nil {
+				failure := struct {
+					Backfill tmuxroute.BackfillResult `json:"backfill"`
+					Error    string                   `json:"error"`
+				}{counts, err.Error()}
+				if encodeErr := json.NewEncoder(cmd.OutOrStdout()).Encode(failure); encodeErr != nil {
+					return encodeErr
+				}
 				return err
 			}
 			result = &counts

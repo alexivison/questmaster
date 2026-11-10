@@ -25,7 +25,7 @@ func TestPruneAbortsOnUnavailableServer(t *testing.T) {
 				return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 			}))
 			named := tmux.NewClient(viewRunner(func(context.Context, ...string) (string, error) { return "", context.DeadlineExceeded }))
-			router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
+			router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(allPassRunner()), "dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
 			result, err := pruneManifestsWithLegacyRoot(t.Context(), store, legacy, 7, dryRun, "", router)
 			if err == nil || result.Pruned != 0 || result.DroppedWatches != 0 {
 				t.Fatalf("result=%+v err=%v", result, err)
@@ -62,7 +62,7 @@ func TestPruneProtectsLiveOnEitherServer(t *testing.T) {
 				return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 			}))
 			named := tmux.NewClient(viewRunner(func(context.Context, ...string) (string, error) { return "qm-live", nil }))
-			router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
+			router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(allPassRunner()), "dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
 			result, err := pruneManifestsWithLegacyRoot(t.Context(), store, legacy, 7, dryRun, "", router)
 			if err != nil || result.Pruned != 0 || result.DroppedWatches != 0 {
 				t.Fatalf("result=%+v err=%v", result, err)

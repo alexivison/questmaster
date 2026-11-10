@@ -385,7 +385,9 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 		m, handle, readErr := s.recipient(wid)
 		var alive bool
 		var err error
-		if readErr == nil {
+		if m.SessionID != "" && m.NeedsTmuxBackfill() {
+			readErr = nil // An unrouted historical worker is stopped, not a ghost.
+		} else if readErr == nil {
 			alive, err = handle.Client().HasSession(ctx, wid)
 		} else if errors.Is(readErr, os.ErrNotExist) {
 			if !ghostHandlesLoaded {

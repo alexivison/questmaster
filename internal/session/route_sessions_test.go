@@ -58,7 +58,7 @@ func routedService(t *testing.T) (*Service, *mockRunner, *mockRunner) {
 	named := newMockRunner()
 	named.ownerMarker = tmuxconfig.RootMarker(svc.Store.Root(), "test_named")
 	svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{
-		"questmaster": svc.Client, "test_named": tmux.NewClient(named),
+		"default": tmux.NewClient(runnerFuncForDefault(func(context.Context, ...string) (string, error) { return "", nil })), "questmaster": svc.Client, "test_named": tmux.NewClient(named),
 	}, func() string { return "test_named" }, nil)
 	return svc, legacy, named
 }
@@ -453,4 +453,41 @@ func TestSessionClosedLockTimeoutExitsZero(t *testing.T) {
 	if err := svc.SessionClosed(ctx, "test_named", id); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("lock error = %v", err)
 	}
+}
+
+func TestManifestlessDeleteProtectsDefaultOnlySession(t *testing.T) {
+	svc, _, named := routedService(t)
+	id := "qm-default-orphan"
+	readonlyCalls := 0
+	svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{
+		"default": tmux.NewClient(runnerFuncForDefault(func(_ context.Context, args ...string) (string, error) {
+			readonlyCalls++
+			if args[0] != "list-sessions" {
+				t.Fatalf("mutating default probe: %v", args)
+			}
+			return id, nil
+		})),
+		"test_named": tmux.NewClient(named),
+	}, func() string { return "test_named" }, nil)
+	// Metadata without a manifest must survive a refusal to delete the orphan.
+	path := state.SessionStateDir(svc.Store.Root(), id)
+	setTestStateRoot(t, svc.Store.Root())
+	if err := os.MkdirAll(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Delete(t.Context(), id); err == nil {
+		t.Fatal("deleted metadata while the default session is live")
+	}
+	if readonlyCalls != 1 {
+		t.Fatalf("default probes=%d", readonlyCalls)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("orphan state removed", err)
+	}
+}
+
+type runnerFuncForDefault func(context.Context, ...string) (string, error)
+
+func (f runnerFuncForDefault) Run(ctx context.Context, args ...string) (string, error) {
+	return f(ctx, args...)
 }

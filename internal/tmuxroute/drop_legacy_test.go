@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmux/tmuxtest"
@@ -29,7 +33,7 @@ func TestAuditGateRejects(t *testing.T) {
 		name, label, ids string
 		unavailable      bool
 	}{
-		{name: "live default", label: "default", ids: "qm-example"},
+		{name: "live default", label: "questmaster", ids: "qm-example"},
 		{name: "orphan", ids: "qm-orphan"},
 		{name: "unknown", label: ""},
 		{name: "unavailable server", label: "questmaster", unavailable: true},
@@ -51,9 +55,25 @@ func TestAuditGateRejects(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if audit.Gate == "ready" {
-				t.Fatalf("unsafe ready gate: %+v", audit)
+			switch tc.name {
+			case "live default":
+				if audit.Gate != "blocked" || len(audit.LiveLegacyManaged) != 1 || audit.LiveLegacyManaged[0] != "qm-example" {
+					t.Fatalf("live default gate=%+v", audit)
+				}
+			case "unknown":
+				if audit.Gate != "unknown" || len(audit.UnknownOwnership) != 1 || audit.UnknownOwnership[0] != "qm-example" {
+					t.Fatalf("unknown gate=%+v", audit)
+				}
+			case "orphan":
+				if audit.Gate != "blocked" || len(audit.Orphans) != 1 {
+					t.Fatalf("orphan gate=%+v", audit)
+				}
+			case "unavailable server":
+				if audit.Gate != "unknown" || audit.InventoryError == "" {
+					t.Fatalf("unavailable gate=%+v", audit)
+				}
 			}
+
 		})
 	}
 }
@@ -76,59 +96,93 @@ func TestDefaultProbeExcludedFromInventoryAndHandles(t *testing.T) {
 }
 
 func TestBackfillRechecksAfterLifecycleLock(t *testing.T) {
-	for _, live := range []bool{false, true} {
-		t.Run(fmt.Sprint(live), func(t *testing.T) {
-			r := testRouter(t, func(context.Context, ...string) (string, error) {
-				if live {
-					return "qm-locked", nil
-				}
-				return "", nil
-			}, func(context.Context, ...string) (string, error) {
-				return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
-			})
-			// The default probe is separate; no second dedicated label is needed here.
-			delete(r.clients, "dev_previous")
-			if err := r.store.Create(state.Manifest{SessionID: "qm-locked"}); err != nil {
+	for _, becomesLive := range []bool{false, true} {
+		t.Run(fmt.Sprint(becomesLive), func(t *testing.T) {
+			store := state.OpenStore(t.TempDir())
+			if err := store.Create(state.Manifest{SessionID: "qm-locked"}); err != nil {
 				t.Fatal(err)
 			}
+			var live atomic.Bool
+			named := tmux.NewClient(runnerFunc(func(_ context.Context, args ...string) (string, error) {
+				if args[0] == "list-sessions" {
+					return "", nil
+				}
+				if args[0] == "has-session" {
+					if live.Load() {
+						return "", nil
+					}
+					return "", &tmux.ExitError{Code: 1}
+				}
+				t.Fatalf("unexpected command=%v", args)
+				return "", nil
+			}))
+			r := New(store, map[string]*tmux.Client{"default": tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) { return "", nil })), "questmaster": named}, func() string { return "questmaster" }, nil)
 			held, release := make(chan struct{}), make(chan struct{})
 			lockDone := make(chan error, 1)
 			go func() {
-				lockDone <- r.store.WithLifecycleLock("qm-locked", func() error {
-					close(held)
-					<-release
-					if !live {
-						return r.store.Update("qm-locked", func(m *state.Manifest) { m.TmuxServer = "questmaster" })
-					}
-					return nil
-				})
+				lockDone <- store.WithLifecycleLock("qm-locked", func() error { close(held); <-release; return nil })
 			}()
 			<-held
-			listed := make(chan struct{}, 1)
-			r.clients["questmaster"] = tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) {
+			defer func() {
 				select {
-				case listed <- struct{}{}:
+				case <-release:
 				default:
+					close(release)
 				}
-				return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
-			}))
+				if err := <-lockDone; err != nil {
+					t.Error(err)
+				}
+			}()
 			type outcome struct {
 				result BackfillResult
 				err    error
 			}
 			done := make(chan outcome, 1)
 			go func() { result, err := r.Backfill(t.Context()); done <- outcome{result, err} }()
-			<-listed
-			close(release)
-			if err := <-lockDone; err != nil {
-				t.Fatal(err)
+			// Observe this Backfill inside the blocking lifecycle-lock acquisition,
+			// rather than releasing it after an unrelated inventory call.
+			deadline := time.NewTimer(3 * time.Second)
+			defer deadline.Stop()
+			ticker := time.NewTicker(time.Millisecond)
+			defer ticker.Stop()
+		waiting:
+			for {
+				select {
+				case got := <-done:
+					t.Fatalf("backfill completed while lifecycle lock held: %+v", got)
+				case <-deadline.C:
+					t.Fatal("backfill did not wait on lifecycle lock")
+				case <-ticker.C:
+					stack := make([]byte, 256*1024)
+					n := runtime.Stack(stack, true)
+					for _, goroutine := range strings.Split(string(stack[:n]), "\n\n") {
+						if strings.Contains(goroutine, "tmuxroute.(*Router).Backfill") && strings.Contains(goroutine, "state.lockFile(") && strings.Contains(goroutine, "WithLifecycleLockContext(") {
+							break waiting
+						}
+					}
+				}
 			}
+			if becomesLive {
+				live.Store(true)
+			} else {
+				if err := store.Update("qm-locked", func(m *state.Manifest) { m.TmuxServer = "questmaster" }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			close(release)
 			got := <-done
 			if got.err != nil {
 				t.Fatal(got.err)
 			}
-			if got.result.Updated != 0 || got.result.Failed != 0 || (live && got.result.SkippedLive != 1) || (!live && got.result.SkippedAlreadySet != 1) {
+			if got.result.Updated != 0 || got.result.Failed != 0 || (becomesLive && got.result.SkippedLive != 1) || (!becomesLive && got.result.SkippedAlreadySet != 1) {
 				t.Fatalf("result=%+v", got.result)
+			}
+			m, err := store.Read("qm-locked")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if becomesLive && m.TmuxServer != "" {
+				t.Fatal("live session ownership rewritten")
 			}
 		})
 	}
@@ -172,44 +226,83 @@ func TestIntegrationBackfillPreservesLiveDefaultSession(t *testing.T) {
 	}
 }
 
-func TestBackfillReportsCorruptAndUnavailableCandidates(t *testing.T) {
-	for _, unavailable := range []string{"none", "default", "questmaster"} {
-		t.Run(unavailable, func(t *testing.T) {
+func TestBackfillReportsCorruptManifest(t *testing.T) {
+	store := state.OpenStore(t.TempDir())
+	if err := store.Create(state.Manifest{SessionID: "qm-stopped"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Root(), "qm-corrupt.json"), []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	empty := tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) {
+		return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
+	}))
+	r := New(store, map[string]*tmux.Client{"default": empty, "questmaster": empty}, func() string { return "questmaster" }, nil)
+	got, err := r.Backfill(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Updated != 1 || got.Failed != 1 || len(got.Errors) != 1 {
+		t.Fatalf("result=%+v", got)
+	}
+	audit, err := r.Audit(t.Context())
+	if err != nil || audit.Gate != "unknown" {
+		t.Fatalf("audit=%+v err=%v", audit, err)
+	}
+}
+
+func TestBackfillSnapshotOnceAndAbortOnError(t *testing.T) {
+	for _, failedServer := range []string{"none", "default", "questmaster"} {
+		t.Run(failedServer, func(t *testing.T) {
 			store := state.OpenStore(t.TempDir())
-			if err := store.Create(state.Manifest{SessionID: "qm-stopped"}); err != nil {
-				t.Fatal(err)
+			for i := range 8 {
+				if err := store.Create(state.Manifest{SessionID: fmt.Sprintf("qm-archive-%d", i)}); err != nil {
+					t.Fatal(err)
+				}
 			}
-			if err := os.WriteFile(filepath.Join(store.Root(), "qm-corrupt.json"), []byte("{"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			r := New(store, map[string]*tmux.Client{
-				"default": tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) {
-					if unavailable == "default" {
-						return "", context.DeadlineExceeded
+			counts := map[string]int{}
+			makeClient := func(label string) *tmux.Client {
+				return tmux.NewClient(runnerFunc(func(_ context.Context, args ...string) (string, error) {
+					if args[0] == "list-sessions" {
+						counts[label]++
+						if label == failedServer {
+							return "", context.DeadlineExceeded
+						}
+						return "", nil
 					}
+					if args[0] == "has-session" {
+						return "", &tmux.ExitError{Code: 1}
+					}
+					t.Fatalf("unexpected tmux command=%v", args)
 					return "", nil
-				})),
-				"questmaster": tmux.NewClient(runnerFunc(func(context.Context, ...string) (string, error) {
-					if unavailable == "questmaster" {
-						return "", context.DeadlineExceeded
-					}
-					return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
-				})),
-			}, func() string { return "questmaster" }, nil)
+				}))
+			}
+			r := New(store, map[string]*tmux.Client{"default": makeClient("default"), "questmaster": makeClient("questmaster")}, func() string { return "questmaster" }, nil)
 			got, err := r.Backfill(t.Context())
-			if err != nil {
-				t.Fatal(err)
+			if failedServer == "none" {
+				if err != nil || got.Updated != 8 || got.Failed != 0 {
+					t.Fatalf("result=%+v err=%v", got, err)
+				}
+			} else {
+				if err == nil || got.Updated != 0 || got.Failed != 0 {
+					t.Fatalf("snapshot should abort once: result=%+v err=%v", got, err)
+				}
+				for i := range 8 {
+					m, err := store.Read(fmt.Sprintf("qm-archive-%d", i))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if m.TmuxServer != "" {
+						t.Fatal("snapshot error permitted a write")
+					}
+				}
 			}
-			wantUpdated, wantFailed := 1, 1
-			if unavailable != "none" {
-				wantUpdated, wantFailed = 0, 2
+			wantDefault := 1
+			if failedServer == "questmaster" {
+				wantDefault = 0
 			}
-			if got.Updated != wantUpdated || got.Failed != wantFailed || len(got.Errors) != wantFailed {
-				t.Fatalf("result=%+v", got)
-			}
-			audit, err := r.Audit(t.Context())
-			if err != nil || audit.Gate != "unknown" {
-				t.Fatalf("audit=%+v err=%v", audit, err)
+			if counts["questmaster"] != 1 || counts["default"] != wantDefault {
+				t.Fatalf("snapshots=%v", counts)
 			}
 		})
 	}

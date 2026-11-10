@@ -60,7 +60,7 @@ func newRolloutFixture(t *testing.T, creation func() string) rolloutFixture {
 		t.Fatal(err)
 	}
 	old, next := tmux.NewClient(legacy), tmux.NewClient(named)
-	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": old, "test_named": next}, creation, []string{paths.Config, paths.Enforced})
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(allPassRunner()), "dev_previous": old, "test_named": next}, creation, []string{paths.Config, paths.Enforced})
 	cli := filepath.Join(t.TempDir(), "fake-agent")
 	if err := os.WriteFile(cli, []byte("#!/bin/sh\nexec cat\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -245,7 +245,7 @@ func TestIntegrationProductionPaneHasNoDevOverride(t *testing.T) {
 	paths := tmuxconfig.Paths(f.store.Root())
 	f.named = tmuxtest.NewRunnerWithConfig(t, paths.Config, paths.Enforced)
 	f.new = tmux.NewClient(f.named)
-	f.router = tmuxroute.New(f.store, map[string]*tmux.Client{"dev_previous": f.old, "questmaster": f.new}, func() string { return "questmaster" }, []string{paths.Config, paths.Enforced})
+	f.router = tmuxroute.New(f.store, map[string]*tmux.Client{"default": tmux.NewClient(allPassRunner()), "dev_previous": f.old, "questmaster": f.new}, func() string { return "questmaster" }, []string{paths.Config, paths.Enforced})
 	f.svc.Router = f.router
 	started, err := f.svc.Start(t.Context(), session.StartOpts{Title: "Production", Cwd: f.store.Root()})
 	if err != nil {

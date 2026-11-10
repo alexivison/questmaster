@@ -19,7 +19,7 @@ import (
 )
 
 func testPruneRouter(store *state.Store, client *tmux.Client) *tmuxroute.Router {
-	return tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)
+	return tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(allPassRunner()), "dev_previous": client}, func() string { return "dev_previous" }, nil)
 }
 
 func TestPruneHelpDoesNotMentionArtifacts(t *testing.T) {

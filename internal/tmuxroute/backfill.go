@@ -28,7 +28,15 @@ type BackfillResult struct {
 // under its lifecycle lock: absent ownership must never pass through Route.
 func (r *Router) Backfill(ctx context.Context) (BackfillResult, error) {
 	var result BackfillResult
-	_, inventoryErr := r.CompleteInventory(ctx)
+	r.Invalidate()
+	snapshot, err := r.AuditInventory(ctx)
+	if err != nil {
+		return result, fmt.Errorf("snapshot tmux sessions: %w", err)
+	}
+	liveAtSnapshot := make(map[string]bool, len(snapshot.Rows))
+	for _, row := range snapshot.Rows {
+		liveAtSnapshot[row.ID] = true
+	}
 	handles, err := r.KnownHandles()
 	if err != nil {
 		return result, err
@@ -61,18 +69,9 @@ func (r *Router) Backfill(ctx context.Context) (BackfillResult, error) {
 					result.SkippedAlreadySet++
 					return nil
 				}
-				if inventoryErr != nil {
-					return inventoryErr
-				}
-				ids, _, err := r.probeDefault(lockCtx)
-				if err != nil {
-					return err
-				}
-				for _, liveID := range ids {
-					if liveID == id {
-						result.SkippedLive++
-						return nil
-					}
+				if liveAtSnapshot[id] {
+					result.SkippedLive++
+					return nil
 				}
 				for _, handle := range handles {
 					live, err := handle.Client().HasSession(lockCtx, id)

@@ -123,9 +123,11 @@ Invariants that aren't obvious from the code:
   use `tmux.DefaultServer()` (`-L questmaster`, or the validated development
   label); existing sessions use the `tmux_server` recorded in their manifests
   through `tmuxroute.Router`. Missing ownership and explicit `default` are
-  errors; `qm tmux audit --backfill` upgrades stopped manifests to `questmaster`.
-  Commands run without
-  TMUX, TMUX_PANE and TMUX_TMPDIR, which describe the caller's own server.
+  errors for targeted actions; aggregates treat them as stopped and omit them
+  from route/handle discovery. `qm tmux audit --backfill` upgrades stopped
+  manifests to `questmaster`.
+  Commands run without TMUX, TMUX_PANE and TMUX_TMPDIR, which describe the
+  caller's own server.
   Session panes receive their recorded label as `QUESTMASTER_TMUX_SERVER`; dev
   panes also receive `QUESTMASTER_TMUX_LABEL` for new CLI creations. Session targets are
   `tmux.SessionTarget` (`=name:`),
@@ -137,9 +139,12 @@ Invariants that aren't obvious from the code:
   creation before `new-session`. Production routers load these labels on
   construction, so a corrupt manifest cannot hide a former dev server from
   prune. `Router.CompleteInventory` refreshes the labels and rejects an
-  unreadable record or an unavailable server. Prune, manifest-less deletion,
-  audit and status without a readable manifest share this check. Audit reports
-  incomplete inventory as `gate="unknown"` with `inventory_error`; with a
+  unreadable record or an unavailable server. Status without a readable
+  manifest uses this dedicated inventory. Audit adds
+  the read-only default observation. Prune and manifest-less deletion use
+  `AuditInventory`: prune preserves IDs live on default, and deletion refuses
+  a matching default session before making any changes. Both refuse a failed
+  default probe. Audit reports incomplete inventory as `gate="unknown"` with `inventory_error`; with a
   complete server view, prune can remove old corrupt manifests.
 - **A session's runtime files live in its manifest's `runtime_dir`**, an
   owner-only `<state root>/runtime/<id>` (`state.NewRuntimeDir`,
@@ -156,16 +161,25 @@ Invariants that aren't obvious from the code:
   without the field predates it and keeps its old path until the session stops
   (`Manifest.RuntimeDirOrLegacy`, the one legacy branch).
 - **The user's default server has no operational route.** `ProbeDefaultSessions`
-  is the one remaining reader, used only by audit and stopped-manifest backfill
-  to prove no managed session remains there. It runs only `list-sessions` through
+  is the one remaining reader, used by audit, stopped-manifest backfill and
+  cleanup guards to detect managed sessions that remain there. It runs only `list-sessions` through
   an explicit socket path computed from `TMUX_TMPDIR` (or `/tmp`) and the uid;
-  default is never a router handle or part of lifecycle/messaging inventory.
+  default is never a router handle or part of operational lifecycle/messaging
+  inventory. Cleanup only preserves or refuses its sessions; it cannot mutate them.
   A missing socket is empty; a failed probe makes the audit gate unknown.
   `qm tmux audit --backfill` alone writes: read manifests directly, never route
-  missing ownership, hold each lifecycle lock while rechecking liveness, and
-  rewrite only stopped absent/default ownership to `questmaster`. Preserve resume
-  IDs, watches, runtime paths and manifest age, report updated/live/already-set/failed counts,
-  and keep it idempotent. The removal gate and user approval were recorded on
+  missing ownership, take one complete live snapshot and abort before all
+  writes if it fails,
+  then hold each lifecycle lock while rechecking dedicated liveness. Rewrite
+  only stopped absent/default ownership to `questmaster`, ignoring the dev
+  label. Preserve resume IDs, watches, runtime paths and manifest age; report
+  updated/live/already-set/failed counts,
+  and keep it idempotent. Before installing the new app, build a temporary `qm`,
+  run its audit and backfill against the root, then rebuild the bundle. The #466
+  binary can read the backfilled ownership. Missing this step only refuses
+  `continue`, `status`, `delete`, `send`, `read`, `attach` and explicit route
+  queries on the old stopped sessions; aggregate reads and new sessions keep
+  working. The removal gate and user approval were recorded on
   2026-11-10. Generic dedicated-label routing remains for deliberate creation
   changes; the old default route, per-session cleanup scripts and fallback hook
   origin are gone. `RuntimeDirOrLegacy` remains unrelated and unchanged.

@@ -46,6 +46,15 @@ func (r *Router) Routes(ctx context.Context, ids []string, liveOnly bool) ([]Rou
 			manifests = append(manifests, m)
 		}
 	}
+	if len(ids) == 0 {
+		labelled := manifests[:0]
+		for _, m := range manifests {
+			if !m.NeedsTmuxBackfill() {
+				labelled = append(labelled, m)
+			}
+		}
+		manifests = labelled
+	}
 	for _, m := range manifests {
 		if _, err := r.Route(m); err != nil {
 			return nil, fmt.Errorf("route %s: %w", m.SessionID, err)
@@ -107,27 +116,12 @@ func (r *Router) Audit(ctx context.Context) (Audit, error) {
 		a.Gate = "unknown"
 		a.InventoryError = inventoryErr.Error()
 	}
-	defaultIDs, present, probeErr := r.probeDefault(ctx)
-	server := ServerInventory{Label: "default", Outcome: Available}
+	inv, probeErr := r.includeDefaultProbe(ctx, inv)
 	if probeErr != nil {
-		server.Outcome = Unavailable
-		server.Error = probeErr.Error()
 		a.Gate = "unknown"
 		a.InventoryError = strings.TrimSpace(a.InventoryError + " " + probeErr.Error())
-	} else if !present {
-		server.Outcome = Absent
 	}
-	a.Servers = append([]ServerInventory{server}, a.Servers...)
-	for _, id := range defaultIDs {
-		inv.Rows = append(inv.Rows, Row{Label: "default", ID: id})
-	}
-	counts := make(map[string]int)
-	for _, row := range inv.Rows {
-		counts[row.ID]++
-	}
-	for i := range inv.Rows {
-		inv.Rows[i].Conflict = counts[inv.Rows[i].ID] > 1
-	}
+	a.Servers = inv.Servers
 	a.LiveSessions = inv.Rows
 	entries, err := os.ReadDir(r.store.Root())
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
