@@ -16,6 +16,8 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmux/tmuxtest"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // Deleting a stopped session must not kill a live session whose name starts
@@ -29,7 +31,7 @@ func TestIntegrationDeleteStoppedBaseKeepsSibling(t *testing.T) {
 	}
 	base := uniqueRuntimeSessionID(t, "qm-del")
 	sibling := base + "-456"
-	if err := store.Create(state.Manifest{SessionID: base, Cwd: t.TempDir()}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "questmaster", SessionID: base, Cwd: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
 	runner := tmuxtest.NewRunner(t)
@@ -62,17 +64,14 @@ func TestIntegrationDeleteStoppedBaseKeepsSibling(t *testing.T) {
 func TestIntegrationConcurrentContinueKeepsWinner(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	t.Setenv("SHELL", "/bin/sh") // the shell pane starts a login shell
-	store, err := state.NewStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store, named := privateCleanupServer(t)
 	id := uniqueRuntimeSessionID(t, "qm-race")
-	if err := store.Create(state.Manifest{SessionID: id, Cwd: t.TempDir()}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "test_named", SessionID: id, Cwd: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
-	runner := newCheckBarrier(tmuxtest.NewRunner(t), 2, time.Second)
+	runner := newCheckBarrier(named, 2, time.Second)
 	client := tmux.NewClient(runner)
-	svc := &Service{Store: store, Client: client}
+	svc := &Service{Store: store, Client: client, Router: tmuxroute.New(store, map[string]*tmux.Client{"test_named": client}, func() string { return "test_named" }, nil)}
 
 	type outcome struct {
 		result ContinueResult
@@ -147,12 +146,11 @@ func (b *checkBarrier) Run(ctx context.Context, args ...string) (string, error) 
 // directory goes, the live one's stays.
 func TestIntegrationSessionClosedHookCleansTheClosedSession(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
-	t.Setenv("SHELL", "/bin/sh") // shell sessions start a login shell
-	store, err := state.NewStore(filepath.Join(shortTempDir(t), `a b'c"d$e#Sf\g`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc := NewService(store, tmux.NewClient(tmuxtest.NewRunner(t)), "")
+	t.Setenv("SHELL", "/bin/sh")
+	store, runner := privateCleanupServer(t, filepath.Join(shortTempDir(t), `a b'c"d$e#Sf\g`))
+	client := tmux.NewClient(runner)
+	svc := NewService(store, client, "")
+	svc.Router = tmuxroute.New(store, map[string]*tmux.Client{"test_named": client}, func() string { return "test_named" }, nil)
 	start := func(now int64) StartResult {
 		t.Helper()
 		svc.Now = func() int64 { return now }
@@ -178,7 +176,7 @@ func TestIntegrationSessionClosedHookCleansTheClosedSession(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if _, err := os.Stat(filepath.Join(live.RuntimeDir, "cleanup.sh")); err != nil {
+	if _, err := os.Stat(filepath.Join(live.RuntimeDir, "session-name")); err != nil {
 		t.Fatalf("live session's runtime dir touched: %v", err)
 	}
 }
@@ -215,6 +213,9 @@ func fakeAgentService(t *testing.T, runner tmux.Runner, script string) *Service 
 		Roles:  agent.RolesConfig{Agent: &agent.RoleConfig{Agent: "claude", Window: -1}},
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(t.Context(), "set-option", "-g", "@questmaster_root", tmuxconfig.RootMarker(store.Root(), "questmaster")); err != nil {
 		t.Fatal(err)
 	}
 	svc := NewService(store, tmux.NewClient(runner), "", registry)

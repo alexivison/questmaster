@@ -19,26 +19,8 @@ func (f runnerFunc) Run(ctx context.Context, args ...string) (string, error) { r
 func testRouter(t *testing.T, defaultRun, namedRun runnerFunc) *Router {
 	t.Helper()
 	return New(state.OpenStore(t.TempDir()), map[string]*tmux.Client{
-		"default": tmux.NewClient(defaultRun), "questmaster": tmux.NewClient(namedRun),
+		"default": tmux.NewClient(defaultRun), "dev_previous": tmux.NewClient(defaultRun), "questmaster": tmux.NewClient(namedRun),
 	}, func() string { return "questmaster" }, nil)
-}
-
-func TestRouteAbsentIsLegacyEvenWhenCreationIsNamed(t *testing.T) {
-	r := testRouter(t, func(context.Context, ...string) (string, error) { return "", nil }, func(context.Context, ...string) (string, error) { return "", nil })
-	h, err := r.Route(state.Manifest{SessionID: "qm-old"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if h.Label() != "default" || h.SendLockNamespace() != "default" {
-		t.Fatalf("route = %+v", h)
-	}
-	creation, err := r.Creation()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if creation.Label() != "questmaster" {
-		t.Fatalf("creation = %+v", creation)
-	}
 }
 
 func TestRouteNamedConfigFilesAreCopied(t *testing.T) {
@@ -80,9 +62,8 @@ func TestProductionRouteUsesRecordedLabel(t *testing.T) {
 	if creation.ConfigFiles()[1] == h.ConfigFiles()[1] {
 		t.Fatal("recorded and creation labels share an enforced config")
 	}
-	legacy, err := r.Route(state.Manifest{})
-	if err != nil || legacy.Label() != "default" {
-		t.Fatalf("absent manifest route = %q, %v", legacy.Label(), err)
+	if _, err := r.Route(state.Manifest{}); err == nil {
+		t.Fatal("accepted missing ownership")
 	}
 }
 
@@ -100,7 +81,7 @@ func TestProductionRouterInventoriesPersistedLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(handles) != 3 || handles[0].Label() != "default" || handles[1].Label() != "dev_current" || handles[2].Label() != "dev_previous" {
+	if len(handles) != 2 || handles[0].Label() != "dev_current" || handles[1].Label() != "dev_previous" {
 		t.Fatalf("known handles = %v", handles)
 	}
 }
@@ -129,7 +110,7 @@ func TestProductionRouterKeepsManifestRoutesWithUnreadableLabelRecord(t *testing
 	if err != nil {
 		t.Fatalf("construct router for hooks and sends: %v", err)
 	}
-	for _, label := range []state.TmuxServer{"", "dev_current", "dev_previous"} {
+	for _, label := range []state.TmuxServer{"dev_current", "dev_previous"} {
 		handle, err := r.Route(state.Manifest{TmuxServer: label})
 		if err != nil {
 			t.Fatalf("route manifest for hooks and sends: %v", err)
@@ -200,7 +181,7 @@ func TestAuditClassifiesOwnership(t *testing.T) {
 		corrupt                                              bool
 		wantLegacy, wantOrphans, wantDuplicates, wantCorrupt int
 	}{
-		{"explicit default", "qm-example", "", "default", "blocked", false, 1, 0, 0, 0},
+		{"explicit default", "qm-example", "", "default", "unknown", false, 1, 0, 0, 0},
 		{"manifestless", "qm-example", "", "", "blocked", false, 0, 1, 0, 0},
 		{"duplicate", "qm-example", "qm-example", "default", "unknown", false, 1, 0, 1, 0},
 		{"corrupt", "qm-example", "", "", "unknown", true, 0, 0, 0, 1},
@@ -244,12 +225,12 @@ func TestIntegrationInventoryTwoServers(t *testing.T) {
 	if _, err := second.Run(t.Context(), "new-session", "-d", "-s", "qm-second"); err != nil {
 		t.Fatal(err)
 	}
-	r := New(state.OpenStore(t.TempDir()), map[string]*tmux.Client{"default": tmux.NewClient(first), "questmaster": tmux.NewClient(second)}, func() string { return "default" }, nil)
+	r := New(state.OpenStore(t.TempDir()), map[string]*tmux.Client{"dev_previous": tmux.NewClient(first), "questmaster": tmux.NewClient(second)}, func() string { return "dev_previous" }, nil)
 	if inv := r.Inventory(t.Context()); len(inv.Rows) != 2 {
 		t.Fatalf("rows = %+v", inv.Rows)
 	}
 	missing := tmuxtest.NewRunner(t)
-	r = New(state.OpenStore(t.TempDir()), map[string]*tmux.Client{"default": tmux.NewClient(missing), "questmaster": tmux.NewClient(second)}, func() string { return "default" }, nil)
+	r = New(state.OpenStore(t.TempDir()), map[string]*tmux.Client{"dev_previous": tmux.NewClient(missing), "questmaster": tmux.NewClient(second)}, func() string { return "dev_previous" }, nil)
 	if inv := r.Inventory(t.Context()); inv.Servers[0].Outcome != Absent {
 		t.Fatalf("missing = %+v", inv.Servers[0])
 	}

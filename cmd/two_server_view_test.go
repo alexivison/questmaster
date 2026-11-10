@@ -25,7 +25,7 @@ func TestPruneAbortsOnUnavailableServer(t *testing.T) {
 				return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 			}))
 			named := tmux.NewClient(viewRunner(func(context.Context, ...string) (string, error) { return "", context.DeadlineExceeded }))
-			router := tmuxroute.New(store, map[string]*tmux.Client{"default": legacy, "questmaster": named}, func() string { return "default" }, nil)
+			router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
 			result, err := pruneManifestsWithLegacyRoot(t.Context(), store, legacy, 7, dryRun, "", router)
 			if err == nil || result.Pruned != 0 || result.DroppedWatches != 0 {
 				t.Fatalf("result=%+v err=%v", result, err)
@@ -41,7 +41,7 @@ func TestPruneProtectsLiveOnEitherServer(t *testing.T) {
 	for _, dryRun := range []bool{false, true} {
 		t.Run(map[bool]string{true: "dry", false: "real"}[dryRun], func(t *testing.T) {
 			store := state.OpenStore(t.TempDir())
-			if err := store.Create(state.Manifest{SessionID: "qm-live"}); err != nil {
+			if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-live"}); err != nil {
 				t.Fatal(err)
 			}
 			pr, err := state.ParsePullRequestRef("owner/repo#12")
@@ -62,7 +62,7 @@ func TestPruneProtectsLiveOnEitherServer(t *testing.T) {
 				return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 			}))
 			named := tmux.NewClient(viewRunner(func(context.Context, ...string) (string, error) { return "qm-live", nil }))
-			router := tmuxroute.New(store, map[string]*tmux.Client{"default": legacy, "questmaster": named}, func() string { return "default" }, nil)
+			router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
 			result, err := pruneManifestsWithLegacyRoot(t.Context(), store, legacy, 7, dryRun, "", router)
 			if err != nil || result.Pruned != 0 || result.DroppedWatches != 0 {
 				t.Fatalf("result=%+v err=%v", result, err)

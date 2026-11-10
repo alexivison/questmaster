@@ -230,24 +230,6 @@ func (c *Client) RolePane(ctx context.Context, sessionID, role string) (PaneStat
 	}
 }
 
-// AllPanesDead is true only when every pane in the exact session has exited.
-// A live editor window keeps the container on its recorded server.
-func (c *Client) AllPanesDead(ctx context.Context, sessionID string) (bool, error) {
-	out, err := c.runner.Run(ctx, "list-panes", "-s", "-t", SessionTarget(sessionID), "-F", "#{pane_dead}")
-	if err != nil {
-		return false, fmt.Errorf("list pane liveness for %s: %w", sessionID, err)
-	}
-	if out == "" {
-		return false, fmt.Errorf("session %s has no panes", sessionID)
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if strings.TrimSpace(line) != "1" {
-			return false, nil
-		}
-	}
-	return true, nil
-}
-
 func (c *Client) PaneIdentity(ctx context.Context, target string) (int, string, error) {
 	out, err := c.runner.Run(ctx, "display-message", "-t", target, "-p", "#{pane_pid}\t#{session_name}:#{window_id}.#{pane_id}")
 	if err != nil {

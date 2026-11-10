@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +58,7 @@ func routedService(t *testing.T) (*Service, *mockRunner, *mockRunner) {
 	named := newMockRunner()
 	named.ownerMarker = tmuxconfig.RootMarker(svc.Store.Root(), "test_named")
 	svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{
-		"default": svc.Client, "test_named": tmux.NewClient(named),
+		"questmaster": svc.Client, "test_named": tmux.NewClient(named),
 	}, func() string { return "test_named" }, nil)
 	return svc, legacy, named
 }
@@ -125,7 +124,7 @@ func TestStartIDCollisionChecksBothServers(t *testing.T) {
 func stoppedLegacyWithResume(t *testing.T, svc *Service, id string) {
 	t.Helper()
 	createTestManifest(t, svc.Store, id, "work", t.TempDir(), "")
-	if err := svc.Store.Update(id, func(m *state.Manifest) { m.Agents[0].ResumeID = "resume-1" }); err != nil {
+	if err := svc.Store.Update(id, func(m *state.Manifest) { m.TmuxServer = "questmaster"; m.Agents[0].ResumeID = "resume-1" }); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -150,7 +149,7 @@ func TestStartRollbackRestoresOnlyRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.TmuxServer != "" || m.ExtraString("keep") != "value" || m.Agents[0].ResumeID != "resume-1" {
+	if m.TmuxServer != "questmaster" || m.ExtraString("keep") != "value" || m.Agents[0].ResumeID != "resume-1" {
 		t.Fatalf("rollback changed manifest: %+v", m)
 	}
 	if !named.hasCall("kill-session", "-t", tmux.SessionTarget(id)) {
@@ -181,6 +180,9 @@ func TestContinueMissingResumeIDErrors(t *testing.T) {
 	svc, _, named := routedService(t)
 	id := "qm-missing-resume-route"
 	createTestManifest(t, svc.Store, id, "work", t.TempDir(), "")
+	if err := svc.Store.Update(id, func(m *state.Manifest) { m.Agents[0].ResumeID = "" }); err != nil {
+		t.Fatal(err)
+	}
 	_, err := svc.Continue(t.Context(), id)
 	if err == nil || !strings.Contains(err.Error(), "no saved agent resume ID") {
 		t.Fatalf("Continue error = %v", err)
@@ -338,83 +340,6 @@ func TestContinueDeadNamedPaneRespawnsInPlace(t *testing.T) {
 	}
 }
 
-func legacyDeadAgent(t *testing.T, svc *Service, legacy *mockRunner, id string) string {
-	t.Helper()
-	stoppedLegacyWithResume(t, svc, id)
-	pane := legacy.addSession(id)
-	legacy.paneRoles[legacy.paneIDs[pane]] = tmux.RoleAgent
-	legacy.deadPanes[pane] = "17"
-	dir := state.NewRuntimeDir(svc.Store.Root(), id)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "cleanup.sh"), []byte("#!/bin/sh\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Store.Update(id, func(m *state.Manifest) { m.RuntimeDir = dir }); err != nil {
-		t.Fatal(err)
-	}
-	return pane
-}
-
-func TestContinueDeadLegacyContainerRetires(t *testing.T) {
-	svc, legacy, named := routedService(t)
-	id := "qm-dead-legacy-container"
-	legacyDeadAgent(t, svc, legacy, id)
-	result, err := svc.Continue(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Reattach || !named.sessions[id] || legacy.sessions[id] {
-		t.Fatalf("Continue = %+v", result)
-	}
-	if !legacy.hasCall("kill-session", "-t", tmux.SessionTarget(id)) {
-		t.Fatal("dead legacy container not retired")
-	}
-	if _, err := os.Stat(filepath.Join(state.NewRuntimeDir(svc.Store.Root(), id), "cleanup.sh.retired")); err != nil {
-		t.Fatal("legacy cleanup not fenced", err)
-	}
-}
-
-func TestContinueDeadLegacyMissingResumeIDExplainsRecovery(t *testing.T) {
-	svc, legacy, named := routedService(t)
-	id := "qm-dead-no-resume"
-	legacyDeadAgent(t, svc, legacy, id)
-	if err := svc.Store.Update(id, func(m *state.Manifest) { m.Agents[0].ResumeID = "" }); err != nil {
-		t.Fatal(err)
-	}
-	_, err := svc.Continue(t.Context(), id)
-	if err == nil || !strings.Contains(err.Error(), "qm delete "+id) || !strings.Contains(err.Error(), "start a new session") {
-		t.Fatalf("Continue error = %v", err)
-	}
-	if !legacy.sessions[id] || len(callsAfter(named, 0, "new-session")) != 0 {
-		t.Fatal("dead container changed without a resume ID")
-	}
-}
-
-func TestContinueLegacyWithLiveEditorRespawnsInPlace(t *testing.T) {
-	svc, legacy, named := routedService(t)
-	id := "qm-legacy-live-editor"
-	agentPane := legacyDeadAgent(t, svc, legacy, id)
-	editorPane := legacy.addSession("qm-unused-editor")
-	legacy.paneIDs[editorPane] = id + ":2.1"
-	delete(legacy.sessions, "qm-unused-editor")
-	result, err := svc.Continue(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Reattach || !result.Respawned || !legacy.sessions[id] {
-		t.Fatalf("Continue = %+v", result)
-	}
-	if len(callsAfter(legacy, 0, "kill-session")) != 0 || len(callsAfter(named, 0, "new-session")) != 0 {
-		t.Fatal("live editor container retired")
-	}
-	respawns := callsAfter(legacy, 0, "respawn-pane")
-	if len(respawns) != 1 || flagVal(respawns[0], "-t") != agentPane {
-		t.Fatalf("agent not respawned in place: %v", respawns)
-	}
-}
-
 func TestCascadeResolvesEachWorker(t *testing.T) {
 	svc, legacy, named := routedService(t)
 	master, worker := "qm-cascade-master", "qm-cascade-worker"
@@ -467,7 +392,7 @@ func TestSessionClosedSkipsMovedServer(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Store.Update(id, func(m *state.Manifest) { m.TmuxServer = "default"; m.RuntimeDir = dir }); err != nil {
+	if err := svc.Store.Update(id, func(m *state.Manifest) { m.TmuxServer = "questmaster"; m.RuntimeDir = dir }); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.SessionClosed(t.Context(), "test_named", id); err != nil {

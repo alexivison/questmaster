@@ -36,7 +36,7 @@ func testSnapshotter(store *state.Store, client *tmux.Client, now func() time.Ti
 	if client == nil {
 		client = tmux.NewClient(fakeTmuxRunner{})
 	}
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)
 	return NewSnapshotter(store, client, now, router)
 }
 
@@ -115,7 +115,7 @@ func TestSnapshotterWorkersFollowMasterReclass(t *testing.T) {
 	if err := env.store.SetSessionClass("qm-demo", "wizard"); err != nil {
 		t.Fatalf("set master class: %v", err)
 	}
-	if err := env.store.Create(state.Manifest{
+	if err := env.store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID: "qm-worker",
 		Cwd:       env.worktree,
 		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
@@ -261,8 +261,8 @@ func TestSnapshotterProjectsCollapseHistoricalWorktrees(t *testing.T) {
 		t.Fatalf("write commondir: %v", err)
 	}
 	for _, manifest := range []state.Manifest{
-		{SessionID: "qm-main", Cwd: repoRoot, Title: "main"},
-		{SessionID: "qm-worktree", Cwd: worktree, Title: "worktree"},
+		{TmuxServer: "dev_previous", SessionID: "qm-main", Cwd: repoRoot, Title: "main"},
+		{TmuxServer: "dev_previous", SessionID: "qm-worktree", Cwd: worktree, Title: "worktree"},
 	} {
 		if err := store.Create(manifest); err != nil {
 			t.Fatalf("create manifest %s: %v", manifest.SessionID, err)
@@ -967,7 +967,7 @@ func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("state store: %v", err)
 	}
-	if err := store.Create(state.Manifest{
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID:   sessionID,
 		Title:       "Burst debounce",
 		SessionType: "master",
@@ -1577,7 +1577,7 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	// suggestions rely only on recents and the persisted role default —
 	// there is no hardcoded per-harness floor anymore.
 	t.Setenv(modelsuggest.CatalogURLEnv, "off")
-	if err := env.store.Create(state.Manifest{
+	if err := env.store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID: "qm-recent-claude",
 		Cwd:       t.TempDir(),
 		Agents:    []state.AgentManifest{{Name: "claude", Role: "agent", Model: "claude-opus-9-unreleased"}},
@@ -2014,7 +2014,7 @@ func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
 			name:  "master",
 			id:    "qm-class-master",
 			class: " Wizard ",
-			manifest: state.Manifest{
+			manifest: state.Manifest{TmuxServer: "dev_previous",
 				SessionID: "qm-class-master",
 				Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 			},
@@ -2022,7 +2022,7 @@ func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
 		{
 			name: "worker",
 			id:   "qm-class-worker",
-			manifest: state.Manifest{
+			manifest: state.Manifest{TmuxServer: "dev_previous",
 				SessionID: "qm-class-worker",
 				Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 				Extra:     map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)},
@@ -2033,14 +2033,14 @@ func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
 		{
 			name:     "shell",
 			id:       "qm-class-shell",
-			manifest: state.Manifest{SessionID: "qm-class-shell"},
+			manifest: state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-class-shell"},
 			class:    "bard",
 			wantErr:  "shell sessions have no class",
 		},
 		{
 			name: "invalid class",
 			id:   "qm-class-invalid",
-			manifest: state.Manifest{
+			manifest: state.Manifest{TmuxServer: "dev_previous",
 				SessionID: "qm-class-invalid",
 				Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 			},
@@ -2343,7 +2343,7 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 		ClockInterval: time.Hour,
 		ChangeSource:  changes,
 	}
-	srv.TmuxRouter = tmuxroute.New(env.store, map[string]*tmux.Client{"default": srv.TmuxClient}, func() string { return "default" }, nil)
+	srv.TmuxRouter = tmuxroute.New(env.store, map[string]*tmux.Client{"dev_previous": srv.TmuxClient}, func() string { return "dev_previous" }, nil)
 	errc := serveInBackground(t, ctx, srv, socketPath)
 
 	conn, enc, dec := dialServe(t, socketPath)
@@ -2582,7 +2582,7 @@ func seedServeFixture(t *testing.T) serveFixture {
 	if err != nil {
 		t.Fatalf("state store: %v", err)
 	}
-	m := state.Manifest{
+	m := state.Manifest{TmuxServer: "dev_previous",
 		SessionID:   "qm-demo",
 		Title:       "Serve runtime JSON",
 		Cwd:         worktree,
@@ -2722,7 +2722,7 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 		t.Fatalf("initial active snapshot: %v", err)
 	}
 	incremental.tmuxClient = tmux.NewClient(fakeTmuxRunner{})
-	incremental.router = tmuxroute.New(env.store, map[string]*tmux.Client{"default": incremental.tmuxClient}, func() string { return "default" }, nil)
+	incremental.router = tmuxroute.New(env.store, map[string]*tmux.Client{"dev_previous": incremental.tmuxClient}, func() string { return "dev_previous" }, nil)
 	got, err = incremental.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
 	if err != nil {
 		t.Fatalf("incremental stopped snapshot: %v", err)

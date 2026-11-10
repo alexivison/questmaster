@@ -25,9 +25,9 @@ func (sendPaneRunner) Run(_ context.Context, args ...string) (string, error) {
 
 func TestSendLocksNamespacedPerServer(t *testing.T) {
 	root := t.TempDir()
-	legacy := state.SendLockDirForServer(root, "default")
+	legacy := state.SendLockDirForServer(root, "dev_previous")
 	named := state.SendLockDirForServer(root, "questmaster")
-	if legacy != state.SendLockDir(root) || named != filepath.Join(legacy, "questmaster") {
+	if legacy != filepath.Join(state.SendLockDir(root), "dev_previous") || named != filepath.Join(state.SendLockDir(root), "questmaster") {
 		t.Fatalf("lock dirs: legacy=%q named=%q", legacy, named)
 	}
 	if err := os.MkdirAll(legacy, 0o700); err != nil {

@@ -41,12 +41,12 @@ func TestIntegrationMixedMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	routeManifest(t, store, "qm-master", "master", "default", "")
+	routeManifest(t, store, "qm-master", "master", "dev_previous", "")
 	routeManifest(t, store, "qm-worker", "worker", "questmaster", "qm-master")
 	if err := store.Update("qm-master", func(m *state.Manifest) { m.Workers = []string{"qm-worker"} }); err != nil {
 		t.Fatal(err)
 	}
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": legacy, "questmaster": named}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
 	svc := NewServiceWithRouter(store, router)
 	if got, err := svc.Report(t.Context(), "qm-worker", "report-marker"); err != nil || got != DeliverySubmitted {
 		t.Fatalf("report=%q %v", got, err)

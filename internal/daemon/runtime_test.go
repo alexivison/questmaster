@@ -29,7 +29,7 @@ func TestPRJobQuiesceMidFetchKeepsLastStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-demo"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "questmaster", SessionID: "qm-demo"}); err != nil {
 		t.Fatal(err)
 	}
 	ref, err := state.ParsePullRequestRef("owner/repo#1")
@@ -44,7 +44,7 @@ func TestPRJobQuiesceMidFetchKeepsLastStatus(t *testing.T) {
 	}
 	started := make(chan struct{})
 	client := tmux.NewClient(runtimeTmuxRunner{})
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"questmaster": client}, func() string { return "questmaster" }, nil)
 	job := prstatus.NewJob(root, client, func(ctx context.Context, _, _ string) ([]byte, []byte, error) {
 		close(started)
 		<-ctx.Done()

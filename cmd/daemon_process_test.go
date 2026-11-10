@@ -28,7 +28,7 @@ import (
 func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	store := state.OpenStore(h.root)
-	if err := store.Create(state.Manifest{SessionID: "qm-pr-job"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-pr-job"}); err != nil {
 		t.Fatal(err)
 	}
 	ref, err := state.ParsePullRequestRef("owner/repo#1")

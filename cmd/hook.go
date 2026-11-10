@@ -380,13 +380,11 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	if validID && r.Store != nil && (r.TmuxRouter != nil || r.TmuxRouteErr != nil) {
 		manifest, err := r.Store.Read(id)
 		if err == nil {
-			origin := "default"
-			if value, set := os.LookupEnv("QUESTMASTER_TMUX_SERVER"); set {
-				origin = value
-			}
+			origin := os.Getenv("QUESTMASTER_TMUX_SERVER")
 			recorded := string(manifest.TmuxServer)
-			if recorded == "" {
-				recorded = "default"
+			if err := tmux.ValidateNamedLabel(origin); err != nil {
+				fmt.Fprintf(stderr, "questmaster hook: invalid tmux origin: %v\n", err)
+				return
 			}
 			if origin != recorded {
 				fmt.Fprintf(stderr, "questmaster hook: stale tmux origin %.32q for %s (recorded %.32q)\n", origin, id, recorded)
@@ -394,17 +392,13 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 			}
 			if r.TmuxRouteErr != nil {
 				fmt.Fprintf(stderr, "questmaster hook: route: %v\n", r.TmuxRouteErr)
-				if recorded != "default" {
-					return
-				}
+				return
 			}
 			if r.TmuxRouteErr == nil && r.TmuxRouter != nil && r.TmuxClient == r.initialTmuxClient {
 				handle, err := r.TmuxRouter.Route(manifest)
 				if err != nil {
 					fmt.Fprintf(stderr, "questmaster hook: route %s: %v\n", id, err)
-					if recorded != "default" {
-						return
-					}
+					return
 				} else {
 					r.TmuxClient = handle.Client()
 				}

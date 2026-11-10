@@ -39,7 +39,7 @@ func TestTmuxConfigAPICommandsUseNamedRoute(t *testing.T) {
 			return "", nil
 		}
 	}))
-	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_1": client}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_1": client}, func() string { return "dev_1" }, nil)
 	for _, args := range [][]string{{"tmux", "config", "status"}, {"tmux", "config", "reload"}, {"tmux", "restart"}} {
 		cmd := NewRootCmd(WithDeps(store, client), WithTmuxRouter(router))
 		var out bytes.Buffer

@@ -42,7 +42,7 @@ func TestServeTmuxConfigGoldens(t *testing.T) {
 			return "", nil
 		}
 	})
-	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_1": tmux.NewClient(runner)}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_1": tmux.NewClient(runner)}, func() string { return "dev_1" }, nil)
 	srv := &Server{Snapshotter: &Snapshotter{store: store}, TmuxRouter: router}
 	for _, tc := range []struct{ method, id, golden string }{
 		{"tmux.config", "tmux-config-request", "tmux_config_response_envelope.json"},

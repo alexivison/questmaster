@@ -16,6 +16,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
@@ -69,6 +70,7 @@ func createManifest(t *testing.T, store *state.Store, id, title, cwd, sessionTyp
 	t.Helper()
 	m := state.Manifest{
 		SessionID:   id,
+		TmuxServer:  "dev_previous",
 		Title:       title,
 		Cwd:         cwd,
 		SessionType: sessionType,
@@ -88,10 +90,10 @@ func runCmd(t *testing.T, store *state.Store, runner tmux.Runner, args ...string
 
 func runCmdInput(t *testing.T, store *state.Store, runner tmux.Runner, in io.Reader, args ...string) string {
 	t.Helper()
-	client := tmux.NewClient(runner)
+	client := tmux.NewClient(ownedTestRunner{runner: runner, root: store.Root()})
 	root := NewRootCmd(
 		WithDeps(store, client),
-		WithTmuxRouter(tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)),
+		WithTmuxRouter(tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)),
 	)
 	var out bytes.Buffer
 	if in != nil {
@@ -113,10 +115,10 @@ func runCmdErr(t *testing.T, store *state.Store, runner tmux.Runner, args ...str
 
 func runCmdInputErr(t *testing.T, store *state.Store, runner tmux.Runner, in io.Reader, args ...string) (string, error) {
 	t.Helper()
-	client := tmux.NewClient(runner)
+	client := tmux.NewClient(ownedTestRunner{runner: runner, root: store.Root()})
 	root := NewRootCmd(
 		WithDeps(store, client),
-		WithTmuxRouter(tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)),
+		WithTmuxRouter(tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)),
 	)
 	var out bytes.Buffer
 	if in != nil {
@@ -306,7 +308,7 @@ func TestList_ActiveSessions(t *testing.T) {
 func TestListAndStatus_ReportShellSessionType(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	if err := store.Create(state.Manifest{SessionID: "qm-shell"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-shell"}); err != nil {
 		t.Fatalf("create shell manifest: %v", err)
 	}
 
@@ -815,4 +817,17 @@ func TestStatus_NonQuestmasterSession_Rejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-questmaster session ID")
 	}
+}
+
+// Creation now always verifies a dedicated server's root marker.
+type ownedTestRunner struct {
+	runner tmux.Runner
+	root   string
+}
+
+func (r ownedTestRunner) Run(ctx context.Context, args ...string) (string, error) {
+	if len(args) > 0 && args[0] == "show-options" {
+		return tmuxconfig.RootMarker(r.root, "dev_previous"), nil
+	}
+	return r.runner.Run(ctx, args...)
 }

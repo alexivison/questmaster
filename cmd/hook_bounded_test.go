@@ -111,7 +111,7 @@ func TestHookBridgesAcceptLargeDiscardedResponse(t *testing.T) {
 			const sessionID = "qm-large-bridge"
 			t.Setenv("QUESTMASTER_SESSION", "")
 			if tc.agent == "opencode" {
-				manifest := state.Manifest{SessionID: sessionID, Agents: []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", ResumeID: "ses_example"}}}
+				manifest := state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID, Agents: []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", ResumeID: "ses_example"}}}
 				manifest.SetExtra("opencode_session_id", "ses_example")
 				if err := state.OpenStore(root).Create(manifest); err != nil {
 					t.Fatal(err)
@@ -180,7 +180,7 @@ func stateEventLines(t *testing.T, root, sessionID string) []state.StateEvent {
 
 func seedHookSession(t *testing.T, root, sessionID string) {
 	t.Helper()
-	if err := state.OpenStore(root).Create(state.Manifest{SessionID: sessionID}); err != nil {
+	if err := state.OpenStore(root).Create(state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(root, sessionID), 0o700); err != nil {
@@ -208,7 +208,7 @@ func TestHookTmuxCallStopsAtDeadlineAndIsLogged(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	r := productionHookRunner(t, root)
 	store := state.OpenStore(root)
-	if err := store.Create(state.Manifest{SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 	// A private socket path: even if the fake were not found, a real tmux
@@ -513,7 +513,7 @@ func TestHookAfterSessionDeletionDoesNotRecreateState(t *testing.T) {
 			root := setTestStateRoot(t)
 			const sessionID = "qm-deleted"
 			store := state.OpenStore(root)
-			if err := store.Create(state.Manifest{SessionID: sessionID}); err != nil {
+			if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID}); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.Delete(sessionID); err != nil {

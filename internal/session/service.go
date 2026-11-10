@@ -109,7 +109,8 @@ func (s *Service) router() *tmuxroute.Router {
 	if s.Router != nil {
 		return s.Router
 	}
-	return tmuxroute.New(s.Store, map[string]*tmux.Client{"default": s.Client}, func() string { return "default" }, nil)
+	label, _ := tmux.EffectiveLabel() // handle validation reports an invalid override
+	return tmuxroute.New(s.Store, map[string]*tmux.Client{label: s.Client}, func() string { return label }, nil)
 }
 
 func (s *Service) onHandle(h tmuxroute.Handle) *Service {

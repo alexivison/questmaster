@@ -34,7 +34,7 @@ func TestNotifyHoldsUnsafeSessionsAndRecentTyping(t *testing.T) {
 			t.Parallel()
 			store := setupStore(t)
 			id := "qm-alert"
-			if err := store.Create(state.Manifest{SessionID: id, Agents: []state.AgentManifest{{Name: tc.agent, Role: "agent"}}}); err != nil {
+			if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: id, Agents: []state.AgentManifest{{Name: tc.agent, Role: "agent"}}}); err != nil {
 				t.Fatal(err)
 			}
 			dir := filepath.Dir(state.SessionStatePath(store.Root(), id))
@@ -75,7 +75,7 @@ func TestNotifyHoldsUnsafeSessionsAndRecentTyping(t *testing.T) {
 				return "", nil
 			}}
 			client := tmux.NewClient(runner)
-			svc := NewServiceWithRouter(store, tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil))
+			svc := NewServiceWithRouter(store, tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil))
 			got, err := svc.Notify(context.Background(), id, "[PR owner/repo#12] activity")
 			wantSent := tc.want != ""
 			if err != nil || got != tc.want || (sent > 0) != wantSent {

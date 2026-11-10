@@ -50,7 +50,7 @@ func routeFixture(t *testing.T, namedRecent ...bool) (*state.Store, *Service, *i
 	}
 	legacy := tmux.NewClient(runner(&legacySends))
 	named := tmux.NewClient(runner(&namedSends))
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": legacy, "questmaster": named}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
 	return store, NewServiceWithRouter(store, router), &legacySends, &namedSends
 }
 
@@ -68,7 +68,7 @@ func routeManifest(t *testing.T, store *state.Store, id, role, server, parent st
 func TestReportRoutesToParentServer(t *testing.T) {
 	store, svc, legacy, named := routeFixture(t)
 	routeManifest(t, store, "qm-parent", "master", "questmaster", "")
-	routeManifest(t, store, "qm-worker", "worker", "default", "qm-parent")
+	routeManifest(t, store, "qm-worker", "worker", "dev_previous", "qm-parent")
 	if _, err := svc.Report(t.Context(), "qm-worker", "ready"); err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +79,8 @@ func TestReportRoutesToParentServer(t *testing.T) {
 
 func TestBroadcastRoutesPerWorker(t *testing.T) {
 	store, svc, legacy, named := routeFixture(t)
-	routeManifest(t, store, "qm-parent", "master", "default", "")
-	routeManifest(t, store, "qm-old", "worker", "default", "qm-parent")
+	routeManifest(t, store, "qm-parent", "master", "dev_previous", "")
+	routeManifest(t, store, "qm-old", "worker", "dev_previous", "qm-parent")
 	routeManifest(t, store, "qm-new", "worker", "questmaster", "qm-parent")
 	if err := store.Update("qm-parent", func(m *state.Manifest) { m.Workers = []string{"qm-old", "qm-new"} }); err != nil {
 		t.Fatal(err)
@@ -156,7 +156,7 @@ func TestClaudeNativeIdentityUsesRecipientClient(t *testing.T) {
 			return "", nil
 		}}
 	}
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(runner(&legacyIdent)), "questmaster": tmux.NewClient(runner(&namedIdent))}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": tmux.NewClient(runner(&legacyIdent)), "questmaster": tmux.NewClient(runner(&namedIdent))}, func() string { return "dev_previous" }, nil)
 	svc := NewServiceWithRouter(store, router)
 	routeManifest(t, store, "qm-claude", "worker", "questmaster", "")
 	if err := store.Update("qm-claude", func(m *state.Manifest) { m.Agents[0].Name = "claude" }); err != nil {

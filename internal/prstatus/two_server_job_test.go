@@ -33,7 +33,7 @@ func TestPRJobDeliversToEitherServer(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 	}))
 	named := tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) { return "qm-named", nil }))
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": legacy, "questmaster": named}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
 	job := NewJob(store.Root(), legacy, nil, router)
 	called := 0
 	job.SendAlert = func(context.Context, string, string) (message.Delivery, error) {
@@ -50,7 +50,7 @@ func TestPRJobDeliversToEitherServer(t *testing.T) {
 
 func TestPRJobRequiresWatcherOnRecordedServer(t *testing.T) {
 	store := state.OpenStore(t.TempDir())
-	if err := store.Create(state.Manifest{SessionID: "qm-old"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-old"}); err != nil {
 		t.Fatal(err)
 	}
 	pr, err := state.ParsePullRequestRef("owner/repo#12")
@@ -70,7 +70,7 @@ func TestPRJobRequiresWatcherOnRecordedServer(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 	}))
 	named := tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) { return "qm-old", nil }))
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": legacy, "questmaster": named}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
 	job := NewJob(store.Root(), legacy, nil, router)
 	if job.HasWork() {
 		t.Fatal("watcher exists only on the wrong server")

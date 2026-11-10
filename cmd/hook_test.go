@@ -1311,7 +1311,7 @@ type manifestStoreStub struct {
 }
 
 func newManifestStoreStub(sessionID string, extras map[string]string) *manifestStoreStub {
-	m := state.Manifest{SessionID: sessionID}
+	m := state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID}
 	for key, value := range extras {
 		m.SetExtra(key, value)
 	}
@@ -1326,7 +1326,7 @@ func manifestHasExtra(m state.Manifest, key string) bool {
 func (s *manifestStoreStub) Read(sessionID string) (state.Manifest, error) {
 	s.readCalls++
 	if s.readErr != nil {
-		return state.Manifest{}, s.readErr
+		return state.Manifest{TmuxServer: "dev_previous"}, s.readErr
 	}
 	return s.manifest, nil
 }
@@ -2459,7 +2459,7 @@ func TestHookClaudeCapturesSessionIDInManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-abc"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-abc"}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 
@@ -3138,7 +3138,7 @@ func TestHookCodexCapturesThreadIDInManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-abc"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-abc"}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 
@@ -3959,6 +3959,7 @@ func TestHookPiBatchPreservesEventOrderAndChatEntries(t *testing.T) {
 }
 
 func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_SERVER", "dev_previous")
 	root := t.TempDir()
 	t.Setenv(state.StateRootEnv, root)
 	t.Setenv("QUESTMASTER_SESSION", "qm-pi-worker")
@@ -3966,10 +3967,10 @@ func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new state store: %v", err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-pi-master", Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: []string{"qm-pi-worker"}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-pi-master", Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: []string{"qm-pi-worker"}}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
-	workerManifest := state.Manifest{SessionID: "qm-pi-worker", Title: "Pi worker"}
+	workerManifest := state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-pi-worker", Title: "Pi worker"}
 	workerManifest.SetExtra("parent_session", "qm-pi-master")
 	if err := store.Create(workerManifest); err != nil {
 		t.Fatalf("create worker manifest: %v", err)
@@ -4099,10 +4100,10 @@ func TestHookPiBatchStateWriteFailureKeepsFeedRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new state store: %v", err)
 	}
-	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: []string{sessionID}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: []string{sessionID}}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
-	workerManifest := state.Manifest{SessionID: sessionID, Title: "Pi worker"}
+	workerManifest := state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID, Title: "Pi worker"}
 	workerManifest.SetExtra("parent_session", masterID)
 	if err := store.Create(workerManifest); err != nil {
 		t.Fatalf("create worker manifest: %v", err)

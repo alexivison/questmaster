@@ -550,12 +550,8 @@ func SendLockDir(root string) string {
 	return filepath.Join(root, "tmux-send")
 }
 
-// SendLockDirForServer keeps legacy locks at their original path so old and new
-// binaries serialize sends to the same pane. Named servers get their own space.
+// SendLockDirForServer isolates pane locks by dedicated server label.
 func SendLockDirForServer(root, label string) string {
-	if label == "default" {
-		return SendLockDir(root)
-	}
 	return filepath.Join(SendLockDir(root), label)
 }
 

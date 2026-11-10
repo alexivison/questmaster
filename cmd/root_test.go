@@ -307,7 +307,7 @@ func TestSendTimeoutIsLongerForTheCLIThanForTheDaemon(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, manifest := range []state.Manifest{{}, {TmuxServer: "dev_current"}, {TmuxServer: "dev_previous"}} {
+			for _, manifest := range []state.Manifest{{TmuxServer: "dev_current"}, {TmuxServer: "dev_previous"}} {
 				handle, err := router.Route(manifest)
 				if err != nil {
 					t.Fatal(err)

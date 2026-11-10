@@ -67,13 +67,13 @@ func TestTmuxRoutesCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-example", CreatedAt: "2026-01-01T00:00:00Z"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-example", CreatedAt: "2026-01-01T00:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}
 	defaultClient := tmux.NewClient(auditRunner(func(context.Context, ...string) (string, error) { return "qm-example", nil }))
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": defaultClient, "questmaster": tmux.NewClient(auditRunner(func(context.Context, ...string) (string, error) {
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": defaultClient, "questmaster": tmux.NewClient(auditRunner(func(context.Context, ...string) (string, error) {
 		return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
-	}))}, func() string { return "default" }, nil)
+	}))}, func() string { return "dev_previous" }, nil)
 	var output bytes.Buffer
 	cmd := NewRootCmd(WithDeps(store, defaultClient), WithTmuxRouter(router))
 	cmd.SetOut(&output)
@@ -85,7 +85,7 @@ func TestTmuxRoutesCLI(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &routes); err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 1 || routes[0].SessionID != "qm-example" || routes[0].Server != "default" || !routes[0].Live {
+	if len(routes) != 1 || routes[0].SessionID != "qm-example" || routes[0].Server != "dev_previous" || !routes[0].Live {
 		t.Fatalf("routes = %+v", routes)
 	}
 }

@@ -36,8 +36,8 @@ func TestAttachArgv(t *testing.T) {
 		return "", nil
 	}}
 	router := tmuxroute.New(store, map[string]*tmux.Client{
-		"default": tmux.NewClient(runner), "test_named": tmux.NewClient(runner),
-	}, func() string { return "default" }, []string{"/tmp/user.conf", "/tmp/enforced.conf"})
+		"dev_previous": tmux.NewClient(runner), "test_named": tmux.NewClient(runner),
+	}, func() string { return "dev_previous" }, []string{"/tmp/user.conf", "/tmp/enforced.conf"})
 	t.Setenv("TMUX", "")
 	command, _, same, err := attachPlan(t.Context(), store, router, id)
 	if err != nil || same {
@@ -85,7 +85,7 @@ func TestSessionClosedLockTimeoutExitsZero(t *testing.T) {
 	defer close(release)
 	runner := &mockRunner{fn: func(context.Context, ...string) (string, error) { return "", errors.New("unexpected tmux call") }}
 	client := tmux.NewClient(runner)
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client, "test_named": client}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client, "test_named": client}, func() string { return "dev_previous" }, nil)
 	root := NewRootCmd(WithDeps(store, client), WithTmuxRouter(router))
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()

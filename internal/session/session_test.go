@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
 )
 
 // ---------------------------------------------------------------------------
@@ -371,6 +371,7 @@ func setupService(t *testing.T) (*Service, *mockRunner) {
 		t.Fatalf("new store: %v", err)
 	}
 	runner := newMockRunner()
+	runner.ownerMarker = tmuxconfig.RootMarker(store.Root(), "questmaster")
 	client := tmux.NewClient(runner)
 	svc := NewService(store, client, "/fake/repo")
 	registry, err := agent.NewRegistry(&agent.Config{
@@ -421,12 +422,13 @@ func createTestManifest(t *testing.T, store *state.Store, id, title, cwd, sessio
 	t.Helper()
 	m := state.Manifest{
 		SessionID:   id,
+		TmuxServer:  "questmaster",
 		Title:       title,
 		Cwd:         cwd,
 		SessionType: sessionType,
 		AgentPath:   "/usr/bin",
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "agent", CLI: "/usr/bin/claude", Window: 1},
+			{Name: "claude", Role: "agent", CLI: "/usr/bin/claude", Window: 1, ResumeID: "resume-1"},
 		},
 	}
 	if err := store.Create(m); err != nil {
@@ -523,9 +525,8 @@ func TestStart_TopLevelAgentIsMaster(t *testing.T) {
 		t.Fatalf("%s env = %q, want %q", state.SessionEnv, got, result.SessionID)
 	}
 
-	// Verify cleanup hook was set
-	if !runner.hasCall("set-hook") {
-		t.Fatal("cleanup hook not set")
+	if runner.hasCall("set-hook") {
+		t.Fatal("per-session cleanup hook installed")
 	}
 }
 
@@ -973,6 +974,9 @@ func TestContinue_KeepsOriginallyResolvedPersistedDefaultAfterItChanges(t *testi
 	// reconstruct-from-manifest path instead of just reattaching.
 	delete(runner.sessions, result.SessionID)
 
+	if err := svc.Store.Update(result.SessionID, func(m *state.Manifest) { m.Agents[0].ResumeID = "resume-1" }); err != nil {
+		t.Fatal(err)
+	}
 	beforeContinue := len(runner.calls)
 	if _, err := svc.Continue(t.Context(), result.SessionID); err != nil {
 		t.Fatalf("continue: %v", err)
@@ -1272,14 +1276,14 @@ func TestContinue_PreservesRecordedModel(t *testing.T) {
 	svc, _ := setupService(t)
 
 	cwd := t.TempDir()
-	if err := svc.Store.Create(state.Manifest{
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID:   "qm-model-resume",
 		Title:       "resume-with-model",
 		Cwd:         cwd,
 		SessionType: "",
 		AgentPath:   "/usr/bin",
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "agent", CLI: "/usr/bin/claude", Window: 1, Model: "claude-opus-9-unreleased"},
+			{Name: "claude", Role: "agent", CLI: "/usr/bin/claude", Window: 1, Model: "claude-opus-9-unreleased", ResumeID: "resume-1"},
 		},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
@@ -1307,7 +1311,7 @@ func TestContinue_RelaunchesWithRecordedModelAndReasoningEffort(t *testing.T) {
 	svc, runner := setupService(t)
 
 	cwd := t.TempDir()
-	if err := svc.Store.Create(state.Manifest{
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID:   "qm-model-reasoning-resume",
 		Title:       "resume-with-model-and-effort",
 		Cwd:         cwd,
@@ -2122,7 +2126,7 @@ func TestSpawn_FromNonMaster(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 
-	worker := state.Manifest{SessionID: "qm-worker", Title: "regular", Cwd: t.TempDir(), Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}
+	worker := state.Manifest{TmuxServer: "questmaster", SessionID: "qm-worker", Title: "regular", Cwd: t.TempDir(), Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}
 	worker.SetExtra("parent_session", "qm-parent")
 	if err := svc.Store.Create(worker); err != nil {
 		t.Fatal(err)
@@ -2154,7 +2158,7 @@ func TestSpawn_InvalidMasterID(t *testing.T) {
 func TestManifest_SetExtra_NewMap(t *testing.T) {
 	t.Parallel()
 
-	m := state.Manifest{}
+	m := state.Manifest{TmuxServer: "questmaster"}
 	m.SetExtra("key", "value")
 
 	if m.Extra == nil {
@@ -2169,7 +2173,7 @@ func TestManifest_SetExtra_NewMap(t *testing.T) {
 func TestManifest_ExtraString_Missing(t *testing.T) {
 	t.Parallel()
 
-	m := state.Manifest{}
+	m := state.Manifest{TmuxServer: "questmaster"}
 	got := m.ExtraString("nonexistent")
 	if got != "" {
 		t.Errorf("expected empty, got %q", got)
@@ -2179,7 +2183,7 @@ func TestManifest_ExtraString_Missing(t *testing.T) {
 func TestManifest_ExtraString_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	m := state.Manifest{
+	m := state.Manifest{TmuxServer: "questmaster",
 		Extra: map[string]json.RawMessage{
 			"bad": json.RawMessage(`not-json`),
 		},
@@ -2211,7 +2215,7 @@ func TestRemoveRuntimeDir(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 	dir := state.NewRuntimeDir(svc.Store.Root(), "qm-test-rm")
-	if err := svc.Store.Create(state.Manifest{SessionID: "qm-test-rm", RuntimeDir: dir}); err != nil {
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster", SessionID: "qm-test-rm", RuntimeDir: dir}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureRuntimeDir(dir, "qm-test-rm"); err != nil {
@@ -2351,7 +2355,7 @@ func TestClaimSessionID_Collision(t *testing.T) {
 	svc.RandSuffix = func() int64 { return 99 }
 
 	// Pre-create manifest for base ID to force collision
-	if err := svc.Store.Create(state.Manifest{SessionID: "qm-42"}); err != nil {
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster", SessionID: "qm-42"}); err != nil {
 		t.Fatalf("create collision manifest: %v", err)
 	}
 
@@ -2368,7 +2372,7 @@ func TestClaimSessionID_Collision(t *testing.T) {
 func claimForTest(svc *Service, t *testing.T) (string, error) {
 	t.Helper()
 	var claimed string
-	err := svc.claimSessionID(t.Context(), state.Manifest{Title: "test", Cwd: "/tmp"}, func(_ context.Context, id string) error {
+	err := svc.claimSessionID(t.Context(), state.Manifest{TmuxServer: "questmaster", Title: "test", Cwd: "/tmp"}, func(_ context.Context, id string) error {
 		claimed = id
 		return nil
 	})
@@ -3066,7 +3070,7 @@ func TestContinue_PersistsPiResumeFromActivityAndUsesSessionFlag(t *testing.T) {
 	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
 	writePiResumeState(t, svc.Store, sessionID, resumeID)
 
-	if err := svc.Store.Create(state.Manifest{
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID: sessionID,
 		Title:     "pi-activity",
 		Cwd:       cwd,
@@ -3107,7 +3111,7 @@ func TestContinue_UsesAgentManifestResumeIDs(t *testing.T) {
 	svc, runner := setupService(t)
 	cwd := t.TempDir()
 
-	if err := svc.Store.Create(state.Manifest{
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID: "qm-agents",
 		Title:     "agent-manifest",
 		Cwd:       cwd,
@@ -3154,7 +3158,7 @@ func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
 	svc.Registry = registry
 
 	resumeID := "ses_0123456789abcdef"
-	m := state.Manifest{
+	m := state.Manifest{TmuxServer: "questmaster",
 		SessionID: sessionID,
 		Title:     "opencode-resume",
 		Cwd:       cwd,
@@ -3242,7 +3246,7 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 	}
 	svc.Registry = swappedRegistry
 
-	if err := svc.Store.Create(state.Manifest{
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID: "qm-manifest",
 		Title:     "manifest-source",
 		Cwd:       cwd,
@@ -3326,7 +3330,7 @@ func TestStart_IDCollision(t *testing.T) {
 	svc, _ := setupService(t)
 
 	// Pre-create manifest for base ID to force collision via Store.Create.
-	if err := svc.Store.Create(state.Manifest{SessionID: "qm-42"}); err != nil {
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster", SessionID: "qm-42"}); err != nil {
 		t.Fatalf("create collision manifest: %v", err)
 	}
 	svc.Now = func() int64 { return 42 }
@@ -3353,6 +3357,7 @@ func TestNewService_Defaults(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	runner := newMockRunner()
+	runner.ownerMarker = tmuxconfig.RootMarker(store.Root(), "questmaster")
 	client := tmux.NewClient(runner)
 	svc := NewService(store, client, "/fake")
 
@@ -3472,10 +3477,6 @@ func TestSetResumeEnv_Empty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// setCleanupHook
-// ---------------------------------------------------------------------------
-
 // privateRuntimeDir makes a session's runtime directory under the service's
 // state root, as Start does.
 func privateRuntimeDir(t *testing.T, svc *Service, sessionID string) string {
@@ -3485,158 +3486,6 @@ func privateRuntimeDir(t *testing.T, svc *Service, sessionID string) string {
 		t.Fatalf("ensureRuntimeDir: %v", err)
 	}
 	return dir
-}
-
-func TestSetCleanupHook(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-	sessionID := "qm-hook"
-	runner.sessions[sessionID] = true
-
-	if err := svc.setCleanupHook(t.Context(), sessionID, privateRuntimeDir(t, svc, sessionID)); err != nil {
-		t.Fatalf("setCleanupHook: %v", err)
-	}
-
-	if !runner.hasCall("set-hook") {
-		t.Error("expected set-hook call")
-	}
-}
-
-// TestCleanupHook_VariableVisibility verifies the cleanup script and hook
-// are correctly generated. The hook calls a script file (avoiding tmux
-// format expansion), and the script contains proper shell logic.
-func TestCleanupHook_VariableVisibility(t *testing.T) {
-	t.Parallel()
-	svc, runner := setupService(t)
-	sessionID := "qm-vis"
-	runner.sessions[sessionID] = true
-	dir := privateRuntimeDir(t, svc, sessionID)
-
-	if err := svc.setCleanupHook(t.Context(), sessionID, dir); err != nil {
-		t.Fatalf("setCleanupHook: %v", err)
-	}
-	hookCmd := hookCommand(t, runner)
-
-	// Hook must call the cleanup script, not contain inline shell logic.
-	// This avoids tmux $NAME format expansion entirely.
-	if !strings.Contains(hookCmd, "cleanup.sh") {
-		t.Error("hook must call cleanup.sh script")
-	}
-	// CRITICAL: hook must NOT contain any bare $VAR references that tmux
-	// would expand to empty (the original bug that deleted the tmux socket).
-	if strings.Contains(hookCmd, "$W") || strings.Contains(hookCmd, "$SR") || strings.Contains(hookCmd, "$RD") {
-		t.Error("hook must not contain $W, $SR or $RD — tmux expands them to empty")
-	}
-	if !strings.Contains(hookCmd, "hook_session_name") {
-		t.Error("hook must pass the closed session name to cleanup.sh")
-	}
-	if !strings.Contains(hookCmd, "/#{q:hook_session_name}/cleanup.sh") {
-		t.Error("hook must resolve cleanup.sh from the closed session name")
-	}
-	if strings.Contains(hookCmd, filepath.Join(dir, "cleanup.sh")) {
-		t.Error("hook must not hardcode the owning session cleanup path")
-	}
-
-	// Read the generated cleanup script and verify its content.
-	script, err := os.ReadFile(filepath.Join(dir, "cleanup.sh"))
-	if err != nil {
-		t.Fatalf("read cleanup script: %v", err)
-	}
-	s := string(script)
-
-	// Script must reference the session ID in manifest paths and rm -rf.
-	if !strings.Contains(s, sessionID) {
-		t.Error("script must contain session ID")
-	}
-	if !strings.Contains(s, `rm -rf "$RD"`) {
-		t.Error("script must remove the runtime dir via rm -rf $RD")
-	}
-
-	// $p must be exported before bash -c so the child shell can see it.
-	if !strings.Contains(s, "export p") {
-		t.Error("script must export p before bash -c")
-	}
-
-	// Perl must use system() not exec() to hold flock during rewrite.
-	if strings.Contains(s, "exec @ARGV") {
-		t.Error("script must use system() not exec() to hold flock")
-	}
-	if !strings.Contains(s, "system(@ARGV") {
-		t.Error("script must use system() to hold flock while bash -c runs")
-	}
-}
-
-// The hook names the runtime root inside three parsers (tmux's command
-// parser, run-shell's format expansion, sh). A root holding any of their
-// special characters must survive all three. The integration test runs such a
-// hook on a real server.
-func TestCleanupHookCommandEscapesTheRuntimeRoot(t *testing.T) {
-	t.Parallel()
-	base := `/state/a b'c"d$e#Sf\g`
-	got := cleanupHookCommand(base)
-	want := `run-shell "test -f '/state/a b'\"'\"'c\"d\$e##Sf\\g'/#{q:hook_session_name}/cleanup.sh && /bin/sh '/state/a b'\"'\"'c\"d\$e##Sf\\g'/#{q:hook_session_name}/cleanup.sh #{q:hook_session_name}"`
-	if got != want {
-		t.Fatalf("cleanupHookCommand =\n%s\nwant\n%s", got, want)
-	}
-}
-
-// TestCleanupHook_SpacesInRoot verifies paths are properly quoted when the
-// state root contains spaces (QUESTMASTER_STATE_ROOT is user-configurable).
-func TestCleanupHook_SpacesInRoot(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir() + "/party state root"
-	store, err := state.NewStore(root)
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	runner := newMockRunner()
-	runner.sessions["qm-sp"] = true
-	svc := NewService(store, tmux.NewClient(runner), "")
-
-	if err := svc.setCleanupHook(t.Context(), "qm-sp", privateRuntimeDir(t, svc, "qm-sp")); err != nil {
-		t.Fatalf("setCleanupHook: %v", err)
-	}
-
-	script, err := os.ReadFile(filepath.Join(root, "runtime", "qm-sp", "cleanup.sh"))
-	if err != nil {
-		t.Fatalf("read cleanup script: %v", err)
-	}
-	s := string(script)
-
-	// State root must be single-quoted in the SR= assignment to handle spaces.
-	if !strings.Contains(s, "'"+root+"'") {
-		t.Errorf("state root with spaces must be single-quoted in script; got:\n%s", s)
-	}
-}
-
-// TestCleanupHook_ApostropheInRoot verifies paths with apostrophes are safe.
-func TestCleanupHook_ApostropheInRoot(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir() + "/party'root"
-	store, err := state.NewStore(root)
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	runner := newMockRunner()
-	runner.sessions["qm-ap"] = true
-	svc := NewService(store, tmux.NewClient(runner), "")
-
-	if err := svc.setCleanupHook(t.Context(), "qm-ap", privateRuntimeDir(t, svc, "qm-ap")); err != nil {
-		t.Fatalf("setCleanupHook: %v", err)
-	}
-
-	// Read the script and verify it's syntactically valid shell.
-	scriptPath := filepath.Join(root, "runtime", "qm-ap", "cleanup.sh")
-	script, err := os.ReadFile(scriptPath)
-	if err != nil {
-		t.Fatalf("read cleanup script: %v", err)
-	}
-
-	// bash -n checks syntax without executing.
-	cmd := exec.CommandContext(t.Context(), "bash", "-n", scriptPath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Errorf("cleanup script has syntax errors: %v\n%s\nscript:\n%s", err, out, script)
-	}
 }
 
 // ---------------------------------------------------------------------------

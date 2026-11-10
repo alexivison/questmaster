@@ -18,7 +18,7 @@ import (
 
 func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string) {
 	t.Helper()
-	m := state.Manifest{
+	m := state.Manifest{TmuxServer: "dev_previous",
 		SessionID: id,
 		Title:     id,
 		Cwd:       "/tmp",

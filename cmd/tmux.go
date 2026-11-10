@@ -61,16 +61,28 @@ func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *
 	}}
 	closed.Flags().StringVar(&closedServer, "server", "", "recorded tmux server label")
 	tmuxCmd.AddCommand(closed)
-	tmuxCmd.AddCommand(&cobra.Command{Use: "audit", Short: "Audit both tmux servers without changing them", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	var backfill bool
+	auditCmd := &cobra.Command{Use: "audit", Short: "Audit tmux ownership; optionally backfill stopped manifests", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if routerErr != nil {
 			return routerErr
+		}
+		var result *tmuxroute.BackfillResult
+		if backfill {
+			counts, err := router.Backfill(cmd.Context())
+			if err != nil {
+				return err
+			}
+			result = &counts
 		}
 		audit, err := router.Audit(cmd.Context())
 		if err != nil {
 			return err
 		}
+		audit.Backfill = result
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(audit)
-	}})
+	}}
+	auditCmd.Flags().BoolVar(&backfill, "backfill", false, "set stopped manifests with absent or default ownership to questmaster")
+	tmuxCmd.AddCommand(auditCmd)
 	configCmd := &cobra.Command{Use: "config", Short: "Inspect Questmaster tmux config files"}
 	configCmd.AddCommand(&cobra.Command{Use: "status", Short: "Report dedicated server and config status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		client, err := namedClient()

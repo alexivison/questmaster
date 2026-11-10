@@ -45,14 +45,14 @@ func TestIntegrationStartRejectsForeignServerAfterPreflight(t *testing.T) {
 func TestIntegrationContinueRejectsForeignServerAfterPreflight(t *testing.T) {
 	svc, runner, _ := foreignServerRaceService(t)
 	id := "qm-resume-foreign"
-	if err := svc.Store.Create(state.Manifest{SessionID: id, Cwd: t.TempDir()}); err != nil {
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster", SessionID: id, Cwd: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.Continue(t.Context(), id); err == nil {
 		t.Fatal("Continue adopted the foreign server")
 	}
 	m, err := svc.Store.Read(id)
-	if err != nil || m.TmuxServer != "" {
+	if err != nil || m.TmuxServer != "questmaster" {
 		t.Fatalf("route after rollback = %q, %v", m.TmuxServer, err)
 	}
 	assertOnlyForeignSentinel(t, runner)
@@ -76,7 +76,7 @@ func foreignServerRaceService(t *testing.T) (*Service, *foreignServerRaceRunner,
 	ownPaths, foreignPaths := tmuxconfig.Paths(svc.Store.Root()), tmuxconfig.Paths(foreignRoot)
 	socket := tmuxtest.NewRunner(t).Socket()
 	runner := &foreignServerRaceRunner{own: tmux.SocketServerWithConfig(socket, ownPaths.Config, ownPaths.Enforced), foreign: tmux.SocketServerWithConfig(socket, foreignPaths.Config, foreignPaths.Enforced)}
-	svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{"default": tmux.NewClient(legacy), "test_named": tmux.NewClient(runner)}, func() string { return "test_named" }, nil)
+	svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{"questmaster": tmux.NewClient(legacy), "test_named": tmux.NewClient(runner)}, func() string { return "test_named" }, nil)
 	return svc, runner, foreignRoot
 }
 

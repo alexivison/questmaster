@@ -5,7 +5,6 @@ package session
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -86,7 +85,7 @@ func TestStartGivesANewSessionAPrivateRuntimeDir(t *testing.T) {
 	assertPerm(t, root, 0o700)
 	assertPerm(t, filepath.Join(root, "runtime"), 0o700)
 	assertPerm(t, want, 0o700)
-	for _, name := range []string{"session-name", "cleanup.sh", "claude-session-id"} {
+	for _, name := range []string{"session-name", "claude-session-id"} {
 		assertPerm(t, filepath.Join(want, name), 0o600)
 	}
 	for _, name := range []string{id + ".json.lock", id + ".lifecycle.lock"} {
@@ -98,26 +97,10 @@ func TestStartGivesANewSessionAPrivateRuntimeDir(t *testing.T) {
 	if got := runner.envVars[id+":"+state.RuntimeDirEnv]; got != want {
 		t.Fatalf("%s = %q, want %q", state.RuntimeDirEnv, got, want)
 	}
-	hook := hookCommand(t, runner)
-	if !strings.Contains(hook, shellQuoteForScript(filepath.Join(root, "runtime"))+"/#{q:hook_session_name}/cleanup.sh") {
-		t.Fatalf("hook does not find cleanup.sh under the private runtime root: %s", hook)
+	if runner.hasCall("set-hook") {
+		t.Fatal("per-session cleanup hook installed")
 	}
-	script, err := os.ReadFile(filepath.Join(want, "cleanup.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(script), "RD="+shellQuoteForScript(want)) || !strings.Contains(string(script), `rm -rf "$RD"`) {
-		t.Fatalf("cleanup script does not remove the recorded runtime dir:\n%s", script)
-	}
-	// The state root itself may sit under /tmp (Linux temp dirs do), so look
-	// for the legacy shapes, not the substring.
-	for _, text := range []string{hook, string(script)} {
-		for _, legacy := range []string{filepath.Join("/tmp", id), "/tmp/#{"} {
-			if strings.Contains(text, legacy) {
-				t.Fatalf("new session's hook or cleanup script names the legacy %s:\n%s", legacy, text)
-			}
-		}
-	}
+	assertAbsent(t, filepath.Join(want, "cleanup.sh"))
 	assertAbsent(t, filepath.Join("/tmp", id))
 }
 
@@ -252,7 +235,7 @@ func TestContinueStoppedLegacySessionMovesToAPrivateDir(t *testing.T) {
 		t.Fatalf("runtime_dir after relaunch = %q, want %q", m.RuntimeDir, want)
 	}
 	assertPerm(t, want, 0o700)
-	assertPerm(t, filepath.Join(want, "cleanup.sh"), 0o600)
+	assertAbsent(t, filepath.Join(want, "cleanup.sh"))
 	if got := runner.envVars[id+":"+state.RuntimeDirEnv]; got != want {
 		t.Fatalf("%s = %q, want %q", state.RuntimeDirEnv, got, want)
 	}
@@ -298,22 +281,6 @@ func TestDeleteRemovesTheRecordedRuntimeDir(t *testing.T) {
 	}
 	if _, err := svc.Delete(t.Context(), result.SessionID); err != nil {
 		t.Fatalf("Delete: %v", err)
-	}
-	assertAbsent(t, result.RuntimeDir)
-}
-
-// The session-closed script removes the recorded directory.
-func TestCleanupScriptRemovesTheRecordedRuntimeDir(t *testing.T) {
-	t.Parallel()
-	svc, _ := setupService(t)
-	svc.Now = uniqueSessionClock()
-	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Shell: true})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	script := filepath.Join(result.RuntimeDir, "cleanup.sh")
-	if out, err := exec.Command("/bin/sh", script, result.SessionID).CombinedOutput(); err != nil {
-		t.Fatalf("run cleanup script: %v\n%s", err, out)
 	}
 	assertAbsent(t, result.RuntimeDir)
 }

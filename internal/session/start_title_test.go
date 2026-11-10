@@ -9,6 +9,7 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
 )
 
 func newTitleTestService(t *testing.T) *Service {
@@ -18,6 +19,9 @@ func newTitleTestService(t *testing.T) *Service {
 		t.Fatal(err)
 	}
 	runner := &testRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "show-options" {
+			return tmuxconfig.RootMarker(store.Root(), "questmaster"), nil
+		}
 		if len(args) > 0 && args[0] == "has-session" {
 			return "", &tmux.ExitError{Code: 1} // no existing tmux session
 		}

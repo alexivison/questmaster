@@ -59,7 +59,7 @@ type Manifest struct {
 }
 
 // TmuxServer records the tmux socket label used when the session was created.
-// An empty value identifies a legacy session on the default server.
+// Routing requires a nonempty dedicated label; audit --backfill upgrades stopped manifests.
 type TmuxServer string
 
 // AgentManifest stores per-agent runtime state in the manifest.

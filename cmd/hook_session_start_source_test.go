@@ -135,7 +135,7 @@ func TestHookClaudeCompactionWhileDoneStillReceivesAlert(t *testing.T) {
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	store := state.OpenStore(root)
 	const sessionID = "qm-compact"
-	if err := store.Create(state.Manifest{SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 	r := newHookRunner(store, &tmuxEnvStub{})
@@ -153,7 +153,7 @@ func TestHookClaudeCompactionWhileDoneStillReceivesAlert(t *testing.T) {
 
 	runner := &notifyTmuxRunner{}
 	client := tmux.NewClient(runner)
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)
 	got, err := message.NewServiceWithRouter(store, router).Notify(context.Background(), sessionID, "[PR owner/repo#12] approved")
 	if err != nil {
 		t.Fatalf("notify: %v", err)
@@ -168,7 +168,7 @@ func TestHookClaudeResumedIdleWorkerReceivesReviewAlert(t *testing.T) {
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
 	store := state.OpenStore(root)
 	const sessionID = "qm-resumed-review"
-	if err := store.Create(state.Manifest{SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
 	r := newHookRunner(store, &tmuxEnvStub{})
@@ -194,7 +194,7 @@ func TestHookClaudeResumedIdleWorkerReceivesReviewAlert(t *testing.T) {
 
 	runner := &notifyTmuxRunner{}
 	client := tmux.NewClient(runner)
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)
 	delivery, err := message.NewServiceWithRouter(store, router).Notify(context.Background(), sessionID, "[PR example/repo#12] approved")
 	if err != nil || delivery != message.DeliverySubmitted || runner.sendKeys == 0 {
 		t.Fatalf("review alert delivery = %q, %v; sends=%d", delivery, err, runner.sendKeys)

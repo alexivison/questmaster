@@ -28,5 +28,6 @@ func setTestStateRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("QUESTMASTER_STATE_ROOT", root)
+	t.Setenv("QUESTMASTER_TMUX_SERVER", "dev_previous")
 	return root
 }

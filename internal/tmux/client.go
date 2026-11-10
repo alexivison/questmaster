@@ -79,10 +79,6 @@ type Runner interface {
 	Run(ctx context.Context, args ...string) (string, error)
 }
 
-// defaultServerLabel is the label tmux itself uses when nothing selects a
-// server. A server label lives at /tmp/tmux-<uid>/<label>.
-const defaultServerLabel = "default"
-
 // Server selects one tmux server. Every command it runs names that server
 // with -L or -S, and the command's environment drops TMUX, TMUX_PANE and
 // TMUX_TMPDIR: they describe the caller's own server, which need not be this
@@ -111,12 +107,6 @@ func DefaultServer(config, enforced string) Server {
 		return Server{flag: "-L", name: label, selectionErr: err}
 	}
 	return server
-}
-
-// LegacyServer selects the user's default socket independently of the
-// creation selector. Recorded legacy sessions always route here.
-func LegacyServer() Server {
-	return Server{flag: "-L", name: defaultServerLabel}
 }
 
 // EffectiveLabel resolves the dedicated server label. The override is for
@@ -186,9 +176,6 @@ func (s Server) validationError() error {
 		return s.selectionErr
 	}
 	if s.flag != "-L" {
-		return nil
-	}
-	if s.name == defaultServerLabel {
 		return nil
 	}
 	if err := ValidateNamedLabel(s.name); err != nil {

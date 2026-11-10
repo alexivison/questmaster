@@ -32,7 +32,7 @@ func TestDeleteOrphanRequiresCompleteInventory(t *testing.T) {
 			named.sessions[id] = true
 			if tc.record != "" {
 				// A previous development server is hidden from this router.
-				svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{"default": tmux.NewClient(legacy)}, func() string { return "default" }, nil)
+				svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{"questmaster": tmux.NewClient(legacy)}, func() string { return "questmaster" }, nil)
 				if tc.record == "late" {
 					if err := state.RecordTmuxServerLabel(svc.Store.Root(), "dev_later"); err != nil {
 						t.Fatal(err)

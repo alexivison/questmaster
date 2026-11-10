@@ -82,7 +82,7 @@ func TestPruneRefusesUnreadableTmuxServerLabels(t *testing.T) {
 	root := t.TempDir()
 	store := state.OpenStore(root)
 	id := "qm-old-manifest"
-	if err := store.Create(state.Manifest{SessionID: id}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: id}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(root, id+".json")

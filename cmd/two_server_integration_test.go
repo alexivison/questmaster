@@ -30,13 +30,13 @@ func TestIntegrationMixedInventoryAndPrune(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, item := range []struct{ id, label string }{{"qm-old-live", ""}, {"qm-new-live", "questmaster"}} {
+	for _, item := range []struct{ id, label string }{{"qm-old-live", "dev_previous"}, {"qm-new-live", "questmaster"}} {
 		if err := store.Create(state.Manifest{SessionID: item.id, TmuxServer: state.TmuxServer(item.label)}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	writeManifestFile(t, root, "qm-stale", map[string]any{"session_id": "qm-stale"}, 10*24*time.Hour)
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(legacy), "questmaster": tmux.NewClient(named)}, func() string { return "default" }, nil)
+	writeManifestFile(t, root, "qm-stale", map[string]any{"session_id": "qm-stale", "tmux_server": "dev_previous"}, 10*24*time.Hour)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": tmux.NewClient(legacy), "questmaster": tmux.NewClient(named)}, func() string { return "dev_previous" }, nil)
 	inv := router.Inventory(t.Context())
 	if len(inv.Rows) != 2 {
 		t.Fatalf("inventory = %+v", inv)

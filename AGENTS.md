@@ -122,8 +122,9 @@ Invariants that aren't obvious from the code:
 - **Every tmux call names its server and its session exactly.** New sessions
   use `tmux.DefaultServer()` (`-L questmaster`, or the validated development
   label); existing sessions use the `tmux_server` recorded in their manifests
-  through `tmuxroute.Router`. An absent field means the legacy default server,
-  regardless of the creation selector or current override. Commands run without
+  through `tmuxroute.Router`. Missing ownership and explicit `default` are
+  errors; `qm tmux audit --backfill` upgrades stopped manifests to `questmaster`.
+  Commands run without
   TMUX, TMUX_PANE and TMUX_TMPDIR, which describe the caller's own server.
   Session panes receive their recorded label as `QUESTMASTER_TMUX_SERVER`; dev
   panes also receive `QUESTMASTER_TMUX_LABEL` for new CLI creations. Session targets are
@@ -144,10 +145,8 @@ Invariants that aren't obvious from the code:
   owner-only `<state root>/runtime/<id>` (`state.NewRuntimeDir`,
   `state.EnsureRuntimeDir`, files through `state.WriteRuntimeFile`). The tmux
   session carries it as `QUESTMASTER_RUNTIME_DIR` for the Pi extension; readers
-  take the path from one of the two, never from the ID. Legacy per-session
-  cleanup relies on the `<state root>/runtime/<id>` shape: tmux may run another
-  live session's hook, which finds the closed session's script by name. The
-  dedicated server loads a global `session-closed` hook from the regenerated
+  take the path from one of the two, never from the ID. The dedicated server
+  loads a global `session-closed` hook from the regenerated
   `<state root>/tmux/enforced.<label>.conf`; its Go handler holds the lifecycle lock
   and skips a recreated or moved session. That file also enforces the root
   ownership marker and server lifetime settings after the user-editable
@@ -156,10 +155,20 @@ Invariants that aren't obvious from the code:
   restart refuse running servers with a missing or foreign root marker. A manifest
   without the field predates it and keeps its old path until the session stops
   (`Manifest.RuntimeDirOrLegacy`, the one legacy branch).
-- Keep the legacy route until `qm tmux audit` finds no live legacy managed
-  sessions, orphans or unknown ownership, stopped manifests are backfilled,
-  and the user explicitly approves removal. Rolling back creation keeps named
-  sessions reachable through their recorded routes.
+- **The user's default server has no operational route.** `ProbeDefaultSessions`
+  is the one remaining reader, used only by audit and stopped-manifest backfill
+  to prove no managed session remains there. It runs only `list-sessions` through
+  an explicit socket path computed from `TMUX_TMPDIR` (or `/tmp`) and the uid;
+  default is never a router handle or part of lifecycle/messaging inventory.
+  A missing socket is empty; a failed probe makes the audit gate unknown.
+  `qm tmux audit --backfill` alone writes: read manifests directly, never route
+  missing ownership, hold each lifecycle lock while rechecking liveness, and
+  rewrite only stopped absent/default ownership to `questmaster`. Preserve resume
+  IDs, watches, runtime paths and manifest age, report updated/live/already-set/failed counts,
+  and keep it idempotent. The removal gate and user approval were recorded on
+  2026-11-10. Generic dedicated-label routing remains for deliberate creation
+  changes; the old default route, per-session cleanup scripts and fallback hook
+  origin are gone. `RuntimeDirOrLegacy` remains unrelated and unchanged.
 - The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
   not any single Go type — version it deliberately.
 - **No model or reasoning-effort list is hardcoded.** Each harness declares its

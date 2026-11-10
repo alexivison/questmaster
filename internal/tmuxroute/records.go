@@ -92,6 +92,7 @@ type Audit struct {
 	InventoryError    string            `json:"inventory_error,omitempty"`
 	Servers           []ServerInventory `json:"servers"`
 	LiveSessions      []Row             `json:"live_sessions"`
+	Backfill          *BackfillResult   `json:"backfill,omitempty"`
 	LiveLegacyManaged []string          `json:"live_legacy_managed"`
 	Orphans           []Row             `json:"orphans"`
 	Duplicates        []string          `json:"duplicates"`
@@ -106,6 +107,28 @@ func (r *Router) Audit(ctx context.Context) (Audit, error) {
 		a.Gate = "unknown"
 		a.InventoryError = inventoryErr.Error()
 	}
+	defaultIDs, present, probeErr := r.probeDefault(ctx)
+	server := ServerInventory{Label: "default", Outcome: Available}
+	if probeErr != nil {
+		server.Outcome = Unavailable
+		server.Error = probeErr.Error()
+		a.Gate = "unknown"
+		a.InventoryError = strings.TrimSpace(a.InventoryError + " " + probeErr.Error())
+	} else if !present {
+		server.Outcome = Absent
+	}
+	a.Servers = append([]ServerInventory{server}, a.Servers...)
+	for _, id := range defaultIDs {
+		inv.Rows = append(inv.Rows, Row{Label: "default", ID: id})
+	}
+	counts := make(map[string]int)
+	for _, row := range inv.Rows {
+		counts[row.ID]++
+	}
+	for i := range inv.Rows {
+		inv.Rows[i].Conflict = counts[inv.Rows[i].ID] > 1
+	}
+	a.LiveSessions = inv.Rows
 	entries, err := os.ReadDir(r.store.Root())
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return a, err
@@ -148,6 +171,10 @@ func (r *Router) Audit(ctx context.Context) (Audit, error) {
 			}
 			continue
 		}
+		if row.Label == "default" {
+			a.LiveLegacyManaged = append(a.LiveLegacyManaged, row.ID)
+			continue
+		}
 		h, routeErr := r.Route(m)
 		if routeErr != nil {
 			continue
@@ -156,9 +183,6 @@ func (r *Router) Audit(ctx context.Context) (Audit, error) {
 			a.UnknownOwnership = append(a.UnknownOwnership, row.ID)
 			a.Gate = "unknown"
 			continue
-		}
-		if row.Label == "default" {
-			a.LiveLegacyManaged = append(a.LiveLegacyManaged, row.ID)
 		}
 	}
 	if a.Gate != "unknown" && (len(a.LiveLegacyManaged) > 0 || len(a.Orphans) > 0 || len(a.Duplicates) > 0) {
