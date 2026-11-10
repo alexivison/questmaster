@@ -7450,7 +7450,7 @@ enum LogicSelfTests {
         return try snapshot(hosting, size: size, scale: scale)
     }
 
-    /// The brightest pixel in the points `columns`: a glyph's stem reaches the text colour, whatever the font.
+    /// The brightest pixel in the points `columns`: the glyphs' fullest ink.
     private static func brightestInk(_ bitmap: NSBitmapImageRep, scale: CGFloat, columns: Range<CGFloat>) -> NSColor? {
         var best: (sum: CGFloat, color: NSColor)?
         for x in Int(columns.lowerBound * scale)..<Int(columns.upperBound * scale) {
@@ -7467,12 +7467,17 @@ enum LogicSelfTests {
         return best?.color
     }
 
-    private static func expectInkColor(_ actual: NSColor?, _ expected: NSColor, _ label: String) throws {
-        guard let actual, let expected = expected.usingColorSpace(.deviceRGB) else {
+    /// The sampled ink is nearer `expected` than `other`. A regular stroke in a fallback font doesn't always reach its
+    /// colour (CI doesn't install JetBrains Mono), but the two text colours are 0.22 apart in summed RGB, so the nearer
+    /// one is the colour the run was drawn in.
+    private static func expectInkColor(_ actual: NSColor?, _ expected: NSColor, notLike other: NSColor, _ label: String) throws {
+        guard let actual, let expected = expected.usingColorSpace(.deviceRGB), let other = other.usingColorSpace(.deviceRGB) else {
             throw TestFailure("\(label) should draw")
         }
-        let distance = abs(actual.redComponent - expected.redComponent) + abs(actual.greenComponent - expected.greenComponent) + abs(actual.blueComponent - expected.blueComponent)
-        try expect(distance < 0.03, "\(label) should be \(expected), got \(actual)")
+        func distance(to color: NSColor) -> CGFloat {
+            abs(actual.redComponent - color.redComponent) + abs(actual.greenComponent - color.greenComponent) + abs(actual.blueComponent - color.blueComponent)
+        }
+        try expect(distance(to: expected) < distance(to: other), "\(label) should be nearer \(expected) than \(other), got \(actual)")
     }
 
     /// Selected Filter Item.svg's chip: the label "Action:" in regular `textMetaHighlighted`, then the ticked names in bold
@@ -7497,8 +7502,8 @@ enum LogicSelfTests {
         let labelStart = WorkerChatMetrics.inset + Token.Size.divider + Space.item
         let labelAdvance = ("A" as NSString).size(withAttributes: [.font: AppFonts.questLogBody]).width
         let valueStart = labelStart + 7 * labelAdvance + ClearableChipMetrics.labelGap
-        try expectInkColor(brightestInk(bitmap, scale: scale, columns: labelStart..<(labelStart + 7 * labelAdvance)), AppPalette.metaHighlighted, "the label")
-        try expectInkColor(brightestInk(bitmap, scale: scale, columns: valueStart..<(valueStart + 6 * advance)), AppPalette.textBody, "the value")
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: labelStart..<(labelStart + 7 * labelAdvance)), AppPalette.metaHighlighted, notLike: AppPalette.textBody, "the label")
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: valueStart..<(valueStart + 6 * advance)), AppPalette.textBody, notLike: AppPalette.metaHighlighted, "the value")
     }
 
     /// The filter chip's kind ("@type") is `textMetaHighlighted` and its title, after the kind's space, the body colour, both
@@ -7512,8 +7517,8 @@ enum LogicSelfTests {
         // The text starts `Space.row` in; the kind is five characters, then the title's leading space.
         let kindStart = Space.row
         let titleStart = kindStart + 6 * advance
-        try expectInkColor(brightestInk(bitmap, scale: scale, columns: kindStart..<(kindStart + 5 * advance)), AppPalette.metaHighlighted, "the kind")
-        try expectInkColor(brightestInk(bitmap, scale: scale, columns: titleStart..<(titleStart + 3 * advance)), AppPalette.textBody, "the title")
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: kindStart..<(kindStart + 5 * advance)), AppPalette.metaHighlighted, notLike: AppPalette.textBody, "the kind")
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: titleStart..<(titleStart + 3 * advance)), AppPalette.textBody, notLike: AppPalette.metaHighlighted, "the title")
     }
 
     /// The ticks outlive the attached master, but a log with nothing attached stays blank, chip and all.
