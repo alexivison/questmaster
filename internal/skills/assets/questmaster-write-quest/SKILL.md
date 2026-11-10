@@ -16,9 +16,11 @@ Use this skill when the user asks to record or change work in Questmaster's proj
 - Keep the user's scope and decisions. Write only enough detail to make the requested
   work understandable, including acceptance details the user supplied. A short quest
   needs no fixed template, and missing requirements should not be invented.
-- Project, type, and size are optional. `questmaster quest add` defaults its project
-  from the session cwd or current repository. Use `--project <path>` when the work
-  belongs elsewhere. On edit, omit `--project` to keep the current project; pass
+- Project, type, and size are optional. `questmaster quest add` tries to infer a
+  project from the session cwd or current directory; it leaves the quest
+  unassigned if neither resolves. Use `--project <path>` when the work belongs
+  elsewhere or inference fails. `questmaster quest start` requires a project.
+  On edit, omit `--project` to keep the current project; pass
   `--project ""` only to clear it.
 - Supported type tags are `bug`, `improvement`, `feature`, `research`, `decision`,
   and `cleanup`; size is `S`, `M`, or `L`. Choose only tags supported by the request.

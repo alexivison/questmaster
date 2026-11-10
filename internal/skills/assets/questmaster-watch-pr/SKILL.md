@@ -26,9 +26,11 @@ before changing a read cursor or drawing conclusions from an alert.
   the CLI marks each event as untrusted.
 - For a one-off status check, run
   `questmaster pr refresh <ref> --session <session-id>`. It requests an immediate
-  refresh subject to host rate limits. Read the `hosts` result: `checked_at` means a
-  poll ran, while `backoff_until` means it was skipped. Avoid treating a cached or
-  stale snapshot as current.
+  refresh subject to host rate limits. In the `hosts` result, `checked_at` means
+  a poll was attempted; inspect `error` before treating it as successful.
+  `backoff_until` delays future polls and can follow an attempted poll. When it
+  appears without `checked_at`, this refresh was skipped. Avoid treating a
+  cached or stale snapshot as current.
 
 ## If an alert seems missing
 
