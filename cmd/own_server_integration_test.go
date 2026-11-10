@@ -48,13 +48,19 @@ func newRolloutFixture(t *testing.T, creation func() string) rolloutFixture {
 		t.Fatal(err)
 	}
 	paths := tmuxconfig.Paths(root)
-	legacy, named := tmuxtest.NewRunner(t), tmuxtest.NewRunnerWithConfig(t, paths.Config, paths.Enforced)
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_previous")
+	if err := tmuxconfig.Prepare(root); err != nil {
+		t.Fatal(err)
+	}
+	previousPaths := tmuxconfig.Paths(root)
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "test_named")
+	legacy, named := tmuxtest.NewRunnerWithConfig(t, previousPaths.Config, previousPaths.Enforced), tmuxtest.NewRunnerWithConfig(t, paths.Config, paths.Enforced)
 	store, err := state.NewStore(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	old, next := tmux.NewClient(legacy), tmux.NewClient(named)
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": old, "test_named": next}, creation, []string{paths.Config, paths.Enforced})
+	router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(allPassRunner()), "dev_previous": old, "test_named": next}, creation, []string{paths.Config, paths.Enforced})
 	cli := filepath.Join(t.TempDir(), "fake-agent")
 	if err := os.WriteFile(cli, []byte("#!/bin/sh\nexec cat\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -111,7 +117,7 @@ func waitForCapture(t *testing.T, client *tmux.Client, id, marker string) {
 func TestIntegrationMixedRollout(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
 	f := newRolloutFixture(t, func() string { return "test_named" })
-	f.startRecorded(t, f.legacy, "qm-old-master", "", "master", "")
+	f.startRecorded(t, f.legacy, "qm-old-master", "dev_previous", "master", "")
 	if _, err := f.legacy.Run(t.Context(), "new-session", "-d", "-s", "qm-sentinel", "sleep 60"); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +163,7 @@ func TestIntegrationMixedRollout(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := f.store.Create(state.Manifest{SessionID: "qm-stopped-old", Cwd: f.store.Root(), SessionType: "master", Agents: []state.AgentManifest{{Name: "claude", Role: "agent", CLI: f.cli, ResumeID: "resume-example"}}}); err != nil {
+	if err := f.store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-stopped-old", Cwd: f.store.Root(), SessionType: "master", Agents: []state.AgentManifest{{Name: "claude", Role: "agent", CLI: f.cli, ResumeID: "resume-example"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.svc.Continue(t.Context(), "qm-stopped-old"); err != nil {
@@ -239,7 +245,7 @@ func TestIntegrationProductionPaneHasNoDevOverride(t *testing.T) {
 	paths := tmuxconfig.Paths(f.store.Root())
 	f.named = tmuxtest.NewRunnerWithConfig(t, paths.Config, paths.Enforced)
 	f.new = tmux.NewClient(f.named)
-	f.router = tmuxroute.New(f.store, map[string]*tmux.Client{"default": f.old, "questmaster": f.new}, func() string { return "questmaster" }, []string{paths.Config, paths.Enforced})
+	f.router = tmuxroute.New(f.store, map[string]*tmux.Client{"default": tmux.NewClient(allPassRunner()), "dev_previous": f.old, "questmaster": f.new}, func() string { return "questmaster" }, []string{paths.Config, paths.Enforced})
 	f.svc.Router = f.router
 	started, err := f.svc.Start(t.Context(), session.StartOpts{Title: "Production", Cwd: f.store.Root()})
 	if err != nil {
@@ -256,7 +262,7 @@ func TestIntegrationFlipBackKeepsNamedReachable(t *testing.T) {
 	flipBack := false
 	f := newRolloutFixture(t, func() string {
 		if flipBack {
-			return "default"
+			return "dev_previous"
 		}
 		return "test_named"
 	})
@@ -291,7 +297,7 @@ func TestIntegrationFlipBackKeepsNamedReachable(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, err := f.store.Read(legacy.SessionID)
-	if err != nil || m.TmuxServer != "default" {
+	if err != nil || m.TmuxServer != "dev_previous" {
 		t.Fatalf("flip-back creation route = %q, %v", m.TmuxServer, err)
 	}
 	if alive, err := f.old.HasSession(t.Context(), "qm-sentinel"); err != nil || !alive {

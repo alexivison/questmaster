@@ -18,11 +18,11 @@ func TestStatusWithoutReadableManifestUsesCompleteInventory(t *testing.T) {
 		name, liveServer, wantError                            string
 		corrupt, duplicate, unreadable, unavailable, lateLabel bool
 	}{
-		{name: "legacy missing", liveServer: "default"},
-		{name: "legacy corrupt", liveServer: "default", corrupt: true},
+		{name: "legacy missing", liveServer: "dev_previous"},
+		{name: "legacy corrupt", liveServer: "dev_previous", corrupt: true},
 		{name: "dedicated missing", liveServer: "questmaster"},
 		{name: "absent everywhere", wantError: "read manifest"},
-		{name: "duplicate ownership", liveServer: "default", duplicate: true, wantError: "multiple tmux servers"},
+		{name: "duplicate ownership", liveServer: "dev_previous", duplicate: true, wantError: "multiple tmux servers"},
 		{name: "unreadable registry", liveServer: "questmaster", unreadable: true, wantError: "parse tmux server labels"},
 		{name: "unavailable server", liveServer: "questmaster", unavailable: true, wantError: "unavailable"},
 		{name: "unrouteable label recorded later", liveServer: "questmaster", lateLabel: true, wantError: "dev_later"},
@@ -42,7 +42,7 @@ func TestStatusWithoutReadableManifestUsesCompleteInventory(t *testing.T) {
 					live := tc.liveServer == label || tc.duplicate
 					switch args[0] {
 					case "list-sessions":
-						if tc.unavailable && label == "default" {
+						if tc.unavailable && label == "dev_previous" {
 							return "", context.DeadlineExceeded
 						}
 						if live {
@@ -61,8 +61,8 @@ func TestStatusWithoutReadableManifestUsesCompleteInventory(t *testing.T) {
 					}
 				}))
 			}
-			legacy, named := client("default"), client("questmaster")
-			router := tmuxroute.New(store, map[string]*tmux.Client{"default": legacy, "questmaster": named}, func() string { return "questmaster" }, nil)
+			legacy, named := client("dev_previous"), client("questmaster")
+			router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacy, "questmaster": named}, func() string { return "questmaster" }, nil)
 			if tc.unreadable {
 				if err := os.WriteFile(filepath.Join(store.Root(), "tmux-servers.json"), []byte("{"), 0o600); err != nil {
 					t.Fatal(err)
@@ -118,7 +118,7 @@ func TestStatusRoutesToRecordedServer(t *testing.T) {
 		}}
 	}
 	legacy, named := tmux.NewClient(run(&legacyCalls, false)), tmux.NewClient(run(&namedCalls, true))
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": legacy, "questmaster": named}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacy, "questmaster": named}, func() string { return "dev_previous" }, nil)
 	if _, err := collectStatusRouted(t.Context(), store, legacy, router, "qm-example"); err != nil {
 		t.Fatal(err)
 	}

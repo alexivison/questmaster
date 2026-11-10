@@ -128,7 +128,6 @@ func TestServerRunsEveryCommandOnItsSelection(t *testing.T) {
 			_ = c.SetEnvironment(ctx, "qm-a", "K", "V")
 			_ = c.UnsetEnvironment(ctx, "qm-a", "K")
 			_, _, _ = c.ShowEnvironment(ctx, "qm-a", "K")
-			_ = c.SetHook(ctx, "qm-a", "session-closed", "run-shell true")
 			_, _ = c.ListSessions(ctx)
 			_, _ = c.ListPanes(ctx, "qm-a")
 			_, _ = c.Capture(ctx, PaneTarget("qm-a", 0, 0), 10)

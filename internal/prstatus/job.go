@@ -76,6 +76,9 @@ func (j *Job) liveIDs(ctx context.Context, ids []string) (map[string]bool, error
 		if err != nil {
 			continue
 		}
+		if manifest.NeedsTmuxBackfill() {
+			continue
+		}
 		handle, err := j.TmuxRouter.Route(manifest)
 		if err != nil {
 			return nil, err

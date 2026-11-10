@@ -33,7 +33,7 @@ func (r *classBackfillRunner) Run(_ context.Context, _ ...string) (string, error
 }
 
 func classBackfillJobForTest(store *state.Store, client *tmux.Client) *ClassBackfillJob {
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"questmaster": client}, func() string { return "questmaster" }, nil)
 	return NewClassBackfillJob(store, client, router)
 }
 
@@ -57,7 +57,7 @@ func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 	oldUpdatedAt, oldModTime := ageClassBackfillManifest(t, store, "qm-stopped-old")
 	liveIDs = append(liveIDs, "qm-live-missing")
 
-	worker := state.Manifest{
+	worker := state.Manifest{TmuxServer: "questmaster",
 		SessionID: "qm-worker",
 		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 		Display:   &state.DisplayMetadata{Class: "bard"},
@@ -66,7 +66,7 @@ func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 	if err := store.Create(worker); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
-	shell := state.Manifest{SessionID: "qm-shell", Display: &state.DisplayMetadata{Class: "bard"}}
+	shell := state.Manifest{TmuxServer: "questmaster", SessionID: "qm-shell", Display: &state.DisplayMetadata{Class: "bard"}}
 	if err := store.Create(shell); err != nil {
 		t.Fatalf("create shell: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
 		case <-ticker.C:
 		}
 	}
-	if err := store.Create(state.Manifest{
+	if err := store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID: "qm-later",
 		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}); err != nil {
@@ -357,7 +357,7 @@ func TestClassBackfillJobFailures(t *testing.T) {
 
 func createClassBackfillMaster(t *testing.T, store *state.Store, id, class string) {
 	t.Helper()
-	manifest := state.Manifest{
+	manifest := state.Manifest{TmuxServer: "questmaster",
 		SessionID: id,
 		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}

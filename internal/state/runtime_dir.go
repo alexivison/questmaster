@@ -13,8 +13,8 @@ import (
 )
 
 // A session's runtime directory holds what its tmux hooks and agent bridges
-// share at run time: the session-closed cleanup script, the session-name and
-// resume-ID files, and Pi's messaging socket. A new session's directory is
+// share at run time: the session-name and resume-ID files, and Pi's messaging
+// socket. A new session's directory is
 // <state root>/runtime/<id>, owner-only. Its manifest records the path
 // (runtime_dir) and the session gets it as $QUESTMASTER_RUNTIME_DIR; every
 // reader takes it from one of the two.
@@ -31,16 +31,14 @@ const (
 	maxUnixSocketPath = 103
 )
 
-// NewRuntimeDir returns the runtime directory a session gets under root. The
-// session-closed hook relies on the shape: it finds a closed session's
-// cleanup script at <root>/runtime/<closed session's name>.
+// NewRuntimeDir returns the private runtime directory a session gets under root.
 func NewRuntimeDir(root, sessionID string) string {
 	return filepath.Join(root, runtimeDirName, sessionID)
 }
 
 // RuntimeDirOrLegacy returns where the session's runtime files are. A recorded
-// path must be absolute, clean and named after the session, since the cleanup
-// script removes it.
+// path must be absolute, clean and named after the session, since lifecycle
+// cleanup removes that directory.
 func (m Manifest) RuntimeDirOrLegacy() (string, error) {
 	if m.RuntimeDir == "" {
 		// LEGACY: a session started before runtime_dir was recorded keeps its

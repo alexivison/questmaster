@@ -83,6 +83,9 @@ func collectList(ctx context.Context, store *state.Store, client *tmux.Client, r
 			continue
 		}
 		if m, ok := manifestIdx[id]; ok {
+			if m.NeedsTmuxBackfill() {
+				continue
+			}
 			h, err := router.Route(m)
 			if err != nil {
 				return listResult{}, err
@@ -98,6 +101,10 @@ func collectList(ctx context.Context, store *state.Store, client *tmux.Client, r
 	// Stale: manifests not live in tmux.
 	var stale []state.Manifest
 	for _, m := range all {
+		if m.NeedsTmuxBackfill() {
+			stale = append(stale, m)
+			continue
+		}
 		h, err := router.Route(m)
 		if err != nil {
 			return listResult{}, err

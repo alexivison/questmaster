@@ -191,9 +191,6 @@ func TestIntegrationSessionTargetsMissAPrefixSibling(t *testing.T) {
 	if value, ok, err := client.ShowEnvironment(ctx, base, "MARK"); err != nil || ok {
 		t.Errorf("ShowEnvironment on a missing session = %q, %v, %v; want not set", value, ok, err)
 	}
-	if err := client.SetHook(ctx, base, "session-closed", "run-shell true"); err == nil {
-		t.Error("SetHook on a missing session succeeded")
-	}
 	if _, err := client.ListPanes(ctx, base); err == nil {
 		t.Error("ListPanes on a missing session succeeded")
 	}
@@ -228,24 +225,33 @@ func TestIntegrationSessionTargetsMissAPrefixSibling(t *testing.T) {
 	}
 }
 
-// DefaultServer passes -L default. That must be the socket tmux picks when no
-// flag or TMUX selects one, or sessions started before the flag became
-// explicit would be out of reach.
-func TestIntegrationDefaultLabelIsTheFlaglessSocket(t *testing.T) {
-	t.Parallel()
+// The audit probe follows tmux's directory rule, reads an existing private
+// server, and leaves a missing socket absent. All mutations use tmuxtest's -S.
+func TestIntegrationDefaultProbeOnlyListsOnPrivateSocket(t *testing.T) {
 	tmuxtest.RequireIntegration(t)
-	// TMUX_TMPDIR moves tmux's socket directory into a private one, for raw
-	// tmux only: a Server strips it.
-	tmpdir := filepath.Dir(tmuxtest.NewRunner(t).Socket())
-	t.Cleanup(func() {
-		_, _ = runWithInheritedTMUX(context.Background(), "", tmpdir, "-L", "default", "kill-server")
-	})
-	if out, err := runWithInheritedTMUX(t.Context(), "", tmpdir, "new-session", "-d", "-s", "qm-flagless", "sleep 60"); err != nil {
-		t.Fatalf("new-session without a flag: %v: %s", err, out)
+	runner := tmuxtest.NewRunner(t)
+	base := filepath.Dir(tmuxtest.NewRunner(t).Socket())
+	t.Setenv("TMUX_TMPDIR", base)
+	socket := filepath.Join(base, fmt.Sprintf("tmux-%d", os.Getuid()), "default")
+	if err := os.MkdirAll(filepath.Dir(socket), 0700); err != nil {
+		t.Fatal(err)
 	}
-	if out, err := runWithInheritedTMUX(t.Context(), "", tmpdir, "-L", "default", "has-session", "-t", "=qm-flagless:"); err != nil {
-		t.Fatalf("-L default does not see the flagless session: %v: %s", err, out)
+	if err := os.Symlink(runner.Socket(), socket); err != nil {
+		t.Fatal(err)
 	}
+	if ids, present, err := tmux.ProbeDefaultSessions(t.Context()); err != nil || present || len(ids) != 0 {
+		t.Fatalf("missing probe: ids=%v present=%v err=%v", ids, present, err)
+	}
+	if _, err := os.Stat(runner.Socket()); !os.IsNotExist(err) {
+		t.Fatalf("probe started server: %v", err)
+	}
+	mustRun(t, runner, "new-session", "-d", "-s", "shell-example", "sleep 60")
+	mustRun(t, runner, "new-session", "-d", "-s", "qm-example", "sleep 60")
+	ids, present, err := tmux.ProbeDefaultSessions(t.Context())
+	if err != nil || !present || len(ids) != 2 {
+		t.Fatalf("live probe: ids=%v present=%v err=%v", ids, present, err)
+	}
+	assertSessions(t, runner, "shell-example", "qm-example")
 }
 
 // An inherited TMUX names the caller's own server. A Server must still run

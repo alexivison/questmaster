@@ -26,7 +26,7 @@ func jobFixture(t *testing.T) (*Job, *state.Store, *time.Time, *map[string]bool)
 	root := t.TempDir()
 	store := state.OpenStore(root)
 	for _, id := range []string{"qm-live", "qm-dead"} {
-		if err := store.Create(state.Manifest{SessionID: id}); err != nil {
+		if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: id}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -44,7 +44,7 @@ func jobFixture(t *testing.T) (*Job, *state.Store, *time.Time, *map[string]bool)
 		return strings.Join(names, "\n"), nil
 	}))
 	now := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)
 	j := NewJob(root, client, nil, router)
 	j.Now = func() time.Time { return now }
 	return j, store, &now, &live
@@ -488,7 +488,7 @@ func TestJobNoTmuxServerHasNoWork(t *testing.T) {
 	j.Tmux = tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) {
 		return "", &tmux.ExitError{Code: 1, Stderr: "no server running on /tmp/tmux-test/default"}
 	}))
-	j.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"default": j.Tmux}, func() string { return "default" }, nil)
+	j.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": j.Tmux}, func() string { return "dev_previous" }, nil)
 	if j.HasWork() {
 		t.Fatal("absent tmux server kept job alive")
 	}
@@ -500,7 +500,7 @@ func TestJobNoTmuxServerHasNoWork(t *testing.T) {
 		t.Fatalf("absent tmux server treated as job error: %v", err)
 	}
 	j.Tmux = tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) { return "", syscall.EAGAIN }))
-	j.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"default": j.Tmux}, func() string { return "default" }, nil)
+	j.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": j.Tmux}, func() string { return "dev_previous" }, nil)
 	if !j.HasWork() {
 		t.Fatal("temporary process-spawn failure dropped watched work")
 	}

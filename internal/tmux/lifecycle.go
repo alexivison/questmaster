@@ -352,15 +352,6 @@ func (c *Client) ShowEnvironment(ctx context.Context, session, key string) (stri
 	return "", false, nil
 }
 
-// SetHook registers a tmux hook on a session.
-func (c *Client) SetHook(ctx context.Context, session, hookName, cmd string) error {
-	_, err := c.runner.Run(ctx, "set-hook", "-t", SessionTarget(session), hookName, cmd)
-	if err != nil {
-		return fmt.Errorf("set-hook %s on %s: %w", hookName, session, err)
-	}
-	return nil
-}
-
 // SwitchClient moves the caller's own client to a session. The caller must run
 // in a pane on this server; the client is the one showing that pane's session,
 // never a guess among other clients.

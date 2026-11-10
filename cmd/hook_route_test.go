@@ -12,7 +12,7 @@ import (
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
-func TestHookEnvAbsentIsLegacy(t *testing.T) {
+func TestHookEnvAbsentMakesNoWrites(t *testing.T) {
 	root := setTestStateRoot(t)
 	t.Setenv("QUESTMASTER_TMUX_SERVER", "")
 	if err := os.Unsetenv("QUESTMASTER_TMUX_SERVER"); err != nil {
@@ -27,7 +27,7 @@ func TestHookEnvAbsentIsLegacy(t *testing.T) {
 	if handled, err := executeHookFastPath([]string{"--session", "qm-old", "codex", "tool_start"}, strings.NewReader(`{"tool_name":"Edit"}`), &stderr); err != nil || !handled {
 		t.Fatalf("hook handled=%t err=%v stderr=%q", handled, err, stderr.String())
 	}
-	if _, err := os.Stat(state.SessionStatePath(root, "qm-old")); err != nil {
+	if _, err := os.Stat(state.SessionStatePath(root, "qm-old")); !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
 }
@@ -63,17 +63,17 @@ func TestHookStaleOriginMakesNoWrites(t *testing.T) {
 			if _, err := os.Stat(state.SessionStateLogPath(root, "qm-new")); !os.IsNotExist(err) {
 				t.Fatalf("stale hook wrote an event: %v", err)
 			}
-			if !strings.Contains(stderr.String(), "stale") {
+			if !strings.Contains(stderr.String(), "invalid tmux origin") {
 				t.Fatalf("diagnostic = %q", stderr.String())
 			}
-			if lines := strings.Split(strings.TrimSpace(hookErrorLog(t, root, "qm-new")), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "stale tmux origin") {
+			if lines := strings.Split(strings.TrimSpace(hookErrorLog(t, root, "qm-new")), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "invalid tmux origin") {
 				t.Fatalf("hook error lines = %q", lines)
 			}
 		})
 	}
 }
 
-func TestHookLegacyContinuesAfterRouterSetupError(t *testing.T) {
+func TestHookMissingOwnershipMakesNoWrites(t *testing.T) {
 	root := setTestStateRoot(t)
 	t.Setenv("QUESTMASTER_TMUX_LABEL", "invalid!")
 	t.Setenv("CODEX_THREAD_ID", "")
@@ -91,10 +91,10 @@ func TestHookLegacyContinuesAfterRouterSetupError(t *testing.T) {
 	if handled, err := executeHookFastPath([]string{"--session", "qm-old", "codex", "tool_start"}, strings.NewReader(`{"tool_name":"Edit"}`), &stderr); err != nil || !handled {
 		t.Fatalf("hook handled=%t err=%v", handled, err)
 	}
-	if _, err := os.Stat(state.SessionStatePath(root, "qm-old")); err != nil {
+	if _, err := os.Stat(state.SessionStatePath(root, "qm-old")); !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	if lines := strings.Split(strings.TrimSpace(hookErrorLog(t, root, "qm-old")), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "QUESTMASTER_TMUX_LABEL") {
+	if lines := strings.Split(strings.TrimSpace(hookErrorLog(t, root, "qm-old")), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "invalid tmux origin") {
 		t.Fatalf("hook error lines = %q", lines)
 	}
 }

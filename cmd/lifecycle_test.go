@@ -73,7 +73,7 @@ func readOnlyNewManifest(t *testing.T, store *state.Store, exclude ...string) st
 		t.Fatalf("ReadDir(%s): %v", store.Root(), err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" || !state.IsValidSessionID(strings.TrimSuffix(entry.Name(), ".json")) {
 			continue
 		}
 		id := strings.TrimSuffix(entry.Name(), ".json")

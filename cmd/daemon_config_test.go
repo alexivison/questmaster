@@ -20,7 +20,7 @@ func daemonConfigForTest(store *state.Store, client *tmux.Client) (daemon.Config
 	if err != nil {
 		return daemon.Config{}, err
 	}
-	router := tmuxroute.New(state.OpenStore(root), map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	router := tmuxroute.New(state.OpenStore(root), map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)
 	return newDaemonConfigWithRouter(store, client, router)
 }
 
@@ -56,7 +56,7 @@ func TestDaemonClassBackfillUsesAbsoluteStateRootAfterChdir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID: "qm-relative-root",
 		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}); err != nil {

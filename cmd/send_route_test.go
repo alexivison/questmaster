@@ -22,7 +22,7 @@ func TestSendCommandRoutesRecipientServer(t *testing.T) {
 	}
 	legacy, named := newSendCaptureRunner("qm-master", "qm-worker"), newSendCaptureRunner("qm-master", "qm-worker")
 	legacyClient, namedClient := tmux.NewClient(legacy), tmux.NewClient(named)
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": legacyClient, "questmaster": namedClient}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": legacyClient, "questmaster": namedClient}, func() string { return "dev_previous" }, nil)
 	cmd := NewRootCmd(WithDeps(store, legacyClient), WithTmuxRouter(router))
 	cmd.SetArgs([]string{"send", "qm-worker", "hello"})
 	var out bytes.Buffer

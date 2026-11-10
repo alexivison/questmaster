@@ -22,7 +22,7 @@ import (
 )
 
 func daemonSnapshotterForTest(store *state.Store, client *tmux.Client, now func() time.Time) *serve.Snapshotter {
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"questmaster": client}, func() string { return "questmaster" }, nil)
 	return serve.NewSnapshotter(store, client, now, router)
 }
 
@@ -57,7 +57,7 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-demo", Title: "first", Cwd: root, SessionType: "master", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "questmaster", SessionID: "qm-demo", Title: "first", Cwd: root, SessionType: "master", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
 	artifactPath := filepath.Join(root, "report.html")
@@ -76,7 +76,7 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 			return []byte(`{"started":true}`), nil
 		}),
 	}
-	runtime.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(runtimeTmuxRunner{})}, func() string { return "default" }, nil)
+	runtime.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"questmaster": tmux.NewClient(runtimeTmuxRunner{})}, func() string { return "questmaster" }, nil)
 	s := &server{
 		config:  Config{Root: root, PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second},
 		runtime: runtime, id: "canonical", record: Record{Root: root, Identity: "canonical", Accepting: true, Generation: 1},

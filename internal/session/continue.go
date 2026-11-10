@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/config"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // ContinueResult holds the outcome of a Continue operation.
@@ -97,7 +97,7 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 	if err != nil {
 		return ContinueResult{}, err
 	}
-	if creation.Label() != "default" && !launch.shell {
+	if !launch.shell {
 		if _, ok := launch.agentResume[agent.RoleAgent]; !ok {
 			return ContinueResult{}, fmt.Errorf("session %s has no saved agent resume ID; Continue cannot start a new conversation", sessionID)
 		}
@@ -203,61 +203,11 @@ func (s *Service) reattach(ctx context.Context, sessionID string) (ContinueResul
 	if !pane.Dead {
 		return result, nil
 	}
-	if m.TmuxServer == "" || m.TmuxServer == "default" {
-		creation, err := s.router().Creation()
-		if err != nil {
-			return ContinueResult{}, err
-		}
-		if creation.Label() != "default" {
-			allDead, err := s.Client.AllPanesDead(ctx, sessionID)
-			if err != nil {
-				return ContinueResult{}, err
-			}
-			if allDead {
-				if err := s.retireDeadLegacy(ctx, m); err != nil {
-					return ContinueResult{}, err
-				}
-				return s.continueLocked(ctx, sessionID)
-			}
-		}
-	}
 	if err := s.respawnDeadAgent(ctx, m, pane); err != nil {
 		return ContinueResult{}, err
 	}
 	result.Respawned, result.AgentExit = true, pane.Exit
 	return result, nil
-}
-
-func (s *Service) retireDeadLegacy(ctx context.Context, m state.Manifest) error {
-	// Validate the conversation before killing its old container.
-	launch, err := s.continueLaunchFor(m)
-	if err != nil {
-		return err
-	}
-	if _, ok := launch.agentResume[agent.RoleAgent]; !ok {
-		return fmt.Errorf("session %s has no saved agent resume ID; Continue cannot retire it; run qm delete %s and start a new session", m.SessionID, m.SessionID)
-	}
-	if _, err := savedCwd(m); err != nil {
-		return err
-	}
-	dir, err := m.RuntimeDirOrLegacy()
-	if err != nil {
-		return err
-	}
-	script := filepath.Join(dir, "cleanup.sh")
-	renamed := false
-	if err := os.Rename(script, script+".retired"); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("retire legacy cleanup: %w", err)
-	} else if err == nil {
-		renamed = true
-	}
-	if err := s.Client.KillSession(ctx, m.SessionID); err != nil {
-		if renamed {
-			_ = os.Rename(script+".retired", script)
-		}
-		return err
-	}
-	return nil
 }
 
 // respawnDeadAgent starts a running session's exited agent again in its pane,
@@ -436,10 +386,18 @@ func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, session
 	if err := s.Client.SetEnvironment(ctx, sessionID, state.SessionEnv, sessionID); err != nil {
 		return err
 	}
-	label := "default"
-	if m, err := s.Store.Read(sessionID); err == nil && m.TmuxServer != "" {
-		label = string(m.TmuxServer)
+	m, readErr := s.Store.Read(sessionID)
+	var handle tmuxroute.Handle
+	var err error
+	if readErr == nil {
+		handle, err = s.router().Route(m)
+	} else {
+		handle, err = s.router().Creation()
 	}
+	if err != nil {
+		return err
+	}
+	label := handle.Label()
 	if err := s.Client.SetEnvironment(ctx, sessionID, "QUESTMASTER_TMUX_SERVER", label); err != nil {
 		return err
 	}

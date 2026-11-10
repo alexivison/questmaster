@@ -1,5 +1,5 @@
 // Package tmuxroute pins session operations to the server recorded in their
-// manifests and inventories the legacy and dedicated tmux servers.
+// manifests and inventories dedicated tmux servers.
 package tmuxroute
 
 import (
@@ -30,9 +30,6 @@ func (h Handle) SendLockNamespace() string { return h.label }
 func (h Handle) ConfigFiles() []string     { return append([]string{}, h.configFiles...) }
 
 func (h Handle) Command(ctx context.Context, args ...string) (*exec.Cmd, error) {
-	if h.label == "default" {
-		return tmux.LegacyServer().Command(ctx, args...), nil
-	}
 	if len(h.configFiles) != 2 {
 		return nil, fmt.Errorf("tmux server %q has no config files", h.label)
 	}
@@ -86,15 +83,23 @@ type Router struct {
 	clients        map[string]*tmux.Client
 	cache          map[string]cacheEntry
 	factory        func(string) (*tmux.Client, error)
+	defaultProbe   func(context.Context) ([]string, bool, error)
 	labelRecordErr error
 }
 
 func New(store *state.Store, clients map[string]*tmux.Client, creation func() string, namedConfigFiles []string) *Router {
 	copyClients := make(map[string]*tmux.Client, len(clients))
 	for label, client := range clients {
-		copyClients[label] = client
+		// A default client is accepted only as a read-only audit probe.
+		if label != "default" {
+			copyClients[label] = client
+		}
 	}
-	return &Router{store: store, clients: copyClients, creation: creation, paths: append([]string(nil), namedConfigFiles...), cache: make(map[string]cacheEntry)}
+	r := &Router{store: store, clients: copyClients, creation: creation, paths: append([]string(nil), namedConfigFiles...), cache: make(map[string]cacheEntry)}
+	if client := clients["default"]; client != nil {
+		r.defaultProbe = client.ListSessionsStatus
+	}
+	return r
 }
 
 // NewProduction builds the dedicated client exactly once here. All other
@@ -110,19 +115,19 @@ func NewProduction(store *state.Store, defaultClient *tmux.Client) (*Router, err
 	}
 	paths := tmuxconfig.PathsForLabel(root, label)
 	files := []string{paths.Config, paths.Enforced}
-	// The injected client selects creation; legacy manifests need their own runner.
+	// Preserve the caller's send deadline on every dedicated client.
 	sendTimeout := defaultClient.SendTimeout
 	newClient := func(runner tmux.Runner) *tmux.Client {
 		client := tmux.NewClient(runner)
 		client.SendTimeout = sendTimeout
 		return client
 	}
-	defaultClient = newClient(tmux.LegacyServer())
 	named, err := tmux.NamedServerLabel(label, files[0], files[1])
 	if err != nil {
 		return nil, err
 	}
-	r := New(state.OpenStore(root), map[string]*tmux.Client{"default": defaultClient, label: newClient(named)}, func() string { return label }, files)
+	r := New(state.OpenStore(root), map[string]*tmux.Client{label: newClient(named)}, func() string { return label }, files)
+	r.defaultProbe = tmux.ProbeDefaultSessions
 	r.configRoot = root
 	r.factory = func(recorded string) (*tmux.Client, error) {
 		recordedPaths := tmuxconfig.PathsForLabel(root, recorded)
@@ -154,15 +159,13 @@ func (r *Router) refreshPersistedLabels() {
 }
 
 func (r *Router) handle(label string) (Handle, error) {
-	if label != "default" {
-		if err := tmux.ValidateNamedLabel(label); err != nil {
-			return Handle{}, err
-		}
+	if err := tmux.ValidateNamedLabel(label); err != nil {
+		return Handle{}, err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	client := r.clients[label]
-	if client == nil && r.factory != nil && label != "default" {
+	if client == nil && r.factory != nil {
 		var err error
 		client, err = r.factory(label)
 		if err != nil {
@@ -174,21 +177,19 @@ func (r *Router) handle(label string) (Handle, error) {
 		return Handle{}, fmt.Errorf("tmux server %q has no client", label)
 	}
 	h := Handle{label: label, client: client}
-	if label != "default" {
-		if r.configRoot != "" {
-			paths := tmuxconfig.PathsForLabel(r.configRoot, label)
-			h.configFiles = []string{paths.Config, paths.Enforced}
-		} else {
-			h.configFiles = append([]string(nil), r.paths...)
-		}
+	if r.configRoot != "" {
+		paths := tmuxconfig.PathsForLabel(r.configRoot, label)
+		h.configFiles = []string{paths.Config, paths.Enforced}
+	} else {
+		h.configFiles = append([]string(nil), r.paths...)
 	}
 	return h, nil
 }
 
 func (r *Router) Route(m state.Manifest) (Handle, error) {
 	label := string(m.TmuxServer)
-	if label == "" {
-		label = "default"
+	if m.NeedsTmuxBackfill() {
+		return Handle{}, fmt.Errorf("session %s has no dedicated tmux_server (recorded %q); run qm tmux audit --backfill for stopped manifests", m.SessionID, label)
 	}
 	return r.handle(label)
 }
@@ -225,10 +226,11 @@ func (r *Router) RecordedHandles() ([]Handle, error) {
 			return nil, err
 		}
 		for _, m := range manifests {
-			if m.TmuxServer != "" && m.TmuxServer != "default" {
-				if err := tmux.ValidateNamedLabel(string(m.TmuxServer)); err != nil {
-					continue
-				}
+			if m.NeedsTmuxBackfill() {
+				continue
+			}
+			if err := tmux.ValidateNamedLabel(string(m.TmuxServer)); err != nil {
+				continue
 			}
 			if _, err := r.Route(m); err != nil {
 				return nil, err
@@ -246,6 +248,9 @@ func (r *Router) Inventory(ctx context.Context) Inventory {
 	if r.store != nil {
 		if manifests, err := r.store.DiscoverSessions(); err == nil {
 			for _, m := range manifests {
+				if tmux.ValidateNamedLabel(string(m.TmuxServer)) != nil {
+					continue
+				}
 				_, _ = r.Route(m)
 			}
 		}
@@ -301,10 +306,46 @@ func (r *Router) CompleteInventory(ctx context.Context) (Inventory, error) {
 	return inv, nil
 }
 
-// LiveIDs returns the union of observed session names only when every server
-// answered. Destructive callers must never treat unavailable as empty.
-func (r *Router) LiveIDs(ctx context.Context) (map[string]bool, error) {
+// AuditInventory adds the read-only default observation to a complete dedicated
+// inventory. Cleanup uses it to preserve or refuse default sessions, never route them.
+func (r *Router) AuditInventory(ctx context.Context) (Inventory, error) {
 	inv, err := r.CompleteInventory(ctx)
+	if err != nil {
+		return inv, err
+	}
+	return r.includeDefaultProbe(ctx, inv)
+}
+
+func (r *Router) includeDefaultProbe(ctx context.Context, inv Inventory) (Inventory, error) {
+	ids, present, err := r.probeDefault(ctx)
+	server := ServerInventory{Label: "default", Outcome: Available}
+	if err != nil {
+		server.Outcome = Unavailable
+		server.Error = err.Error()
+	} else if !present {
+		server.Outcome = Absent
+	}
+	inv.Servers = append([]ServerInventory{server}, inv.Servers...)
+	if err != nil {
+		return inv, fmt.Errorf("tmux server default unavailable: %w", err)
+	}
+	for _, id := range ids {
+		inv.Rows = append(inv.Rows, Row{Label: "default", ID: id})
+	}
+	counts := make(map[string]int, len(inv.Rows))
+	for _, row := range inv.Rows {
+		counts[row.ID]++
+	}
+	for i := range inv.Rows {
+		inv.Rows[i].Conflict = counts[inv.Rows[i].ID] > 1
+	}
+	return inv, nil
+}
+
+// LiveIDs includes the read-only default probe so cleanup cannot discard
+// metadata for sessions it cannot route. Any incomplete observation refuses cleanup.
+func (r *Router) LiveIDs(ctx context.Context) (map[string]bool, error) {
+	inv, err := r.AuditInventory(ctx)
 	if err != nil {
 		return nil, err
 	}

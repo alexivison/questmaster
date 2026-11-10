@@ -39,10 +39,10 @@ type resumeInfo struct {
 
 // launchSession performs the shared tmux session setup:
 // set session env → build commands → persist resume IDs → set resume env →
-// choose layout → launch panes → set cleanup hook.
+// choose layout → launch panes.
 func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
-	if lc.serverLabel == "" {
-		lc.serverLabel = "default"
+	if err := tmux.ValidateNamedLabel(lc.serverLabel); err != nil {
+		return err
 	}
 	openCodeConfigDir := s.openCodeConfigDir(lc.agents)
 	if openCodeConfigDir != "" {
@@ -89,9 +89,6 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		if err := s.launchShellWorkspace(ctx, lc.pane, lc.cwd); err != nil {
 			return err
 		}
-		if lc.serverLabel == "default" {
-			return s.setCleanupHook(ctx, lc.sessionID, lc.runtimeDir)
-		}
 		return nil
 	}
 
@@ -112,20 +109,14 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
-	if lc.serverLabel == "default" {
-		if err := s.setCleanupHook(ctx, lc.sessionID, lc.runtimeDir); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
 // Dev sessions carry their creation label into pane CLIs, including workers.
-// A legacy pane without an override still creates on the production server.
+// Production panes without an override create on the production server.
 func (s *Service) setPaneCreationLabel(ctx context.Context, sessionID, recorded string) error {
 	label := recorded
-	if label == "default" || label == "questmaster" {
+	if label == "questmaster" {
 		var set bool
 		label, set = os.LookupEnv("QUESTMASTER_TMUX_LABEL")
 		if !set {

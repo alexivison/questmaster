@@ -46,6 +46,15 @@ func (r *Router) Routes(ctx context.Context, ids []string, liveOnly bool) ([]Rou
 			manifests = append(manifests, m)
 		}
 	}
+	if len(ids) == 0 {
+		labelled := manifests[:0]
+		for _, m := range manifests {
+			if !m.NeedsTmuxBackfill() {
+				labelled = append(labelled, m)
+			}
+		}
+		manifests = labelled
+	}
 	for _, m := range manifests {
 		if _, err := r.Route(m); err != nil {
 			return nil, fmt.Errorf("route %s: %w", m.SessionID, err)
@@ -92,6 +101,7 @@ type Audit struct {
 	InventoryError    string            `json:"inventory_error,omitempty"`
 	Servers           []ServerInventory `json:"servers"`
 	LiveSessions      []Row             `json:"live_sessions"`
+	Backfill          *BackfillResult   `json:"backfill,omitempty"`
 	LiveLegacyManaged []string          `json:"live_legacy_managed"`
 	Orphans           []Row             `json:"orphans"`
 	Duplicates        []string          `json:"duplicates"`
@@ -106,6 +116,13 @@ func (r *Router) Audit(ctx context.Context) (Audit, error) {
 		a.Gate = "unknown"
 		a.InventoryError = inventoryErr.Error()
 	}
+	inv, probeErr := r.includeDefaultProbe(ctx, inv)
+	if probeErr != nil {
+		a.Gate = "unknown"
+		a.InventoryError = strings.TrimSpace(a.InventoryError + " " + probeErr.Error())
+	}
+	a.Servers = inv.Servers
+	a.LiveSessions = inv.Rows
 	entries, err := os.ReadDir(r.store.Root())
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return a, err
@@ -148,6 +165,10 @@ func (r *Router) Audit(ctx context.Context) (Audit, error) {
 			}
 			continue
 		}
+		if row.Label == "default" {
+			a.LiveLegacyManaged = append(a.LiveLegacyManaged, row.ID)
+			continue
+		}
 		h, routeErr := r.Route(m)
 		if routeErr != nil {
 			continue
@@ -156,9 +177,6 @@ func (r *Router) Audit(ctx context.Context) (Audit, error) {
 			a.UnknownOwnership = append(a.UnknownOwnership, row.ID)
 			a.Gate = "unknown"
 			continue
-		}
-		if row.Label == "default" {
-			a.LiveLegacyManaged = append(a.LiveLegacyManaged, row.ID)
 		}
 	}
 	if a.Gate != "unknown" && (len(a.LiveLegacyManaged) > 0 || len(a.Orphans) > 0 || len(a.Duplicates) > 0) {

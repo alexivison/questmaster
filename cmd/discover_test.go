@@ -90,7 +90,7 @@ func TestDiscoverIgnoresForeignTMUX(t *testing.T) {
 		}
 		return "", nil
 	}}
-	router := tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(runner)}, func() string { return "default" }, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": tmux.NewClient(runner)}, func() string { return "dev_previous" }, nil)
 	if got, err := discoverSessionRouted(t.Context(), store, router); err == nil {
 		t.Fatalf("discovered %q through foreign TMUX", got)
 	}

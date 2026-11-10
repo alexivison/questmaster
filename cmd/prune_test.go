@@ -19,7 +19,7 @@ import (
 )
 
 func testPruneRouter(store *state.Store, client *tmux.Client) *tmuxroute.Router {
-	return tmuxroute.New(store, map[string]*tmux.Client{"default": client}, func() string { return "default" }, nil)
+	return tmuxroute.New(store, map[string]*tmux.Client{"default": tmux.NewClient(allPassRunner()), "dev_previous": client}, func() string { return "dev_previous" }, nil)
 }
 
 func TestPruneHelpDoesNotMentionArtifacts(t *testing.T) {
@@ -96,7 +96,7 @@ func TestClassBackfillPreservesOldManifestRecencyForPrune(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID: "qm-old",
 		Cwd:       "/tmp",
 		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},

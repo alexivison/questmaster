@@ -21,7 +21,7 @@ func TestPRRefreshScopesAndWaitsForStatus(t *testing.T) {
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.store.Create(state.Manifest{SessionID: "qm-other"}); err != nil {
+	if err := env.store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-other"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-other", other, env.now); err != nil {
@@ -92,7 +92,7 @@ func TestPRRefreshWithoutSessionQueuesWatchedKey(t *testing.T) {
 	if response.OK == nil || !*response.OK {
 		t.Fatalf("async wake failed: %s", response.Error)
 	}
-	if err := env.store.Create(state.Manifest{SessionID: "qm-other"}); err != nil {
+	if err := env.store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-other"}); err != nil {
 		t.Fatal(err)
 	}
 	other, _ := state.ParsePullRequestRef("owner/repo#43")
@@ -117,7 +117,7 @@ func TestPRRefreshWithoutSessionQueuesWatchedKey(t *testing.T) {
 
 func TestPullRequestsScopeAndRevision(t *testing.T) {
 	env := seedServeFixture(t)
-	worker := state.Manifest{SessionID: "qm-worker", SessionType: "worker"}
+	worker := state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-worker", SessionType: "worker"}
 	worker.SetExtra("parent_session", "qm-demo")
 	if err := env.store.Create(worker); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 	if err := env.store.Update("qm-demo", func(m *state.Manifest) { m.Workers = []string{"qm-worker"} }); err != nil {
 		t.Fatal(err)
 	}
-	other := state.Manifest{SessionID: "qm-other"}
+	other := state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-other"}
 	if err := env.store.Create(other); err != nil {
 		t.Fatal(err)
 	}

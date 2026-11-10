@@ -129,13 +129,17 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store, projects
 		}
 
 		for _, manifest := range manifests {
-			handle, err := router.Route(manifest)
-			if err != nil {
-				return TrackerSnapshot{}, fmt.Errorf("route %s: %w", manifest.SessionID, err)
+			label := ""
+			if !manifest.NeedsTmuxBackfill() {
+				handle, err := router.Route(manifest)
+				if err != nil {
+					return TrackerSnapshot{}, fmt.Errorf("route %s: %w", manifest.SessionID, err)
+				}
+				label = handle.Label()
 			}
-			key := handle.Label() + "\x00" + manifest.SessionID
-			server := index.servers[handle.Label()]
-			alive := index.hasSession(handle.Label(), manifest.SessionID)
+			key := label + "\x00" + manifest.SessionID
+			server := index.servers[label]
+			alive := label != "" && index.hasSession(label, manifest.SessionID)
 			row := ManifestToSessionRow(manifest.SessionID, manifest, alive)
 			if server.Outcome == tmuxroute.Unavailable {
 				prior, ok := lastStatus[key]

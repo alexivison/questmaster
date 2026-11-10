@@ -39,7 +39,7 @@ func (fx unlistedFixture) server() *Server {
 // each call creates a new manifest.
 func (fx unlistedFixture) addSession(t *testing.T, index int, cwd string) {
 	t.Helper()
-	if err := fx.store.Create(state.Manifest{SessionID: fmt.Sprintf("qm-s%d", index), Cwd: cwd}); err != nil {
+	if err := fx.store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: fmt.Sprintf("qm-s%d", index), Cwd: cwd}); err != nil {
 		t.Fatalf("create session %d: %v", index, err)
 	}
 }

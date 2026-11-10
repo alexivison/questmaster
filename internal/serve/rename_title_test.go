@@ -62,7 +62,7 @@ func TestRenameRoutesToRecordedServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy, named := &paneTitleRunner{}, &paneTitleRunner{}
-	router := tmuxroute.New(env.store, map[string]*tmux.Client{"default": tmux.NewClient(legacy), "questmaster": tmux.NewClient(named)}, func() string { return "default" }, nil)
+	router := tmuxroute.New(env.store, map[string]*tmux.Client{"dev_previous": tmux.NewClient(legacy), "questmaster": tmux.NewClient(named)}, func() string { return "dev_previous" }, nil)
 	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(legacy), nil), TmuxRouter: router}
 	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Routed title"}); err != nil {
 		t.Fatal(err)
