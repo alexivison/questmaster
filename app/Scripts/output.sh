@@ -31,11 +31,27 @@ ui_title() {
   printf '\n%s⚔  %s%s\n%s   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~%s\n' "${UI_GOLD}" "$1" "${UI_RESET}" "${UI_DIM}" "${UI_RESET}"
 }
 
-# ui_line LABEL MARK [NOTE]: one step's line, its label padded with dots.
+# ui_line LABEL MARK [NOTE]: one step's line, its label padded with dots. It overwrites a running step's line.
 ui_line() {
   local dots
   dots="$(printf '%*s' $((UI_LABEL_WIDTH - ${#1})) '' | tr ' ' '.')"
-  printf '  %s◆%s %s %s%s%s %s%s\n' "${UI_GOLD}" "${UI_RESET}" "$1" "${UI_DIM}" "$dots" "${UI_RESET}" "$2" "${3:+ ${UI_DIM}$3${UI_RESET}}"
+  printf '\r\033[K  %s◆%s %s %s%s%s %s%s' "${UI_GOLD}" "${UI_RESET}" "$1" "${UI_DIM}" "$dots" "${UI_RESET}" "$2" "${3:+ ${UI_DIM}$3${UI_RESET}}"
+  [ "${4:-}" = running ] || printf '\n'
+}
+
+UI_SPINNER=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+UI_SPINNER_PERIOD=0.1
+
+# ui_running LABEL STARTED LOG PID: redraws the step's line with a spinner, the elapsed time and the build tool's
+# latest [done/total] count, until PID exits.
+ui_running() {
+  local frame=0 progress
+  while kill -0 "$4" 2>/dev/null; do
+    progress="$(grep -oE '\[[0-9]+/[0-9]+\]' "$3" 2>/dev/null | tail -1 || true)"
+    ui_line "$1" "${UI_GOLD}${UI_SPINNER[frame]}${UI_RESET}" "$((SECONDS - $2))s${progress:+ $progress}" running
+    frame=$(((frame + 1) % ${#UI_SPINNER[@]}))
+    sleep "$UI_SPINNER_PERIOD"
+  done
 }
 
 # ui_done LABEL [NOTE]: a step the script did itself has finished.
@@ -50,7 +66,10 @@ ui_step() {
     return
   fi
   log="$(mktemp -t questmaster-build)"
-  "$@" >"$log" 2>&1 || status=$?
+  "$@" >"$log" 2>&1 &
+  local pid=$!
+  ui_running "$label" "$started" "$log" "$pid"
+  wait "$pid" || status=$?
   if [ "$status" != 0 ]; then
     ui_line "$label" "${UI_FAIL}✗${UI_RESET}"
     printf '\n%s' "${UI_FAIL}" >&2
