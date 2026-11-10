@@ -3,7 +3,9 @@ import Darwin
 import Foundation
 import QuestmasterCore
 
-final class DaemonConnection {
+/// Shared with the background queue that resolves the daemon. Every mutable field is read and written only under
+/// `lock`, which is why the class is `@unchecked Sendable`.
+final class DaemonConnection: @unchecked Sendable {
     private let config: LaunchConfiguration
     private let lock = NSLock()
     private var cached: DaemonRecord?
