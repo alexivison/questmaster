@@ -38,6 +38,8 @@ func newQuestCmd(store *state.Store, client *tmux.Client, repoRoot string, route
 func newQuestAddCmd(store *state.Store, client *tmux.Client, sessionFlag *string) *cobra.Command {
 	var project string
 	var file string
+	var types []string
+	var size string
 	cmd := &cobra.Command{
 		Use:   "add [content]",
 		Short: "Add a quest",
@@ -61,6 +63,8 @@ func newQuestAddCmd(store *state.Store, client *tmux.Client, sessionFlag *string
 				ProjectPath: projectMeta.path,
 				ProjectName: projectMeta.name,
 				SessionID:   sessionID,
+				Types:       questTagFlagValues(types),
+				Size:        size,
 			})
 			if err != nil {
 				return err
@@ -70,12 +74,16 @@ func newQuestAddCmd(store *state.Store, client *tmux.Client, sessionFlag *string
 	}
 	cmd.Flags().StringVar(&project, "project", "", "project path (defaults to session cwd/current repo)")
 	cmd.Flags().StringVar(&file, "file", "", "read content from a file, or '-' for stdin")
+	cmd.Flags().StringArrayVar(&types, "type", nil, "quest type tags (repeatable or comma-separated)")
+	cmd.Flags().StringVar(&size, "size", "", "quest size: S, M, or L")
 	return cmd
 }
 
 func newQuestListCmd(store *state.Store) *cobra.Command {
 	var project string
 	var query string
+	var types []string
+	var sizes []string
 	cmd := &cobra.Command{
 		Use:     "ls [id...]",
 		Aliases: []string{"list"},
@@ -100,13 +108,23 @@ func newQuestListCmd(store *state.Store) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			typeFilters, err := state.NormalizeQuestTypes(questTagFlagValues(types))
+			if err != nil {
+				return err
+			}
+			sizeFilters, err := state.NormalizeQuestSizes(questTagFlagValues(sizes))
+			if err != nil {
+				return err
+			}
 			return writeJSON(cmd.OutOrStdout(), struct {
 				Quests []state.Quest `json:"quests"`
-			}{Quests: state.FilterQuests(quests, projectID, query)})
+			}{Quests: state.FilterQuests(quests, projectID, query, typeFilters, sizeFilters)})
 		},
 	}
 	cmd.Flags().StringVar(&project, "project", "", "filter by project path")
 	cmd.Flags().StringVar(&query, "search", "", "case-insensitive content search")
+	cmd.Flags().StringArrayVar(&types, "type", nil, "filter by type (repeatable or comma-separated; OR within types)")
+	cmd.Flags().StringArrayVar(&sizes, "size", nil, "filter by size (repeatable or comma-separated; OR within sizes)")
 	return cmd
 }
 
@@ -114,6 +132,8 @@ func newQuestEditCmd(store *state.Store) *cobra.Command {
 	var content string
 	var file string
 	var project string
+	var types []string
+	var size string
 	cmd := &cobra.Command{
 		Use:   "edit <id>",
 		Short: "Edit a quest",
@@ -152,6 +172,12 @@ func newQuestEditCmd(store *state.Store) *cobra.Command {
 					quest.ProjectID, quest.ProjectPath, quest.ProjectName = meta.id, meta.path, meta.name
 				}
 			}
+			if cmd.Flags().Changed("type") {
+				quest.Types = questTagFlagValues(types)
+			}
+			if cmd.Flags().Changed("size") {
+				quest.Size = size
+			}
 			saved, err := state.UpsertQuestAt(questStateRoot(store), quest)
 			if err != nil {
 				return err
@@ -162,7 +188,20 @@ func newQuestEditCmd(store *state.Store) *cobra.Command {
 	cmd.Flags().StringVar(&content, "content", "", "replacement content")
 	cmd.Flags().StringVar(&file, "file", "", "read replacement content from a file, or '-' for stdin")
 	cmd.Flags().StringVar(&project, "project", "", "replacement project path, or empty to clear")
+	cmd.Flags().StringArrayVar(&types, "type", nil, "replacement type tags (repeatable or comma-separated; empty clears)")
+	cmd.Flags().StringVar(&size, "size", "", "replacement size S, M, or L; empty clears")
 	return cmd
+}
+
+func questTagFlagValues(values []string) []string {
+	var parsed []string
+	for _, value := range values {
+		parsed = append(parsed, strings.Split(value, ",")...)
+	}
+	if len(parsed) == 1 && strings.TrimSpace(parsed[0]) == "" {
+		return nil
+	}
+	return parsed
 }
 
 func newQuestRemoveCmd(store *state.Store) *cobra.Command {

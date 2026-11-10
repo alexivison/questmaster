@@ -89,6 +89,8 @@ type mutationPayload struct {
 	ProjectPath     string          `json:"project_path"`
 	ProjectName     string          `json:"project_name"`
 	ProjectChanged  string          `json:"project_changed"`
+	Types           *[]string       `json:"types"`
+	Size            *string         `json:"size"`
 	Extra           map[string]any  `json:"-"`
 }
 
@@ -498,6 +500,14 @@ func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	var types []string
+	if payload.Types != nil {
+		types = *payload.Types
+	}
+	var size string
+	if payload.Size != nil {
+		size = *payload.Size
+	}
 	quest, err := state.UpsertQuestAt(s.mutationStore().Root(), state.Quest{
 		ID:          strings.TrimSpace(firstNonEmpty(payload.QuestID, payload.ID)),
 		Content:     content,
@@ -505,6 +515,8 @@ func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {
 		ProjectPath: projectPath,
 		ProjectName: projectName,
 		SessionID:   strings.TrimSpace(payload.SessionID),
+		Types:       types,
+		Size:        size,
 	})
 	if err != nil {
 		return nil, err
@@ -544,6 +556,12 @@ func (s *Server) mutateQuestEdit(payload mutationPayload) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+	if payload.Types != nil {
+		quest.Types = *payload.Types
+	}
+	if payload.Size != nil {
+		quest.Size = *payload.Size
 	}
 	saved, err := state.UpsertQuestAt(s.mutationStore().Root(), quest)
 	if err != nil {

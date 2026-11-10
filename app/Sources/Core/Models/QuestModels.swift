@@ -3,6 +3,8 @@ import Foundation
 public struct QuestItem: Decodable, Equatable, Identifiable {
     public var id: String
     public var content: String
+    public var types: [String]
+    public var size: String
     public var projectID: String
     public var projectPath: String
     public var projectName: String
@@ -13,6 +15,8 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
     public init(
         id: String,
         content: String,
+        types: [String] = [],
+        size: String = "",
         projectID: String = "",
         projectPath: String = "",
         projectName: String = "",
@@ -22,6 +26,8 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
     ) {
         self.id = id
         self.content = content
+        self.types = types
+        self.size = size
         self.projectID = projectID
         self.projectPath = projectPath
         self.projectName = projectName
@@ -33,6 +39,8 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id
         case content
+        case types
+        case size
         case project_id
         case project_path
         case project_name
@@ -45,6 +53,8 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         content = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
+        types = try container.decodeIfPresent([String].self, forKey: .types) ?? []
+        size = try container.decodeIfPresent(String.self, forKey: .size) ?? ""
         projectID = try container.decodeIfPresent(String.self, forKey: .project_id) ?? ""
         projectPath = try container.decodeIfPresent(String.self, forKey: .project_path) ?? ""
         projectName = try container.decodeIfPresent(String.self, forKey: .project_name) ?? ""
