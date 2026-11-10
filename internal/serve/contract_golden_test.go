@@ -97,6 +97,8 @@ func serveContractFixtures() []contractFixture {
 	activeQuest := QuestSnapshot{
 		ID:          "qst-1781842800",
 		Content:     "Add --search flag to qm quest ls",
+		Types:       []string{"bug", "research"},
+		Size:        "M",
 		ProjectID:   "/tmp/questmaster/.git",
 		ProjectPath: "/tmp/questmaster/worktrees/app-contract",
 		ProjectName: "questmaster",

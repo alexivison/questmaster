@@ -14,14 +14,100 @@ import (
 )
 
 type Quest struct {
-	ID          string `json:"id"`
-	Content     string `json:"content"`
-	ProjectID   string `json:"project_id,omitempty"`
-	ProjectPath string `json:"project_path,omitempty"`
-	ProjectName string `json:"project_name,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
-	SessionID   string `json:"session_id,omitempty"`
+	ID          string   `json:"id"`
+	Content     string   `json:"content"`
+	Types       []string `json:"types,omitempty"`
+	Size        string   `json:"size,omitempty"`
+	ProjectID   string   `json:"project_id,omitempty"`
+	ProjectPath string   `json:"project_path,omitempty"`
+	ProjectName string   `json:"project_name,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+	SessionID   string   `json:"session_id,omitempty"`
+}
+
+var questTypeOrder = []string{"bug", "improvement", "feature", "research", "decision", "cleanup"}
+
+var questSizeOrder = []string{"S", "M", "L"}
+
+// NormalizeQuestTags validates and canonicalizes the fixed quest tag groups.
+func NormalizeQuestTags(types []string, size string) ([]string, string, error) {
+	normalizedTypes, err := NormalizeQuestTypes(types)
+	if err != nil {
+		return nil, "", err
+	}
+	normalizedSize, err := NormalizeQuestSize(size)
+	if err != nil {
+		return nil, "", err
+	}
+	return normalizedTypes, normalizedSize, nil
+}
+
+// NormalizeQuestTypes validates type tags and returns them in the fixed display order.
+func NormalizeQuestTypes(types []string) ([]string, error) {
+	allowed := make(map[string]struct{}, len(questTypeOrder))
+	selected := make(map[string]struct{}, len(types))
+	for _, value := range questTypeOrder {
+		allowed[value] = struct{}{}
+	}
+	for _, raw := range types {
+		value := strings.ToLower(strings.TrimSpace(raw))
+		if _, ok := allowed[value]; !ok {
+			return nil, fmt.Errorf("invalid quest type %q (valid types: %s)", raw, strings.Join(questTypeOrder, ", "))
+		}
+		if _, duplicate := selected[value]; duplicate {
+			return nil, fmt.Errorf("duplicate quest type %q", raw)
+		}
+		selected[value] = struct{}{}
+	}
+
+	normalized := make([]string, 0, len(selected))
+	for _, value := range questTypeOrder {
+		if _, ok := selected[value]; ok {
+			normalized = append(normalized, value)
+		}
+	}
+	return normalized, nil
+}
+
+// NormalizeQuestSizes validates size filters and returns canonical size values in fixed order.
+func NormalizeQuestSizes(sizes []string) ([]string, error) {
+	selected := make(map[string]struct{}, len(sizes))
+	for _, raw := range sizes {
+		size, err := NormalizeQuestSize(raw)
+		if err != nil {
+			return nil, err
+		}
+		if size == "" {
+			return nil, fmt.Errorf("invalid quest size %q (valid sizes: %s)", raw, strings.Join(questSizeOrder, ", "))
+		}
+		if _, duplicate := selected[size]; duplicate {
+			return nil, fmt.Errorf("duplicate quest size %q", raw)
+		}
+		selected[size] = struct{}{}
+	}
+
+	normalized := make([]string, 0, len(selected))
+	for _, value := range questSizeOrder {
+		if _, ok := selected[value]; ok {
+			normalized = append(normalized, value)
+		}
+	}
+	return normalized, nil
+}
+
+// NormalizeQuestSize validates one optional size tag and returns its uppercase form.
+func NormalizeQuestSize(size string) (string, error) {
+	size = strings.ToUpper(strings.TrimSpace(size))
+	if size == "" {
+		return "", nil
+	}
+	for _, value := range questSizeOrder {
+		if size == value {
+			return size, nil
+		}
+	}
+	return "", fmt.Errorf("invalid quest size %q (valid sizes: %s)", size, strings.Join(questSizeOrder, ", "))
 }
 
 // ResolveQuestProject gives a quest's project for a path, the way `quest add --project` does: "~" and a
@@ -111,9 +197,14 @@ func UpsertQuestAt(root string, quest Quest) (Quest, error) {
 	if quest.SessionID != "" && !IsValidSessionID(quest.SessionID) {
 		return Quest{}, fmt.Errorf("invalid session id: %q", quest.SessionID)
 	}
+	normalizedTypes, normalizedSize, err := NormalizeQuestTags(quest.Types, quest.Size)
+	if err != nil {
+		return Quest{}, err
+	}
+	quest.Types, quest.Size = normalizedTypes, normalizedSize
 
 	var saved Quest
-	err := withQuestsRegistryLock(root, func() error {
+	err = withQuestsRegistryLock(root, func() error {
 		quests, err := loadQuestsLocked(root)
 		if err != nil {
 			return err
@@ -176,9 +267,17 @@ func RemoveQuestAt(root, id string) (bool, error) {
 	return removed, err
 }
 
-func FilterQuests(quests []Quest, projectID, query string) []Quest {
+func FilterQuests(quests []Quest, projectID, query string, typeFilters, sizeFilters []string) []Quest {
 	projectID = strings.TrimSpace(projectID)
 	query = strings.ToLower(strings.TrimSpace(query))
+	typeSet := make(map[string]struct{}, len(typeFilters))
+	for _, value := range typeFilters {
+		typeSet[value] = struct{}{}
+	}
+	sizeSet := make(map[string]struct{}, len(sizeFilters))
+	for _, value := range sizeFilters {
+		sizeSet[value] = struct{}{}
+	}
 	filtered := make([]Quest, 0, len(quests))
 	for _, quest := range quests {
 		if projectID != "" && quest.ProjectID != projectID {
@@ -186,6 +285,23 @@ func FilterQuests(quests []Quest, projectID, query string) []Quest {
 		}
 		if query != "" && !strings.Contains(strings.ToLower(quest.Content), query) {
 			continue
+		}
+		if len(typeSet) > 0 {
+			matchesType := false
+			for _, value := range quest.Types {
+				if _, ok := typeSet[value]; ok {
+					matchesType = true
+					break
+				}
+			}
+			if !matchesType {
+				continue
+			}
+		}
+		if len(sizeSet) > 0 {
+			if _, ok := sizeSet[quest.Size]; !ok {
+				continue
+			}
 		}
 		filtered = append(filtered, quest)
 	}
@@ -229,6 +345,14 @@ func loadQuestsLocked(root string) ([]Quest, error) {
 	var payload questRegistry
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil, fmt.Errorf("decode quests registry: %w", err)
+	}
+	for i := range payload.Quests {
+		quest := &payload.Quests[i]
+		var err error
+		quest.Types, quest.Size, err = NormalizeQuestTags(quest.Types, quest.Size)
+		if err != nil {
+			return nil, fmt.Errorf("quest %q: %w", quest.ID, err)
+		}
 	}
 	return SortedQuests(payload.Quests), nil
 }

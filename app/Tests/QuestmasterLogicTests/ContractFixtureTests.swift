@@ -38,6 +38,10 @@ struct ContractFixtureTests {
         expect(tracker.artifacts.contains { $0.sessionID == "qm-orphan" && $0.label == "Orphan" }, "top-level orphan artifact did not decode")
         expect(tracker.quests.count == 2, "top-level quests did not decode")
         expect(tracker.quests.first?.projectPath == "/tmp/questmaster/worktrees/app-contract", "quest project_path did not decode")
+        let taggedQuest = tracker.quests.first { $0.id == "qst-1781842800" }
+        expect(taggedQuest?.types == ["bug", "research"] && taggedQuest?.size == "M", "quest tags did not decode")
+        let untaggedQuest = tracker.quests.first { $0.id == "qst-1781842860" }
+        expect(untaggedQuest?.types.isEmpty == true && untaggedQuest?.size.isEmpty == true, "untagged quest defaults did not decode")
         expect(tracker.quests.contains { $0.id == "qst-1781842860" }, "second quest did not decode")
         expect(tracker.projects.first?.id == "/tmp/questmaster/.git", "tracker project id did not decode")
         expect(tracker.projects.first?.path == "/tmp/questmaster", "tracker project path did not decode")

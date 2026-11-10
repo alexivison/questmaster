@@ -1328,6 +1328,100 @@ func TestQuestEditMutationUpdatesAndClearsProject(t *testing.T) {
 	}
 }
 
+func TestQuestMutationsSetClearLeaveTagsUnchangedAndRejectInvalid(t *testing.T) {
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	server := &Server{Snapshotter: &Snapshotter{store: store}}
+	addData, _ := json.Marshal(map[string]any{
+		"content": "Tagged through socket",
+		"types":   []string{"Research", "BUG"},
+		"size":    "m",
+	})
+	added, err := server.mutate(t.Context(), Request{Method: "quest.add", Data: addData})
+	if err != nil {
+		t.Fatalf("add tagged quest: %v", err)
+	}
+	addedQuest, ok := added.(state.Quest)
+	if !ok || strings.Join(addedQuest.Types, ",") != "bug,research" || addedQuest.Size != "M" {
+		t.Fatalf("add response = %#v, want canonical quest tags", added)
+	}
+
+	editData, _ := json.Marshal(map[string]any{
+		"quest_id": addedQuest.ID,
+		"types":    []string{"Feature"},
+		"size":     "S",
+	})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.edit", Data: editData}); err != nil {
+		t.Fatalf("set quest tags: %v", err)
+	}
+	assertQuestTags(t, store, addedQuest.ID, []string{"feature"}, "S")
+
+	unchangedData, _ := json.Marshal(map[string]string{"quest_id": addedQuest.ID, "content": "Edited without tag fields"})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.edit", Data: unchangedData}); err != nil {
+		t.Fatalf("edit without tag fields: %v", err)
+	}
+	assertQuestTags(t, store, addedQuest.ID, []string{"feature"}, "S")
+
+	clearData, _ := json.Marshal(map[string]any{"quest_id": addedQuest.ID, "types": []string{}, "size": ""})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.edit", Data: clearData}); err != nil {
+		t.Fatalf("clear quest tags: %v", err)
+	}
+	assertQuestTags(t, store, addedQuest.ID, nil, "")
+
+	for _, tc := range []struct {
+		name string
+		data map[string]any
+		want string
+	}{
+		{name: "invalid type on add", data: map[string]any{"content": "Invalid", "types": []string{"urgent"}}, want: "invalid quest type"},
+		{name: "invalid size on add", data: map[string]any{"content": "Invalid", "size": "XL"}, want: "invalid quest size"},
+		{name: "invalid type on edit", data: map[string]any{"quest_id": addedQuest.ID, "types": []string{"urgent"}}, want: "invalid quest type"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, _ := json.Marshal(tc.data)
+			method := "quest.add"
+			if tc.data["quest_id"] != nil {
+				method = "quest.edit"
+			}
+			if _, err := server.mutate(t.Context(), Request{Method: method, Data: data}); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("mutation error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func assertQuestTags(t *testing.T, store *state.Store, id string, wantTypes []string, wantSize string) {
+	t.Helper()
+	quests, err := state.LoadQuestsAt(store.Root())
+	if err != nil {
+		t.Fatalf("load quest tags: %v", err)
+	}
+	for _, quest := range quests {
+		if quest.ID == id {
+			if !slices.Equal(quest.Types, wantTypes) || quest.Size != wantSize {
+				t.Fatalf("quest tags = %v / %q, want %v / %q", quest.Types, quest.Size, wantTypes, wantSize)
+			}
+			return
+		}
+	}
+	t.Fatalf("quest %q missing", id)
+}
+
+func TestQuestSnapshotsCarryOptionalTags(t *testing.T) {
+	snapshots := questSnapshots([]state.Quest{
+		{ID: "qst-tagged", Content: "Tagged", Types: []string{"bug", "research"}, Size: "M"},
+		{ID: "qst-untagged", Content: "Untagged"},
+	})
+	if len(snapshots) != 2 || strings.Join(snapshots[0].Types, ",") != "bug,research" || snapshots[0].Size != "M" {
+		t.Fatalf("tagged quest snapshots = %#v", snapshots)
+	}
+	if len(snapshots[1].Types) != 0 || snapshots[1].Size != "" {
+		t.Fatalf("untagged quest snapshot = %#v, want no tags", snapshots[1])
+	}
+}
+
 func TestQuestMutationsResolveAProjectSentAsAPathOnly(t *testing.T) {
 	t.Parallel()
 	store, err := state.NewStore(t.TempDir())

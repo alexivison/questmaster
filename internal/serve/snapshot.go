@@ -118,14 +118,16 @@ type UnlistedFolderSnapshot struct {
 }
 
 type QuestSnapshot struct {
-	ID          string `json:"id"`
-	Content     string `json:"content"`
-	ProjectID   string `json:"project_id,omitempty"`
-	ProjectPath string `json:"project_path,omitempty"`
-	ProjectName string `json:"project_name,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
-	SessionID   string `json:"session_id,omitempty"`
+	ID          string   `json:"id"`
+	Content     string   `json:"content"`
+	Types       []string `json:"types,omitempty"`
+	Size        string   `json:"size,omitempty"`
+	ProjectID   string   `json:"project_id,omitempty"`
+	ProjectPath string   `json:"project_path,omitempty"`
+	ProjectName string   `json:"project_name,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+	SessionID   string   `json:"session_id,omitempty"`
 }
 
 // SessionSnapshot is one tracker row with live activity already applied.
@@ -461,6 +463,9 @@ func cloneTrackerSnapshot(snapshot TrackerSnapshot) TrackerSnapshot {
 	}
 	snapshot.Artifacts = cloneArtifactSnapshots(snapshot.Artifacts)
 	snapshot.Quests = append([]QuestSnapshot(nil), snapshot.Quests...)
+	for i := range snapshot.Quests {
+		snapshot.Quests[i].Types = append([]string(nil), snapshot.Quests[i].Types...)
+	}
 	snapshot.Projects = append([]ProjectSnapshot(nil), snapshot.Projects...)
 	snapshot.UnlistedFolders = append([]UnlistedFolderSnapshot(nil), snapshot.UnlistedFolders...)
 	return snapshot
@@ -836,6 +841,8 @@ func questSnapshots(quests []state.Quest) []QuestSnapshot {
 		out = append(out, QuestSnapshot{
 			ID:          quest.ID,
 			Content:     quest.Content,
+			Types:       quest.Types,
+			Size:        quest.Size,
 			ProjectID:   quest.ProjectID,
 			ProjectPath: quest.ProjectPath,
 			ProjectName: quest.ProjectName,
@@ -879,7 +886,7 @@ func questsEqual(a, b []QuestSnapshot) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if !reflect.DeepEqual(a[i], b[i]) {
 			return false
 		}
 	}

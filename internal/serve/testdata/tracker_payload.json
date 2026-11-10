@@ -160,6 +160,11 @@
     {
       "id": "qst-1781842800",
       "content": "Add --search flag to qm quest ls",
+      "types": [
+        "bug",
+        "research"
+      ],
+      "size": "M",
       "project_id": "/tmp/questmaster/.git",
       "project_path": "/tmp/questmaster/worktrees/app-contract",
       "project_name": "questmaster",

@@ -183,6 +183,18 @@ questmaster daemon stop    # cleanly stop it
 
 Running `questmaster` with no subcommand prints help. Lifecycle operations such as `start`, `continue`, `spawn`, `attach`, and `delete` are available as backend commands for clients and automation. `qm attach <id>` attaches only to a live session; use `qm continue <id>` to restart a stopped one.
 
+### Project quests
+
+Quests may have any combination of the fixed types `bug`, `improvement`, `feature`, `research`, `decision`, and `cleanup`, plus an optional size `S`, `M`, or `L`. Inputs are case-insensitive; types are stored lowercase in the fixed order, and size is stored uppercase. Set tags when adding or editing a quest, and use repeatable or comma-separated filters when listing:
+
+```sh
+questmaster quest add "Research cache behavior" --type research,decision --size M
+questmaster quest edit qst-123 --type bug --type improvement --size S
+questmaster quest ls --type bug,research --size S
+```
+
+`quest ls` matches any selected type and any selected size within each group, and combines the type and size groups with AND. On `quest edit`, omitted flags leave existing tags unchanged; `--type ""` clears types and `--size ""` clears the size.
+
 ### Tmux servers
 
 New sessions and workers start on Questmaster's dedicated `tmux -L questmaster` server. Every managed manifest must record a dedicated `tmux_server` label; a missing field or explicit `default` is an error. `qm attach <id>` follows the recorded label. `tmux -L questmaster ls` lists the dedicated server; plain `tmux ls` lists the user's default server. `qm tmux routes` lists recorded dedicated routes, omitting manifests that still need backfill; explicitly naming one of those manifests returns the backfill error. Questmaster cannot attach, send to, continue or delete sessions on the user's default server.
