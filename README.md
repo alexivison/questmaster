@@ -289,7 +289,7 @@ Build and install from a source checkout:
 
 The script builds the Swift package in release mode, assembles and ad-hoc codesigns `Questmaster.app`, builds the Go `qm` binary into the app bundle, stamps both with one `git describe` version (Info.plist's `CFBundleShortVersionString` and `qm version`), and installs to `/Applications/Questmaster.app` by default (`--install-path` or `QUESTMASTER_INSTALL_PATH` picks another). `Package.swift` declares macOS 14 and Swift tools 5.9; the build script also expects Go and the macOS command-line tools it calls (`swift`, `codesign`, and `install_name_tool`).
 
-On a terminal, both scripts print one line per step and keep each tool's own output in a log shown only when that step fails. The repo's own compiler warnings always show, and a dependency's are counted. `QUESTMASTER_BUILD_VERBOSE=1` streams everything, `NO_COLOR` turns colour off, and output that isn't a terminal (CI) streams in plain text as before.
+On a terminal, both scripts print one line per step (a spinner, the elapsed time and SwiftPM's `[done/total]` count while it runs) and keep each tool's own output in a log shown only when that step fails. The repo's own compiler warnings always show, and a dependency's are counted. `QUESTMASTER_BUILD_VERBOSE=1` streams everything, `NO_COLOR` turns colour off, and output that isn't a terminal (CI) streams in plain text as before.
 
 Installing is `app/Scripts/install-app.sh`, which the build script runs, so running sessions never lose `qm`:
 
