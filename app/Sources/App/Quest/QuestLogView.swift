@@ -128,6 +128,13 @@ struct QuestLogView: View {
             TextTabRow(titles: store.tabTitles, selectedIndex: store.selectedTabIndex, areaFocused: true, onSelect: store.selectTab)
                 .frame(width: layout.listWidth)
                 .offset(x: layout.tabsOrigin.x, y: layout.tabsOrigin.y)
+            QuestLogList(store: store)
+                .frame(width: layout.listWidth, height: layout.listHeight, alignment: .top)
+                .offset(x: layout.listOrigin.x, y: layout.listOrigin.y)
+            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout)
+                .offset(x: layout.pageOrigin.x, y: layout.pageOrigin.y)
+            // Last but the buttons: a ZStack draws later children on top, and the filter's suggestion dropdown opens
+            // over the list.
             FilterBar(
                 tokens: filter.tokens,
                 query: Binding(get: { filter.query }, set: { filter.setQuery($0) }),
@@ -143,11 +150,6 @@ struct QuestLogView: View {
             )
             .frame(width: layout.listWidth)
             .offset(x: layout.filterOrigin.x, y: layout.filterOrigin.y)
-            QuestLogList(store: store)
-                .frame(width: layout.listWidth, height: layout.listHeight, alignment: .top)
-                .offset(x: layout.listOrigin.x, y: layout.listOrigin.y)
-            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout)
-                .offset(x: layout.pageOrigin.x, y: layout.pageOrigin.y)
             buttons
                 .frame(width: layout.sheetSize.width)
                 .offset(y: layout.buttonTop)
