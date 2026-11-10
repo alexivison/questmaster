@@ -3767,7 +3767,8 @@ enum LogicSelfTests {
     /// The Quest Log in a 1000 x 800 window, read frame by frame. The modal's drawn rect comes from the presentation of the
     /// layer that carries its scale, so an entrance or a close in flight shows.
     @MainActor private struct QuestLogModalFrames {
-        let window = HeadlessWindow(size: CGSize(width: 1000, height: 800))
+        // One point per pixel, as the CI runner renders: at a fractional fit that is where Auto Layout rounds frames.
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 800), scale: 1)
         let stack = InWindowModalStack()
         let host: InWindowModalHost
         let store: QuestLogStore
@@ -3819,12 +3820,55 @@ enum LogicSelfTests {
             )
         }
 
-        /// Runs `begin`, then every frame for `seconds`: `perFrame` gets each drawn rect, and the rects are returned.
-        func sample(for seconds: TimeInterval, begin: () -> Void = {}, perFrame: (CGRect) throws -> Void = { _ in }) rethrows -> [CGRect] {
-            begin()
+        /// Lays out the host synchronously, so the frames read next are the laid-out ones.
+        func layOutNow() {
+            host.layoutSubtreeIfNeeded()
+        }
+
+        /// Presents the Quest Log and reads its drawn rect on each display tick until the entrance has run and finished, or
+        /// five seconds pass. `perFrame` gets each drawn rect, and the rects are returned.
+        func sampleEntrance(perFrame: (CGRect) throws -> Void = { _ in }) throws -> [CGRect] {
+            present()
             var drawn: [CGRect] = []
-            let began = Date()
-            while Date().timeIntervalSince(began) < seconds {
+            var began = false
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+                began = began || isScaling
+                if let rect = drawnRect {
+                    drawn.append(rect)
+                    try perFrame(rect)
+                }
+                if began && !isScaling {
+                    break
+                }
+            }
+            return drawn
+        }
+
+        /// Dismisses the Quest Log and reads its drawn rect on each display tick until it is removed, or five seconds pass.
+        func sampleClose() throws -> [CGRect] {
+            stack.dismiss(id: QuestLogModal.stackID)
+            var drawn: [CGRect] = []
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline, coordinateView != nil {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+                if let rect = drawnRect {
+                    drawn.append(rect)
+                }
+            }
+            return drawn
+        }
+
+        /// Presents the Quest Log with Reduce Motion on, then reads its drawn rect on the next few display ticks.
+        func sampleRestingFrames(perFrame: (CGRect) throws -> Void) throws -> [CGRect] {
+            present()
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline, drawnRect == nil {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+            }
+            var drawn: [CGRect] = []
+            for _ in 0..<5 {
                 RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
                 if let rect = drawnRect {
                     drawn.append(rect)
@@ -3852,12 +3896,18 @@ enum LogicSelfTests {
     private static func testModalEntranceScalesAboutItsCentre() throws {
         let scene = QuestLogModalFrames()
         defer { scene.window.close() }
-        let drawn = try scene.sample(for: 0.6, begin: scene.present)
+        let drawn = try scene.sampleEntrance()
         guard let smallest = drawn.map(\.width).min() else {
             throw TestFailure("the Quest Log should be drawn while it enters")
         }
-        try expect(waitUntil { !scene.isScaling }, "the entrance should finish")
-        pump(0.2)
+        try expect(!scene.isScaling, "the entrance should finish")
+        scene.layOutNow()
+        // The sheet is a fixed size: the scaled layout must not shorten it (Auto Layout rounds its frame at a fractional fit).
+        let laidOut = scene.hostedView?.frame.size ?? .zero
+        try expect(
+            abs(laidOut.width - QuestLogMetrics.sheetSize.width) < 0.5 && abs(laidOut.height - QuestLogMetrics.sheetSize.height) < 0.5,
+            "the Quest Log should lay out at its fixed sheet size \(QuestLogMetrics.sheetSize), got \(laidOut)"
+        )
         let fitted = scene.fittedRect
         let settled = scene.drawnRect ?? .zero
         try expect(sameRect(settled, fitted), "the entrance should end at the fit \(fitted), drawn \(settled)")
@@ -3887,7 +3937,7 @@ enum LogicSelfTests {
             return hit === hosted || hit.isDescendant(of: hosted)
         }
         var scalingFrames = 0
-        let drawn = try scene.sample(for: 0.6, begin: scene.present) { rect in
+        let drawn = try scene.sampleEntrance { rect in
             guard scene.isScaling else {
                 return
             }
@@ -3896,8 +3946,8 @@ enum LogicSelfTests {
         }
         try expect(scalingFrames > 0, "the entrance should be sampled while it runs")
         try expect(drawn.last != nil, "the Quest Log should be drawn once the sample ends")
-        try expect(waitUntil { !scene.isScaling }, "the entrance should finish")
-        pump(0.2)
+        try expect(!scene.isScaling, "the entrance should finish")
+        scene.layOutNow()
         let fitted = scene.fittedRect
         let y = scene.host.bounds.midY
         try expect(reachesModal(CGPoint(x: fitted.minX + 4, y: y)), "a click 4pt inside the settled edge should reach the modal, drawn at \(fitted)")
@@ -3912,13 +3962,12 @@ enum LogicSelfTests {
         let scene = QuestLogModalFrames()
         defer { scene.window.close() }
         var animated = false
-        let drawn = try scene.sample(for: 0.4, begin: scene.present) { _ in
+        let drawn = try scene.sampleRestingFrames { _ in
             animated = animated || scene.isScaling
         }
         try expect(!drawn.isEmpty, "the Quest Log should be drawn under Reduce Motion")
         try expect(!animated, "under Reduce Motion the entrance should add no animation")
-        try expect(waitUntil { !scene.isScaling }, "the Quest Log should be drawn at rest")
-        pump(0.2)
+        scene.layOutNow()
         let fitted = scene.fittedRect
         try expect(sameRect(scene.drawnRect ?? .zero, fitted), "under Reduce Motion the modal should be drawn at the fit \(fitted)")
         // The first frame is already the fit's width, within the layout's own settling.
@@ -3931,11 +3980,11 @@ enum LogicSelfTests {
     private static func testModalCloseScalesBackAboutItsCentre() throws {
         let scene = QuestLogModalFrames()
         defer { scene.window.close() }
-        _ = try scene.sample(for: 0.6, begin: scene.present)
-        try expect(waitUntil { !scene.isScaling }, "the Quest Log should be drawn at rest before it closes")
-        pump(0.2)
+        _ = try scene.sampleEntrance()
+        try expect(!scene.isScaling, "the Quest Log should be drawn at rest before it closes")
+        scene.layOutNow()
         let fitted = scene.fittedRect
-        let drawn = try scene.sample(for: 0.25, begin: { scene.stack.dismiss(id: QuestLogModal.stackID) })
+        let drawn = try scene.sampleClose()
         guard let smallest = drawn.map(\.width).min() else {
             throw TestFailure("the Quest Log should be drawn while it closes")
         }
@@ -7535,14 +7584,17 @@ enum LogicSelfTests {
         window.contentView = hosting
         window.show()
         defer { window.close() }
-        pump(0.3)
-        hosting.layoutSubtreeIfNeeded()
         func scrollViews(in view: NSView) -> [NSScrollView] {
             view.subviews.flatMap { ((($0 as? NSScrollView).map { [$0] }) ?? []) + scrollViews(in: $0) }
         }
-        guard let tabs = scrollViews(in: hosting).first(where: { $0.frame.height == TextTabMetrics.height }) else {
+        var tabRow: NSScrollView?
+        guard waitUntil({
+            tabRow = scrollViews(in: hosting).first(where: { $0.frame.height == TextTabMetrics.height })
+            return tabRow != nil
+        }), let tabs = tabRow else {
             throw TestFailure("the Quest Log should have a tab row \(TextTabMetrics.height) high")
         }
+        hosting.layoutSubtreeIfNeeded()
         return try tabInkGaps(in: hosting, size: layout.sheetSize, tabs: tabs)
     }
 
@@ -7550,7 +7602,10 @@ enum LogicSelfTests {
     /// row that scrolls reports `scrolls` and no centring is measured for it.
     private static func tabInkGaps(in hosting: NSView, size: CGSize, tabs: NSScrollView) throws -> (left: CGFloat, right: CGFloat, scrolls: Bool) {
         let scale: CGFloat = 2
-        pump(0.2)
+        guard waitUntil({ (tabs.documentView?.frame.width ?? 0) > 0 }) else {
+            throw TestFailure("the tab row should lay out before it is read")
+        }
+        hosting.layoutSubtreeIfNeeded()
         let bitmap = try snapshot(hosting, size: size, scale: scale)
         let band = tabs.convert(tabs.bounds, to: hosting)
         let rows = Int(band.minY * scale)..<Int(band.maxY * scale)
