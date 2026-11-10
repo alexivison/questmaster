@@ -216,6 +216,7 @@ enum LogicSelfTests {
         ("testWorkerLogTabsScrollToTheSelection", testWorkerLogTabsScrollToTheSelection),
         ("testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs", testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs),
         ("testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers", testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers),
+        ("testQuestLogTabsCentreWhenTheyFit", testQuestLogTabsCentreWhenTheyFit),
         ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
         ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
         ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
@@ -7484,6 +7485,86 @@ enum LogicSelfTests {
 
     /// The feed ends where the row begins, and the row ends `bottomInset` above the panel's edge. The row
     /// shows from two workers on: a master with none or one has no row at all, and the feed fills the panel.
+    /// The Quest Log's project tabs sit centred in their column while they fit, as the Worker Log's do. Wider than the column
+    /// they start at the leading edge and scroll sideways.
+    private static func testQuestLogTabsCentreWhenTheyFit() throws {
+        let fitting = try questLogTabInk(projectNames: ["dotfiles", "questmaster", "scry"])
+        try expect(!fitting.scrolls, "three short projects should fit the Quest Log's column")
+        try expect(fitting.left > 20, "the Quest Log's tabs should sit in from the leading edge, got \(fitting.left) on the left")
+        try expect(abs(fitting.left - fitting.right) <= 1, "the Quest Log's tabs should be centred: \(fitting.left) on the left, \(fitting.right) on the right")
+
+        let overflowing = try questLogTabInk(projectNames: (1...8).map { "a-long-project-name-\($0)" })
+        try expect(overflowing.scrolls, "eight long projects should overflow the column and scroll")
+        try expect(overflowing.left < 1, "overflowing tabs should start at the leading edge, got \(overflowing.left) on the left")
+
+        // The Worker Log's row was always centred; the Quest Log's change must not move it.
+        let worker = tabRowHost(workers: (1...2).map { WorkerLogWorker(id: "w\($0)", name: "Worker \($0)") }, selected: nil)
+        defer { worker.window.close() }
+        guard let workerTabs = descendant(NSScrollView.self, in: worker.hosting) else {
+            throw TestFailure("the Worker Log's tab row should scroll")
+        }
+        let workerInk = try tabInkGaps(in: worker.hosting, size: worker.size, tabs: workerTabs)
+        try expect(abs(workerInk.left - workerInk.right) <= 1 && workerInk.left > 20, "the Worker Log's tabs should stay centred, got \(workerInk.left) and \(workerInk.right)")
+    }
+
+    /// The Quest Log hosted at its sheet size, with one project tab per name, and the ink gaps of its tab row.
+    private static func questLogTabInk(projectNames: [String]) throws -> (left: CGFloat, right: CGFloat, scrolls: Bool) {
+        let store = QuestLogStore()
+        store.sync(
+            quests: projectNames.enumerated().map { index, name in QuestItem(id: "q\(index)", content: "Quest \(index)", projectID: "p\(index)", projectName: name) },
+            repos: []
+        )
+        let layout = QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize)
+        let hosting = NSHostingView(rootView: QuestLogView(store: store, filter: QuestLogFilter(), layout: layout, onCommand: { _ in }))
+        hosting.frame = NSRect(origin: .zero, size: layout.sheetSize)
+        let window = HeadlessWindow(size: layout.sheetSize)
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        pump(0.3)
+        hosting.layoutSubtreeIfNeeded()
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            view.subviews.flatMap { ((($0 as? NSScrollView).map { [$0] }) ?? []) + scrollViews(in: $0) }
+        }
+        guard let tabs = scrollViews(in: hosting).first(where: { $0.frame.height == TextTabMetrics.height }) else {
+            throw TestFailure("the Quest Log should have a tab row \(TextTabMetrics.height) high")
+        }
+        return try tabInkGaps(in: hosting, size: layout.sheetSize, tabs: tabs)
+    }
+
+    /// Where a tab row's ink starts and ends, as gaps to its two edges in points, read from a snapshot of `hosting`. A
+    /// row that scrolls reports `scrolls` and no centring is measured for it.
+    private static func tabInkGaps(in hosting: NSView, size: CGSize, tabs: NSScrollView) throws -> (left: CGFloat, right: CGFloat, scrolls: Bool) {
+        let scale: CGFloat = 2
+        pump(0.2)
+        let bitmap = try snapshot(hosting, size: size, scale: scale)
+        let band = tabs.convert(tabs.bounds, to: hosting)
+        let rows = Int(band.minY * scale)..<Int(band.maxY * scale)
+        let firstColumn = Int(band.minX * scale)
+        guard let background = bitmap.colorAt(x: firstColumn, y: rows.lowerBound)?.usingColorSpace(.deviceRGB) else {
+            throw TestFailure("the tab row's background should read")
+        }
+        func inked(_ column: Int) -> Bool {
+            rows.contains { row in
+                guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB) else {
+                    return false
+                }
+                return abs(pixel.redComponent - background.redComponent) + abs(pixel.greenComponent - background.greenComponent)
+                    + abs(pixel.blueComponent - background.blueComponent) > 0.12
+            }
+        }
+        let columns = firstColumn..<min(Int(band.maxX * scale), bitmap.pixelsWide)
+        guard let first = columns.first(where: inked), let last = columns.last(where: inked) else {
+            throw TestFailure("the tab row should show some ink")
+        }
+        let scrolls = (tabs.documentView?.frame.width ?? 0) > tabs.contentView.bounds.width + 0.5
+        return (
+            left: CGFloat(first - firstColumn) / scale,
+            right: band.maxX - CGFloat(last + 1) / scale,
+            scrolls: scrolls
+        )
+    }
+
     private static func testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers() throws {
         func host(workers: Int) throws -> (window: HeadlessWindow, hosting: NSHostingView<AnyView>) {
             let chat = WorkerChatStore()

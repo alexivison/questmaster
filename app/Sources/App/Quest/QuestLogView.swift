@@ -125,7 +125,7 @@ struct QuestLogView: View {
         ZStack(alignment: .topLeading) {
             ModalSheetHeader(title: "Quest Log")
                 .frame(width: layout.sheetSize.width)
-            TextTabRow(titles: store.tabTitles, selectedIndex: store.selectedTabIndex, areaFocused: true, alignment: .leading, onSelect: store.selectTab)
+            TextTabRow(titles: store.tabTitles, selectedIndex: store.selectedTabIndex, areaFocused: true, alignment: .center, onSelect: store.selectTab)
                 .frame(width: layout.listWidth)
                 .offset(x: layout.tabsOrigin.x, y: layout.tabsOrigin.y)
             FilterBar(

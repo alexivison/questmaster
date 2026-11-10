@@ -182,6 +182,8 @@ enum RenderPreview {
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log.png")
         render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-nobody.png")
         render(QuestLogView(store: questLogStore(tab: "questmaster"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tab.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tabs-centred.png")
+        render(QuestLogView(store: questLogOverflowStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tabs-overflow.png")
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(tokens: ["@type:bug", "@size:S"]), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-filtered.png")
         render(
             QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "@type:"), layout: layout, previewFocused: true, onCommand: { _ in }),
@@ -1957,6 +1959,17 @@ enum RenderPreview {
         if let id {
             store.select(id)
         }
+        return store
+    }
+
+    /// Quests across eight projects with names too long for the tab row, so it scrolls sideways; the last tab is selected.
+    private static func questLogOverflowStore() -> QuestLogStore {
+        let store = QuestLogStore()
+        store.sync(
+            quests: (1...8).map { QuestItem(id: "t\($0)", content: "Quest \($0)", projectID: "t\($0)", projectName: "a-long-project-name-\($0)") },
+            repos: []
+        )
+        store.selectTab(store.tabTitles.count - 1)
         return store
     }
 
