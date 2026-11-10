@@ -439,7 +439,7 @@ func (s *Service) continueRollback(ctx context.Context, sessionID string, previo
 
 // cascadeWorkers continues all orphaned workers for a master session.
 // A worker is orphaned if it has a manifest on disk but no live tmux session.
-// Workers whose manifests were deleted (intentionally stopped) are skipped.
+// Workers whose manifests were deleted are skipped.
 // It runs without the master's lifecycle lock: each Continue takes it.
 func (s *Service) cascadeWorkers(ctx context.Context, masterID string) (revived, failed []string) {
 	workerIDs, err := s.Store.GetWorkers(masterID)
