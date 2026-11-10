@@ -143,6 +143,9 @@ func TestManagedSymlinksAreRefused(t *testing.T) {
 		installer, _, _ := testInstaller(t)
 		dest := installer.destinations[0]
 		target := t.TempDir()
+		if err := os.MkdirAll(filepath.Dir(dest.root), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.Symlink(target, dest.root); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
