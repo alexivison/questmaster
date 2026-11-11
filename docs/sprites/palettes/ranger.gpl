@@ -1,0 +1,30 @@
+GIMP Palette
+Name: Ranger-P crisp base
+Columns: 3
+#
+  0   0   0	outline 1
+ 33  25  27	outline 2
+156  91  70	skin 1
+240 172 118	skin 2
+254 198 149	skin 3
+ 55  35  36	hair 1
+ 86  54  50	hair 2
+144  88  69	hair 3
+  7  27  27	cloak 1
+ 23  63  51	cloak 2
+ 48 103  74	cloak 3
+ 85  52  50	jerkin 1
+135  70  65	jerkin 2
+177 102  70	jerkin 3
+134  99  96	metal 1
+164 130 118	metal 2
+213 176 158	metal 3
+ 67  43  41	leather 1
+106  78  76	leather 2
+144  88  69	leather 3
+ 85  52  50	bow and quiver 1
+144  88  69	bow and quiver 2
+195 155 136	bow and quiver 3
+ 95  76  43	fletching 1
+146 112  54	fletching 2
+198 153  61	fletching 3

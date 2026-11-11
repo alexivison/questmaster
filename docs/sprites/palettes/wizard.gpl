@@ -7,15 +7,18 @@ Columns: 3
  34  43  57	robe 1
  49  62  82	robe 2
  72  91 116	robe 3
-102  88  80	beard 1
-118 122 126	beard 2
-158 152 143	beard 3
- 44  43  49	staff and leather 1
- 71  54  49	staff and leather 2
-102  88  80	staff and leather 3
-102  88  80	skin 1
-123 108  99	skin 2
-158 152 143	skin 3
+ 75  79  87	beard 1
+125 129 135	beard 2
+179 175 166	beard 3
+ 58  42  34	staff and leather 1
+ 85  57  42	staff and leather 2
+122  90  66	staff and leather 3
+ 95  74  64	skin 1
+138 110  96	skin 2
+187 160 142	skin 3
+ 32  26  24	belt 1
+ 58  48  43	belt 2
+ 87  74  65	belt 3
 232   8   5	glow 1
 255   5   7	glow 2
 228   4   8	glow 3

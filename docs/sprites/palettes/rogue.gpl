@@ -10,18 +10,18 @@ Columns: 3
  18  59  73	teal trim 1
  45 113 128	teal trim 2
  97 168 176	teal trim 3
- 23  37  50	blue-black mask 1
- 44  59  73	blue-black mask 2
- 75  88  96	blue-black mask 3
- 62  41  47	leather 1
- 85  54  54	leather 2
-119  74  64	leather 3
+ 11  16  21	blue-black mask 1
+ 24  33  42	blue-black mask 2
+ 42  52  61	blue-black mask 3
+ 47  26  18	leather 1
+ 85  48  31	leather 2
+125  75  44	leather 3
  70  85  98	steel 1
 121 141 153	steel 2
 190 205 211	steel 3
-115  78  72	skin 1
-170 107  84	skin 2
-213 152 111	skin 3
+143  98  85	skin 1
+185 125  98	skin 2
+222 165 133	skin 3
 118  89  66	parchment 1
 182 144 105	parchment 2
 223 196 154	parchment 3

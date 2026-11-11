@@ -10,6 +10,7 @@ struct TrackerAvatarAnimationTests {
         thePaladinsBlocksPlayAtTheirTimes()
         decodesTheClericsFile()
         theClericsBlocksPlayAtTheirTimes()
+        decodesTheRangersFile()
         aCatchHoldsItsClosedHandPastTheRecoil()
         aLoopCyclesEachTrackOnItsOwnClock()
         aSummoningEntersLoopsAndFinishes()
@@ -737,7 +738,7 @@ struct TrackerAvatarAnimationTests {
             fail("the wizard's file should decode")
         }
         expect(animation.idle?.blink == true, "the wizard should blink")
-        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0x7b6c63), "the wizard should keep the eyelid colour")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0x8a6e60), "the wizard should keep the eyelid colour")
         expect(animation.idle?.stillLidPixels == [TrackerAvatarPixel(x: 44, y: 16), TrackerAvatarPixel(x: 45, y: 16)],
                "the legacy still eye shorthand should remain available")
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f8.png", "the wizard should resume from its authored rest frame")
@@ -779,6 +780,7 @@ struct TrackerAvatarAnimationTests {
             fail("the druid's file should decode")
         }
         expect(animation.idle?.blink == false, "the druid should never blink")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xe0a882), "the druid should keep the eyelid colour")
         expect(animation.idle?.breathing?.frames.count == 8, "the druid should keep the eight authored breathing frames")
         expect(animation.idle?.breathing?.frames.first?.lidPixels == [TrackerAvatarPixel(x: 63, y: 37), TrackerAvatarPixel(x: 64, y: 37)],
                "closed-eye metadata should still be decoded for the druid")
@@ -819,6 +821,23 @@ struct TrackerAvatarAnimationTests {
         expect(animation.animation(for: .callingOut)?.footRow == 162, "calling out should stand at the cleric's foot row")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the cleric's summoning should have a ground effect")
         expect(animation.animation(for: .channelling)?.finish != nil, "the cleric's channelling should finish")
+    }
+
+    private static func decodesTheRangersFile() {
+        guard let animation = try? decode(AvatarAnimationFixture.classJSON("ranger")) else {
+            fail("the ranger's file should decode")
+        }
+        expect(animation.idle?.blink == false, "the ranger should never blink")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xf0ac76), "the ranger should keep the eyelid colour")
+        expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the ranger should resume at the authored rest frame")
+        expect(animation.idle?.breathing?.frames.count == 16, "the ranger's breathing should play its 16 authored steps, up and back down")
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 83, y: 47), "the release hand should be the ranger's hand pixel")
+        expect(animation.fidgets.map(\.name) == ["scarf-tug"], "the ranger should have the scarf-tug fidget")
+        expect(animation.fidgets.first?.frames == [2, 3, 4, 5, 6, 7, 8, 9, 8, 7, 6, 5, 4, 3, 2], "the scarf should tug on idle frames 2 to 9 and back")
+        let pondering = animation.animation(for: .pondering)
+        expect(pondering?.footRow == 162 && pondering?.bodyColumn == 40, "pondering should stand at the ranger's foot row and body column")
+        expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the ranger's summoning should have a ground effect")
+        expect(animation.animation(for: .channelling)?.finish != nil, "the ranger's channelling should finish")
     }
 
     /// The cleric's frames at given times, read from his file: the summoning's ground circle opens below the figure, and the

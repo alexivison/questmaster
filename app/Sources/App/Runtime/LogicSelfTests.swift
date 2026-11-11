@@ -98,6 +98,7 @@ enum LogicSelfTests {
         ("testBundledDruidSpritesReadTheirAnimationFile", testBundledDruidSpritesReadTheirAnimationFile),
         ("testBundledRogueSpritesReadTheirAnimationFile", testBundledRogueSpritesReadTheirAnimationFile),
         ("testBundledClericSpritesReadTheirAnimationFile", testBundledClericSpritesReadTheirAnimationFile),
+        ("testBundledRangerSpritesReadTheirAnimationFile", testBundledRangerSpritesReadTheirAnimationFile),
         ("testTheBubbleStaysInTheSlotAboveTheBanner", testTheBubbleStaysInTheSlotAboveTheBanner),
         ("testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot", testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot),
         ("testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible", testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible),
@@ -2140,6 +2141,27 @@ enum LogicSelfTests {
         try expect(missing.isEmpty, "every frame the cleric's file plays should have its art, missing: \(missing)")
     }
 
+    /// The ranger's sprites load from the app bundle: his breathing plays its authored steps up and back down with their eyelid
+    /// stencils, he never blinks, and all three spells have their frame art.
+    @MainActor
+    private static func testBundledRangerSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["ranger"] else {
+            throw TestFailure("the ranger's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.blink == false, "the ranger should not schedule a blink")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 16 && sprites.idleBreathingArt?.count == 16,
+                   "the ranger should load all sixteen breathing steps and their lid stencils")
+        try expect(sprites.animation.fidgets.map(\.name) == ["scarf-tug"], "the ranger should have the scarf-tug fidget")
+        try expect(sprites.availableFidgets.count == 1, "the ranger's fidget should have its art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the ranger's art")
+        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
+                   "the ranger should have the frame art of all three spells")
+        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
+                   "the ranger's release should have a hand")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the ranger's file plays should have its art, missing: \(missing)")
+    }
+
     /// The shared bubble stays inside the avatar slot, above the banner at its sole. Every bundled
     /// class with an anchor is checked, and a fixture with one covers the path until a class ships one.
     @MainActor
@@ -2300,7 +2322,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("paladin", 171), ("rogue", 129), ("wizard", 150)] {
+        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("paladin", 171), ("ranger", 153), ("rogue", 129), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }
