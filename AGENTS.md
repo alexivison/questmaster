@@ -73,6 +73,19 @@ covers the installer.
 
 State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 
+For branch testing, run `QUESTMASTER_TMUX_LABEL=dev_example swift run --package-path app Questmaster`
+from a worktree branched from `origin/main`. `--state-root` or `QUESTMASTER_STATE_ROOT`
+can isolate its state. The non-bundle app starts a worktree-built daemon with its
+own identity, socket and shims; it does not replace the installed build. The
+label override is validated at daemon start, carried into the daemon's
+environment and identity, and passed to managed dev panes so CLI spawns stay
+on the same label. A build that
+predates two-server routing must not run `prune` while named sessions exist.
+Commands run for or by a dev session must use `$QUESTMASTER_BIN` (or the dev shim directory first on
+`PATH`), never the installed `questmaster`/`qm`: an installed build that predates routing looks only on the
+default server and reports a dev session's master as not running. A shell that carries the real
+install's `QUESTMASTER_BIN` passes it to the panes it creates, so unset it before running a dev `qm` by hand.
+
 ## Go backend architecture
 
 - `main.go` → `cmd.Execute()`. Each `cmd/*.go` is a cobra command factory with
@@ -106,23 +119,79 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 
 Invariants that aren't obvious from the code:
 
-- **Every tmux call names its server and its session exactly.** Production
-  clients are `tmux.NewClient(tmux.DefaultServer())`: each command passes
-  `-L default` and runs without TMUX, TMUX_PANE and TMUX_TMPDIR, which describe
-  the caller's own server. Session targets are `tmux.SessionTarget` (`=name:`),
+- **Every tmux call names its server and its session exactly.** New sessions
+  use `tmux.DefaultServer()` (`-L questmaster`, or the validated development
+  label); existing sessions use the `tmux_server` recorded in their manifests
+  through `tmuxroute.Router`. Missing ownership and explicit `default` are
+  errors for targeted actions; aggregates treat them as stopped and omit them
+  from route/handle discovery. `qm tmux audit --backfill` upgrades stopped
+  manifests to `questmaster`.
+  Commands run without TMUX, TMUX_PANE and TMUX_TMPDIR, which describe the
+  caller's own server.
+  Session panes receive their recorded label as `QUESTMASTER_TMUX_SERVER`; dev
+  panes also receive `QUESTMASTER_TMUX_LABEL` for new CLI creations. Session targets are
+  `tmux.SessionTarget` (`=name:`),
   never a bare name, which tmux matches by prefix. A session's pane is targeted
   by the ID `NewSession` reports, never by index: nothing assumes window or pane
   index 0, since a server may set base-index or pane-base-index. The caller's
   own pane counts only when TMUX names this server (`callerSession`).
+- `tmux-servers.json` under the state root records every named label used for
+  creation before `new-session`. Production routers load these labels on
+  construction, so a corrupt manifest cannot hide a former dev server from
+  prune. `Router.CompleteInventory` refreshes the labels and rejects an
+  unreadable record or an unavailable server. Status without a readable
+  manifest uses this dedicated inventory. Audit adds
+  the read-only default observation. Prune and manifest-less deletion use
+  `AuditInventory`: prune preserves IDs live on default, and deletion refuses
+  a matching default session before making any changes. Both refuse a failed
+  default probe. Audit reports incomplete inventory as `gate="unknown"` with `inventory_error`; with a
+  complete server view, prune can remove old corrupt manifests.
 - **A session's runtime files live in its manifest's `runtime_dir`**, an
   owner-only `<state root>/runtime/<id>` (`state.NewRuntimeDir`,
   `state.EnsureRuntimeDir`, files through `state.WriteRuntimeFile`). The tmux
   session carries it as `QUESTMASTER_RUNTIME_DIR` for the Pi extension; readers
-  take the path from one of the two, never from the ID. The session-closed hook
-  relies on the `<state root>/runtime/<id>` shape: tmux may run another live
-  session's hook, which finds the closed session's script by name. A manifest
+  take the path from one of the two, never from the ID. The dedicated server
+  loads a global `session-closed` hook from the regenerated
+  `<state root>/tmux/enforced.<label>.conf`; its Go handler holds the lifecycle lock
+  and skips a recreated or moved session. That file also enforces the root
+  ownership marker and server lifetime settings after the user-editable
+  shared `questmaster.conf`. Each label has its own `reload.<label>.conf`, which
+  sources the user and enforced files in one tmux command. Config reload and
+  restart refuse running servers with a missing or foreign root marker. A manifest
   without the field predates it and keeps its old path until the session stops
   (`Manifest.RuntimeDirOrLegacy`, the one legacy branch).
+- **Closing is not deleting.** `SessionClosed` preserves the manifest and the
+  master's `workers` membership, so stopped workers remain in the tracker and
+  Worker Log and a master Continue can resume them (including on reattach).
+  Delete and prune deregister workers before removing their manifests;
+  `message.Service.Workers` prunes entries with neither a manifest nor a live
+  session. Cascade reads only the master's list, so workers deregistered by
+  older close hooks need one manual Continue each to restore membership.
+  The close handler rewrites its own manifest through `Store.Update` to signal
+  the daemon's liveness watcher; runtime-directory removal alone is not watched.
+- **The user's default server has no operational route.** `ProbeDefaultSessions`
+  is the one remaining reader, used by audit, stopped-manifest backfill and
+  cleanup guards to detect managed sessions that remain there. It runs only `list-sessions` through
+  an explicit socket path computed from `TMUX_TMPDIR` (or `/tmp`) and the uid;
+  default is never a router handle or part of operational lifecycle/messaging
+  inventory. Cleanup only preserves or refuses its sessions; it cannot mutate them.
+  A missing socket is empty; a failed probe makes the audit gate unknown.
+  `qm tmux audit --backfill` alone writes: read manifests directly, never route
+  missing ownership, take one complete live snapshot and abort before all
+  writes if it fails,
+  then hold each lifecycle lock while rechecking dedicated liveness. Rewrite
+  only stopped absent/default ownership to `questmaster`, ignoring the dev
+  label. Preserve resume IDs, watches, runtime paths and manifest age; report
+  updated/live/already-set/failed counts,
+  and keep it idempotent. Before installing the new app, build a temporary `qm`,
+  run its audit and backfill against the root, then rebuild the bundle. The #466
+  binary can read the backfilled ownership. Missing this step only refuses
+  `continue`, `status`, `delete`, `send`, `read`, `attach` and explicit route
+  queries on the old stopped sessions; aggregate reads and new sessions keep
+  working. The removal gate and user approval were recorded on
+  2026-11-10. Generic dedicated-label routing remains for deliberate creation
+  changes; the old default route, per-session cleanup scripts and fallback hook
+  origin are gone. `RuntimeDirOrLegacy` remains unrelated and unchanged.
 - The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
   not any single Go type — version it deliberately.
 - **No model or reasoning-effort list is hardcoded.** Each harness declares its
@@ -225,7 +294,7 @@ the focused panel has them (`NavigationStore.hasKeys(_: DockPanel)`). When the
 user leaves a region or panel, a selection that lasts (a tab row's) and a
 cursor whose design draws an unfocused state (the artifact list's) stay one
 step dimmer; a pure cursor with no lasting selection and no designed unfocused
-state (the tracker's, Version Control's: `RowLook.cursor`) hides, and shows
+state (the tracker's, Watcher's: `RowLook.cursor`) hides, and shows
 again where it was when the keys come back.
 
 | Element | State | Look |
@@ -301,12 +370,11 @@ again where it was when the keys come back.
   every master, kept when the attached master changes (`WorkerChatStore`, in
   memory only, so not across restarts). The dropdown is as tall as its rows, up to its panel's height less
   the 5 under the bar and the 20 inset below (the tab row's room when there is one), and scrolls past that with the
-  cursor kept in view: with Version Control above, the bottom panel is shorter
+  cursor kept in view: with Watcher above, the bottom panel is shorter
   and it scrolls sooner, never reaching behind it. The filter belongs to the
   bottom panel: its icon sits in that panel's top bar, shows only while the log
   is attached to a master and toggles the dropdown; `f` and the dropdown's keys
-  work only while that panel has the keys, and the keys leaving it (to Version
-  Control, the tracker, the terminal or a modal) close it. A click anywhere else
+  work only while that panel has the keys, and the keys leaving it (to Watcher, the tracker, the terminal or a modal) close it. A click anywhere else
   on the dock, either top bar included, closes it too. Its one chip reads "Action:" in
   `textMetaHighlighted` at regular weight, then the ticked names in `textBody` **bold** (the
   current selection is what bold means), comma-separated in the dropdown's order, which is
@@ -336,7 +404,7 @@ again where it was when the keys come back.
   with hidden tabs fades out over 20, as the feed's top does. A change of selection scrolls it to the middle. The empty state stays centred in the room above the row.
 - Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
   section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
-  artifact viewer, the Worker Log, Version Control), the tracker and the Quest Log's page draw it; the page passes the
+  artifact viewer, the Worker Log, Watcher), the tracker and the Quest Log's page draw it; the page passes the
   parchment ink instead. The Worker Log draws it only once its first read came back whole and empty, or when
   its filter or worker tab hides every line (`WorkerChatStore.isKnownEmpty`, decided in Core; the chip above it stays, with its x, and the tabs under it when they show);
   while that read is pending, failed or partial it is blank, and its `readNotice` says what failed. So does the terminal pane once its session has ended (`TerminalShellView.showEnded`, only
@@ -353,9 +421,8 @@ again where it was when the keys come back.
   by `ConnectionStateMachine`): its skeleton only while no tracker has come yet (`awaitsFirstTracker`); after a dropped
   connection (every daemon restart) the last tracker stays, drawn at `Token.Opacity.dimmed`, until a fresh one arrives
   (`showsLastTracker`); an incompatible backend empties it and shows its `StatusMessagePane` (`blockingMessage`).
-- Dock titles (Artifacts, Worker Log, Version Control, an open artifact) are title case in
-  `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Version
-  Control's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
+- Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in
+  `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Watcher's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
   ring `Space.item` past the title, on the icon line, taking no room so the centred title never moves. Core decides it
   (`PullRequestStore.isRefreshing`): from the key to the daemon's reply (`pr.refresh` with `wait`), for at least one turn
   and never past 30s; a second `r` meanwhile sends nothing, and the daemon's background polls never show it. It is Core
@@ -366,10 +433,10 @@ again where it was when the keys come back.
   `Space.section` under it. `ShellSplitLayoutPlanner` gives its frame (`headerFrame`) and `MainSplitView` lays it out
   and animates it with the panes. Its 30pt buttons sit `Space.item` from its top and bottom and `Space.section` in from
   its ends: the tracker toggle alone at the leading end; New Session, Quest Log and Settings, then Artifacts, Worker Log
-  and Version Control at the trailing end, 1 apart in a group and `Space.item` between the groups; caffeinate
+  and Watcher at the trailing end, 1 apart in a group and `Space.item` between the groups; caffeinate
   `Space.section` past them (`ActionBarMetrics`). Its empty space drags the window. Toasts sit `Space.section` above the
   window's bottom edge.
-- The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Version Control on top at a fixed 300, and
+- The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Watcher on top at a fixed 300, and
   under it the artifacts or the Worker Log. Each has its own title and close button, and either shows alone
   (it then fills the dock). `DockState` keeps their visibility app-wide; ⇧⌘K and ⇧⌘J move the keys between them (all
   navigation is ⇧⌘). An open modal owns ⇧⌘H/J/K/L: J/K move its vertical cursor or field, and H/L move a horizontal
@@ -378,11 +445,21 @@ again where it was when the keys come back.
   uses `dockPanelKeyRoute`; pressing the focused panel's key does nothing). From the terminal or tracker, or in a dock
   with one panel, J/K pass through to the focused responder, so Ghostty receives its own ⇧⌘J binding
   (`write_screen_file:paste`); the View menu items are enabled only for the dock route. With no modal, ⇧⌘R toggles
-  Version Control from the monitor before the terminal; while a modal is drawn, app shortcuts are consumed or disabled,
+  Watcher from the monitor before the terminal; while a modal is drawn, app shortcuts are consumed or disabled,
   except text editing, Quit and modal commands the top modal accepts (the Quest Log permits its toggle and New Quest as
   a child). A panel appearing or going away fades and slides 10pt while the other grows or shrinks, over the standard
   motion step and only once (`DockPanelMotion`; Reduce Motion skips it, see "Motion"): never an animation that keeps
   running, as the terminal shares the main thread.
+- Watcher's rows list the pull requests the attached session watches. Core decides what a row shows
+  (`PullRequestDisplayRow`); `WatcherRow` only draws it. The first line is the git state, `#number` and the title. The
+  second line is the review glyph, `CI`, the diff counter, then the author and the watchers at the right edge. The review
+  glyph is a check ring (approved), an empty amber ring (waiting, or no review yet), a red X ring (changes requested) or
+  the grey speech bubble (a commented review, `PullRequestArt.swift`). The author is the login the backend sends, which
+  it omits for the viewer's own pull requests, and an inaccessible row shows none. A hairline divider sits between the
+  author and the watchers only when both show. One watcher shows its logo and title. Two or more
+  show their logos, up to four, overlapping by 5pt, with `+n` for the rest; the tooltip names every watcher. Under a
+  squeeze the watcher title truncates first, then the author, and the counters never truncate. A stale or inaccessible
+  row draws its semantic colours in the look's icon colour.
 
 **Modal keys.** Every in-window modal takes its keys the same way: its focused field's own keys first (a picker's, the
 path's, the prompt's), then `ModalKeys.command` (`Core/Navigation/ModalKeys.swift`). A sheet states whether it has text
@@ -400,8 +477,18 @@ fields (`ModalKeyContext.hasTextFields`), and the focused part decides the rest:
 - **The Quest Log** applies the rule per focused part: its filter is a text field, its list is a list
   (`ListCapabilities.modalMoves`). With no suggestion showing, the filter's ↑/↓ are the caret's (`FilterFieldKey`'s
   `arrowsMoveList` is off there), while ⌃p and ⌃n still move the list, as vim's previous and next do.
+- **The Quest Log's list** is one flat list, newest created first (ties by id), not grouped by project
+  (`QuestDisplayState.visibleQuests`). Project tabs (`TextTabRow`, the Worker Log's text tabs) sit above the filter,
+  centred over the column while they fit and scrolling sideways past it: All, then one tab per project that has quests,
+  in the Settings project order; quests without a project show only under All. `[` and `]` step the tabs. The selected tab lives in `QuestLogStore` and survives closing the log; it falls
+  back to All when its project has no quests left. The filter takes free text plus `@type:` and `@size:` tokens
+  (`QuestListFilter`): any selected tag within a group matches, and the text, the tags and the tab must all match.
+  A row shows its title, then its tag chips (size first, then types in `QuestTags` order); an untagged row is title only.
+- **The Quest Log's size** is fixed at `QuestLogMetrics.sheetSize` (1280 x 860). A smaller window shrinks the modal through
+  the shared fit in `ModalScaleView`, as other modals do. `QuestLogLayout` places the parts: the page keeps its proportions
+  and takes the height, the left column takes the width.
 
-Non-modal lists (the tracker, the dock's lists, Version Control, the Worker Log) keep their own keys, arrows included
+Non-modal lists (the tracker, the dock's lists, Watcher, the Worker Log) keep their own keys, arrows included
 (`ListKeyResolver`'s `moveUp` and `moveDown`).
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
@@ -424,7 +511,7 @@ is a multiple of 5, and spacing takes one of four steps (`Space` in
 | `Space.group` | 40 | between groups of blocks: the plate list → the avatar slot |
 
 Control heights are one family (`ControlHeight`): `chip` 15, `compact` 25
-(pill tabs, Quest Log rows), `control` 30 (buttons, dropdown rows), `field` 35
+(pill tabs, Quest Log title lines), `control` 30 (buttons, dropdown rows), `field` 35
 (fields, filters, the Settings picker), `bar` 40 (the dock top bar, artifact
 rows), `row` 50. A shape drawn from a design at another height keeps its path's
 own height as an `svg…` constant and scales to the control's.
@@ -500,8 +587,8 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 
 | Step | Seconds | Role |
 |---|---|---|
-| `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade |
-| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
+| `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade, a modal's scale back on close |
+| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in and scale-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
 | `MotionStep.flight` | 1.0 | a spell travelling across the window, from the class avatar's hand to the Worker Log's edge (or off the window's right edge) or back (an arc that eases out, along a Core Animation position path); the spell's impact frame then holds for this long and fades over `fast` |
 
 - **One easing:** ease out, quick at first and settling, as the cubic Bézier (0, 0, 0.58, 1), the system's own `.easeOut`.
@@ -518,6 +605,11 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   from the SwiftUI environment (the status ring, the cast bar) skips on that and takes its step lengths from
   `Motion.duration`; the ring's exit and crossfade are skipped under it, so the ring just goes. The logic-test runner
   starts every case with it off.
+- **Modal entrance.** Every in-window modal fades in and scales from 0.97 to 1 about its centre over `standard`, and on
+  close fades out and scales back over `fast` (`ModalLayer`, then `ModalScaleView`). The fit to the window is the scale
+  view's AppKit bounds, so events and text geometry map exactly. The entrance is a Core Animation transform on a child
+  view that AppKit never scales: animating the bounds moved a native scroll view's offset during the scale (the Quest
+  Log list's first row). While the transform runs, nothing in the modal takes a click; it takes them once it has settled.
 - **Sequencing** is a step too: `Motion.animation(.standard, after: .fast)` starts one step late (the Quest Log's paper
   unrolls as the modal's fade-in ends, then the ink follows).
 - **One-shot only.** The terminal shares the main thread, so a transition runs once and nothing keeps running. Prefer
@@ -580,6 +672,8 @@ The scan reads lines, so a duration passed through a helper's parameter isn't se
   call `tmuxtest.RequireIntegration` (they run only with
   `QUESTMASTER_TMUX_INTEGRATION=1`, as in the `tmux-integration` CI job).
   Production code must not import `tmuxtest`; a test enforces that.
+  `tmux.Server` rejects named `-L` selections in test binaries; inject a fake
+  runner or use a private `tmuxtest` `-S` socket.
 - **Swift:** Core-only, via a custom runner in
   `app/Tests/QuestmasterLogicTests/main.swift` (no XCTest). Add a pure-Core suite
   by appending `XxxTests.run()` there. The runner also spawns

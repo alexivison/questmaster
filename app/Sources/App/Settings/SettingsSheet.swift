@@ -11,13 +11,15 @@ final class SettingsSheetPresenter: ObservableObject {
         mutationClient: ServeMutationSending,
         modelClient: ServeModelSuggesting?,
         effortClient: ServeReasoningEffortSuggesting?,
-        runtime: RuntimeStore
+        runtime: RuntimeStore,
+        openTmuxConfig: @escaping TmuxSettingsPageModel.EditorOpening = { _, completion in completion(.failure(ArtifactExternalOpenError.missingSession)) }
     ) {
         presentation = SettingsSheetPresentation(
             mutationClient: mutationClient,
             modelClient: modelClient,
             effortClient: effortClient,
-            runtime: runtime
+            runtime: runtime,
+            openTmuxConfig: openTmuxConfig
         )
     }
 
@@ -33,6 +35,7 @@ struct SettingsSheetPresentation: Identifiable {
     let effortClient: ServeReasoningEffortSuggesting?
     /// The projects the Projects section lists, and where its rows follow each snapshot.
     let runtime: RuntimeStore
+    var openTmuxConfig: TmuxSettingsPageModel.EditorOpening = { _, completion in completion(.failure(ArtifactExternalOpenError.missingSession)) }
 }
 
 /// settings-models.svg (900 x 780): the sections as pill tabs down the left (250 wide), and the selected
@@ -71,6 +74,7 @@ enum SettingsMetrics {
 enum SettingsSection: CaseIterable {
     case modelsAndReasoning
     case projects
+    case tmux
 
     var title: String {
         switch self {
@@ -78,6 +82,8 @@ enum SettingsSection: CaseIterable {
             return "Models and Reasoning"
         case .projects:
             return "Projects"
+        case .tmux:
+            return "Tmux"
         }
     }
 
@@ -87,6 +93,8 @@ enum SettingsSection: CaseIterable {
             return "slider.vertical.3"
         case .projects:
             return "folder"
+        case .tmux:
+            return "terminal"
         }
     }
 }
@@ -154,6 +162,8 @@ struct SettingsSheetView: View {
                 modelsColumn
             case .projects:
                 SettingsProjectsView(model: model.projects)
+            case .tmux:
+                TmuxSettingsView(model: model.tmux)
             }
         }
         .frame(width: SettingsMetrics.columnWidth, alignment: .topLeading)
@@ -303,12 +313,13 @@ final class SettingsSheetModel: ObservableObject {
     /// keeps its original footprint, with content anchored to the top
     /// (`alignment: .top` on the frame below) rather than shrinking or
     /// centering in the leftover space.
-    static let sheetSize = CGSize(width: 900, height: 780)
+    nonisolated static let sheetSize = CGSize(width: 900, height: 780)
 
     @Published var state = RoleDefaultsSettingsModel()
     @Published var section = SettingsSection.modelsAndReasoning
     @Published var errorMessage: String?
     let projects: SettingsProjectsModel
+    let tmux: TmuxSettingsPageModel
     /// The projects' changes redraw the sheet too, since its error row belongs to the sheet.
     private var projectChanges: AnyCancellable?
 
@@ -332,6 +343,7 @@ final class SettingsSheetModel: ObservableObject {
         modelRequestIDs = Array(repeating: 0, count: rowCount)
         effortRequestIDs = Array(repeating: 0, count: rowCount)
         projects = SettingsProjectsModel(runtime: presentation.runtime, mutationClient: presentation.mutationClient)
+        tmux = TmuxSettingsPageModel(mutationClient: presentation.mutationClient, openEditor: presentation.openTmuxConfig)
         projectChanges = projects.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -344,6 +356,7 @@ final class SettingsSheetModel: ObservableObject {
 
     func selectSection(_ next: SettingsSection) {
         section = next
+        if next == .tmux { tmux.loadIfNeeded() }
     }
 
     /// H and L step through the sidebar's sections, wrapping as the agent tabs do. Arranging holds the section: Save
@@ -357,9 +370,11 @@ final class SettingsSheetModel: ObservableObject {
             return
         }
         section = sections[(index + delta + sections.count) % sections.count]
+        if section == .tmux { tmux.loadIfNeeded() }
     }
 
     func present() {
+        if section == .tmux { tmux.loadIfNeeded() }
         for index in state.rows.indices {
             requestModelSuggestions(rowIndex: index)
             requestEffortSuggestions(rowIndex: index)
@@ -410,14 +425,17 @@ final class SettingsSheetModel: ObservableObject {
             return ModalKeyContext(focus: .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount, hasTextFields: false, submitting: false, submits: false)
         case .projects:
             return ModalKeyContext(focus: nil, fieldCount: projects.entries.count, hasTextFields: false, submitting: false, submits: true)
+        case .tmux:
+            return ModalKeyContext(focus: nil, fieldCount: TmuxSettingsAction.allCases.count, hasTextFields: false, submitting: false, submits: true)
         }
     }
 
     private func submit() {
-        guard section == .projects else {
-            return
+        switch section {
+        case .modelsAndReasoning: break
+        case .projects: projects.submit()
+        case .tmux: tmux.performFocused()
         }
-        projects.submit()
     }
 
     /// Esc leaves arrange mode and stays in Settings; anywhere else it closes the sheet.
@@ -435,6 +453,8 @@ final class SettingsSheetModel: ObservableObject {
             state.moveFocus(delta)
         case .projects:
             projects.moveHighlight(by: delta)
+        case .tmux:
+            tmux.moveFocus(delta)
         }
     }
 

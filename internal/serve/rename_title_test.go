@@ -4,10 +4,10 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // paneTitleRunner answers the tmux calls a rename makes, records each managed
@@ -55,12 +55,29 @@ func (r *paneTitleRunner) last() string {
 	return r.titles[len(r.titles)-1]
 }
 
+func TestRenameRoutesToRecordedServer(t *testing.T) {
+	env := seedServeFixture(t)
+	if err := env.store.Update("qm-demo", func(m *state.Manifest) { m.TmuxServer = "questmaster" }); err != nil {
+		t.Fatal(err)
+	}
+	legacy, named := &paneTitleRunner{}, &paneTitleRunner{}
+	router := tmuxroute.New(env.store, map[string]*tmux.Client{"dev_previous": tmux.NewClient(legacy), "questmaster": tmux.NewClient(named)}, func() string { return "dev_previous" }, nil)
+	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(legacy), nil), TmuxRouter: router}
+	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Routed title"}); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.last() != "" || named.last() != "Routed title" {
+		t.Fatalf("titles: legacy=%q named=%q", legacy.last(), named.last())
+	}
+}
+
 // Two renames: the second commits while the first one's pane write is in
 // flight and its own write lands first. The pane ends with the second title.
 func TestRenamePaneWriteLosesToRenameCommittedMeanwhile(t *testing.T) {
 	env := seedServeFixture(t)
 	runner := &paneTitleRunner{}
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv.TmuxRouter = srv.Snapshotter.router
 	renamed := make(chan error, 1)
 	runner.onFirstWrite = func() {
 		go func() {
@@ -73,12 +90,8 @@ func TestRenamePaneWriteLosesToRenameCommittedMeanwhile(t *testing.T) {
 			}
 			renamed <- err
 		}()
-		select {
-		case err := <-renamed:
-			renamed <- err
-		case <-time.After(time.Second):
-			t.Errorf("a second rename could not commit while the first one wrote the pane title")
-		}
+		err := <-renamed
+		renamed <- err
 	}
 
 	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "First title"}); err != nil {
@@ -100,7 +113,8 @@ func TestRenamePaneWriteDoesNotHoldTheManifestLock(t *testing.T) {
 		close(entered)
 		<-release
 	}}
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv.TmuxRouter = srv.Snapshotter.router
 
 	renamed := make(chan error, 1)
 	go func() {
@@ -110,17 +124,8 @@ func TestRenamePaneWriteDoesNotHoldTheManifestLock(t *testing.T) {
 	<-entered
 	updated := make(chan error, 1)
 	go func() { updated <- env.store.Update("qm-demo", func(m *state.Manifest) { m.SetExtra("probe", "1") }) }()
-	select {
-	case err := <-updated:
-		if err != nil {
-			t.Fatalf("manifest update: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Errorf("a manifest update waited for a blocked pane-title write")
-		close(release)
-		<-updated
-		<-renamed
-		return
+	if err := <-updated; err != nil {
+		t.Fatalf("manifest update: %v", err)
 	}
 	close(release)
 	if err := <-renamed; err != nil {

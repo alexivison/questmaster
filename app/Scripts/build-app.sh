@@ -30,6 +30,9 @@ BUNDLE_DIR="$APP_DIR/.build/app/Questmaster.app"
 RESOURCES_DIR="$APP_DIR/Resources"
 INFO_PLIST="$RESOURCES_DIR/Info.plist"
 ICNS_PATH="$RESOURCES_DIR/Questmaster.icns"
+UI_REPO_ROOT="$REPO_ROOT"
+# shellcheck source-path=SCRIPTDIR source=output.sh
+source "$SCRIPT_DIR/output.sh"
 
 if [ ! -f "$ICNS_PATH" ]; then
   echo "missing app icon: $ICNS_PATH" >&2
@@ -40,7 +43,8 @@ fi
 # install-app.sh refuses a bundle where they differ.
 VERSION="$(git -C "$REPO_ROOT" describe --tags --always --dirty --match 'v[0-9]*')"
 
-swift build -c release --package-path "$APP_DIR"
+ui_title "Forging Questmaster $VERSION"
+ui_step "Compiling the app" swift build -c release --package-path "$APP_DIR"
 BIN_DIR="$(swift build -c release --package-path "$APP_DIR" --show-bin-path)"
 SWIFTPM_RESOURCE_BUNDLE="$(find "$BIN_DIR" -maxdepth 1 \( -name "Questmaster_Questmaster.bundle" -o -name "Questmaster_Questmaster.resources" \) -print -quit)"
 if [ -z "$SWIFTPM_RESOURCE_BUNDLE" ]; then
@@ -57,6 +61,7 @@ cp "$ICNS_PATH" "$BUNDLE_DIR/Contents/Resources/Questmaster.icns"
 ditto "$SWIFTPM_RESOURCE_BUNDLE" "$BUNDLE_DIR/Contents/Resources/$(basename "$SWIFTPM_RESOURCE_BUNDLE")"
 cp "$BIN_DIR/Questmaster" "$BUNDLE_DIR/Contents/MacOS/Questmaster"
 chmod 755 "$BUNDLE_DIR/Contents/MacOS/Questmaster"
+ui_done "Assembling the bundle"
 
 find_ghostty_framework() {
   local root="$APP_DIR/.build/artifacts"
@@ -81,8 +86,9 @@ fi
 
 ditto "$GHOSTTY_FRAMEWORK" "$BUNDLE_DIR/Contents/Frameworks/CGhosttyKitBinary.framework"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$BUNDLE_DIR/Contents/MacOS/Questmaster" 2>/dev/null || true
+ui_done "Binding the Ghostty terminal"
 
-(cd "$REPO_ROOT" && go build -buildvcs=false -ldflags "-X github.com/alexivison/questmaster/cmd.stampedVersion=$VERSION" -o "$BUNDLE_DIR/Contents/Resources/qm" .)
+ui_step "Forging qm" go -C "$REPO_ROOT" build -buildvcs=false -ldflags "-X github.com/alexivison/questmaster/cmd.stampedVersion=$VERSION" -o "$BUNDLE_DIR/Contents/Resources/qm" .
 chmod 755 "$BUNDLE_DIR/Contents/Resources/qm"
 
 if [ ! -x "$BUNDLE_DIR/Contents/Resources/qm" ]; then
@@ -106,7 +112,7 @@ if [ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$BUNDLE_DIR/
   exit 1
 fi
 
-codesign --force --deep --sign - "$BUNDLE_DIR"
-echo "Built $BUNDLE_DIR ($VERSION)"
+ui_step "Sealing the bundle" codesign --force --deep --sign - "$BUNDLE_DIR"
+[ "${UI_FANCY}" = 1 ] || echo "Built $BUNDLE_DIR ($VERSION)"
 
-"$SCRIPT_DIR/install-app.sh" --install-path "$INSTALL_PATH" --expect-version "$VERSION" ${INSTALL_ARGS[@]+"${INSTALL_ARGS[@]}"} "$BUNDLE_DIR"
+UI_TITLED=1 "$SCRIPT_DIR/install-app.sh" --install-path "$INSTALL_PATH" --expect-version "$VERSION" ${INSTALL_ARGS[@]+"${INSTALL_ARGS[@]}"} "$BUNDLE_DIR"

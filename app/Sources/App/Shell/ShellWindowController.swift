@@ -15,7 +15,7 @@ final class ShellWindowController {
         let trackerKeyboardBridge: TrackerKeyboardBridge
         let trackerHosting: NSView
         let dockView: SwiftUIDockPane
-        let versionControlPane: VersionControlDockPane
+        let watcherPane: WatcherDockPane
         let terminalHost: TerminalPaneHosting
         let dockChromeModel: DockChromeModel
         let trackerEffectExecutor: TrackerEffectExecutor
@@ -96,7 +96,7 @@ final class ShellWindowController {
                 trackerEffectExecutor?.execute(effect) ?? false
             }
         ), keyboardBridge: keyboardBridge)
-        let versionControlPane = VersionControlDockPane(store: pullRequestStore)
+        let watcherPane = WatcherDockPane(store: pullRequestStore)
         let dockView = SwiftUIDockPane(store: runtimeStore, workerChatStore: workerChatStore, newQuestPresenter: newQuestPresenter, settingsPresenter: settingsPresenter)
         let terminalHost = DeferredTerminalHost(
             title: "Terminal starting",
@@ -109,8 +109,8 @@ final class ShellWindowController {
         let terminalShell = TerminalShellView(body: terminalHost.view)
         let bottomDockShell = DockShellView(body: dockView, model: dockChromeModel)
         let topDockShell = DockShellView(
-            body: versionControlPane,
-            model: DockChromeModel(topBar: .versionControl, isRefreshing: { [store = pullRequestStore] in store.isRefreshing })
+            body: watcherPane,
+            model: DockChromeModel(topBar: .watcher, isRefreshing: { [store = pullRequestStore] in store.isRefreshing })
         )
         let dockColumn = DockColumnView(top: topDockShell, bottom: bottomDockShell)
         let actionBar = ActionBarShellView()
@@ -158,7 +158,7 @@ final class ShellWindowController {
             trackerKeyboardBridge: keyboardBridge,
             trackerHosting: trackerContent,
             dockView: dockView,
-            versionControlPane: versionControlPane,
+            watcherPane: watcherPane,
             terminalHost: terminalHost,
             dockChromeModel: dockChromeModel,
             trackerEffectExecutor: trackerEffectExecutor,

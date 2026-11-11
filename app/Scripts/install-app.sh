@@ -8,6 +8,8 @@
 # <install path>.previous for --rollback. If any step before the swap completes fails, the steps
 # already taken are undone and the installed app and both links are left as they were.
 set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=output.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/output.sh"
 
 usage() {
   echo "usage: $0 [--install-path PATH] [--expect-version VERSION] [--isolated] BUNDLE" >&2
@@ -18,7 +20,7 @@ usage() {
 }
 
 die() {
-  echo "install-app: $*" >&2
+  ui_error "install-app: $*"
   exit 1
 }
 
@@ -247,7 +249,13 @@ if [ "$ROLLBACK" = 0 ]; then
   ditto "$BUNDLE" "$STAGED"
 fi
 verify "$CANDIDATE"
+# build-app.sh has already titled the run.
+if [ -z "${UI_TITLED:-}" ]; then
+  if [ "$ROLLBACK" = 1 ]; then ui_title "Restoring Questmaster $VERSION"; else ui_title "Installing Questmaster $VERSION"; fi
+fi
+ui_done "Checking the seal"
 place "$CANDIDATE/Contents/Resources/qm"
+ui_done "Storing qm"
 (umask 077 && mkdir -p "$BIN_DIR/current")
 mkdir -p "$(dirname "$PATH_LINK")"
 
@@ -268,16 +276,35 @@ mv "$CANDIDATE" "$INSTALL_PATH"
 PLACED=1
 if [ "$ROLLBACK" = 1 ] && [ "$HELD" = 1 ]; then mv "$HOLD" "$PREVIOUS"; fi
 COMMITTED=1
+ui_done "Swapping in the new build"
 
 if [ "$ISOLATED" = 0 ]; then
   "$LSREGISTER" -f "$INSTALL_PATH" || echo "install-app: LaunchServices registration failed" >&2
 fi
 prune
 if [ "$ISOLATED" = 0 ]; then
-  "$STABLE" daemon check-upgrade || true
+  if [ "${UI_STREAM}" = 1 ]; then
+    "$STABLE" daemon check-upgrade || true
+  else
+    daemon_status="$("$STABLE" daemon check-upgrade 2>/dev/null || true)"
+    case "$daemon_status" in
+      *'"upgrade_started":true'*) ui_done "Rousing the daemon" "it moves to the new build" ;;
+      *'"running":true'*) ui_done "Rousing the daemon" "already on this build" ;;
+      *) ui_done "Rousing the daemon" "not running; the app starts it" ;;
+    esac
+  fi
 fi
 
-echo "Installed $INSTALL_PATH ($VERSION)"
-echo "Linked $STABLE -> $VERSION_DIR/qm"
-echo "Linked $PATH_LINK -> $STABLE"
-if [ -d "$PREVIOUS" ]; then echo "Kept $PREVIOUS (restore it with $0 --rollback)"; fi
+if [ "${UI_FANCY}" = 0 ]; then
+  echo "Installed $INSTALL_PATH ($VERSION)"
+  echo "Linked $STABLE -> $VERSION_DIR/qm"
+  echo "Linked $PATH_LINK -> $STABLE"
+  if [ -d "$PREVIOUS" ]; then echo "Kept $PREVIOUS (restore it with $0 --rollback)"; fi
+  exit 0
+fi
+printf '\n  %s✦ Questmaster %s stands ready.%s\n\n' "${UI_GOLD}" "$VERSION" "${UI_RESET}"
+ui_fact "App" "$(ui_tilde "$INSTALL_PATH")"
+ui_fact "qm" "$(ui_tilde "$STABLE") → versions/$(basename "$VERSION_DIR")/qm"
+ui_fact "PATH" "$(ui_tilde "$PATH_LINK") → $(ui_tilde "$STABLE")"
+if [ -d "$PREVIOUS" ]; then ui_fact "Previous" "$(ui_tilde "$PREVIOUS")  ${UI_DIM}(install-app.sh --rollback)${UI_RESET}"; fi
+echo

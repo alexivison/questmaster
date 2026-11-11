@@ -118,13 +118,13 @@ func TestStartPausedAfterRegisteringWhileItsMasterIsDeleted(t *testing.T) {
 	ctx := t.Context()
 
 	started := startWorker(svc, ctx)
-	<-pause.paused
+	_ = receiveSessionTestValue(t, pause.paused, "Start to reach the held tmux call")
 	deleted := deleteMaster(svc, ctx)
 	deleteErr, deleteDone := waitBriefly(deleted)
 	close(pause.release)
-	start := <-started
+	start := receiveSessionTestValue(t, started, "Start to finish")
 	if !deleteDone {
-		deleteErr = <-deleted
+		deleteErr = receiveSessionTestValue(t, deleted, "Delete to finish")
 	}
 
 	if deleteErr != nil {
@@ -142,15 +142,15 @@ func TestStartWhileItsMasterIsDeletedAfterReadingItsWorkers(t *testing.T) {
 	ctx := t.Context()
 
 	deleted := deleteMaster(svc, ctx)
-	<-pause.paused
+	_ = receiveSessionTestValue(t, pause.paused, "Delete to reach the held tmux call")
 	started := startWorker(svc, ctx)
 	start, startDone := waitBriefly(started)
 	close(pause.release)
-	if err := <-deleted; err != nil {
+	if err := receiveSessionTestValue(t, deleted, "Delete to finish"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if !startDone {
-		start = <-started
+		start = receiveSessionTestValue(t, started, "Start to finish")
 	}
 
 	assertNoOrphanWorker(t, svc, runner, start)
@@ -171,6 +171,25 @@ func hangUntilDeadline(runner *mockRunner, cmd string, hanging *atomic.Bool) {
 		return runner.defaultHandler(ctx, args...)
 	}
 }
+
+type controlledDeadline struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func (d *controlledDeadline) Done() <-chan struct{} { return d.done }
+
+func (d *controlledDeadline) Err() error {
+	select {
+	case <-d.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (d *controlledDeadline) expire() { d.once.Do(func() { close(d.done) }) }
 
 // A tmux server that stops answering holds a session's lifecycle lock only
 // until the lifecycle deadline.
@@ -204,14 +223,32 @@ func TestLifecycleDeadlineReleasesTheLockWhenTmuxHangs(t *testing.T) {
 func TestContinueRollbackRunsAfterTheDeadline(t *testing.T) {
 	setTestStateRoot(t, t.TempDir())
 	svc, runner := setupService(t)
-	svc.lifecycleTimeout = 100 * time.Millisecond
+	svc.lifecycleTimeout = 30 * time.Second
 	const id = "qm-late-rollback"
 	createTestManifest(t, svc.Store, id, "late", t.TempDir(), "")
-	var hanging atomic.Bool
-	hanging.Store(true)
-	hangUntilDeadline(runner, "set-environment", &hanging)
+	deadline := &controlledDeadline{Context: t.Context(), done: make(chan struct{})}
+	defer deadline.expire()
+	reachedLaunch := make(chan struct{}, 1)
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if len(args) > 0 && args[0] == "set-environment" {
+			reachedLaunch <- struct{}{}
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+	continued := make(chan error, 1)
+	go func() {
+		_, err := svc.Continue(deadline, id)
+		continued <- err
+	}()
+	_ = receiveSessionTestValue(t, reachedLaunch, "Continue to reach its launch step")
+	deadline.expire()
 
-	if _, err := svc.Continue(t.Context(), id); !errors.Is(err, context.DeadlineExceeded) {
+	if err := receiveSessionTestValue(t, continued, "Continue rollback to finish"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Continue error = %v, want the lifecycle deadline", err)
 	}
 

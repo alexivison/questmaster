@@ -3,7 +3,7 @@ import Foundation
 public enum RightDockWidthMode: Equatable {
     /// The artifact viewer: the user's resizable share of the window.
     case standard
-    /// Everything else (Version Control, the artifact list, worker chat): one fixed share of the window.
+    /// Everything else (Watcher, the artifact list, worker chat): one fixed share of the window.
     case panel
 }
 

@@ -20,12 +20,24 @@ import (
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/tracker"
 	"github.com/fsnotify/fsnotify"
 )
 
 type fakeTmuxRunner struct {
 	sessions string
+}
+
+func testSnapshotter(store *state.Store, client *tmux.Client, now func() time.Time) *Snapshotter {
+	if store == nil {
+		store = state.OpenStore(state.StateRoot())
+	}
+	if client == nil {
+		client = tmux.NewClient(fakeTmuxRunner{})
+	}
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)
+	return NewSnapshotter(store, client, now, router)
 }
 
 func (r fakeTmuxRunner) Run(context.Context, ...string) (string, error) {
@@ -77,7 +89,7 @@ func (s *manualChangeSource) Publish(change Change) {
 
 func TestSnapshotterSurfacesTracker(t *testing.T) {
 	env := seedServeFixture(t)
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 
 	got, err := snap.TrackerForChange(Change{})
 	if err != nil {
@@ -103,7 +115,7 @@ func TestSnapshotterWorkersFollowMasterReclass(t *testing.T) {
 	if err := env.store.SetSessionClass("qm-demo", "wizard"); err != nil {
 		t.Fatalf("set master class: %v", err)
 	}
-	if err := env.store.Create(state.Manifest{
+	if err := env.store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID: "qm-worker",
 		Cwd:       env.worktree,
 		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
@@ -112,7 +124,7 @@ func TestSnapshotterWorkersFollowMasterReclass(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
-	snapshotter := NewSnapshotter(env.store, tmux.NewClient(fakeTmuxRunner{sessions: "qm-demo\nqm-worker"}), func() time.Time { return env.now })
+	snapshotter := testSnapshotter(env.store, tmux.NewClient(fakeTmuxRunner{sessions: "qm-demo\nqm-worker"}), func() time.Time { return env.now })
 	classFor := func(snapshot TrackerSnapshot) string {
 		for _, row := range snapshot.Sessions {
 			if row.ID == "qm-worker" {
@@ -144,7 +156,7 @@ func TestSnapshotterWorkersFollowMasterReclass(t *testing.T) {
 
 func TestSnapshotterTrackerSessionChangeProjectsArtifacts(t *testing.T) {
 	env := seedServeFixture(t)
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("initial Tracker: %v", err)
 	}
@@ -215,7 +227,7 @@ func TestSnapshotterIncludesQuests(t *testing.T) {
 		t.Fatalf("upsert quest: %v", err)
 	}
 
-	tracker, err := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }).TrackerForChange(Change{})
+	tracker, err := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }).TrackerForChange(Change{})
 	if err != nil {
 		t.Fatalf("TrackerForChange: %v", err)
 	}
@@ -249,8 +261,8 @@ func TestSnapshotterProjectsCollapseHistoricalWorktrees(t *testing.T) {
 		t.Fatalf("write commondir: %v", err)
 	}
 	for _, manifest := range []state.Manifest{
-		{SessionID: "qm-main", Cwd: repoRoot, Title: "main"},
-		{SessionID: "qm-worktree", Cwd: worktree, Title: "worktree"},
+		{TmuxServer: "dev_previous", SessionID: "qm-main", Cwd: repoRoot, Title: "main"},
+		{TmuxServer: "dev_previous", SessionID: "qm-worktree", Cwd: worktree, Title: "worktree"},
 	} {
 		if err := store.Create(manifest); err != nil {
 			t.Fatalf("create manifest %s: %v", manifest.SessionID, err)
@@ -265,7 +277,7 @@ func TestSnapshotterProjectsCollapseHistoricalWorktrees(t *testing.T) {
 		t.Fatalf("set repo color: %v", err)
 	}
 
-	tracker, err := NewSnapshotter(store, tmux.NewClient(fakeTmuxRunner{}), time.Now).TrackerForChange(Change{})
+	tracker, err := testSnapshotter(store, tmux.NewClient(fakeTmuxRunner{}), time.Now).TrackerForChange(Change{})
 	if err != nil {
 		t.Fatalf("TrackerForChange: %v", err)
 	}
@@ -326,7 +338,7 @@ func TestSnapshotterProjectsUseDurableRepoSourcesWithoutManifests(t *testing.T) 
 		t.Fatalf("upsert bucket quest: %v", err)
 	}
 
-	tracker, err := NewSnapshotter(store, tmux.NewClient(fakeTmuxRunner{}), time.Now).TrackerForChange(Change{})
+	tracker, err := testSnapshotter(store, tmux.NewClient(fakeTmuxRunner{}), time.Now).TrackerForChange(Change{})
 	if err != nil {
 		t.Fatalf("TrackerForChange: %v", err)
 	}
@@ -352,7 +364,7 @@ func TestSnapshotterProjectsUseDurableRepoSourcesWithoutManifests(t *testing.T) 
 
 func TestSnapshotterSessionChangeRefreshesArtifactsFromRegistry(t *testing.T) {
 	env := seedServeFixture(t)
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("initial Tracker: %v", err)
 	}
@@ -395,7 +407,7 @@ func TestServerSocketReadsAndPushesTrackerUpdates(t *testing.T) {
 
 	srv := &Server{
 		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:   testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
@@ -413,7 +425,7 @@ func TestServerSocketReadsAndPushesTrackerUpdates(t *testing.T) {
 	assertEventTopic(t, dec, "tracker")
 
 	updateSessionActivity(t, env.now)
-	seen := readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+	seen := readEventsUntil(t, dec, func(env Envelope, seen map[string]bool) bool {
 		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, "Question: approve?")
 	})
 	if !seen["tracker"] {
@@ -421,7 +433,7 @@ func TestServerSocketReadsAndPushesTrackerUpdates(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -436,7 +448,7 @@ func TestServerSocketRestrictsOwnerAccess(t *testing.T) {
 
 	srv := &Server{
 		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:   testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
@@ -457,7 +469,7 @@ func TestServerSocketRestrictsOwnerAccess(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -465,7 +477,7 @@ func TestServerSocketRestrictsOwnerAccess(t *testing.T) {
 func TestSnapshotterTrackerCachesTmuxListSessions(t *testing.T) {
 	env := seedServeFixture(t)
 	runner := &countingTmuxRunner{sessions: "qm-demo"}
-	snap := NewSnapshotter(env.store, tmux.NewClient(runner), func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, tmux.NewClient(runner), func() time.Time { return env.now })
 
 	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("first Tracker: %v", err)
@@ -501,7 +513,7 @@ func TestSnapshotterTrackerCachesTmuxListSessions(t *testing.T) {
 
 func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testing.T) {
 	env := seedServeFixture(t)
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	fetches := 0
 	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
 		fetches++
@@ -542,7 +554,7 @@ func TestSnapshotterManifestChangeRefreshesAgentAndRepo(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed shell manifest: %v", err)
 	}
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	initial, err := snap.TrackerForChange(Change{})
 	if err != nil {
 		t.Fatalf("initial Tracker: %v", err)
@@ -583,7 +595,7 @@ func TestSnapshotterManifestChangeRefreshesAgentAndRepo(t *testing.T) {
 func TestSnapshotterTrackerSessionChangeKeepsCachedObservedAtUntilRowChanges(t *testing.T) {
 	env := seedServeFixture(t)
 	now := env.now
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
 
 	cached, err := snap.TrackerForChange(Change{})
 	if err != nil {
@@ -614,7 +626,7 @@ func TestSnapshotterTrackerSessionChangeKeepsCachedObservedAtUntilRowChanges(t *
 
 func TestSnapshotterTrackerBroadRepoColorChangeCoalescedWithSessionRefreshes(t *testing.T) {
 	env := seedServeFixture(t)
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	color := "#111111"
 	fetches := 0
 	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
@@ -660,7 +672,7 @@ func TestSnapshotterTrackerBroadRepoColorChangeCoalescedWithSessionRefreshes(t *
 func TestSnapshotterClockReconcilesDoneToIdle(t *testing.T) {
 	env := seedServeFixture(t)
 	now := env.now
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
 
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
 		pane := ss.Panes["agent"]
@@ -707,7 +719,7 @@ func TestSnapshotterClockLoadsTypicalWhenDoneRowFindsRunningTool(t *testing.T) {
 			t.Fatalf("record duration: %v", err)
 		}
 	}
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
 	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
 		return tracker.TrackerSnapshot{ObservedAt: env.now, Sessions: []tracker.SessionRow{{
 			ID: "qm-demo", Status: "active", State: "done", Agent: "codex",
@@ -751,7 +763,7 @@ func TestServerClockChangeWithoutStateTransitionProducesNoWirePush(t *testing.T)
 	changes := newManualChangeSource()
 	srv := &Server{
 		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:   testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 		ChangeSource:  changes,
 	}
@@ -771,7 +783,7 @@ func TestServerClockChangeWithoutStateTransitionProducesNoWirePush(t *testing.T)
 	assertNoEvent(t, conn, dec, 250*time.Millisecond)
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -784,7 +796,7 @@ func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = watcher.Close() })
 	source := &FileChangeSource{
-		snapshotter: NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		snapshotter: testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		watcher:     watcher,
 		stateRoot:   env.store.Root(),
 		watched:     map[string]struct{}{},
@@ -818,7 +830,7 @@ func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
 
 func TestManifestClassWriteBroadRefreshReadsPersistedClass(t *testing.T) {
 	env := seedServeFixture(t)
-	snapshotter := NewSnapshotter(env.store, tmux.NewClient(fakeTmuxRunner{sessions: "qm-demo"}), func() time.Time { return env.now })
+	snapshotter := testSnapshotter(env.store, tmux.NewClient(fakeTmuxRunner{sessions: "qm-demo"}), func() time.Time { return env.now })
 	first, err := snapshotter.TrackerForChange(Change{})
 	if err != nil {
 		t.Fatalf("initial tracker snapshot: %v", err)
@@ -867,7 +879,7 @@ func TestFileChangeSourceWatchesOnlyManifestDirectories(t *testing.T) {
 	if err := os.WriteFile(manifest, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	source, err := NewFileChangeSource(t.Context(), NewSnapshotter(state.OpenStore(root), tmux.NewClient(fakeTmuxRunner{}), nil), time.Hour)
+	source, err := NewFileChangeSource(t.Context(), testSnapshotter(state.OpenStore(root), tmux.NewClient(fakeTmuxRunner{}), nil), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -913,15 +925,13 @@ func TestFileChangeSourceSlowSubscriberCoalescesWithoutBlockingOthers(t *testing
 		source.publish(topicChange(topicDirSuggest))
 		close(done)
 	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("stalled subscriber blocked watcher publication")
-	}
-	if got := <-slow; !reflect.DeepEqual(got.Topics, []string{topicTracker}) {
+	_ = receiveServeTestValue(t, done, "second publish to finish")
+	if got := receiveServeTestValue(t, slow, "slow subscriber update"); !reflect.DeepEqual(got.Topics, []string{topicTracker}) {
 		t.Fatalf("slow subscriber did not coalesce to all topics: %+v", got)
 	}
-	if first, second := <-fast, <-fast; !reflect.DeepEqual(first.Topics, []string{topicModels}) || !reflect.DeepEqual(second.Topics, []string{topicDirSuggest}) {
+	first := receiveServeTestValue(t, fast, "first fast subscriber update")
+	second := receiveServeTestValue(t, fast, "second fast subscriber update")
+	if !reflect.DeepEqual(first.Topics, []string{topicModels}) || !reflect.DeepEqual(second.Topics, []string{topicDirSuggest}) {
 		t.Fatalf("fast subscriber missed changes: first=%+v second=%+v", first, second)
 	}
 }
@@ -929,7 +939,7 @@ func TestFileChangeSourceSlowSubscriberCoalescesWithoutBlockingOthers(t *testing
 func TestFileChangeSourceClassifiesStateJSONLAsSessionChange(t *testing.T) {
 	env := seedServeFixture(t)
 	source := &FileChangeSource{
-		snapshotter: NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		snapshotter: testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		stateRoot:   env.store.Root(),
 	}
 
@@ -947,91 +957,76 @@ func TestFileChangeSourceClassifiesStateJSONLAsSessionChange(t *testing.T) {
 	}
 }
 
+type manualFileChangeTimer struct {
+	initial time.Duration
+	fired   chan time.Time
+	resets  chan time.Duration
+}
+
+func (t *manualFileChangeTimer) C() <-chan time.Time { return t.fired }
+func (t *manualFileChangeTimer) Stop() bool          { return true }
+func (t *manualFileChangeTimer) Reset(d time.Duration) bool {
+	t.resets <- d
+	return true
+}
+
 func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
-	const sessionID = "qm-burst"
-	root := filepath.Join(t.TempDir(), "state")
-	t.Setenv(state.StateRootEnv, root)
-	store, err := state.NewStore(root)
-	if err != nil {
-		t.Fatalf("state store: %v", err)
-	}
-	if err := store.Create(state.Manifest{
-		SessionID:   sessionID,
-		Title:       "Burst debounce",
-		SessionType: "master",
-		Agents:      []state.AgentManifest{{Name: "codex", Role: "agent"}},
-	}); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-	if err := writeWatchTestSessionState(root, sessionID, "initial"); err != nil {
-		t.Fatalf("write initial state: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	source, err := NewFileChangeSource(
-		ctx,
-		NewSnapshotter(store, tmux.NewClient(fakeTmuxRunner{sessions: sessionID}), time.Now),
-		time.Hour,
+	const (
+		sessionID  = "qm-burst"
+		eventCount = 20
 	)
-	if err != nil {
-		t.Fatalf("new file change source: %v", err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	changes := make(chan Change, 1)
+	source := &FileChangeSource{
+		stateRoot:   t.TempDir(),
+		subscribers: map[chan Change]struct{}{changes: {}},
+		watched:     map[string]struct{}{},
 	}
-	t.Cleanup(func() {
-		if err := source.Close(); err != nil {
-			t.Fatalf("close source: %v", err)
+	events := make(chan fsnotify.Event)
+	eventErrors := make(chan error)
+	timers := make(chan *manualFileChangeTimer, 2)
+	newTimer := func(d time.Duration) fileChangeTimer {
+		timer := &manualFileChangeTimer{
+			initial: d,
+			fired:   make(chan time.Time, 1),
+			resets:  make(chan time.Duration, eventCount),
 		}
-	})
-	changes, unsubscribe := source.Subscribe(ctx)
-	t.Cleanup(unsubscribe)
-
-	const writeCount = 20
-	writeInterval := 50 * time.Millisecond
-	burstDuration := time.Duration(writeCount-1) * writeInterval
-	writerDone := make(chan error, 1)
-	started := time.Now()
+		timers <- timer
+		return timer
+	}
+	done := make(chan struct{})
+	source.wg.Add(1)
 	go func() {
-		for i := 0; i < writeCount; i++ {
-			if err := writeWatchTestSessionState(root, sessionID, fmt.Sprintf("burst %02d", i)); err != nil {
-				writerDone <- err
-				return
-			}
-			if i < writeCount-1 {
-				time.Sleep(writeInterval)
-			}
-		}
-		writerDone <- nil
+		source.runWith(ctx, 0, events, eventErrors, newTimer)
+		close(done)
 	}()
-
-	var elapsed time.Duration
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case err := <-writerDone:
-			if err != nil {
-				t.Fatalf("write burst: %v", err)
-			}
-			t.Fatal("burst finished before the first publish; want max-wait flush during sustained writes")
-		case change := <-changes:
-			if contains(change.Topics, topicTracker) {
-				elapsed = time.Since(started)
-				goto gotChange
-			}
-		case <-deadline:
-			t.Fatal("timed out waiting for burst publish")
+	path := filepath.Join(source.stateRoot, sessionID, "state.json")
+	event := fsnotify.Event{Name: path, Op: fsnotify.Write}
+	events <- event
+	debounce := receiveServeTestValue(t, timers, "debounce timer")
+	maxWait := receiveServeTestValue(t, timers, "max-wait timer")
+	if debounce.initial != watchDebounceWindow || maxWait.initial != watchDebounceMaxWait {
+		t.Fatalf("initial timers = %s and %s, want debounce %s and max wait %s", debounce.initial, maxWait.initial, watchDebounceWindow, watchDebounceMaxWait)
+	}
+	for range eventCount - 1 {
+		events <- event
+		if got := receiveServeTestValue(t, debounce.resets, "debounce timer reset"); got != watchDebounceWindow {
+			t.Fatalf("debounce reset = %s, want %s", got, watchDebounceWindow)
 		}
 	}
-
-gotChange:
-	if elapsed >= burstDuration {
-		t.Fatalf("first publish after %s, want before burst ends at %s", elapsed, burstDuration)
+	select {
+	case change := <-changes:
+		t.Fatalf("burst flushed before max wait: %+v", change)
+	default:
 	}
-	if elapsed > watchDebounceMaxWait+400*time.Millisecond {
-		t.Fatalf("first publish after %s, want near max wait %s", elapsed, watchDebounceMaxWait)
+	maxWait.fired <- time.Time{}
+	change := receiveServeTestValue(t, changes, "max-wait change notification")
+	if !change.Affects(topicTracker) || !slices.Contains(change.SessionIDs, sessionID) {
+		t.Fatalf("max-wait change = %+v", change)
 	}
-	if err := <-writerDone; err != nil {
-		t.Fatalf("write burst: %v", err)
-	}
+	cancel()
+	_ = receiveServeTestValue(t, done, "file change source to stop")
 }
 
 func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
@@ -1043,7 +1038,7 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 	runner := &recordingMutationRunner{}
 	srv := &Server{
 		SocketPath:     socketPath,
-		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:    testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval:  time.Hour,
 		MutationRunner: runner,
 	}
@@ -1220,7 +1215,7 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1313,6 +1308,100 @@ func TestQuestEditMutationUpdatesAndClearsProject(t *testing.T) {
 	}
 	if len(quests) != 1 || quests[0].ProjectID != "" || quests[0].ProjectPath != "" || quests[0].ProjectName != "" {
 		t.Fatalf("cleared quest = %#v, want no project metadata", quests)
+	}
+}
+
+func TestQuestMutationsSetClearLeaveTagsUnchangedAndRejectInvalid(t *testing.T) {
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	server := &Server{Snapshotter: &Snapshotter{store: store}}
+	addData, _ := json.Marshal(map[string]any{
+		"content": "Tagged through socket",
+		"types":   []string{"Research", "BUG"},
+		"size":    "m",
+	})
+	added, err := server.mutate(t.Context(), Request{Method: "quest.add", Data: addData})
+	if err != nil {
+		t.Fatalf("add tagged quest: %v", err)
+	}
+	addedQuest, ok := added.(state.Quest)
+	if !ok || strings.Join(addedQuest.Types, ",") != "bug,research" || addedQuest.Size != "M" {
+		t.Fatalf("add response = %#v, want canonical quest tags", added)
+	}
+
+	editData, _ := json.Marshal(map[string]any{
+		"quest_id": addedQuest.ID,
+		"types":    []string{"Feature"},
+		"size":     "S",
+	})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.edit", Data: editData}); err != nil {
+		t.Fatalf("set quest tags: %v", err)
+	}
+	assertQuestTags(t, store, addedQuest.ID, []string{"feature"}, "S")
+
+	unchangedData, _ := json.Marshal(map[string]string{"quest_id": addedQuest.ID, "content": "Edited without tag fields"})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.edit", Data: unchangedData}); err != nil {
+		t.Fatalf("edit without tag fields: %v", err)
+	}
+	assertQuestTags(t, store, addedQuest.ID, []string{"feature"}, "S")
+
+	clearData, _ := json.Marshal(map[string]any{"quest_id": addedQuest.ID, "types": []string{}, "size": ""})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.edit", Data: clearData}); err != nil {
+		t.Fatalf("clear quest tags: %v", err)
+	}
+	assertQuestTags(t, store, addedQuest.ID, nil, "")
+
+	for _, tc := range []struct {
+		name string
+		data map[string]any
+		want string
+	}{
+		{name: "invalid type on add", data: map[string]any{"content": "Invalid", "types": []string{"urgent"}}, want: "invalid quest type"},
+		{name: "invalid size on add", data: map[string]any{"content": "Invalid", "size": "XL"}, want: "invalid quest size"},
+		{name: "invalid type on edit", data: map[string]any{"quest_id": addedQuest.ID, "types": []string{"urgent"}}, want: "invalid quest type"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, _ := json.Marshal(tc.data)
+			method := "quest.add"
+			if tc.data["quest_id"] != nil {
+				method = "quest.edit"
+			}
+			if _, err := server.mutate(t.Context(), Request{Method: method, Data: data}); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("mutation error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func assertQuestTags(t *testing.T, store *state.Store, id string, wantTypes []string, wantSize string) {
+	t.Helper()
+	quests, err := state.LoadQuestsAt(store.Root())
+	if err != nil {
+		t.Fatalf("load quest tags: %v", err)
+	}
+	for _, quest := range quests {
+		if quest.ID == id {
+			if !slices.Equal(quest.Types, wantTypes) || quest.Size != wantSize {
+				t.Fatalf("quest tags = %v / %q, want %v / %q", quest.Types, quest.Size, wantTypes, wantSize)
+			}
+			return
+		}
+	}
+	t.Fatalf("quest %q missing", id)
+}
+
+func TestQuestSnapshotsCarryOptionalTags(t *testing.T) {
+	snapshots := questSnapshots([]state.Quest{
+		{ID: "qst-tagged", Content: "Tagged", Types: []string{"bug", "research"}, Size: "M"},
+		{ID: "qst-untagged", Content: "Untagged"},
+	})
+	if len(snapshots) != 2 || strings.Join(snapshots[0].Types, ",") != "bug,research" || snapshots[0].Size != "M" {
+		t.Fatalf("tagged quest snapshots = %#v", snapshots)
+	}
+	if len(snapshots[1].Types) != 0 || snapshots[1].Size != "" {
+		t.Fatalf("untagged quest snapshot = %#v, want no tags", snapshots[1])
 	}
 }
 
@@ -1520,7 +1609,7 @@ func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 	var gotQuery string
 	srv := &Server{
 		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:   testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 		DirQuerier: func(query string) ([]string, error) {
 			gotQuery = query
@@ -1554,7 +1643,7 @@ func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1565,7 +1654,7 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	// suggestions rely only on recents and the persisted role default —
 	// there is no hardcoded per-harness floor anymore.
 	t.Setenv(modelsuggest.CatalogURLEnv, "off")
-	if err := env.store.Create(state.Manifest{
+	if err := env.store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID: "qm-recent-claude",
 		Cwd:       t.TempDir(),
 		Agents:    []state.AgentManifest{{Name: "claude", Role: "agent", Model: "claude-opus-9-unreleased"}},
@@ -1581,7 +1670,7 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 
 	srv := &Server{
 		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:   testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
@@ -1679,7 +1768,7 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1692,7 +1781,7 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 
 	srv := &Server{
 		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:   testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 		ReasoningEfforts: func(_ context.Context, agentName, model string) []string {
 			if agentName == "codex" && model == "gpt-6-luna" {
@@ -1761,7 +1850,7 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1789,7 +1878,7 @@ func TestServerReasoningEffortsTopicUsesPersistedModelWhenCallerModelIsEmpty(t *
 
 	srv := &Server{
 		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:   testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 		ReasoningEfforts: func(_ context.Context, agentName, model string) []string {
 			if agentName == "codex" && model == "gpt-5.6-luna" {
@@ -1822,7 +1911,7 @@ func TestServerReasoningEffortsTopicUsesPersistedModelWhenCallerModelIsEmpty(t *
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1846,7 +1935,7 @@ func TestServerModelsAndReasoningEffortsTopicsReflectPersistedRoleDefault(t *tes
 
 	srv := &Server{
 		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:   testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
 		ReasoningEfforts: func(_ context.Context, agentName, _ string) []string {
 			if agentName == "claude" {
@@ -1883,7 +1972,7 @@ func TestServerModelsAndReasoningEffortsTopicsReflectPersistedRoleDefault(t *tes
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -1905,7 +1994,7 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	changes := newManualChangeSource()
 	srv := &Server{
 		SocketPath:     socketPath,
-		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:    testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval:  time.Hour,
 		MutationRunner: runner,
 		ChangeSource:   changes,
@@ -1947,7 +2036,7 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	change := topicChange(topicTracker)
 	change.BroadTracker = true
 	changes.Publish(change)
-	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+	readEventsUntil(t, dec, func(env Envelope, seen map[string]bool) bool {
 		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"display_color":"violet"`)
 	})
 
@@ -1985,7 +2074,7 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2002,7 +2091,7 @@ func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
 			name:  "master",
 			id:    "qm-class-master",
 			class: " Wizard ",
-			manifest: state.Manifest{
+			manifest: state.Manifest{TmuxServer: "dev_previous",
 				SessionID: "qm-class-master",
 				Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 			},
@@ -2010,7 +2099,7 @@ func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
 		{
 			name: "worker",
 			id:   "qm-class-worker",
-			manifest: state.Manifest{
+			manifest: state.Manifest{TmuxServer: "dev_previous",
 				SessionID: "qm-class-worker",
 				Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 				Extra:     map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)},
@@ -2021,19 +2110,19 @@ func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
 		{
 			name:     "shell",
 			id:       "qm-class-shell",
-			manifest: state.Manifest{SessionID: "qm-class-shell"},
+			manifest: state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-class-shell"},
 			class:    "bard",
 			wantErr:  "shell sessions have no class",
 		},
 		{
 			name: "invalid class",
 			id:   "qm-class-invalid",
-			manifest: state.Manifest{
+			manifest: state.Manifest{TmuxServer: "dev_previous",
 				SessionID: "qm-class-invalid",
 				Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 			},
-			class:   "ranger",
-			wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard",
+			class:   "unknown",
+			wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard, ranger, necromancer, sorcerer, fighter",
 		},
 	}
 	for _, tt := range tests {
@@ -2086,7 +2175,7 @@ func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
 	runner := &recordingMutationRunner{}
 	srv := &Server{
 		SocketPath:     socketPath,
-		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:    testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval:  time.Hour,
 		MutationRunner: runner,
 		ReasoningEfforts: func(_ context.Context, agentName, model string) []string {
@@ -2181,7 +2270,7 @@ func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2197,7 +2286,7 @@ func TestServerRoleDefaultSetClearsCarriedEffortWhenModelChanges(t *testing.T) {
 	defer cancel()
 	srv := &Server{
 		SocketPath:     socketPath,
-		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:    testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval:  time.Hour,
 		MutationRunner: &recordingMutationRunner{},
 		ReasoningEfforts: func(_ context.Context, agentName, model string) []string {
@@ -2246,7 +2335,7 @@ func TestServerRoleDefaultSetClearsCarriedEffortWhenModelChanges(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errC; err != nil {
+	if err := receiveServeTestValue(t, errC, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2265,7 +2354,7 @@ func TestServerRoleDefaultSetMutationMergesPartialUpdates(t *testing.T) {
 
 	srv := &Server{
 		SocketPath:     socketPath,
-		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:    testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval:  time.Hour,
 		MutationRunner: &recordingMutationRunner{},
 	}
@@ -2307,7 +2396,7 @@ func TestServerRoleDefaultSetMutationMergesPartialUpdates(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2326,11 +2415,12 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 	changes := newManualChangeSource()
 	srv := &Server{
 		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:   testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		TmuxClient:    tmux.NewClient(&recordingTmuxRunner{}),
 		ClockInterval: time.Hour,
 		ChangeSource:  changes,
 	}
+	srv.TmuxRouter = tmuxroute.New(env.store, map[string]*tmux.Client{"dev_previous": srv.TmuxClient}, func() string { return "dev_previous" }, nil)
 	errc := serveInBackground(t, ctx, srv, socketPath)
 
 	conn, enc, dec := dialServe(t, socketPath)
@@ -2365,7 +2455,7 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 	change := topicChange(topicTracker)
 	change.BroadTracker = true
 	changes.Publish(change)
-	readEventsUntil(t, conn, dec, 2*time.Second, func(env Envelope, seen map[string]bool) bool {
+	readEventsUntil(t, dec, func(env Envelope, seen map[string]bool) bool {
 		return env.Type == "event" && env.Topic == "tracker" && envelopeContains(env, `"title":"Release triage"`)
 	})
 
@@ -2379,7 +2469,7 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2394,7 +2484,8 @@ func TestRenameMutationUpdatesAgentPaneTitle(t *testing.T) {
 				t.Fatal(err)
 			}
 			runner := &recordingTmuxRunner{}
-			srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+			srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
+			srv.TmuxRouter = srv.Snapshotter.router
 			if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "New session title"}); err != nil {
 				t.Fatalf("rename: %v", err)
 			}
@@ -2419,7 +2510,8 @@ func TestRenameMutationTargetsAdoptedAgentPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &adoptedPaneTmuxRunner{}
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	srv.TmuxRouter = srv.Snapshotter.router
 	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Adopted agent"}); err != nil {
 		t.Fatalf("rename: %v", err)
 	}
@@ -2437,7 +2529,8 @@ func TestRenameMutationDuringContinueBeforeRoleTag(t *testing.T) {
 	for _, pane := range []string{"0 0", "1 1"} {
 		env := seedServeFixture(t)
 		runner := &untaggedPaneTmuxRunner{pane: pane}
-		srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+		srv := &Server{Snapshotter: testSnapshotter(env.store, tmux.NewClient(runner), nil)}
+		srv.TmuxRouter = srv.Snapshotter.router
 		if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Renamed during continue"}); err != nil {
 			t.Fatalf("rename while pane %s has no role tag: %v", pane, err)
 		}
@@ -2483,7 +2576,8 @@ func TestRenameMutationKeepsStoppedSessionTitle(t *testing.T) {
 	env := seedServeFixture(t)
 	client := tmux.NewClient(stoppedTmuxRunner{})
 	// A stopped session has no pane to title, but its manifest still takes the rename.
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, client, nil)}
+	srv := &Server{Snapshotter: testSnapshotter(env.store, client, nil)}
+	srv.TmuxRouter = srv.Snapshotter.router
 	_, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Next title"})
 	if err != nil {
 		t.Fatalf("rename: %v", err)
@@ -2509,6 +2603,7 @@ func (stoppedTmuxRunner) Run(_ context.Context, args ...string) (string, error) 
 func TestServerMutationRunnerTimeoutReturnsError(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := tempSocketPath(t)
+	const mutationResponseWatchdog = 10 * time.Second
 	oldTimeout := mutationOperationTimeout
 	mutationOperationTimeout = 75 * time.Millisecond
 	t.Cleanup(func() { mutationOperationTimeout = oldTimeout })
@@ -2518,27 +2613,27 @@ func TestServerMutationRunnerTimeoutReturnsError(t *testing.T) {
 	runner := blockingMutationRunner{started: make(chan struct{})}
 	srv := &Server{
 		SocketPath:     socketPath,
-		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		Snapshotter:    testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval:  time.Hour,
 		MutationRunner: runner,
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
 
-	start := time.Now()
-	got := sendRawMutation(t, socketPath, map[string]any{
+	startedAt := time.Now()
+	got := sendRawMutationWithDeadline(t, socketPath, map[string]any{
 		"id":     "slow",
 		"method": "delete",
 		"data":   map[string]any{"session_id": "qm-slow"},
-	})
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("mutation response took %s, want timeout response under 1s", elapsed)
+	}, mutationResponseWatchdog)
+	if elapsed := time.Since(startedAt); elapsed > mutationResponseWatchdog {
+		t.Fatalf("mutation timeout response took %s, want within %s", elapsed, mutationResponseWatchdog)
 	}
 	if got.Type != "response" || got.OK == nil || *got.OK || !strings.Contains(got.Error, "context deadline exceeded") {
 		t.Fatalf("timeout response = %#v, want context deadline exceeded error", got)
 	}
 
 	cancel()
-	if err := <-errc; err != nil {
+	if err := receiveServeTestValue(t, errc, "serve goroutine to return"); err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
@@ -2565,7 +2660,7 @@ func seedServeFixture(t *testing.T) serveFixture {
 	if err != nil {
 		t.Fatalf("state store: %v", err)
 	}
-	m := state.Manifest{
+	m := state.Manifest{TmuxServer: "dev_previous",
 		SessionID:   "qm-demo",
 		Title:       "Serve runtime JSON",
 		Cwd:         worktree,
@@ -2605,7 +2700,7 @@ func seedServeFixture(t *testing.T) serveFixture {
 
 func TestSnapshotterTrackerSessionChangeIncludesLastChatAt(t *testing.T) {
 	env := seedServeFixture(t)
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	if _, err := snap.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("initial Tracker: %v", err)
 	}
@@ -2644,7 +2739,7 @@ func TestSnapshotterTrackerLastExchangeOnlyWhenSet(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			env := seedServeFixture(t)
-			snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+			snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 			if _, err := snap.TrackerForChange(Change{}); err != nil {
 				t.Fatalf("initial Tracker: %v", err)
 			}
@@ -2695,7 +2790,7 @@ func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T)
 		}
 	}
 
-	snap, err := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }).TrackerForChange(Change{})
+	snap, err := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }).TrackerForChange(Change{})
 	if err != nil {
 		t.Fatalf("tracker snapshot: %v", err)
 	}
@@ -2738,7 +2833,7 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 		}
 	}
 
-	full := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	full := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	full.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
 		return tracker.TrackerSnapshot{ObservedAt: env.now, Sessions: []tracker.SessionRow{{ID: "qm-demo", Status: "stopped", State: "stopped"}}}, nil
 	}
@@ -2748,7 +2843,7 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 	}
 	assertStopped("full refresh", got.Sessions[0])
 
-	incremental := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	incremental := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	incremental.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
 		return tracker.TrackerSnapshot{ObservedAt: env.now, Sessions: []tracker.SessionRow{{ID: "qm-demo", Status: "active", Agent: "codex"}}}, nil
 	}
@@ -2756,6 +2851,7 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 		t.Fatalf("initial active snapshot: %v", err)
 	}
 	incremental.tmuxClient = tmux.NewClient(fakeTmuxRunner{})
+	incremental.router = tmuxroute.New(env.store, map[string]*tmux.Client{"dev_previous": incremental.tmuxClient}, func() string { return "dev_previous" }, nil)
 	got, err = incremental.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
 	if err != nil {
 		t.Fatalf("incremental stopped snapshot: %v", err)
@@ -2812,24 +2908,28 @@ func tempSocketPath(t *testing.T) string {
 
 func serveInBackground(t *testing.T, ctx context.Context, srv *Server, socketPath string) <-chan error {
 	t.Helper()
+	ready := make(chan struct{})
+	srv.onListen = func() { close(ready) }
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ctx) }()
-	waitForSocket(t, socketPath)
+	waitForSocket(t, ready, socketPath, errc)
 	return errc
 }
 
-func waitForSocket(t *testing.T, path string) {
+func waitForSocket(t *testing.T, ready <-chan struct{}, path string, serveDone <-chan error) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.Dial("unix", path)
-		if err == nil {
-			conn.Close() //nolint:errcheck
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-ready:
+	case err := <-serveDone:
+		t.Fatalf("server stopped before socket appeared: %v", err)
+	case <-time.After(serveTestWaitTimeout):
+		t.Fatalf("timed out after %s waiting for the server socket", serveTestWaitTimeout)
 	}
-	t.Fatalf("socket %s did not become ready", path)
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatalf("dial socket after listener ready signal: %v", err)
+	}
+	conn.Close() //nolint:errcheck
 }
 
 func writeRequest(t *testing.T, enc *json.Encoder, req map[string]any) {
@@ -2933,9 +3033,18 @@ func sendMutation(t *testing.T, socketPath string, req map[string]any) Envelope 
 }
 
 func sendRawMutation(t *testing.T, socketPath string, req map[string]any) Envelope {
+	return sendRawMutationWithDeadline(t, socketPath, req, 0)
+}
+
+func sendRawMutationWithDeadline(t *testing.T, socketPath string, req map[string]any, timeout time.Duration) Envelope {
 	t.Helper()
 	conn, enc, dec := dialServe(t, socketPath)
 	defer conn.Close() //nolint:errcheck
+	if timeout > 0 {
+		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+			t.Fatalf("set mutation socket deadline: %v", err)
+		}
+	}
 	writeRequest(t, enc, req)
 	var env Envelope
 	if err := dec.Decode(&env); err != nil {
@@ -3047,13 +3156,9 @@ func updateSessionActivity(t *testing.T, now time.Time) {
 	}
 }
 
-func readEventsUntil(t *testing.T, conn net.Conn, dec *json.Decoder, timeout time.Duration, done func(Envelope, map[string]bool) bool) map[string]bool {
+func readEventsUntil(t *testing.T, dec *json.Decoder, done func(Envelope, map[string]bool) bool) map[string]bool {
 	t.Helper()
 	seen := map[string]bool{}
-	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-		t.Fatalf("set deadline: %v", err)
-	}
-	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck
 
 	for {
 		var env Envelope
@@ -3101,7 +3206,7 @@ func TestSnapshotterTrackerActiveSubagentsCountsRunningChildren(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			env := seedServeFixture(t)
-			snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+			snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 			if _, err := snap.TrackerForChange(Change{}); err != nil {
 				t.Fatalf("initial Tracker: %v", err)
 			}

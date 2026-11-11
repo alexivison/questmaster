@@ -138,7 +138,7 @@ struct WorkerChatTests {
             segments(store, 0) == [
                 WorkerChatSegment("Worker One:", .name),
                 WorkerChatSegment(" Summoned ", .muted),
-                WorkerChatSegment("[Explore]", .rarity(.epic)),
+                WorkerChatSegment("[Explore]", .rarity(.common)),
             ],
             "summon line mismatch: \(segments(store, 0))"
         )
@@ -146,7 +146,7 @@ struct WorkerChatTests {
             segments(store, 1) == [
                 WorkerChatSegment("Worker One:", .name),
                 WorkerChatSegment(" Dismissed ", .muted),
-                WorkerChatSegment("[general-purpose]", .rarity(.epic)),
+                WorkerChatSegment("[general-purpose]", .rarity(.common)),
             ],
             "dismiss line mismatch: \(segments(store, 1))"
         )

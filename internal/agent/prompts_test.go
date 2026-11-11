@@ -44,6 +44,22 @@ func TestMasterPromptLeavesWorkflowChoicesOpen(t *testing.T) {
 	}
 }
 
+func TestMasterPromptWaitsForWorkerReportsWithoutPolling(t *testing.T) {
+	for _, want := range []string{
+		"Worker reports arrive as [WORKER:<worker-id>] messages",
+		"end your turn or do other independent work",
+		"Codex's sleep tool",
+		"repeated questmaster read",
+	} {
+		if !strings.Contains(masterPrompt, want) {
+			t.Fatalf("master prompt missing worker wait rule %q:\n%s", want, masterPrompt)
+		}
+	}
+	if strings.Contains(workerPrompt, "Worker reports arrive as") {
+		t.Fatal("worker prompt must not carry the master's worker wait rule")
+	}
+}
+
 func TestWorkerPromptKeepsOrchestrationWithMaster(t *testing.T) {
 	for _, want := range []string{
 		"Work only the assigned worker task in this session",

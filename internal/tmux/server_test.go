@@ -1,13 +1,59 @@
 package tmux
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestServerRunDoesNotWaitForDetachedChildOutput(t *testing.T) {
+	bin := t.TempDir()
+	childPID := filepath.Join(t.TempDir(), "child.pid")
+	t.Setenv("QM_TEST_CHILD_PID", childPID)
+	t.Cleanup(func() { stopFakeTmuxChild(t, childPID) })
+	script := "#!/bin/sh\nprintf 'ready\\n'\nsleep 30 & echo $! > \"$QM_TEST_CHILD_PID\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	out, err := SocketServer("/tmp/qm-private/tmux.sock").Run(ctx, "list-sessions")
+	if err != nil || out != "ready" {
+		t.Fatalf("Run waited for a detached child: output=%q error=%v", out, err)
+	}
+}
+
+func stopFakeTmuxChild(t *testing.T, pidFile string) {
+	t.Helper()
+	data, err := os.ReadFile(pidFile)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		t.Errorf("read fake tmux child PID: %v", err)
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Errorf("parse fake tmux child PID: %v", err)
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		t.Errorf("find fake tmux child: %v", err)
+		return
+	}
+	if err := process.Kill(); err != nil && !os.IsNotExist(err) {
+		t.Errorf("kill fake tmux child: %v", err)
+	}
+	_ = process.Release()
+}
 
 // fakeTmuxScript stands in for tmux on PATH. Each run writes one file: the
 // routing variables it inherited, then its arguments, one per line. It starts
@@ -64,7 +110,6 @@ func TestServerRunsEveryCommandOnItsSelection(t *testing.T) {
 		server Server
 		prefix []string
 	}{
-		{name: "default", server: DefaultServer(), prefix: []string{"-L", "default"}},
 		{name: "socket", server: SocketServer("/tmp/qm-private/tmux.sock"), prefix: []string{"-S", "/tmp/qm-private/tmux.sock"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -82,7 +127,6 @@ func TestServerRunsEveryCommandOnItsSelection(t *testing.T) {
 			_ = c.SetEnvironment(ctx, "qm-a", "K", "V")
 			_ = c.UnsetEnvironment(ctx, "qm-a", "K")
 			_, _, _ = c.ShowEnvironment(ctx, "qm-a", "K")
-			_ = c.SetHook(ctx, "qm-a", "session-closed", "run-shell true")
 			_, _ = c.ListSessions(ctx)
 			_, _ = c.ListPanes(ctx, "qm-a")
 			_, _ = c.Capture(ctx, PaneTarget("qm-a", 0, 0), 10)
@@ -108,16 +152,30 @@ func TestServerRunsEveryCommandOnItsSelection(t *testing.T) {
 }
 
 func TestServerCommandKeepsTheRestOfTheEnvironment(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "questmaster")
 	t.Setenv("TMUX", "/tmp/qm-elsewhere/default,4242,0")
 	t.Setenv("TMUX_EXTRA", "kept")
 
-	cmd := DefaultServer().Command(t.Context(), "list-sessions")
+	cmd := DefaultServer("/tmp/user.conf", "/tmp/enforced.conf").Command(t.Context(), "list-sessions")
 
 	if !slices.Contains(cmd.Env, "TMUX_EXTRA=kept") {
 		t.Errorf("env dropped an unrelated variable: %q", cmd.Env)
 	}
-	if want := []string{"-L", "default", "list-sessions"}; !slices.Equal(cmd.Args[1:], want) {
+	if want := []string{"-L", "questmaster", "-f", "/tmp/user.conf", "-f", "/tmp/enforced.conf", "list-sessions"}; !slices.Equal(cmd.Args[1:], want) {
 		t.Errorf("args = %q, want tmux %q", cmd.Args, want)
+	}
+}
+
+func TestDefaultServerIsNamed(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_test")
+	if got := DefaultServer("/tmp/user.conf", "/tmp/enforced.conf").Command(t.Context(), "list-sessions").Args[1:3]; !slices.Equal(got, []string{"-L", "dev_test"}) {
+		t.Fatalf("creation selector = %q", got)
+	}
+	if err := os.Unsetenv("QUESTMASTER_TMUX_LABEL"); err != nil {
+		t.Fatal(err)
+	}
+	if got := DefaultServer("/tmp/user.conf", "/tmp/enforced.conf").Command(t.Context(), "list-sessions").Args[1:3]; !slices.Equal(got, []string{"-L", "questmaster"}) {
+		t.Fatalf("unset creation selector = %q", got)
 	}
 }
 
@@ -129,5 +187,94 @@ func TestServerEnvDropsOnlyTheRoutingVariables(t *testing.T) {
 
 	if want := []string{"TMUX_EXTRA=keep", "PATH=/bin", "NOEQUALS"}; !slices.Equal(got, want) {
 		t.Fatalf("serverEnv = %q, want %q", got, want)
+	}
+}
+
+func TestNamedServerArgsAndEnv(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "questmaster")
+	named, err := NamedServer("/tmp/user.conf", "/tmp/enforced.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMUX", "hostile")
+	t.Setenv("TMUX_PANE", "%1")
+	t.Setenv("TMUX_TMPDIR", "/tmp/hostile")
+	t.Setenv("QUESTMASTER_SESSION", "qm-hostile")
+	t.Setenv("QUESTMASTER_TMUX_SERVER", "hostile")
+	t.Setenv("QUESTMASTER_RUNTIME_DIR", "/tmp/hostile")
+	t.Setenv("QM_KEEP", "yes")
+	for _, tc := range []struct {
+		name   string
+		server Server
+		want   []string
+	}{
+		{"named", named, []string{"-L", "questmaster", "-f", "/tmp/user.conf", "-f", "/tmp/enforced.conf", "list-sessions"}},
+		{"default", DefaultServer("/tmp/user.conf", "/tmp/enforced.conf"), []string{"-L", "questmaster", "-f", "/tmp/user.conf", "-f", "/tmp/enforced.conf", "list-sessions"}},
+	} {
+		cmd := tc.server.Command(t.Context(), "list-sessions")
+		if !slices.Equal(cmd.Args[1:], tc.want) {
+			t.Errorf("%s args = %q, want %q", tc.name, cmd.Args[1:], tc.want)
+		}
+		if cmd.Dir != "/" {
+			t.Errorf("%s Dir = %q", tc.name, cmd.Dir)
+		}
+		for _, key := range []string{"TMUX", "TMUX_PANE", "TMUX_TMPDIR", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_RUNTIME_DIR", "QUESTMASTER_TMUX_LABEL"} {
+			for _, kv := range cmd.Env {
+				if strings.HasPrefix(kv, key+"=") {
+					t.Errorf("%s inherited %s", tc.name, key)
+				}
+			}
+		}
+		if !slices.Contains(cmd.Env, "QM_KEEP=yes") {
+			t.Errorf("%s dropped unrelated env", tc.name)
+		}
+	}
+}
+
+func TestNamedServerLabelOverride(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_1")
+	server, err := NamedServer("/tmp/user.conf", "/tmp/enforced.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := server.Command(t.Context(), "list-sessions").Args[1:3]; !slices.Equal(got, []string{"-L", "dev_1"}) {
+		t.Fatalf("selector = %q", got)
+	}
+	if err := os.Unsetenv("QUESTMASTER_TMUX_LABEL"); err != nil {
+		t.Fatal(err)
+	}
+	server, err = NamedServer("/tmp/user.conf", "/tmp/enforced.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := server.Command(t.Context(), "list-sessions").Args[1:3]; !slices.Equal(got, []string{"-L", "questmaster"}) {
+		t.Fatalf("default selector = %q", got)
+	}
+}
+
+func TestNamedServerLabelIgnoresEnvironment(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_current")
+	server, err := NamedServerLabel("dev_recorded", "/tmp/user.conf", "/tmp/enforced.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := server.Label(); got != "dev_recorded" {
+		t.Fatalf("label = %q", got)
+	}
+	for _, invalid := range []string{"", "default", "Bad", "with space", "123456789012345678901234567890123"} {
+		if _, err := NamedServerLabel(invalid, "/tmp/user.conf", "/tmp/enforced.conf"); err == nil {
+			t.Fatalf("accepted %q", invalid)
+		}
+	}
+}
+
+func TestNamedServerRejectsInvalidLabel(t *testing.T) {
+	for _, label := range []string{"", "default", "Upper", strings.Repeat("a", 33), "a/b", "has space"} {
+		t.Run(label, func(t *testing.T) {
+			t.Setenv("QUESTMASTER_TMUX_LABEL", label)
+			if _, err := NamedServer("/tmp/user.conf", "/tmp/enforced.conf"); err == nil {
+				t.Fatalf("accepted label %q", label)
+			}
+		})
 	}
 }

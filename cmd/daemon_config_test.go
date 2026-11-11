@@ -7,11 +7,21 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
+	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
+
+func daemonConfigForTest(store *state.Store, client *tmux.Client) (daemon.Config, error) {
+	root, err := filepath.Abs(store.Root())
+	if err != nil {
+		return daemon.Config{}, err
+	}
+	router := tmuxroute.New(state.OpenStore(root), map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)
+	return newDaemonConfigWithRouter(store, client, router)
+}
 
 func TestDaemonConfigRegistersSessionClassBackfillJob(t *testing.T) {
 	t.Parallel()
@@ -20,7 +30,7 @@ func TestDaemonConfigRegistersSessionClassBackfillJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	config, err := newDaemonConfig(store, tmux.NewClient(&pruneRunner{sessions: map[string]bool{}}))
+	config, err := daemonConfigForTest(store, tmux.NewClient(&pruneRunner{sessions: map[string]bool{}}))
 	if err != nil {
 		t.Fatalf("daemon config: %v", err)
 	}
@@ -45,7 +55,7 @@ func TestDaemonClassBackfillUsesAbsoluteStateRootAfterChdir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID: "qm-relative-root",
 		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}); err != nil {
@@ -55,7 +65,7 @@ func TestDaemonClassBackfillUsesAbsoluteStateRootAfterChdir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("relative root: %v", err)
 	}
-	config, err := newDaemonConfig(state.OpenStore(relativeRoot), tmux.NewClient(&pruneRunner{sessions: map[string]bool{"qm-relative-root": true}}))
+	config, err := daemonConfigForTest(state.OpenStore(relativeRoot), tmux.NewClient(&pruneRunner{sessions: map[string]bool{"qm-relative-root": true}}))
 	if err != nil {
 		t.Fatalf("daemon config: %v", err)
 	}
@@ -65,33 +75,12 @@ func TestDaemonClassBackfillUsesAbsoluteStateRootAfterChdir(t *testing.T) {
 	if err := os.Chdir(t.TempDir()); err != nil {
 		t.Fatalf("change working directory: %v", err)
 	}
+	watcher := watchManifestDirectory(t, store.Root())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- config.Jobs[0].Run(ctx) }()
-	deadline := time.NewTimer(3 * time.Second)
-	ticker := time.NewTicker(time.Millisecond)
-	defer deadline.Stop()
-	defer ticker.Stop()
-	for {
-		manifest, err := store.Read("qm-relative-root")
-		if err != nil {
-			cancel()
-			t.Fatalf("read master: %v", err)
-		}
-		if manifest.DisplayClass() != "" {
-			break
-		}
-		select {
-		case err := <-done:
-			cancel()
-			t.Fatalf("backfill returned before cancellation: %v", err)
-		case <-deadline.C:
-			cancel()
-			t.Fatal("backfill did not persist class in the original state root")
-		case <-ticker.C:
-		}
-	}
+	waitForManifestDisplayClass(t, watcher, store, "qm-relative-root", done)
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("backfill after cancellation: %v", err)

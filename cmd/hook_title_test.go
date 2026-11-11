@@ -6,7 +6,6 @@ import (
 	"io"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -258,7 +257,7 @@ func newTitledAgentSession(t *testing.T, sessionID string) *state.Store {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	if err := store.Create(state.Manifest{SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 	return store
@@ -284,12 +283,8 @@ func TestDerivedTitlePaneWriteLosesToRenameCommittedMeanwhile(t *testing.T) {
 			}
 			renamed <- err
 		}()
-		select {
-		case err := <-renamed:
-			renamed <- err
-		case <-time.After(time.Second):
-			t.Errorf("an explicit rename could not commit while the derived title was written to the pane")
-		}
+		err := <-renamed
+		renamed <- err
 	}
 	r, _ := newTestRunner(t)
 	r.Store = store
@@ -329,17 +324,8 @@ func TestDerivedTitlePaneWriteDoesNotHoldTheManifestLock(t *testing.T) {
 	<-entered
 	updated := make(chan error, 1)
 	go func() { updated <- store.Update(sessionID, func(m *state.Manifest) { m.SetExtra("probe", "1") }) }()
-	select {
-	case err := <-updated:
-		if err != nil {
-			t.Fatalf("manifest update: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Errorf("a manifest update waited for a blocked pane-title write")
-		close(release)
-		<-updated
-		<-derived
-		return
+	if err := <-updated; err != nil {
+		t.Fatalf("manifest update: %v", err)
 	}
 	close(release)
 	<-derived

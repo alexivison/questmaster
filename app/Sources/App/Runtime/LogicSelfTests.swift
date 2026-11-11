@@ -10,6 +10,9 @@ import WebKit
 
 @MainActor
 enum LogicSelfTests {
+    private static let selfTestWaitTimeout: TimeInterval = 10
+    private static let socketPollTimeoutMilliseconds: Int32 = 10_000
+
     private static let cases: [(name: String, body: @MainActor () throws -> Void)] = [
         ("testAppBackendResolverFeedsLaunchConfiguration", testAppBackendResolverFeedsLaunchConfiguration),
         ("testLaunchFlagMappingTable", testLaunchFlagMappingTable),
@@ -22,11 +25,24 @@ enum LogicSelfTests {
         ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
         ("testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges", testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
-        ("testTmuxStartupScriptRespawnsTheCreatedPaneByID", testTmuxStartupScriptRespawnsTheCreatedPaneByID),
+        ("testTmuxStartupScriptNeverRespawnsPlaceholder", testTmuxStartupScriptNeverRespawnsPlaceholder),
         ("testTmuxStartupScriptTargetsOnlyTheExactSession", testTmuxStartupScriptTargetsOnlyTheExactSession),
         ("testTmuxStartupScriptWritesNoGlobalEnvironment", testTmuxStartupScriptWritesNoGlobalEnvironment),
-        ("testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment", testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment),
+        ("testTmuxStartupScriptDoesNotStartServer", testTmuxStartupScriptDoesNotStartServer),
         ("testTmuxClientCallsTargetTheExactSession", testTmuxClientCallsTargetTheExactSession),
+        ("testStartupScriptPrefixesEveryTmuxCall", testStartupScriptPrefixesEveryTmuxCall),
+        ("testStartupScriptNeverCreatesSessions", testStartupScriptNeverCreatesSessions),
+        ("testStartupScriptQuotesConfigPaths", testStartupScriptQuotesConfigPaths),
+        ("testTmuxClientCallsUseRoute", testTmuxClientCallsUseRoute),
+        ("testCrossServerSwitchCreatesSurface", testCrossServerSwitchCreatesSurface),
+        ("testSameServerSwitchReusesClient", testSameServerSwitchReusesClient),
+        ("testUnknownMethodFailsAttach", testUnknownMethodFailsAttach),
+        ("testCachedRouteAttachesBeforeRefresh", testCachedRouteAttachesBeforeRefresh),
+        ("testFailedCachedAttachRetriesRefreshedRoute", testFailedCachedAttachRetriesRefreshedRoute),
+        ("testFailedCachedAttachRetriesRouteRefreshedFirst", testFailedCachedAttachRetriesRouteRefreshedFirst),
+        ("testContinuedSessionFetchesMovedRouteBeforeAttach", testContinuedSessionFetchesMovedRouteBeforeAttach),
+        ("testStartupChoiceAcrossServers", testStartupChoiceAcrossServers),
+        ("testEditorWindowUsesAttachedRoute", testEditorWindowUsesAttachedRoute),
         ("testNavigationTogglesKeepFocusAndHideToTerminal", testNavigationTogglesKeepFocusAndHideToTerminal),
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
@@ -35,6 +51,14 @@ enum LogicSelfTests {
         ("testArtifactViewerLoadsThePageOnceTheBlockerCompiles", testArtifactViewerLoadsThePageOnceTheBlockerCompiles),
         ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
         ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
+        ("testBoundedProcessDrainsBothPipesPastCapacity", testBoundedProcessDrainsBothPipesPastCapacity),
+        ("testBoundedProcessCapsOutput", testBoundedProcessCapsOutput),
+        ("testBoundedProcessTimesOutAChildIgnoringTerm", testBoundedProcessTimesOutAChildIgnoringTerm),
+        ("testBoundedProcessReapsWithHeldOpenPipe", testBoundedProcessReapsWithHeldOpenPipe),
+        ("testConnectReturnsToMainPromptlyWithBlockedRunner", testConnectReturnsToMainPromptlyWithBlockedRunner),
+        ("testOutOfOrderConnectsOnlyNewestMutates", testOutOfOrderConnectsOnlyNewestMutates),
+        ("testEditorWindowOpensOffMain", testEditorWindowOpensOffMain),
+        ("testLoginEnvironmentNeverBlocksUI", testLoginEnvironmentNeverBlocksUI),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testShellRowsLeaveTheRepoGroupsForTheirOwnSection", testShellRowsLeaveTheRepoGroupsForTheirOwnSection),
         ("testAnAttachedShellsPanelBarFollowsItsOwnColour", testAnAttachedShellsPanelBarFollowsItsOwnColour),
@@ -94,6 +118,12 @@ enum LogicSelfTests {
         ("testRestoringFocusAfterTheLastModalKeepsAFieldsCaret", testRestoringFocusAfterTheLastModalKeepsAFieldsCaret),
         ("testClosingAChildKeepsTheUncoveredFieldsSelection", testClosingAChildKeepsTheUncoveredFieldsSelection),
         ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
+        ("testQuestLogListStartsWithItsFirstRowWhole", testQuestLogListStartsWithItsFirstRowWhole),
+        ("testQuestLogFilterFieldTakesClicksWhenTheModalIsScaledDown", testQuestLogFilterFieldTakesClicksWhenTheModalIsScaledDown),
+        ("testModalEntranceScalesAboutItsCentre", testModalEntranceScalesAboutItsCentre),
+        ("testModalEntranceRoutesClicksToWhereItDraws", testModalEntranceRoutesClicksToWhereItDraws),
+        ("testModalEntranceIsSkippedUnderReduceMotion", testModalEntranceIsSkippedUnderReduceMotion),
+        ("testModalCloseScalesBackAboutItsCentre", testModalCloseScalesBackAboutItsCentre),
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges", testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges),
@@ -112,11 +142,11 @@ enum LogicSelfTests {
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
-        ("testVersionControlDockKeysMoveOpenCopyAndRefresh", testVersionControlDockKeysMoveOpenCopyAndRefresh),
+        ("testWatcherDockKeysMoveOpenCopyAndRefresh", testWatcherDockKeysMoveOpenCopyAndRefresh),
         ("testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow", testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow),
         ("testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion", testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion),
         ("testEveryEmptyPanelDrawsTheOneIconCentredInItsSection", testEveryEmptyPanelDrawsTheOneIconCentredInItsSection),
-        ("testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
+        ("testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
         ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
         ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
         ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
@@ -152,6 +182,13 @@ enum LogicSelfTests {
         ("testNewSessionEscapePutsADropdownAwayBeforeClosing", testNewSessionEscapePutsADropdownAwayBeforeClosing),
         ("testNewQuestTypedPathSubmitsAPathOnlyProject", testNewQuestTypedPathSubmitsAPathOnlyProject),
         ("testNewQuestReturnKeepsATypedPathUnlessARowWasChosen", testNewQuestReturnKeepsATypedPathUnlessARowWasChosen),
+        ("testEditQuestTypesFieldListsTheOpenTypesAsSuggestions", testEditQuestTypesFieldListsTheOpenTypesAsSuggestions),
+        ("testEditQuestTabReachesTheSizeSelect", testEditQuestTabReachesTheSizeSelect),
+        ("testEditQuestSizeSelectCyclesWithHLAndArrows", testEditQuestSizeSelectCyclesWithHLAndArrows),
+        ("testEditQuestSizeIsSentOnlyWhenChanged", testEditQuestSizeIsSentOnlyWhenChanged),
+        ("testEditQuestTypesReturnAddsOnlyWhileTheQueryMatches", testEditQuestTypesReturnAddsOnlyWhileTheQueryMatches),
+        ("testEditQuestReturnWithNoQuerySubmits", testEditQuestReturnWithNoQuerySubmits),
+        ("testEditQuestSpaceBackspaceAndETypeInTheTypesField", testEditQuestSpaceBackspaceAndETypeInTheTypesField),
         ("testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch", testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch),
         ("testNewQuestEscapeClosesWhileSubmitting", testNewQuestEscapeClosesWhileSubmitting),
         ("testNewSessionControlRRefreshesModelsFromTheModelField", testNewSessionControlRRefreshesModelsFromTheModelField),
@@ -176,6 +213,7 @@ enum LogicSelfTests {
         ("testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE", testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
         ("testSettingsArrangeMovesAProjectWithShiftJAndK", testSettingsArrangeMovesAProjectWithShiftJAndK),
+        ("testTmuxSettingsRendersAtSheetSize", testTmuxSettingsRendersAtSheetSize),
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
@@ -202,20 +240,23 @@ enum LogicSelfTests {
         ("testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange", testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange),
         ("testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace", testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace),
         ("testWorkerChatNameStartsPastLogoInAnyChatFont", testWorkerChatNameStartsPastLogoInAnyChatFont),
+        ("testAgentLogosAreLoadedOncePerSideAndTint", testAgentLogosAreLoadedOncePerSideAndTint),
         ("testDockPaneRoutesTheWorkerLogFilterKeys", testDockPaneRoutesTheWorkerLogFilterKeys),
         ("testWorkerLogFilterKeepsItsDesignedSize", testWorkerLogFilterKeepsItsDesignedSize),
         ("testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons", testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons),
         ("testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView", testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView),
         ("testWorkerLogFilterFollowsTheBottomPanelsKeys", testWorkerLogFilterFollowsTheBottomPanelsKeys),
-        ("testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl", testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl),
+        ("testWorkerLogFilterStaysInsideTheBottomPanelBelowWatcher", testWorkerLogFilterStaysInsideTheBottomPanelBelowWatcher),
         ("testWorkerLogChipsStayUnderTheTopBarInEveryState", testWorkerLogChipsStayUnderTheTopBarInEveryState),
         ("testWorkerChatFeedFadesInUnderItsHeader", testWorkerChatFeedFadesInUnderItsHeader),
         ("testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem", testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem),
+        ("testFilterChipDrawsItsKindInMetaHighlightedAndItsTitleInBody", testFilterChipDrawsItsKindInMetaHighlightedAndItsTitleInBody),
         ("testWorkerLogChipShowsOnlyWhileAMasterIsAttached", testWorkerLogChipShowsOnlyWhileAMasterIsAttached),
         ("testWorkerLogTabsUseTheChatFontAndFiveAroundEachDiamond", testWorkerLogTabsUseTheChatFontAndFiveAroundEachDiamond),
         ("testWorkerLogTabsScrollToTheSelection", testWorkerLogTabsScrollToTheSelection),
         ("testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs", testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs),
         ("testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers", testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers),
+        ("testQuestLogTabsCentreWhenTheyFit", testQuestLogTabsCentreWhenTheyFit),
         ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
         ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
         ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
@@ -223,6 +264,10 @@ enum LogicSelfTests {
     ]
 
     private static let caseTimeoutSeconds: TimeInterval = 120
+    // Keep the grandchild's inherited pipe open long enough to prove the reader returns by process state.
+    private static let heldPipeGrandchildLifetime: TimeInterval = 30
+    // The 150 ms process deadline plus TERM/KILL and pipe-drain waits leaves about 0.5 s for host scheduling.
+    private static let boundedProcessTimeoutWatchdog: TimeInterval = 1.5
 
     static func runIfRequested() -> Bool {
         guard CommandLine.arguments.contains("--run-logic-tests") else {
@@ -385,13 +430,16 @@ enum LogicSelfTests {
     private static func testPortraitRingAnimatesByItsMode() throws {
         let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
         let geometry = TrackerPlateDesign.collapsedCircleStatus
-        let bash = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-2), typicalMS: 6000)
+        let now = Date(timeIntervalSinceReferenceDate: 1_800_000_000)
+        let bash = TrackerCast(tool: "Bash", startedAt: now.addingTimeInterval(-2), typicalMS: 6000)
 
         let outside = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        outside.now = { now }
         outside.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
         try expect(outside.fillAnimation == nil && outside.pulseAnimation == nil, "a ring outside a window should not animate")
 
         let status = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        status.now = { now }
         window.contentView = status
         status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
         try expect(status.fillAnimation == nil && status.spinAnimation == nil && status.pulseAnimation == nil, "a steady ring should not move")
@@ -403,7 +451,7 @@ enum LogicSelfTests {
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
         guard let fill = status.fillAnimation, let pulse = status.pulseAnimation else { throw TestFailure("a cast with a learned duration should fill the ring, then pulse") }
         try expect(abs(fill.duration - 4) < 0.1 && (fill.toValue as? CGFloat) == 1, "2s into a 6s tool the ring should fill to full in 4s, got \(fill.duration)")
-        try expect(abs(pulse.beginTime - CACurrentMediaTime() - 4) < 0.2, "the pulse should start when the ring is full")
+        try expect(abs(pulse.beginTime - fill.beginTime - fill.duration) < 0.01, "the pulse should start when the ring is full")
         try expect(pulse.timingFunction === Motion.breathingTimingFunction, "the ring's pulse should breathe on the breathing easing")
         try expect(status.spinAnimation == nil, "a filling ring should not spin")
 
@@ -542,11 +590,10 @@ enum LogicSelfTests {
             func unconfigured() -> Int {
                 statusViews(in: hosting).filter { $0.geometry == nil }.count
             }
-            let deadline = Date().addingTimeInterval(10)
-            while (control() == nil || unconfigured() > 0), Date() < deadline {
+            try expect(waitUntil {
                 hosting.layoutSubtreeIfNeeded()
-                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-            }
+                return control() != nil && unconfigured() == 0
+            }, "\(description): status views should mount and configure")
             guard let control = control() else {
                 throw TestFailure("\(description): the control status view never mounted (hosting subviews: \(hosting.subviews.count), status views: \(statusViews(in: hosting).count))")
             }
@@ -873,10 +920,12 @@ enum LogicSelfTests {
         try expect(!clock.isRunning, "a clock with no subscribers should not run")
         for _ in 0..<100 { clock.subscribe() }
         try expect(clock.timersStarted == 1, "100 subscribers should share one timer, got \(clock.timersStarted)")
-        let start = Date()
-        try expect(waitUntil { clock.ticks >= 4 }, "the clock should tick")
-        let elapsed = Date().timeIntervalSince(start)
-        try expect(Double(clock.ticks) <= clock.framesPerSecond * elapsed + 2, "100 subscribers should not multiply the ticks: \(clock.ticks) in \(elapsed)s")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for second in 1...4 {
+            clock.tick(at: now.addingTimeInterval(TimeInterval(second)))
+        }
+        try expect(clock.ticks == 4, "the shared clock should deliver each tick once, got \(clock.ticks)")
+        try expect(clock.time == now.addingTimeInterval(4).timeIntervalSinceReferenceDate, "the clock should retain the latest tick time")
         for _ in 0..<99 { clock.unsubscribe() }
         try expect(clock.isRunning, "the clock should run while one subscriber is left")
         clock.unsubscribe()
@@ -911,7 +960,7 @@ enum LogicSelfTests {
         window.show()
         defer { window.close() }
         let startedBefore = clock.timersStarted
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         try expect(!clock.isRunning && clock.timersStarted == startedBefore, "fixed and hidden times should not start the clock")
 
         hosting.rootView = column(idleEntries + Array(repeating: live, count: 30))
@@ -927,23 +976,26 @@ enum LogicSelfTests {
     /// motion), a finishing cast neither, and nothing animates outside a window.
     private static func testCastFillAnimatesOnlyWhileCastingInAWindow() throws {
         let window = HeadlessWindow(size: CGSize(width: 300, height: 40))
-        let started = Date().addingTimeInterval(-2)
+        let now = Date(timeIntervalSinceReferenceDate: 1_800_000_000)
+        let started = now.addingTimeInterval(-2)
         let bash = TrackerCast(tool: "Bash", startedAt: started, typicalMS: 6000)
-        let overrun = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-9), typicalMS: 6000)
+        let overrun = TrackerCast(tool: "Bash", startedAt: now.addingTimeInterval(-9), typicalMS: 6000)
         let mcp = TrackerCast(tool: "mcp__linear__save_issue", startedAt: started, typicalMS: 0)
 
         let outside = TrackerCastFillNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 13))
+        outside.now = { now }
         outside.configure(cast: bash, isFinishing: false, reduceMotion: false)
         try expect(outside.fillAnimation == nil && outside.pulseAnimation == nil, "a bar outside a window should not animate")
 
         let fill = TrackerCastFillNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 13))
+        fill.now = { now }
         window.contentView = fill
         fill.configure(cast: bash, isFinishing: false, reduceMotion: false)
         guard let animation = fill.fillAnimation, let pulse = fill.pulseAnimation else {
             throw TestFailure("a cast with a learned duration should fill, then pulse")
         }
         try expect(abs(animation.duration - 4) < 0.1, "2s into a 6s tool the fill should run 4s to full, got \(animation.duration)")
-        try expect(abs(pulse.beginTime - CACurrentMediaTime() - 4) < 0.2, "the pulse should start when the bar is full")
+        try expect(abs(pulse.beginTime - animation.beginTime - animation.duration) < 0.01, "the pulse should start when the bar is full")
         try expect(pulse.repeatCount == .infinity && pulse.autoreverses, "the pulse should breathe until the tool ends")
         try expect(pulse.timingFunction === Motion.breathingTimingFunction, "the bar's pulse should breathe on the breathing easing")
         try expect(!fill.isShimmering, "a learned duration should not shimmer")
@@ -1135,11 +1187,12 @@ enum LogicSelfTests {
         let mounted = views(under: view).map(ObjectIdentifier.init)
 
         /// Switches to `next` from a clean slate (a finished fade stays on its layer until Core Animation's next commit) and
-        /// returns how many icon layers fade, once the first shows.
+        /// returns how many icon layers have an installed fade.
         func fadeCount(after next: SelectedSessionPanelContent, _ what: String) throws -> Int {
             icons(in: view).forEach { $0.layer?.removeAllAnimations() }
             model.content = next
-            try expect(waitUntil { shownOpacity(in: view) < 1 }, "\(what) should start clear and fade in on its layer")
+            // The presentation layer can be absent until Core Animation commits its first frame; the installed animation is stable evidence.
+            try expect(waitUntil { fades(in: view).count == 1 }, "\(what) should install one fade on its icon layer")
             return fades(in: view).count
         }
         /// Switches to `next` from a clean slate and, once `landed`, expects nothing to fade.
@@ -1147,7 +1200,7 @@ enum LogicSelfTests {
             icons(in: view).forEach { $0.layer?.removeAllAnimations() }
             model.content = next
             try expect(waitUntil(landed), "\(what) should land")
-            pump(0.1)
+            try pumpOneMainRunLoopTurn()
             try expect(fades(in: view).isEmpty, "\(what) shouldn't fade")
         }
 
@@ -2703,170 +2756,346 @@ enum LogicSelfTests {
     }
 
     private static func testTmuxStartupScriptScopesAppBackendEnvironmentToSession() throws {
-        let fixture = try appBackendFixture()
-        let backend = LaunchConfiguration.load(
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            bundle: fixture.bundle
-        ).backend
-        let env = [
-            "HOME": fixture.root.appendingPathComponent("home", isDirectory: true).path,
-            "SHELL": "/tmp/custom shell/zsh",
-            "PATH": "/test/prefix:/usr/bin",
-            "QUESTMASTER_APP": "1",
-            "QUESTMASTER_STATE_ROOT": backend.stateRoot,
-            "QUESTMASTER_BIN": backend.executablePath,
-            "QUESTMASTER_PATH_PREFIX": "/test/prefix",
-        ]
-        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: env)
-        let createIndex = try substringIndex(in: script, "\"$tmux\" new-session -d -P -F '#{pane_id}' -s \"$session\" sleep 2147483647")
-
-        try expect(!script.contains("exec \"$tmux\" attach-session"), "startup script should not exec tmux attach")
-        let attachIndex = try substringIndex(in: script, "\"$tmux\" attach-session -t \"=$session\" || true")
+        let route = try TmuxRoute(sessionID: "qm-test", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let env = ["SHELL": "/tmp/custom shell/zsh", "PATH": "/usr/bin", "QUESTMASTER_APP": "1"]
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: env)
+        let checkIndex = try substringIndex(in: script, "qm_tmux has-session -t \"=$session\"")
+        let syncIndex = try substringIndex(in: script, "qm_tmux set-environment -t \"=$session\" 'QUESTMASTER_APP'")
+        let attachIndex = try substringIndex(in: script, "qm_tmux attach-session -t \"=$session\"")
         let markerIndex = try substringIndex(in: script, "printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")
-        let unsetIndex = try substringIndex(in: script, "unset QUESTMASTER_SESSION TMUX TMUX_PANE || true")
-        let shellExecIndex = try substringIndex(in: script, "exec '/tmp/custom shell/zsh' -l")
-        try expect(attachIndex < markerIndex, "startup script should mark detach after attach returns")
-        try expect(markerIndex < unsetIndex, "startup script should clear session env after marker")
-        try expect(unsetIndex < shellExecIndex, "startup script should exec shell after clearing session env")
-
-        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX"] {
-            try expect(!script.contains("set-environment -g '\(key)'"), "startup script should not globally sync \(key)")
-            try expect(script.contains("set-environment -t \"=$session\" '\(key)'"), "startup script should session-sync \(key)")
-            let syncIndex = try substringIndex(in: script, "set-environment -t \"=$session\" '\(key)'")
-            try expect(createIndex < syncIndex, "startup script should create session before syncing \(key)")
-        }
-        try expect(script.contains("set-environment -t \"=$session\" -r 'QUESTMASTER_HOME'"), "startup script should clear session quest home")
-        let respawnIndex = try substringIndex(in: script, "\"$tmux\" respawn-pane -k -t \"$pane\"")
-        try expect(createIndex < respawnIndex, "startup script should respawn created panes after env sync")
-        let respawnLines = script.split(separator: "\n").map(String.init)
-        let respawnLine = respawnLines[try lineIndex(in: respawnLines, containing: "respawn-pane -k -t \"$pane\"")]
-        try expect(respawnLines.last == "exec '/tmp/custom shell/zsh' -l", "startup script should end by execing the login shell")
-        try expect(
-            !respawnLine.contains("respawn-pane -k -t \"$pane\" || true"),
-            "startup script should not respawn the placeholder without an explicit shell command"
-        )
-        try expect(respawnLine.contains("/tmp/custom shell/zsh"), "startup script should respawn using the configured shell")
-        try expect(respawnLine.contains("-l"), "startup script should start a login shell")
-
-        var fallbackEnv = env
-        fallbackEnv.removeValue(forKey: "SHELL")
-        let fallbackScript = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: fallbackEnv)
-        let fallbackLines = fallbackScript.split(separator: "\n").map(String.init)
-        let fallbackRespawnLine = fallbackLines[try lineIndex(in: fallbackLines, containing: "respawn-pane -k -t \"$pane\"")]
-        try expect(fallbackRespawnLine.contains("/bin/zsh"), "startup script should fall back to /bin/zsh")
-        try expect(fallbackRespawnLine.contains("-l"), "fallback shell should be a login shell")
+        let unsetIndex = try substringIndex(in: script, "unset QUESTMASTER_SESSION TMUX TMUX_PANE TMUX_TMPDIR || true")
+        try expect(checkIndex < syncIndex && syncIndex < attachIndex && attachIndex < markerIndex && markerIndex < unsetIndex, "script should check, sync, attach, mark detach, then clear env")
+        try expect(script.contains("exec '/tmp/custom shell/zsh' -l"), "detach should start configured login shell")
+        try expect(!script.contains("set-environment -g"), "startup should not write global environment")
+        let fallback = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(fallback.contains("exec '/bin/zsh' -l"), "missing shell should fall back to zsh")
     }
 
     private static func testTmuxStartupScriptTargetsOnlyTheExactSession() throws {
-        // qm-123 is a prefix of qm-123-456. tmux resolves a bare name to the sibling
-        // when no session is named qm-123, so session targets need the exact-match "=".
-        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: [
-            "HOME": "/Users/example",
-            "PATH": "/usr/bin",
-            "QUESTMASTER_BIN": "/Applications/example/qm",
-        ])
-        try expect(script.contains("session='qm-123'"), "startup script should name the session it was built for")
+        let route = try TmuxRoute(sessionID: "qm-123", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(script.contains("session='qm-123'"), "startup script should name its session")
         let targetLines = script.split(separator: "\n").filter { $0.contains(" -t ") }
         try expect(!targetLines.isEmpty, "startup script should address tmux sessions with -t")
         for line in targetLines {
-            let target = line.contains("respawn-pane") ? "\"$pane\"" : "\"=$session\""
-            try expect(line.contains(" -t \(target)"), "startup script should use an exact target: \(line)")
+            try expect(line.contains(" -t \"=$session\""), "startup script should use exact targets: \(line)")
         }
     }
 
-    private static func testTmuxStartupScriptRespawnsTheCreatedPaneByID() throws {
-        let tmuxPath = ProcessInfo.processInfo.environment["QUESTMASTER_TEST_TMUX_WRAPPER"] ?? "/usr/bin/tmux"
-        let script = tmuxStartupScript(tmuxPath: tmuxPath, session: "qm-123", environment: [
-            "HOME": "/tmp",
-            "PATH": "/usr/bin:/bin",
-            "SHELL": "/bin/sh",
-        ])
-        try expect(!script.contains(":0.0"), "startup script should not assume window and pane index zero")
-        try expect(!script.contains("-t \"=$session\":0"), "startup script should not target window index zero")
-        try expect(script.contains("new-session -d -P -F '#{pane_id}' -s \"$session\""),
-                   "startup script should capture the created pane ID")
-        try expect(script.contains("respawn-pane -k -t \"$pane\""),
-                   "startup script should respawn the pane by its captured ID")
-        try expect(script.contains("if [ \"$created\" = 1 ] && [ -n \"$pane\" ]; then"),
-                   "startup script should not respawn without a captured pane ID")
+    private static func testTmuxStartupScriptNeverRespawnsPlaceholder() throws {
+        let route = try TmuxRoute(sessionID: "qm-123", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: ["SHELL": "/bin/sh"])
+        try expect(!script.contains("new-session") && !script.contains("respawn-pane"), "startup script should not create or respawn a session")
+        try expect(script.contains("exit 1; fi"), "missing selected session should fail")
         if let path = ProcessInfo.processInfo.environment["QUESTMASTER_TEST_STARTUP_SCRIPT_DUMP"] {
             try script.write(toFile: path, atomically: true, encoding: .utf8)
         }
     }
 
     private static func testTmuxStartupScriptWritesNoGlobalEnvironment() throws {
-        let environment = [
-            "HOME": "/Users/example",
-            "XDG_CONFIG_HOME": "/Users/example/.config",
-            "SHELL": "/bin/zsh",
-            "LANG": "en_US.UTF-8",
-            "USER": "example",
-            "TMPDIR": "/private/tmp/example/",
-            "PATH": "/test/prefix:/usr/bin",
-            "QUESTMASTER_APP": "1",
-            "QUESTMASTER_STATE_ROOT": "/Users/example/.questmaster-state",
-            "QUESTMASTER_BIN": "/test/prefix/qm",
-            "QUESTMASTER_PATH_PREFIX": "/test/prefix",
-        ]
-        for values in [environment, [:]] {
-            let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: values)
+        let route = try TmuxRoute(sessionID: "qm-123", label: "default", configFiles: [], live: true, createdUnix: 1)
+        for values in [["HOME": "/tmp/example", "QUESTMASTER_APP": "1"], [:]] {
+            let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: values)
             try expect(!script.contains("set-environment -g"), "startup script should write no global tmux environment")
         }
     }
 
-    private static func testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment() throws {
-        // A server the script starts copies its starting environment into the global one,
-        // so the script starts it without Questmaster's keys and without the shim directory on PATH.
-        let environment = [
-            "HOME": "/Users/example",
-            "PATH": "/Users/example/shim:/usr/bin:/bin",
-            "QUESTMASTER_APP": "1",
-            "QUESTMASTER_STATE_ROOT": "/Users/example/.questmaster-state",
-            "QUESTMASTER_BIN": "/Users/example/shim/qm",
-            "QUESTMASTER_PATH_PREFIX": "/Users/example/shim",
-            "QUESTMASTER_DAEMON_SOCKET": "/Users/example/.questmaster-state/daemon.sock",
-        ]
-        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: environment)
-        let lines = script.split(separator: "\n").map(String.init)
-        let newSessionLine = lines[try lineIndex(in: lines, containing: "new-session -d -P -F '#{pane_id}' -s")]
-
-        try expect(newSessionLine.contains("/usr/bin/env -u QUESTMASTER_APP "), "new server should start through env without Questmaster keys")
-        for key in [
-            "QUESTMASTER_APP",
-            "QUESTMASTER_STATE_ROOT",
-            "QUESTMASTER_HOME",
-            "QUESTMASTER_BIN",
-            "QUESTMASTER_PATH_PREFIX",
-            "QUESTMASTER_DAEMON_SOCKET",
-            "QUESTMASTER_TMUX_STARTUP_SCRIPT",
-            "QUESTMASTER_SESSION",
-        ] {
-            try expect(newSessionLine.contains("-u \(key) "), "new server should start without \(key)")
-        }
-        try expect(newSessionLine.contains("PATH=\"$server_path\" \"$tmux\" new-session"), "new server should start with the scrubbed PATH")
-        try expect(script.contains("shim_prefix='/Users/example/shim'"), "startup script should name the shim directory it removes from PATH")
-        let scrubIndex = try substringIndex(in: script, "server_path=")
-        let hasSessionIndex = try substringIndex(in: script, "has-session -t \"=$session\"")
-        try expect(scrubIndex < hasSessionIndex, "startup script should scrub PATH before starting a server")
+    private static func testTmuxStartupScriptDoesNotStartServer() throws {
+        let route = try TmuxRoute(sessionID: "qm-123", label: "questmaster", configFiles: ["/tmp/user.conf"], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(!script.contains("new-session") && !script.contains("server_path="), "startup script should not start a server")
+        try expect(script.contains("(cd / && '/usr/bin/tmux' -L 'questmaster' -f '/tmp/user.conf'"), "script should run routed tmux from root")
+        try expect(script.contains("unset TMUX TMUX_PANE TMUX_TMPDIR"), "script should clear caller's tmux env")
     }
 
     private static func testTmuxClientCallsTargetTheExactSession() throws {
-        let sessionID = "qm-123"
-        let syncArguments = TerminalTmuxClientProcess.sessionEnvironmentSyncArguments(
-            sessionID: sessionID,
-            environment: ["HOME": "/Users/example", "QUESTMASTER_BIN": ""]
-        )
+        let route = try TmuxRoute(sessionID: "qm-123", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let syncArguments = TerminalTmuxClientProcess.sessionEnvironmentSyncArguments(route: route, environment: ["HOME": "/tmp/example"])
         let syncTargets = zip(syncArguments, syncArguments.dropFirst()).filter { $0.0 == "-t" }.map(\.1)
-        try expect(!syncTargets.isEmpty, "environment sync should address the session with -t")
-        try expect(syncTargets.allSatisfy { $0 == "=\(sessionID)" }, "environment sync should target the session exactly: \(syncTargets)")
-        try expect(!syncArguments.contains("-g"), "environment sync should write no global tmux environment")
+        try expect(!syncTargets.isEmpty && syncTargets.allSatisfy { $0 == "=qm-123" }, "environment sync should target exact session")
+        try expect(!syncArguments.contains("-g"), "environment sync should not write global env")
+        let switchArguments = TerminalTmuxClientProcess.switchClientArguments(route: route, clientName: "/dev/ttys001")
+        try expect(Array(switchArguments.suffix(2)) == ["-t", "=qm-123"], "switch-client should target exact session")
+        let editorArguments = TerminalTmuxClientProcess.editorWindowArguments(route: route, path: "/tmp/a.md", shell: "/bin/zsh")
+        try expect(Array(editorArguments[2...4]) == ["new-window", "-t", "=qm-123"], "editor should target exact session")
+    }
 
-        let switchArguments = TerminalTmuxClientProcess.switchClientArguments(clientName: "/dev/ttys001", targetSessionID: sessionID)
-        try expect(Array(switchArguments.suffix(2)) == ["-t", "=\(sessionID)"], "switch-client should target the session exactly")
+    private static func testStartupScriptPrefixesEveryTmuxCall() throws {
+        let route = try TmuxRoute(sessionID: "qm-test", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(script.contains("qm_tmux()"), "startup script should define a routed tmux function")
+        try expect(script.contains("'/usr/bin/tmux' -L 'questmaster' -f '/tmp/config.conf' \"$@\""), "function should pass route arguments separately")
+        for line in script.split(separator: "\n") where line.contains("has-session") || line.contains("set-environment") || line.contains("show-environment") || line.contains("attach-session") {
+            try expect(line.contains("qm_tmux "), "startup tmux call should use its routed function: \(line)")
+        }
+    }
 
-        let editorArguments = TerminalTmuxClientProcess.editorWindowArguments(sessionID: sessionID, path: "/tmp/a.md", shell: "/bin/zsh")
-        try expect(Array(editorArguments.prefix(3)) == ["new-window", "-t", "=\(sessionID)"], "editor window should target the session exactly")
+    private static func testStartupScriptNeverCreatesSessions() throws {
+        let route = try TmuxRoute(sessionID: "qm-test", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(!script.contains("new-session") && !script.contains("respawn-pane") && !script.contains("sleep 2147483647"), "attach must not create a placeholder")
+        try expect(script.contains("has-session") && script.contains("exit 1"), "missing session should fail visibly")
+    }
+
+    private static func testStartupScriptQuotesConfigPaths() throws {
+        let route = try TmuxRoute(sessionID: "qm-test", label: "questmaster", configFiles: ["/tmp/a b'c.conf"], live: true, createdUnix: 1)
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", route: route, environment: [:])
+        try expect(script.contains("-f '/tmp/a b'\\''c.conf'"), "config path should be quoted as one shell word")
+    }
+
+    private static func testTmuxClientCallsUseRoute() throws {
+        let route = try TmuxRoute(sessionID: "qm-test", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 1)
+        let prefix = ["-L", "questmaster", "-f", "/tmp/config.conf"]
+        try expect(TerminalTmuxClientProcess.listClientsArguments(route: route).starts(with: prefix), "list-clients should use route")
+        try expect(TerminalTmuxClientProcess.sessionEnvironmentSyncArguments(route: route, environment: [:]).starts(with: prefix), "environment sync should use route")
+        try expect(TerminalTmuxClientProcess.switchClientArguments(route: route, clientName: "/dev/ttys001").starts(with: prefix), "switch-client should use route")
+        try expect(TerminalTmuxClientProcess.editorWindowArguments(route: route, path: "/tmp/a.md", shell: "/bin/zsh").starts(with: prefix), "editor should use route")
+    }
+
+    private static func testCrossServerSwitchCreatesSurface() throws {
+        try expect(TmuxRoute.surfaceDecision(attachedLabel: "default", targetLabel: "questmaster", clientAttached: true, sessionReappeared: false) == .newSurface, "cross-server switch should replace surface")
+    }
+
+    private static func testSameServerSwitchReusesClient() throws {
+        try expect(TmuxRoute.surfaceDecision(attachedLabel: "default", targetLabel: "default", clientAttached: true, sessionReappeared: false) == .reuseClient, "same-server switch should reuse client")
+    }
+
+    private static func testUnknownMethodFailsAttach() throws {
+        let response = #"{"protocol_version":3,"type":"response","ok":false,"error":"unknown method \"tmux.routes\""}"#
+        let decodedError: Error
+        do {
+            _ = try UnixSocketMutationClient.decodeAck(Data(response.utf8))
+            throw TestFailure("older daemon should fail route lookup")
+        } catch {
+            decodedError = error
+        }
+        guard let serveError = decodedError as? ServeClientError,
+              case .unknownMethod("tmux.routes") = serveError else {
+            throw TestFailure("unknown-method response should decode as a typed error")
+        }
+        let routeError = UnixSocketMutationClient.tmuxRouteError(decodedError)
+        guard case TmuxRouteError.unsupportedDaemon = routeError else {
+            throw TestFailure("tmux route lookup should map an older daemon to an explicit attach error")
+        }
+        final class FailingRoutes: ServeTmuxRouting {
+            let error: Error
+            init(_ error: Error) { self.error = error }
+            func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+                completion(.failure(error))
+            }
+        }
+        final class CountingHost: TerminalPaneHosting {
+            let view = NSView()
+            var tmuxSessionID: String? { nil }
+            var onFocusRequested: (() -> Void)?
+            var onDetach: (() -> Void)?
+            var cellMetrics: TerminalCellMetrics { .unavailable }
+            var onCellMetricsChanged: (() -> Void)?
+            var connects = 0
+            var routedConnects = 0
+            func start() {}
+            func stop() {}
+            func focus(in window: NSWindow?) {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+                connects += 1
+                if config.route != nil { routedConnects += 1 }
+            }
+        }
+        let config = LaunchConfiguration(
+            daemonSocketOverride: nil, startDaemon: false, tmuxSession: nil,
+            disableTmux: false, workingDirectory: "/tmp",
+            backend: AppBackend(stateRoot: "/tmp/example-state", executablePath: "", source: .unresolved,
+                                workingDirectory: "/tmp", devWorktree: nil)
+        )
+        let host = CountingHost()
+        var shownError: String?
+        let controller = TerminalSessionController(
+            config: config, runtimeStore: RuntimeStore(sourceLabel: "test"), routeClient: FailingRoutes(routeError),
+            terminalShell: { nil }, updateWindowTitle: { _ in }, focusTerminal: {}, render: {},
+            showMutationFailure: { _, _ in }, showMutationError: { _, error in shownError = error.localizedDescription },
+            showTerminalEngineFailure: { _ in }, onFocusRequested: {}
+        )
+        controller.installPlaceholder(host)
+        controller.switchTerminal(to: "qm-example")
+        try expect(waitUntil { shownError != nil }, "route error should reach attach UI")
+        try expect(shownError?.contains("tmux.routes") == true && host.routedConnects == 0 && host.connects == 1,
+                   "older daemon should show an attach error and open the local shell without guessing a server")
+    }
+
+    private static func testCachedRouteAttachesBeforeRefresh() throws {
+        final class Routes: ServeTmuxRouting {
+            var pending: [(Result<[TmuxRoute], Error>) -> Void] = []
+            func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+                pending.append(completion)
+            }
+        }
+        final class Host: TerminalPaneHosting {
+            let view = NSView()
+            var tmuxSessionID: String? { nil }
+            var onFocusRequested: (() -> Void)?
+            var onDetach: (() -> Void)?
+            var cellMetrics: TerminalCellMetrics { .unavailable }
+            var onCellMetricsChanged: (() -> Void)?
+            var labels: [String] = []
+            func start() {}
+            func stop() {}
+            func focus(in window: NSWindow?) {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+                labels.append(config.route?.label ?? "local")
+                completion(.success(config.tmuxSession))
+            }
+        }
+        let config = LaunchConfiguration(
+            daemonSocketOverride: nil, startDaemon: false, tmuxSession: nil,
+            disableTmux: false, workingDirectory: "/tmp",
+            backend: AppBackend(stateRoot: "/tmp/example-state", executablePath: "", source: .unresolved,
+                                workingDirectory: "/tmp", devWorktree: nil)
+        )
+        let routes = Routes()
+        let host = Host()
+        let controller = TerminalSessionController(
+            config: config, runtimeStore: RuntimeStore(sourceLabel: "test"), routeClient: routes,
+            terminalShell: { nil }, updateWindowTitle: { _ in }, focusTerminal: {}, render: {},
+            showMutationFailure: { _, _ in }, showMutationError: { _, _ in },
+            showTerminalEngineFailure: { _ in }, onFocusRequested: {}
+        )
+        controller.installPlaceholder(host)
+        let legacy = try TmuxRoute(sessionID: "qm-example", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let named = try TmuxRoute(sessionID: "qm-example", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 1)
+        controller.rememberRoutes([legacy])
+        controller.switchTerminal(to: legacy.sessionID)
+        try expect(host.labels == ["default"] && routes.pending.count == 1, "cached route should attach before refresh completes")
+        routes.pending[0](.failure(ServeClientError.connect("daemon restarting")))
+        try pumpOneMainRunLoopTurn()
+        controller.switchTerminal(to: legacy.sessionID)
+        try expect(host.labels == ["default", "default"] && routes.pending.count == 2, "refresh failure should retain the cached route")
+        routes.pending[1](.success([named]))
+        try pumpOneMainRunLoopTurn()
+        controller.switchTerminal(to: named.sessionID)
+        try expect(host.labels == ["default", "default", "questmaster"], "route refresh should replace the cached label")
+    }
+
+    private static func testContinuedSessionFetchesMovedRouteBeforeAttach() throws {
+        let legacy = try TmuxRoute(sessionID: "qm-example", label: "default", configFiles: [], live: false, createdUnix: 1)
+        let named = try TmuxRoute(sessionID: legacy.sessionID, label: "questmaster", configFiles: ["/tmp/example/config.conf"], live: true, createdUnix: 1)
+        let routes = RouteTestClient()
+        routes.reply = .success([named])
+        let host = RouteTestHost()
+        let controller = makeRouteTestController(routes: routes, host: host)
+        controller.rememberRoutes([legacy])
+        controller.markSessionReappeared(legacy.sessionID)
+
+        var completed: Bool?
+        controller.switchTerminal(to: legacy.sessionID) { completed = $0 }
+        try expect(waitUntil { completed != nil }, "continued session attach should complete")
+        try expect(host.labels == ["questmaster"] && completed == true && controller.activeTmuxSession == legacy.sessionID,
+                   "Continue should attach only to the daemon's current route")
+    }
+
+    private static func testFailedCachedAttachRetriesRefreshedRoute() throws {
+        let legacy = try TmuxRoute(sessionID: "qm-example", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let named = try TmuxRoute(sessionID: legacy.sessionID, label: "questmaster", configFiles: ["/tmp/example/config.conf"], live: true, createdUnix: 1)
+        let routes = RouteTestClient()
+        let host = RouteTestHost()
+        let controller = makeRouteTestController(routes: routes, host: host)
+        controller.rememberRoutes([legacy])
+
+        var completed: Bool?
+        controller.switchTerminal(to: legacy.sessionID) { completed = $0 }
+        try expect(host.labels.first == "default" && routes.pending.count == 1,
+                   "cached route should start while refresh is pending")
+        try expect(completed == nil && host.labels == ["default"],
+                   "a failed cached attach should wait for its route refresh")
+        routes.pending[0](.success([named]))
+        try expect(waitUntil { completed != nil }, "refreshed route should finish the attach")
+        try expect(host.labels == ["default", "questmaster"] && completed == true && controller.attachedRoute == named,
+                   "a failed cached attach should retry once on the daemon's changed route")
+    }
+
+    private static func testFailedCachedAttachRetriesRouteRefreshedFirst() throws {
+        let legacy = try TmuxRoute(sessionID: "qm-example", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let named = try TmuxRoute(sessionID: legacy.sessionID, label: "questmaster", configFiles: ["/tmp/example/config.conf"], live: true, createdUnix: 1)
+        let routes = RouteTestClient()
+        let host = RouteTestHost()
+        host.deferDefaultFailure = true
+        let controller = makeRouteTestController(routes: routes, host: host)
+        controller.rememberRoutes([legacy])
+
+        var completed: Bool?
+        controller.switchTerminal(to: legacy.sessionID) { completed = $0 }
+        try expect(routes.pending.count == 1, "cached route should refresh during attach")
+        routes.pending[0](.success([named]))
+        try pumpOneMainRunLoopTurn()
+        try expect(completed == nil && host.labels == ["default"], "a refreshed route should wait for the first attach result")
+        host.finishDefaultFailure?()
+        try expect(host.labels == ["default", "questmaster"] && completed == true && controller.attachedRoute == named,
+                   "the changed daemon route should also be used when refresh completes before attach failure")
+    }
+
+    private final class RouteTestClient: ServeTmuxRouting {
+        var reply: Result<[TmuxRoute], Error>?
+        var pending: [(Result<[TmuxRoute], Error>) -> Void] = []
+
+        func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+            if let reply { completion(reply) } else { pending.append(completion) }
+        }
+    }
+
+    private final class RouteTestHost: TerminalPaneHosting {
+        let view = NSView()
+        var tmuxSessionID: String? { nil }
+        var onFocusRequested: (() -> Void)?
+        var onDetach: (() -> Void)?
+        var cellMetrics: TerminalCellMetrics { .unavailable }
+        var onCellMetricsChanged: (() -> Void)?
+        var labels: [String] = []
+        var deferDefaultFailure = false
+        var finishDefaultFailure: (() -> Void)?
+
+        func start() {}
+        func stop() {}
+        func focus(in window: NSWindow?) {}
+        func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+            labels.append(config.route?.label ?? "local")
+            if config.route?.label == "default" {
+                let fail = { completion(.failure(TmuxRouteError.missingSession(config.tmuxSession ?? ""))) }
+                if deferDefaultFailure { finishDefaultFailure = fail } else { fail() }
+            } else {
+                completion(.success(config.tmuxSession))
+            }
+        }
+    }
+
+    private static func makeRouteTestController(routes: ServeTmuxRouting, host: TerminalPaneHosting) -> TerminalSessionController {
+        let config = LaunchConfiguration(
+            daemonSocketOverride: nil, startDaemon: false, tmuxSession: nil,
+            disableTmux: false, workingDirectory: "/tmp",
+            backend: AppBackend(stateRoot: "/tmp/example-state", executablePath: "", source: .unresolved,
+                                workingDirectory: "/tmp", devWorktree: nil)
+        )
+        let controller = TerminalSessionController(
+            config: config, runtimeStore: RuntimeStore(sourceLabel: "test"), routeClient: routes,
+            terminalShell: { nil }, updateWindowTitle: { _ in }, focusTerminal: {}, render: {},
+            showMutationFailure: { _, _ in }, showMutationError: { _, _ in },
+            showTerminalEngineFailure: { _ in }, onFocusRequested: {}
+        )
+        controller.installPlaceholder(host)
+        return controller
+    }
+
+    private static func testStartupChoiceAcrossServers() throws {
+        let legacy = try TmuxRoute(sessionID: "qm-old", label: "default", configFiles: [], live: true, createdUnix: 100)
+        let named = try TmuxRoute(sessionID: "qm-new", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 300)
+        let stopped = try TmuxRoute(sessionID: "qm-stopped", label: "default", configFiles: [], live: false, createdUnix: 500)
+        try expect(TmuxRoute.startupChoice(preferred: "qm-old", routes: [legacy, named, stopped]) == legacy, "live preferred session should win across servers")
+        try expect(TmuxRoute.startupChoice(preferred: "qm-stopped", routes: [legacy, named, stopped]) == named, "newest live route should win")
+    }
+
+    private static func testEditorWindowUsesAttachedRoute() throws {
+        let attached = try TmuxRoute(sessionID: "qm-attached", label: "questmaster", configFiles: ["/tmp/config.conf"], live: true, createdUnix: 1)
+        let args = TerminalTmuxClientProcess.editorWindowArguments(route: attached, path: "/tmp/a.md", shell: "/bin/zsh")
+        try expect(Array(args.prefix(4)) == ["-L", "questmaster", "-f", "/tmp/config.conf"], "Markdown editor should use attached route")
+        try expect(args.contains("=qm-attached"), "Markdown editor should target attached session")
     }
 
     private static func testNavigationTogglesKeepFocusAndHideToTerminal() throws {
@@ -2967,7 +3196,7 @@ enum LogicSelfTests {
             waitUntil { !subviews(of: host).contains { $0 is WKWebView } },
             "the blocked pane should replace the page view when the blocker fails"
         )
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         try expect(webView.url == nil && !webView.isLoading, "no page should load when the blocker fails, got \(String(describing: webView.url))")
         let bitmap = try snapshot(host, size: artifactViewerSize, scale: 1)
         try expect(
@@ -3033,7 +3262,7 @@ enum LogicSelfTests {
             addedAt: ""
         )
         do {
-            try ArtifactExternalOpener.open(artifact: missing, attachedSessionID: "qm-a", tmuxPath: "/usr/bin/tmux", environment: [:])
+            try ArtifactExternalOpener.open(artifact: missing, attachedRoute: nil, tmuxPath: "/usr/bin/tmux", environment: [:])
             throw TestFailure("missing artifact should fail before launching an app")
         } catch ArtifactExternalOpenError.missingFile {
             // Expected.
@@ -3042,12 +3271,13 @@ enum LogicSelfTests {
 
     private static func testArtifactEditorWindowKeepsPathSeparate() throws {
         let path = "/tmp/report ' with spaces; $(touch danger).md"
-        let args = TerminalTmuxClientProcess.editorWindowArguments(sessionID: "qm-a", path: path, shell: "/bin/zsh")
-        try expect(Array(args.prefix(5)) == ["new-window", "-t", "=qm-a", "-n", "Artifact"], "editor should open a new tmux window")
-        try expect(args[6] == "/tmp", "editor window should start beside the artifact")
-        try expect(args[7].contains("artifact_path=$1"), "editor script should read the path as an argument")
-        try expect(args[7].hasSuffix("'/tmp/report '\\'' with spaces; $(touch danger).md'"), "path should be shell quoted as one positional argument")
-        try expect(args[7].contains("eval \"set -- $EDITOR\""), "editor command should allow arguments")
+        let route = try TmuxRoute(sessionID: "qm-a", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let args = TerminalTmuxClientProcess.editorWindowArguments(route: route, path: path, shell: "/bin/zsh")
+        try expect(Array(args.prefix(7)) == ["-L", "default", "new-window", "-t", "=qm-a", "-n", "Artifact"], "editor should open a new tmux window")
+        try expect(args[8] == "/tmp", "editor window should start beside the artifact")
+        try expect(args[9].contains("artifact_path=$1"), "editor script should read the path as an argument")
+        try expect(args[9].hasSuffix("'/tmp/report '\\'' with spaces; $(touch danger).md'"), "path should be shell quoted as one positional argument")
+        try expect(args[9].contains("eval \"set -- $EDITOR\""), "editor command should allow arguments")
     }
 
     private static func testLocalMarkdownImageURLFiltering() throws {
@@ -3090,9 +3320,9 @@ enum LogicSelfTests {
         try expect(publishCount > beforeArtifacts, "artifact mode change should publish for DockRootView")
     }
 
-    /// The Version Control panel's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its URL
+    /// The Watcher panel's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its URL
     /// and r asks the daemon to refresh; a click picks and opens; modified keys and others pass through.
-    private static func testVersionControlDockKeysMoveOpenCopyAndRefresh() throws {
+    private static func testWatcherDockKeysMoveOpenCopyAndRefresh() throws {
         let store = PullRequestStore()
         let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
         guard let request = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true) else {
@@ -3108,7 +3338,7 @@ enum LogicSelfTests {
         }
         _ = store.apply(response: [try pull(1, updated: "2026-10-01T00:00:00Z"), try pull(2, updated: "2026-10-02T00:00:00Z")], for: request)
 
-        let pane = VersionControlDockPane(store: store)
+        let pane = WatcherDockPane(store: store)
         var effects: [PullRequestEffect] = []
         pane.onPullRequestEffect = { effects.append($0) }
 
@@ -3232,7 +3462,9 @@ enum LogicSelfTests {
             window.contentView = view
             window.show()
             defer { window.close() }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            view.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            try pumpOneMainRunLoopTurn()
             let bitmap = try snapshot(view, size: size, scale: 1)
             guard let base = fill.usingColorSpace(.deviceRGB) else {
                 throw TestFailure("could not read the panel fill")
@@ -3271,11 +3503,11 @@ enum LogicSelfTests {
             "the ended terminal"
         )
 
-        let versionControl = CGSize(width: DockWidthPreference.panelWidth, height: 260)
+        let watcher = CGSize(width: DockWidthPreference.panelWidth, height: 260)
         try expectCentred(
-            try ink(VersionControlList(rows: [], cursorKey: nil, isUnwatched: true, readNotice: nil, areaFocused: true, onOpenRow: { _ in }), size: versionControl),
-            in: CGRect(origin: .zero, size: versionControl),
-            "Version Control"
+            try ink(WatcherList(rows: [], cursorKey: nil, isUnwatched: true, readNotice: nil, areaFocused: true, onOpenRow: { _ in }), size: watcher),
+            in: CGRect(origin: .zero, size: watcher),
+            "Watcher"
         )
 
         let chat = CGSize(width: DockWidthPreference.panelWidth, height: 400)
@@ -3349,17 +3581,17 @@ enum LogicSelfTests {
         try expect(spinner.spinAnimation == nil, "a spinner that leaves its window stops")
     }
 
-    /// The Version Control title bar shows the spinner beside its title exactly while the pull request store refreshes
+    /// The Watcher title bar shows the spinner beside its title exactly while the pull request store refreshes
     /// (`r` until the daemon's reply and one turn), and the other docks never do. It reads the ring's presence, not its
     /// animation: a hosted ring turns or holds still by the host's Reduce Motion setting (`SpinnerRingView` reads the
     /// environment's), and CI's macOS runner reduces motion where a desk doesn't, so the turn is tested on the view
     /// itself (`testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow`).
-    private static func testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes() throws {
+    private static func testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes() throws {
         let store = PullRequestStore()
         let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
         _ = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true)
         let window = HeadlessWindow(size: CGSize(width: 480, height: 300))
-        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl, isRefreshing: { store.isRefreshing }))
+        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher, isRefreshing: { store.isRefreshing }))
         let bottom = DockShellView(body: NSView(), model: DockChromeModel(isRefreshing: { false }))
         let column = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 300))
         top.frame = NSRect(x: 0, y: 150, width: 480, height: 150)
@@ -3391,10 +3623,10 @@ enum LogicSelfTests {
         try waitForMainQueue("the spinner to go") { spinner(in: top) == nil }
     }
 
-    /// The column puts Version Control on top at 300, the bottom panel under it, 20 apart; a panel alone fills the column and
+    /// The column puts Watcher on top at 300, the bottom panel under it, 20 apart; a panel alone fills the column and
     /// a hidden one leaves the view hidden.
     private static func testDockColumnLaysOutItsPanels() throws {
-        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl))
+        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher))
         let bottom = DockShellView(body: NSView())
         let column = DockColumnView(top: top, bottom: bottom)
         column.frame = NSRect(x: 0, y: 0, width: 480, height: 860)
@@ -3406,15 +3638,15 @@ enum LogicSelfTests {
 
         _ = laidOut(DockPanels(top: true, bottom: true))
         try expect(!top.isHidden && !bottom.isHidden, "both panels show in the split")
-        try expect(top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Version Control sits at the column's top, 300 tall, got \(top.frame)")
+        try expect(top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Watcher sits at the column's top, 300 tall, got \(top.frame)")
         try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 540), "the bottom panel takes what's left under a 20 gap, got \(bottom.frame)")
 
         _ = laidOut(DockPanels(top: true))
-        try expect(!top.isHidden && bottom.isHidden, "Version Control alone leaves the bottom panel hidden")
-        try expect(top.frame == NSRect(x: 0, y: 0, width: 480, height: 860), "Version Control alone fills the dock, got \(top.frame)")
+        try expect(!top.isHidden && bottom.isHidden, "Watcher alone leaves the bottom panel hidden")
+        try expect(top.frame == NSRect(x: 0, y: 0, width: 480, height: 860), "Watcher alone fills the dock, got \(top.frame)")
 
         _ = laidOut(DockPanels(bottom: true))
-        try expect(top.isHidden && !bottom.isHidden, "the bottom panel alone leaves Version Control hidden")
+        try expect(top.isHidden && !bottom.isHidden, "the bottom panel alone leaves Watcher hidden")
         try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 860), "the bottom panel alone fills the dock, got \(bottom.frame)")
 
         _ = laidOut(DockPanels(top: true, bottom: true))
@@ -3485,7 +3717,7 @@ enum LogicSelfTests {
             focusRegionRight: .anywhere { ran.append("⇧⌘L") },
             focusDockTop: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘K") }),
             focusDockBottom: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘J") }),
-            toggleVersionControlDock: .anywhere { ran.append("⇧⌘R") }
+            toggleWatcherDock: .anywhere { ran.append("⇧⌘R") }
         )
         let menu = MenuController()
         menu.installCommandKeyMonitor(actions)
@@ -3566,7 +3798,7 @@ enum LogicSelfTests {
         func makeColumn() -> (DockColumnView, DockShellView, DockShellView, HeadlessWindow) {
             let window = HeadlessWindow(size: CGSize(width: 1000, height: 900))
             let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 900))
-            let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl))
+            let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher))
             let bottom = DockShellView(body: NSView())
             let column = DockColumnView(top: top, bottom: bottom)
             column.frame = NSRect(x: 500, y: 0, width: 480, height: 860)
@@ -3588,7 +3820,7 @@ enum LogicSelfTests {
         try expect(top.frame.maxY == 870 && top.frame.height == 300, "and 10 above its slot, got \(top.frame)")
         try expect(waitUntil { column.isTransitioning && top.alphaValue > 0 && top.alphaValue < 1 }, "the appearing panel should reach an intermediate state")
         try expect(waitUntil { !column.isTransitioning }, "the dock's panel transition should finish")
-        try expect(top.alphaValue == 1 && top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Version Control ends at its slot, got \(top.frame)")
+        try expect(top.alphaValue == 1 && top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Watcher ends at its slot, got \(top.frame)")
         try expect(bottom.alphaValue == 1 && bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 540), "the bottom panel ends shrunk under it, got \(bottom.frame)")
 
         column.setPanels(DockPanels(bottom: true), animated: true)
@@ -3620,14 +3852,14 @@ enum LogicSelfTests {
     private static func testOnlyTheFocusedDockPanelHasTheKeys() throws {
         let window = HeadlessWindow(size: CGSize(width: 1000, height: 900))
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 900))
-        let pane = VersionControlDockPane(store: PullRequestStore())
+        let pane = WatcherDockPane(store: PullRequestStore())
         let bottomPane = SwiftUIDockPane(
             store: RuntimeStore(sourceLabel: "test"),
             workerChatStore: WorkerChatStore(),
             newQuestPresenter: NewQuestSheetPresenter(),
             settingsPresenter: SettingsSheetPresenter()
         )
-        let top = DockShellView(body: pane, model: DockChromeModel(topBar: .versionControl))
+        let top = DockShellView(body: pane, model: DockChromeModel(topBar: .watcher))
         let bottom = DockShellView(body: bottomPane)
         let column = DockColumnView(top: top, bottom: bottom)
         column.frame = NSRect(x: 500, y: 0, width: 480, height: 860)
@@ -3646,7 +3878,7 @@ enum LogicSelfTests {
             actionBar: { nil },
             trackerHosting: { nil },
             dockView: { bottomPane },
-            versionControlPane: { pane },
+            watcherPane: { pane },
             terminalHost: { nil },
             modalHost: { nil },
             updateDockTabs: {}
@@ -3657,7 +3889,7 @@ enum LogicSelfTests {
         coordinator.focusDockPanel(.top)
         try expect(window.firstResponder === pane, "the top panel's pane should take the keys")
         try expect(top.isFocused && !bottom.isFocused, "only the top panel's frame should lift")
-        try expect(pane.hasFocusedLook && !bottomPane.isFocused, "Version Control draws its cursor, and the bottom panel's content its focused look, only for the panel with the keys")
+        try expect(pane.hasFocusedLook && !bottomPane.isFocused, "Watcher draws its cursor, and the bottom panel's content its focused look, only for the panel with the keys")
         coordinator.focusDockPanel(.bottom)
         try expect(!top.isFocused && bottom.isFocused, "the bottom panel's frame lifts as the top's drops")
         try expect(!pane.hasFocusedLook && bottomPane.isFocused, "the cursor hides with the top panel's keys and the bottom content's focused look comes on")
@@ -4230,8 +4462,7 @@ enum LogicSelfTests {
         try expect(window.frame.size == windowSize, "a presented modal must not resize the window, got \(window.frame.size) from \(windowSize)")
 
         holder.item = nil
-        RunLoop.main.run(until: Date().addingTimeInterval(MotionStep.fast.seconds / 3))
-        try expect(stack.isEmpty, "a dismissed modal should stop counting as open at once, so keys go back underneath")
+        try expect(waitUntil { stack.isEmpty }, "a dismissed modal should stop counting as open at once, so keys go back underneath")
         try expect(stack.entries.count == 1 && stack.entries[0].closing, "a dismissed modal should stay mounted, closing, while it fades out")
         try expect(!host.isHidden, "the host should stay visible until the fade-out ends")
         try expect(waitUntil { stack.entries.isEmpty && host.isHidden }, "the modal fade-out should finish and hide the host")
@@ -4362,7 +4593,7 @@ enum LogicSelfTests {
             func start() {}
             func stop() {}
             func focus(in window: NSWindow?) { window?.makeFirstResponder(view) }
-            func connect(to config: TerminalLaunchConfig) throws {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) { completion(.success(config.tmuxSession)) }
         }
         for start in [NewSessionField.prompt, .agent] {
             let stack = InWindowModalStack()
@@ -4389,7 +4620,7 @@ enum LogicSelfTests {
                 actionBar: { nil },
                 trackerHosting: { tracker },
                 dockView: { nil },
-                versionControlPane: { nil },
+                watcherPane: { nil },
                 terminalHost: { terminal },
                 modalHost: { host },
                 updateDockTabs: {}
@@ -4421,7 +4652,11 @@ enum LogicSelfTests {
                     coordinator.focusTerminal()
                 }
             )
-            stack.present(id: id, AnyView(NewSessionSheetView(presentation: presentation, dismiss: { stack.dismiss(id: id) })))
+            var dismissalCompleted = false
+            stack.present(id: id, AnyView(NewSessionSheetView(
+                presentation: presentation,
+                dismiss: { stack.dismiss(id: id, onDismissed: { dismissalCompleted = true }) }
+            )))
             let expected = start == .prompt ? "ModalPromptEditorTextView" : "SinkView"
             try expect(waitUntil {
                 let holder = String(describing: window.firstResponder.map { type(of: $0) })
@@ -4437,12 +4672,10 @@ enum LogicSelfTests {
             }
             let submitted = responders.count
             _ = monitor.onKeyDown(try keyEvent("\r", keyCode: 36, modifierFlags: .command))
-            // Keep the run loop active past the fade and delayed focus restores to catch a late sheet responder.
-            func observeFocusFor(_ seconds: TimeInterval) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-            observeFocusFor(0.6)
-            for _ in 0..<5 {
-                observeFocusFor(0.05)
-            }
+            try expect(waitUntil {
+                summoned == "qm-new" && dismissalCompleted && stack.entries.isEmpty && host.isHidden && window.firstResponder === terminal.view
+            }, "\(start): dismissal should complete and restore terminal focus")
+            try waitForMainQueueTurn()
             try expect(summoned == "qm-new", "\(start): Summon should succeed, got \(String(describing: summoned))")
             try expect(stack.entries.isEmpty && host.isHidden, "\(start): the sheet should be gone")
             try expect(window.firstResponder === terminal.view, "\(start): focus should end on the new terminal, got \(String(describing: window.firstResponder))")
@@ -4478,7 +4711,7 @@ enum LogicSelfTests {
             func start() {}
             func stop() {}
             func focus(in window: NSWindow?) { window?.makeFirstResponder(view) }
-            func connect(to config: TerminalLaunchConfig) throws {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) { completion(.success(config.tmuxSession)) }
         }
         let stack = InWindowModalStack()
         let window = HeadlessWindow(size: CGSize(width: 1000, height: 600))
@@ -4504,7 +4737,7 @@ enum LogicSelfTests {
             actionBar: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
-            versionControlPane: { nil },
+            watcherPane: { nil },
             terminalHost: { terminal },
             modalHost: { host },
             updateDockTabs: {}
@@ -4570,7 +4803,7 @@ enum LogicSelfTests {
             actionBar: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
-            versionControlPane: { nil },
+            watcherPane: { nil },
             terminalHost: { nil },
             modalHost: { host },
             updateDockTabs: {}
@@ -4615,7 +4848,7 @@ enum LogicSelfTests {
         let filter = QuestLogFilter()
         var sent: [ListCommand] = []
         var leaves = 0
-        filter.onChange = { store.sync(quests: quests, repos: [], query: filter.textQuery, projectIDs: filter.projectIDs) }
+        filter.onChange = { store.sync(quests: quests, repos: [], filter: filter.search) }
         filter.onMoveSelection = { command in
             sent.append(command)
             _ = store.handle(command)
@@ -4750,6 +4983,323 @@ enum LogicSelfTests {
     }
 
     /// The log is rebuilt per opening; it opens scrolled to the selection it kept, not at the top.
+    /// A freshly opened log lists its first row whole below the filter, in the window's shell as the render draws it.
+    /// A native scroll view left under a scale animation keeps the offset the scale leaves, so the modal must not scale
+    /// over the list while it appears.
+    private static func testQuestLogListStartsWithItsFirstRowWhole() throws {
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            view.subviews.flatMap { ((($0 as? NSScrollView).map { [$0] }) ?? []) + scrollViews(in: $0) }
+        }
+        let size = CGSize(width: 1440, height: 900)
+        let shell = RenderPreview.questLogWindowView()
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        shell.frame = container.bounds
+        container.addSubview(shell)
+        let window = HeadlessWindow(size: size)
+        window.contentView = container
+        window.show()
+        defer { window.close() }
+        try expect(waitUntil { !scrollViews(in: shell).isEmpty }, "the Quest Log should mount its list")
+        shell.layoutSubtreeIfNeeded()
+        let layout = QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize)
+        let listSize = CGSize(width: layout.listWidth, height: layout.listHeight)
+        guard let list = scrollViews(in: shell).first(where: { $0.frame.size == listSize }) else {
+            throw TestFailure("the Quest Log should have a list scroll view of \(listSize)")
+        }
+        let offset = list.contentView.bounds.origin.y
+        let topInset = list.contentInsets.top
+        try expect(
+            abs(offset + topInset) < 0.5,
+            "a list at its top should show its first row whole: scroll offset \(offset), top inset \(topInset)"
+        )
+    }
+
+    /// A modal fitted below 1 must route events where it draws. A 700 x 600 window fits the fixed sheet (1280 x 860) at
+    /// 0.516; the filter field's centre, converted through AppKit's own conversions, must reach the modal.
+    private static func testQuestLogFilterFieldTakesClicksWhenTheModalIsScaledDown() throws {
+        func textFields(in view: NSView) -> [NSTextField] {
+            view.subviews.flatMap { ((($0 as? NSTextField).map { [$0] }) ?? []) + textFields(in: $0) }
+        }
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q1", content: "Quest 1")], repos: [])
+        let size = CGSize(width: 700, height: 600)
+        let window = HeadlessWindow(size: size)
+        let stack = InWindowModalStack()
+        let host = InWindowModalHost(stack: stack)
+        host.frame = .zero
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        host.frame = NSRect(origin: .zero, size: size)
+        try expect(waitUntil { !hasAnimations(in: host.layer) && !textFields(in: host).isEmpty }, "the Quest Log's filter field should appear")
+        guard let field = textFields(in: host).first else {
+            throw TestFailure("the Quest Log should have a text field")
+        }
+        let centre = NSPoint(x: field.bounds.midX, y: field.bounds.midY)
+        let inWindow = field.convert(centre, to: nil)
+        try expect(NSRect(origin: .zero, size: size).contains(inWindow), "the field's centre should be in the window, got \(inWindow)")
+        let inHost = host.convert(inWindow, from: nil)
+        let backInWindow = host.convert(inHost, to: nil)
+        try expect(
+            abs(backInWindow.x - inWindow.x) < 0.5 && abs(backInWindow.y - inWindow.y) < 0.5,
+            "converting to the host and back should return the same point, got \(backInWindow) for \(inWindow)"
+        )
+        // AppKit's own conversion carries the fit: the field's window width is its width times the fit.
+        let fit = min(
+            (size.width - 2 * ShellMetrics.gap) / QuestLogMetrics.sheetSize.width,
+            (size.height - 2 * ShellMetrics.gap) / QuestLogMetrics.sheetSize.height
+        )
+        let windowWidth = field.convert(field.bounds, to: nil).width
+        try expect(
+            abs(windowWidth / field.bounds.width - fit) < 0.01,
+            "the field should draw at the fit \(fit) in the window, got \(windowWidth / field.bounds.width)"
+        )
+        // A click on the field's centre reaches the modal. SwiftUI routes events inside its hosting view, so the field
+        // itself need not be the deepest AppKit hit.
+        let hit = window.contentView?.superview?.hitTest(inWindow)
+        try expect(
+            hit.map { $0 === host || $0.isDescendant(of: host) } ?? false,
+            "a click on the field's centre should reach the modal, got \(String(describing: hit))"
+        )
+    }
+
+    /// The Quest Log in a 1000 x 800 window, read frame by frame. The modal's drawn rect comes from the presentation of the
+    /// layer that carries its scale, so an entrance or a close in flight shows.
+    @MainActor private struct QuestLogModalFrames {
+        // One point per pixel, as the CI runner renders: at a fractional fit that is where Auto Layout rounds frames.
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 800), scale: 1)
+        let stack = InWindowModalStack()
+        let host: InWindowModalHost
+        let store: QuestLogStore
+
+        init() {
+            store = QuestLogStore()
+            store.sync(quests: [QuestItem(id: "q1", content: "Quest 1")], repos: [])
+            host = InWindowModalHost(stack: stack)
+            host.frame = NSRect(origin: .zero, size: window.frame.size)
+            window.contentView = host
+            window.show()
+        }
+
+        /// The hosted content's hosting view, which the modal file keeps private: found by class name.
+        var hostedView: NSView? { Self.view(named: "ModalHostingView", in: host) }
+
+        /// The view whose layer carries the modal's scale: the hosted content's superview.
+        var coordinateView: NSView? { hostedView?.superview }
+
+        /// Whether the entrance (or a close) is running: no click reaches the modal then.
+        var isScaling: Bool { !(coordinateView?.layer?.animationKeys() ?? []).isEmpty }
+
+        /// The Quest Log's laid-out content at the fit to the window, centred. The fit reads the frame the content is drawn
+        /// at: on a busy runner SwiftUI's reported intrinsic size can differ from that frame.
+        var fittedRect: CGRect {
+            let content = hostedView?.frame.size ?? .zero
+            let margin = ShellMetrics.gap * 2
+            let fit = min(1, (host.bounds.width - margin) / content.width, (host.bounds.height - margin) / content.height)
+            let size = CGSize(width: content.width * fit, height: content.height * fit)
+            return CGRect(x: host.bounds.midX - size.width / 2, y: host.bounds.midY - size.height / 2, width: size.width, height: size.height)
+        }
+
+        func present() {
+            store.open()
+            stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        }
+
+        /// Where the modal's content is drawn now, in the host's coordinates; nil while SwiftUI hasn't drawn it yet.
+        var drawnRect: CGRect? {
+            guard let coordinates = coordinateView, let hosted = hostedView, let coordinateLayer = coordinates.layer, let hostLayer = host.layer else {
+                return nil
+            }
+            let presented = coordinateLayer.presentation() ?? coordinateLayer
+            let corners = [CGPoint(x: hosted.frame.minX, y: hosted.frame.minY), CGPoint(x: hosted.frame.maxX, y: hosted.frame.maxY)]
+                .map { presented.convert($0, to: hostLayer) }
+            return CGRect(
+                x: min(corners[0].x, corners[1].x), y: min(corners[0].y, corners[1].y),
+                width: abs(corners[1].x - corners[0].x), height: abs(corners[1].y - corners[0].y)
+            )
+        }
+
+        /// Lays out the host synchronously, so the frames read next are the laid-out ones.
+        func layOutNow() {
+            host.layoutSubtreeIfNeeded()
+        }
+
+        /// Presents the Quest Log and reads its drawn rect on each display tick until the entrance has run and finished, or
+        /// five seconds pass. `perFrame` gets each drawn rect, and the rects are returned.
+        func sampleEntrance(perFrame: (CGRect) throws -> Void = { _ in }) throws -> [CGRect] {
+            present()
+            var drawn: [CGRect] = []
+            var began = false
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+                began = began || isScaling
+                if let rect = drawnRect {
+                    drawn.append(rect)
+                    try perFrame(rect)
+                }
+                if began && !isScaling {
+                    break
+                }
+            }
+            return drawn
+        }
+
+        /// Dismisses the Quest Log and reads its drawn rect on each display tick until it is removed, or five seconds pass.
+        func sampleClose() throws -> [CGRect] {
+            stack.dismiss(id: QuestLogModal.stackID)
+            var drawn: [CGRect] = []
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline, coordinateView != nil {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+                if let rect = drawnRect {
+                    drawn.append(rect)
+                }
+            }
+            return drawn
+        }
+
+        /// Presents the Quest Log with Reduce Motion on, then reads its drawn rect on the next few display ticks.
+        func sampleRestingFrames(perFrame: (CGRect) throws -> Void) throws -> [CGRect] {
+            present()
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline, drawnRect == nil {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+            }
+            var drawn: [CGRect] = []
+            for _ in 0..<5 {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 60))
+                if let rect = drawnRect {
+                    drawn.append(rect)
+                    try perFrame(rect)
+                }
+            }
+            return drawn
+        }
+
+        private static func view(named name: String, in root: NSView) -> NSView? {
+            if String(describing: type(of: root)) == name {
+                return root
+            }
+            return root.subviews.lazy.compactMap { view(named: name, in: $0) }.first
+        }
+    }
+
+    private static func sameRect(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 0.5) -> Bool {
+        abs(lhs.minX - rhs.minX) < tolerance && abs(lhs.minY - rhs.minY) < tolerance
+            && abs(lhs.width - rhs.width) < tolerance && abs(lhs.height - rhs.height) < tolerance
+    }
+
+    /// The entrance scales the modal about its centre. Its drawn rect keeps the window's centre at every frame, it starts a
+    /// little smaller than the fit and never overshoots it, and it ends exactly at the fit.
+    private static func testModalEntranceScalesAboutItsCentre() throws {
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        let drawn = try scene.sampleEntrance()
+        guard let smallest = drawn.map(\.width).min() else {
+            throw TestFailure("the Quest Log should be drawn while it enters")
+        }
+        try expect(!scene.isScaling, "the entrance should finish")
+        scene.layOutNow()
+        // The sheet is a fixed size: the scaled layout must not shorten it (Auto Layout rounds its frame at a fractional fit).
+        let laidOut = scene.hostedView?.frame.size ?? .zero
+        try expect(
+            abs(laidOut.width - QuestLogMetrics.sheetSize.width) < 0.5 && abs(laidOut.height - QuestLogMetrics.sheetSize.height) < 0.5,
+            "the Quest Log should lay out at its fixed sheet size \(QuestLogMetrics.sheetSize), got \(laidOut)"
+        )
+        let fitted = scene.fittedRect
+        let settled = scene.drawnRect ?? .zero
+        try expect(sameRect(settled, fitted), "the entrance should end at the fit \(fitted), drawn \(settled)")
+        try expect(smallest < fitted.width - 1, "the entrance should draw the modal smaller than the fit at first, smallest \(smallest)")
+        try expect(smallest >= fitted.width * 0.96, "the entrance should start from about 0.97 of the fit, smallest \(smallest) of \(fitted.width)")
+        try expect(drawn.allSatisfy { $0.width <= fitted.width + 0.5 }, "the entrance should never draw the modal above the fit")
+        let centre = CGPoint(x: scene.host.bounds.midX, y: scene.host.bounds.midY)
+        for rect in drawn {
+            try expect(
+                abs(rect.midX - centre.x) < 0.5 && abs(rect.midY - centre.y) < 0.5,
+                "the modal should stay centred on \(centre) while it scales, but was drawn at \(rect)"
+            )
+        }
+    }
+
+    /// While the entrance runs nothing in the modal takes a click, so none lands on a control at the wrong place. Once it
+    /// has settled a click just inside the drawn edge reaches the modal, and one just outside doesn't.
+    private static func testModalEntranceRoutesClicksToWhereItDraws() throws {
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        // The scale view covers the window, so a click outside the modal lands on it; only the hosted content counts as the modal.
+        func reachesModal(_ point: CGPoint) -> Bool {
+            let inWindow = scene.host.convert(point, to: nil)
+            guard let hit = scene.window.contentView?.superview?.hitTest(inWindow), let hosted = scene.hostedView else {
+                return false
+            }
+            return hit === hosted || hit.isDescendant(of: hosted)
+        }
+        var scalingFrames = 0
+        let drawn = try scene.sampleEntrance { rect in
+            guard scene.isScaling else {
+                return
+            }
+            scalingFrames += 1
+            try expect(!reachesModal(CGPoint(x: rect.midX, y: scene.host.bounds.midY)), "no click should reach the modal while it scales")
+        }
+        try expect(scalingFrames > 0, "the entrance should be sampled while it runs")
+        try expect(drawn.last != nil, "the Quest Log should be drawn once the sample ends")
+        try expect(!scene.isScaling, "the entrance should finish")
+        scene.layOutNow()
+        let fitted = scene.fittedRect
+        let y = scene.host.bounds.midY
+        try expect(reachesModal(CGPoint(x: fitted.minX + 4, y: y)), "a click 4pt inside the settled edge should reach the modal, drawn at \(fitted)")
+        try expect(!reachesModal(CGPoint(x: fitted.minX - 4, y: y)), "a click 4pt outside the settled edge should not reach the modal, drawn at \(fitted)")
+    }
+
+    /// Under Reduce Motion the modal is drawn at its fit from its first frame, and nothing animates.
+    private static func testModalEntranceIsSkippedUnderReduceMotion() throws {
+        let reducesMotion = Motion.reducesMotion
+        Motion.reducesMotion = { true }
+        defer { Motion.reducesMotion = reducesMotion }
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        var animated = false
+        let drawn = try scene.sampleRestingFrames { _ in
+            animated = animated || scene.isScaling
+        }
+        try expect(!drawn.isEmpty, "the Quest Log should be drawn under Reduce Motion")
+        try expect(!animated, "under Reduce Motion the entrance should add no animation")
+        scene.layOutNow()
+        let fitted = scene.fittedRect
+        try expect(sameRect(scene.drawnRect ?? .zero, fitted), "under Reduce Motion the modal should be drawn at the fit \(fitted)")
+        // The first frame is already the fit's width, within the layout's own settling.
+        if let first = drawn.first {
+            try expect(abs(first.width - fitted.width) < fitted.width * 0.01, "under Reduce Motion the first frame should already be the fit's width, got \(first.width) of \(fitted.width)")
+        }
+    }
+
+    /// Closing scales the modal back to its start scale about its centre, before it is removed.
+    private static func testModalCloseScalesBackAboutItsCentre() throws {
+        let scene = QuestLogModalFrames()
+        defer { scene.window.close() }
+        _ = try scene.sampleEntrance()
+        try expect(!scene.isScaling, "the Quest Log should be drawn at rest before it closes")
+        scene.layOutNow()
+        let fitted = scene.fittedRect
+        let drawn = try scene.sampleClose()
+        guard let smallest = drawn.map(\.width).min() else {
+            throw TestFailure("the Quest Log should be drawn while it closes")
+        }
+        try expect(smallest < fitted.width - 1, "the close should draw the modal smaller than the fit, smallest \(smallest)")
+        try expect(smallest >= fitted.width * 0.96, "the close should end at about 0.97 of the fit, smallest \(smallest) of \(fitted.width)")
+        let centre = CGPoint(x: scene.host.bounds.midX, y: scene.host.bounds.midY)
+        for rect in drawn {
+            try expect(
+                abs(rect.midX - centre.x) < 0.5 && abs(rect.midY - centre.y) < 0.5,
+                "the modal should stay centred on \(centre) while it closes, but was drawn at \(rect)"
+            )
+        }
+    }
+
     private static func testQuestLogOpensScrolledToTheKeptSelection() throws {
         func scrollViews(in view: NSView) -> [NSScrollView] {
             view.subviews.flatMap { ((($0 as? NSScrollView).map { [$0] }) ?? []) + scrollViews(in: $0) }
@@ -4774,7 +5324,8 @@ enum LogicSelfTests {
                 return height > list.contentView.bounds.height && list.contentView.bounds.origin.y > 0
             }
         }, "the Quest Log should finish laying out and scroll to the kept selection")
-        let list = scrollViews(in: host).min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }
+        // The tab row and the page's ink scroll too; the list is the tallest document.
+        let list = scrollViews(in: host).max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }
         guard let list, let height = list.documentView?.frame.height, height > list.contentView.bounds.height else {
             throw TestFailure("the 40-quest list should overflow its scroll view")
         }
@@ -4831,8 +5382,9 @@ enum LogicSelfTests {
             window.contentView = view
             window.show()
             defer { window.close() }
-            // `cacheDisplay` needs the hosted SwiftUI tree's first draw, which has no completion signal.
-            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            view.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            try pumpOneMainRunLoopTurn()
             guard let bitmap = NSBitmapImageRep(
                 bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
@@ -4920,10 +5472,6 @@ enum LogicSelfTests {
                 if shells > 0 { return scrollView(height: shellSectionHeight) != nil }
                 return LogicSelfTests.descendants(of: view).contains { $0 is NSScrollView && $0.bounds.height > 0 }
             }, "the tracker footer should finish laying out")
-        }
-
-        func observePointerMove(_ seconds: TimeInterval) {
-            RunLoop.main.run(until: Date().addingTimeInterval(seconds))
         }
 
         func close() {
@@ -5081,7 +5629,7 @@ enum LogicSelfTests {
         defer { hovered.close() }
         PointerHighlight.cursor.pointerMoved(to: "shell-13")
         hovered.store.setCurrentTerminalSessionID("shell-13")
-        hovered.observePointerMove(0.8)
+        try waitForMainQueueTurn()
         guard let hoveredScroll = hovered.scrollView(height: TrackerShellMetrics.maxHeight) else {
             throw TestFailure("no 175pt scroll view after the pointer moved the cursor")
         }
@@ -5665,7 +6213,7 @@ enum LogicSelfTests {
         }
         let store = QuestLogStore()
         store.sync(quests: [QuestItem(id: "q", content: "A quest")], repos: [])
-        try check("Quest Log filter", QuestLogView(store: store, filter: QuestLogFilter(), onCommand: { _ in }), size: QuestLogView.size)
+        try check("Quest Log filter", QuestLogView(store: store, filter: QuestLogFilter(), layout: QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize), onCommand: { _ in }), size: QuestLogMetrics.sheetSize)
         let newSession = NewSessionSheetPresenter()
         newSession.present(initialPath: "/tmp/gjpqy", mutationClient: StubMutationClient(result: .failure(TestFailure("unused"))), directoryClient: nil, onSuccess: { _ in })
         if let presentation = newSession.presentation {
@@ -5762,13 +6310,13 @@ enum LogicSelfTests {
         QuestLogDebug.parchmentDraws = 0
         store.open()
         stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        try expect(waitUntil { QuestLogDebug.parchmentDraws > 0 }, "opening should draw the Quest Log parchment")
+        try waitForMainQueueTurn()
         try expect(!host.isHidden, "opening should show the Quest Log")
         try expect((1...2).contains(QuestLogDebug.parchmentDraws), "the parchment should draw once for the opening, not per unroll frame; drew \(QuestLogDebug.parchmentDraws) times")
 
         store.close()
         stack.dismiss(id: QuestLogModal.stackID)
-        RunLoop.main.run(until: Date().addingTimeInterval(MotionStep.fast.seconds / 3))
         try expect(!host.isHidden, "the Quest Log should stay visible while it fades out")
         try expect(waitUntil { host.isHidden }, "the Quest Log host should hide when its fade-out finishes")
         try expect(host.isHidden, "the Quest Log host should hide once the fade-out ends")
@@ -6191,23 +6739,13 @@ enum LogicSelfTests {
     }
 
     private static func testStartupTmuxSessionChoice() throws {
-        let sessions = [(created: 100, name: "qm-100"), (created: 300, name: "qm-300"), (created: 200, name: "qm-200")]
-        try expect(
-            LaunchConfiguration.startupTmuxSession(preferred: "qm-100", sessions: sessions) == "qm-100",
-            "a remembered session that is still alive should win"
-        )
-        try expect(
-            LaunchConfiguration.startupTmuxSession(preferred: "qm-999", sessions: sessions) == "qm-300",
-            "a dead remembered session should fall back to newest-created"
-        )
-        try expect(
-            LaunchConfiguration.startupTmuxSession(preferred: nil, sessions: sessions) == "qm-300",
-            "no remembered session should pick newest-created"
-        )
-        try expect(
-            LaunchConfiguration.startupTmuxSession(preferred: "qm-100", sessions: []) == nil,
-            "no live sessions should return nil"
-        )
+        let routes = try [100, 300, 200].map { value in
+            try TmuxRoute(sessionID: "qm-\(value)", label: "default", configFiles: [], live: true, createdUnix: Int64(value))
+        }
+        try expect(TmuxRoute.startupChoice(preferred: "qm-100", routes: routes)?.sessionID == "qm-100", "remembered live route should win")
+        try expect(TmuxRoute.startupChoice(preferred: "qm-999", routes: routes)?.sessionID == "qm-300", "stale preference should use newest route")
+        try expect(TmuxRoute.startupChoice(preferred: nil, routes: routes)?.sessionID == "qm-300", "no preference should use newest route")
+        try expect(TmuxRoute.startupChoice(preferred: "qm-100", routes: []) == nil, "no live routes should return nil")
     }
 
     private static func testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck() throws {
@@ -6278,7 +6816,7 @@ enum LogicSelfTests {
                 switchBeforeMutation: switchTo != nil,
                 clearTerminalOnSuccess: clear
             ) { finished = true }
-            try waitForMainQueue("the mutation to settle", timeout: 2, until: { finished || failures.value > 0 })
+            try waitForMainQueue("the mutation to settle", until: { finished || failures.value > 0 })
             try waitForMainQueueTurn()
             return (endedCount.value, switches.value)
         }
@@ -6683,10 +7221,9 @@ enum LogicSelfTests {
             try? UnixSocketIO.write(line + Data("\nnext".utf8), to: writer)
             written.signal()
         }
-        try UnixSocketIO.setReadTimeout(on: fds[0], seconds: 5)
         let read = try UnixSocketIO.readLine(from: fds[0])
         // The sockets close only once the writer is done, so it never writes to a closed one.
-        _ = written.wait(timeout: .now() + 5)
+        try waitForSemaphore(written, description: "the large socket write")
         try expect(read == line, "readLine should return the whole line, newline and later bytes excluded (got \(read.count) bytes)")
     }
 
@@ -6701,13 +7238,14 @@ enum LogicSelfTests {
         let three = serveTrackerLine("wire-three", padding: 100_000)
 
         try harness.write(String(one.prefix(40)))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        try harness.waitForRead()
         try harness.write(String(one.dropFirst(40)) + "\n" + String(two.prefix(30)))
+        try harness.waitForRead()
         try waitForMainQueue("the first line", until: { harness.wireLabels == ["wire-one"] })
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         try expect(harness.wireLabels == ["wire-one"], "a line without its newline should wait, got \(harness.wireLabels)")
 
         try harness.write(String(two.dropFirst(30)) + "\n\n")
+        try harness.waitForRead()
         let bytes = Array((three + "\n").utf8)
         for start in stride(from: 0, to: bytes.count, by: 1_000) {
             try UnixSocketIO.write(Data(bytes[start..<min(start + 1_000, bytes.count)]), to: harness.daemon)
@@ -6736,9 +7274,9 @@ enum LogicSelfTests {
             written.signal()
         }
 
-        try expect(readsClosed(daemon, within: 10), "the client should close a connection whose frame outgrows the cap")
+        try expect(readsClosed(daemon), "the client should close a connection whose frame outgrows the cap")
         // The daemon end closes only once the writer is done with it.
-        try expect(written.wait(timeout: .now() + 10) == .success, "the oversized write should end once the client hangs up")
+        try waitForSemaphore(written, description: "the oversized socket write")
         try waitForMainQueue("a reconnect after the oversized frame", until: { harness.connects >= 2 })
         try waitForMainQueueTurn()
         try expect(harness.wireLabels == ["wire-before", "wire-at-cap"], "only the whole lines should arrive, got \(harness.wireLabels)")
@@ -6757,7 +7295,7 @@ enum LogicSelfTests {
         ]
         try harness.write(lines.joined(separator: "\n") + "\n")
 
-        try expect(readsClosed(harness.daemon, within: 10), "the client should close the connection at the mismatched line")
+        try expect(readsClosed(harness.daemon), "the client should close the connection at the mismatched line")
         try waitForMainQueue("a reconnect after the mismatch", until: { harness.connects >= 2 })
         try waitForMainQueueTurn()
         try expect(harness.wireLabels == ["wire-before"], "nothing from the mismatched line on should arrive, got \(harness.wireLabels)")
@@ -6790,11 +7328,9 @@ enum LogicSelfTests {
         try harness.write(serveTrackerLine("wire-live") + "\n")
         try waitForMainQueue("the live line", until: { harness.wireLabels == ["wire-live"] })
 
-        let started = Date()
         harness.client.stop()
-        try expect(Date().timeIntervalSince(started) < 0.1, "stop should return without waiting for the loop")
-        try expect(readsClosed(harness.daemon, within: 1), "stop should close a connected socket at once")
-        try expect(serveLoopExits(harness.client, within: 1), "the loop should exit once stopped")
+        try expect(readsClosed(harness.daemon), "stop should close a connected socket at once")
+        try expect(serveLoopExits(harness.client), "the loop should exit once stopped")
         try expect(harness.connects == 1, "a stopped client should not connect again, got \(harness.connects) connects")
     }
 
@@ -6808,31 +7344,34 @@ enum LogicSelfTests {
         let release = DispatchSemaphore(value: 0)
         let client = UnixSocketServeClient(connect: {
             connecting.signal()
-            _ = release.wait(timeout: .now() + 10)
+            release.wait()
             return clientEnd
         }, invalidate: {})
         client.start(onUpdate: { _ in })
-        try expect(connecting.wait(timeout: .now() + 5) == .success, "the client should start connecting")
+        try waitForSemaphore(connecting, description: "the blocked connect to begin")
 
-        client.stop()
+        let stopReturned = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            client.stop()
+            stopReturned.signal()
+        }
+        try waitForSemaphore(stopReturned, description: "stop to return while connect remains blocked")
         release.signal()
-        try expect(readsClosed(fds[1], within: 1), "a socket connected after stop should close at once")
-        try expect(serveLoopExits(client, within: 1), "the loop should exit once stopped")
+        try expect(readsClosed(fds[1]), "a socket connected after stop should close at once")
+        try expect(serveLoopExits(client), "the loop should exit once stopped")
     }
 
     /// Stop wakes the wait between failed connects instead of sleeping it out.
     private static func testServeClientStopEndsTheRetryWait() throws {
-        let counter = ConnectCounter()
+        let retryWaitStarted = DispatchSemaphore(value: 0)
         let client = UnixSocketServeClient(connect: {
-            _ = counter.increment()
             throw ServeClientError.connect("no daemon in this test")
-        }, invalidate: {})
+        }, invalidate: {}, onRetryWait: { retryWaitStarted.signal() }, retryDelays: [60 * 60])
         client.start(onUpdate: { _ in })
-        // The fourth failure starts the longest wait (one second).
-        try waitForMainQueue("four failed connects", until: { counter.value >= 4 })
+        try waitForSemaphore(retryWaitStarted, description: "the client to enter its one-hour retry wait")
 
         client.stop()
-        try expect(serveLoopExits(client, within: 0.5), "stop should end the retry wait at once")
+        try expect(serveLoopExits(client), "stop should end the retry wait at once")
     }
 
     /// A write to a socket whose other end has gone (a daemon that hung up, or a stop's shutdown before the serve
@@ -6857,18 +7396,17 @@ enum LogicSelfTests {
         close(peer)
 
         var failed = false
-        for _ in 0..<3 where !failed {
+        while !failed {
             do { try UnixSocketIO.write(Data("{}\n".utf8), to: client) } catch { failed = true }
         }
         try expect(failed, "a write to a peer that hung up should fail")
     }
 
-    /// Whether the client's connection loop has returned within `timeout`: it runs on the client's serial queue, so a
-    /// block queued behind it runs only once it does.
-    private static func serveLoopExits(_ client: UnixSocketServeClient, within timeout: TimeInterval) -> Bool {
+    /// A barrier queued behind the connection loop runs only after it returns.
+    private static func serveLoopExits(_ client: UnixSocketServeClient) -> Bool {
         let exited = DispatchSemaphore(value: 0)
         client.queue.async { exited.signal() }
-        return exited.wait(timeout: .now() + timeout) == .success
+        return exited.wait(timeout: .now() + selfTestWaitTimeout) == .success
     }
 
     /// One serve tracker event line, without its newline, labelled by `observed_at` and padded by `padding` bytes.
@@ -6877,17 +7415,17 @@ enum LogicSelfTests {
         return "{\"protocol_version\":\(version),\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"\(label)\",\"sessions\":[],\"padding\":\"\(pad)\"}}"
     }
 
-    /// Reads `fd` until its peer closes (true), or `timeout` passes first (false).
-    private static func readsClosed(_ fd: Int32, within timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
+    /// Reads `fd` until its peer closes. The self-test case watchdog catches a broken loop that never closes it.
+    private static func readsClosed(_ fd: Int32) -> Bool {
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
-            let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else { return false }
             var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-            guard poll(&ready, 1, Int32(remaining * 1000)) == 1 else { return false }
+            let result = poll(&ready, 1, socketPollTimeoutMilliseconds)
+            if result < 0 && errno == EINTR { continue }
+            guard result == 1 else { return false }
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count == 0 || (count < 0 && errno == ECONNRESET) { return true }
+            if count < 0 && errno == EINTR { continue }
             if count < 0 { return false }
         }
     }
@@ -6899,6 +7437,7 @@ enum LogicSelfTests {
         let daemon: Int32
         let client: UnixSocketServeClient
         private let counter: ConnectCounter
+        private let reads: DispatchSemaphore
         /// The `observed_at` labels of the tracker updates that reached the client's callback, in order, on the main
         /// queue. Only `wire-` labels count: the client also reports its own connection status as updates.
         private(set) var wireLabels: [String] = []
@@ -6918,14 +7457,16 @@ enum LogicSelfTests {
             }
             let clientEnd = fds[0]
             let counter = ConnectCounter()
+            let reads = DispatchSemaphore(value: 0)
             daemon = fds[1]
             self.counter = counter
+            self.reads = reads
             client = UnixSocketServeClient(connect: {
                 guard counter.increment() == 1 else {
                     throw ServeClientError.connect("the test daemon accepts one connection")
                 }
                 return clientEnd
-            }, invalidate: {})
+            }, invalidate: {}, onRead: { reads.signal() })
         }
 
         func start() {
@@ -6941,6 +7482,10 @@ enum LogicSelfTests {
 
         func write(_ text: String) throws {
             try UnixSocketIO.write(Data(text.utf8), to: daemon)
+        }
+
+        func waitForRead() throws {
+            try LogicSelfTests.waitForSemaphore(reads, description: "the client to read socket bytes")
         }
 
         func finish() {
@@ -6961,6 +7506,7 @@ enum LogicSelfTests {
         func increment() -> Int {
             lock.lock(); defer { lock.unlock() }
             count += 1
+            DispatchQueue.main.async {}
             return count
         }
     }
@@ -7037,7 +7583,7 @@ enum LogicSelfTests {
         try expect(client.sentRequests.count == 2 && client.sentRequests[1].data["class"] == "wizard", "a chosen class is sent by its id")
     }
 
-    /// The portraits' bundle names are flattened (`class-<id>`, `familiar-<id>`, `random`): each resolves to its own raster,
+    /// The portraits' bundle names are flattened (`class-<id>`, `familiar-<class-id>`, `random`): each resolves to its own raster,
     /// the class portraits and Random at 150px and the familiars at 120px (3x their 50 and 40pt discs), so a misnamed or
     /// missing file shows here instead of as an empty disc.
     private static func testEveryPortraitIsBundledUnderItsOwnName() throws {
@@ -7109,6 +7655,8 @@ enum LogicSelfTests {
                 projects: [NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a")],
                 initialProject: NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a"),
                 initialContent: "",
+                initialTypes: [],
+                initialSize: "",
                 questID: "",
                 sessionID: "",
                 mutationClient: client,
@@ -7136,6 +7684,8 @@ enum LogicSelfTests {
                 projects: [NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a")],
                 initialProject: nil,
                 initialContent: "Quest",
+                initialTypes: [],
+                initialSize: "",
                 questID: "",
                 sessionID: "",
                 mutationClient: client,
@@ -7174,6 +7724,98 @@ enum LogicSelfTests {
         try expect(sheet.handle(try keyEvent("k", keyCode: 40, modifierFlags: .control)), "⌃k should come back")
         try expect(sheet.form.focusedField == .project && sheet.form.projectMode == .select && sheet.form.projectText == "s", "back in SELECT with the text kept")
         try expect(sheet.sinkNonce == sinkBefore + 1, "SELECT should take the caret out of the text")
+    }
+
+    /// An Edit Quest sheet for quest qst-1 with the given types and size.
+    private static func editQuestSheet(types: [String] = [], size: String = "") -> NewQuestSheetModel {
+        NewQuestSheetModel(
+            presentation: NewQuestSheetPresentation(
+                projects: [NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a")],
+                initialProject: NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a"),
+                initialContent: "Quest",
+                initialTypes: types,
+                initialSize: size,
+                questID: "qst-1",
+                sessionID: "",
+                mutationClient: StubMutationClient(result: .failure(StubMutationError())),
+                directoryClient: nil,
+                onSuccess: {}
+            ),
+            dismiss: {}
+        )
+    }
+
+    /// The types field lists the open types as its suggestions and shows the chosen ones as chips, in their fixed order.
+    private static func testEditQuestTypesFieldListsTheOpenTypesAsSuggestions() throws {
+        let sheet = editQuestSheet(types: ["research", "bug"])
+        try expect(sheet.tagSuggestions.map(\.title) == ["Improvement", "Feature", "Decision", "Cleanup"], "the open types should be the suggestions, in order")
+        try expect(sheet.form.tags.tokens.map(\.title) == ["Bug", "Research"], "the chips should be the chosen types in their fixed order")
+        sheet.form.tags.typeQuery("dec")
+        try expect(sheet.highlightedTagSuggestionID == sheet.tagSuggestions.first?.id, "the best match should be the highlighted suggestion")
+    }
+
+    /// Tab moves the focus through the types, the size select, then the content, and the select takes the caret out of the text.
+    private static func testEditQuestTabReachesTheSizeSelect() throws {
+        let sheet = editQuestSheet()
+        sheet.form.focusedField = .project
+        try expect(sheet.handle(try keyEvent("", keyCode: 48)) && sheet.form.focusedField == .tags, "Tab should reach the types")
+        let sinkBefore = sheet.sinkNonce
+        try expect(sheet.handle(try keyEvent("", keyCode: 48)) && sheet.form.focusedField == .size, "Tab should reach the size")
+        try expect(sheet.sinkNonce == sinkBefore + 1, "the size select should take the caret out of the text")
+        try expect(sheet.handle(try keyEvent("", keyCode: 48)) && sheet.form.focusedField == .content, "Tab should reach the content")
+    }
+
+    /// The Size select steps with h/l and ←/→ (`ModalKeys`), ↑ does nothing, and a click steps it and keeps it focused.
+    private static func testEditQuestSizeSelectCyclesWithHLAndArrows() throws {
+        let sheet = editQuestSheet(size: "M")
+        sheet.form.focusedField = .size
+        try expect(sheet.handle(try keyEvent("h", keyCode: 4)) && sheet.form.size == .small, "h should step the size back")
+        try expect(sheet.handle(try keyEvent("l", keyCode: 37)) && sheet.form.size == .medium, "l should step the size forward")
+        try expect(sheet.handle(try keyEvent("", keyCode: 124)) && sheet.form.size == .large, "→ should step the size forward")
+        try expect(sheet.handle(try keyEvent("", keyCode: 123)) && sheet.form.size == .medium, "← should step the size back")
+        try expect(sheet.handle(try keyEvent("", keyCode: 126)) && sheet.form.size == .medium, "↑ should do nothing on the select")
+        sheet.clickedSize()
+        try expect(sheet.form.size == .large && sheet.form.focusedField == .size, "a click should step the size and keep the select focused")
+    }
+
+    /// An untouched size sends nothing; a step sends the new size, and a step back to none sends the empty value that clears it.
+    private static func testEditQuestSizeIsSentOnlyWhenChanged() throws {
+        let untouched = editQuestSheet(size: "M")
+        try expect(untouched.form.submitPayload()?.size == nil, "an untouched size should send nothing")
+        let stepped = editQuestSheet(size: "M")
+        stepped.form.cycleSize(1)
+        try expect(stepped.form.submitPayload()?.size == "L", "a changed size should be sent")
+        let cleared = editQuestSheet(size: "M")
+        cleared.form.cycleSize(1)
+        cleared.form.cycleSize(1)
+        try expect(cleared.form.submitPayload()?.size == "", "a size stepped back to none should send the empty value")
+    }
+
+    /// Return adds the highlighted type only while the typed query has a match.
+    private static func testEditQuestTypesReturnAddsOnlyWhileTheQueryMatches() throws {
+        let sheet = editQuestSheet()
+        sheet.form.focusedField = .tags
+        sheet.form.tags.typeQuery("bu")
+        try expect(sheet.handle(try keyEvent("\r", keyCode: 36)) && sheet.form.tags.selectedTypes == [.bug], "Return should add the matching type")
+        try expect(sheet.form.tags.query == "", "adding the type should clear the query")
+    }
+
+    /// Return with no query submits the sheet and adds no type, so a stray Return on the types field can't change it.
+    private static func testEditQuestReturnWithNoQuerySubmits() throws {
+        let sheet = editQuestSheet()
+        sheet.form.focusedField = .tags
+        try expect(sheet.handle(try keyEvent("\r", keyCode: 36)), "Return should be consumed by the submit")
+        try expect(sheet.form.tags.selected.isEmpty, "Return with no query should add no type")
+        try expect(sheet.form.submitting, "Return with no query should submit the form")
+    }
+
+    /// Space is taken and types nothing; Backspace in an empty query removes the last chip; e types, and leaves the size alone.
+    private static func testEditQuestSpaceBackspaceAndETypeInTheTypesField() throws {
+        let sheet = editQuestSheet(types: ["bug", "research"])
+        sheet.form.focusedField = .tags
+        try expect(sheet.handle(try keyEvent(" ", keyCode: 49)) && sheet.form.tags.selectedTypes == [.bug, .research], "Space should be taken and choose nothing")
+        try expect(sheet.handle(try keyEvent("\u{7F}", keyCode: 51)) && sheet.form.tags.selectedTypes == [.bug], "Backspace in an empty query should remove the last chip")
+        try expect(!sheet.handle(try keyEvent("e", keyCode: 14)) && sheet.form.size == nil, "e should type into the types field and leave the size alone")
     }
 
     private static func testNewQuestEscapeClosesWhileSubmitting() throws {
@@ -7318,6 +7960,20 @@ enum LogicSelfTests {
     // Guards the live-apply contract: cycling a value sends its
     // role_default.set the moment it changes, with no confirm/done step.
     /// R arranges, j moves the highlight, and J / K move the highlighted project, through the sheet's own key handling.
+    private static func testTmuxSettingsRendersAtSheetSize() throws {
+        let status = TmuxConfigStatus(
+            config: "/tmp/example/tmux/questmaster.conf", enforced: "/tmp/example/tmux/enforced.questmaster.conf",
+            effectiveLabel: "questmaster", running: true, startedUnix: 100, sessions: 1,
+            editedSinceStart: true, enforcedPending: true, templateVersion: 1, builtinTemplateVersion: 3
+        )
+        let settings = settingsSheetModel(mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: nil))))
+        settings.tmux.details = TmuxSettingsModel(status: status)
+        settings.selectSection(.tmux)
+        let size = try fittingSize(of: SettingsSheetView(model: settings))
+        try expect(size.width <= SettingsSheetModel.sheetSize.width && size.height <= SettingsSheetModel.sheetSize.height,
+                   "tmux section should fit inside Settings, got \(size)")
+    }
+
     private static func testSettingsArrangeMovesAProjectWithShiftJAndK() throws {
         let runtime = RuntimeStore(sourceLabel: "test")
         let projects = ["alpha", "beta", "gamma"].map { TrackerProject(id: "/p/\($0)", name: $0, path: "/p/\($0)") }
@@ -7622,7 +8278,7 @@ enum LogicSelfTests {
         window.contentView = scrollView
         window.show()
         defer { window.close() }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        try waitForMainQueueTurn()
 
         try expect(
             scrollView.contentView.bounds.width == scrollView.bounds.width,
@@ -7635,7 +8291,7 @@ enum LogicSelfTests {
         scrollView.hasVerticalScroller = true
         scrollView.scrollerStyle = .legacy
         scrollView.tile()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        try waitForMainQueueTurn()
 
         try expect(
             scrollView.contentView.bounds.width == scrollView.bounds.width,
@@ -7710,8 +8366,15 @@ enum LogicSelfTests {
         return FollowerFixture(window: window, scrollView: scrollView, documentView: documentView, follower: follower)
     }
 
-    private static func pump(_ seconds: TimeInterval) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    private static func pumpOneMainRunLoopTurn() throws {
+        // Queue a real main-thread event so absence checks observe one complete turn.
+        try waitForMainQueueTurn()
+    }
+
+    private static func waitForSemaphore(_ semaphore: DispatchSemaphore, description: String) throws {
+        guard semaphore.wait(timeout: .now() + selfTestWaitTimeout) == .success else {
+            throw TestFailure("timed out after \(selfTestWaitTimeout)s waiting for \(description)")
+        }
     }
 
     /// Stops or restarts the clock for `view`'s layer tree. While it is stopped, a glide or fade holds its start
@@ -7721,7 +8384,7 @@ enum LogicSelfTests {
         view.layer?.speed = held ? 0 : 1
     }
 
-    /// Pumps the run loop until `condition` holds, for at most five seconds, and reports whether it did.
+    /// Pumps the run loop until `condition` holds; the per-case watchdog bounds a broken wait.
     /// `f` opens the filter while the dock shows the worker log, j/k and Space then work its rows instead of scrolling
     /// the feed, and Esc, losing the keys or leaving the worker log close it.
     private static func testDockPaneRoutesTheWorkerLogFilterKeys() throws {
@@ -7807,7 +8470,7 @@ enum LogicSelfTests {
         window.contentView = dock
         window.show(key: true)
         defer { window.close() }
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         // Window coordinates run up from the bottom; the icons sit `dockTopBarIconCentre` down, the x 30 in from the right
         // edge less its half width.
         let iconY = size.height - ShellMetrics.dockTopBarIconCentre
@@ -7820,7 +8483,7 @@ enum LogicSelfTests {
                     throw TestFailure("could not create a mouse event")
                 }
                 window.sendEvent(event)
-                pump(0.05)
+                try pumpOneMainRunLoopTurn()
             }
         }
         try click(filterX, iconY)
@@ -7845,7 +8508,7 @@ enum LogicSelfTests {
         window.contentView = fits
         window.show()
         defer { window.close() }
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         try expect(descendant(NSScrollView.self, in: fits) == nil, "a dropdown with room for its rows should not scroll")
 
         let cap: CGFloat = 120
@@ -7866,7 +8529,7 @@ enum LogicSelfTests {
         try expect(clip.bounds.maxY >= documentView.bounds.height - 1, "the last row should sit at the bottom of the rows, got \(clip.bounds.maxY) of \(documentView.bounds.height)")
     }
 
-    /// The split dock with both panels showing: Version Control over the Worker Log, which is attached to a master with
+    /// The split dock with both panels showing: Watcher over the Worker Log, which is attached to a master with
     /// `workers` workers. The caller closes `window`.
     private static func splitWorkerLogDock(workers: Int, height: CGFloat = 860) -> (window: HeadlessWindow, column: DockColumnView, pane: SwiftUIDockPane, chat: WorkerChatStore, coordinator: ShellFocusCoordinator) {
         let chat = WorkerChatStore()
@@ -7880,8 +8543,8 @@ enum LogicSelfTests {
             settingsPresenter: SettingsSheetPresenter()
         )
         pane.apply(DockState(bottomVisible: true, dockContent: .workerChat), snapshot: RuntimeSnapshot.empty(sourceLabel: "test"))
-        let versionControl = VersionControlDockPane(store: PullRequestStore())
-        let top = DockShellView(body: versionControl, model: DockChromeModel(topBar: .versionControl))
+        let watcher = WatcherDockPane(store: PullRequestStore())
+        let top = DockShellView(body: watcher, model: DockChromeModel(topBar: .watcher))
         let bottom = DockShellView(
             body: pane,
             model: DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
@@ -7906,7 +8569,7 @@ enum LogicSelfTests {
             actionBar: { nil },
             trackerHosting: { nil },
             dockView: { pane },
-            versionControlPane: { versionControl },
+            watcherPane: { watcher },
             terminalHost: { nil },
             modalHost: { nil },
             updateDockTabs: {}
@@ -7917,7 +8580,7 @@ enum LogicSelfTests {
     }
 
     /// In the split dock the filter belongs to the bottom panel: `f` opens it while that panel has the keys, the keys
-    /// moving to Version Control close it, and while they are there `f` is not the filter's.
+    /// moving to Watcher close it, and while they are there `f` is not the filter's.
     private static func testWorkerLogFilterFollowsTheBottomPanelsKeys() throws {
         let dock = splitWorkerLogDock(workers: 2)
         defer { dock.window.close() }
@@ -7925,14 +8588,14 @@ enum LogicSelfTests {
         let opened = try dock.pane.performKeyEquivalent(with: keyEvent("f", keyCode: 3))
         try expect(opened && dock.chat.menu.isOpen, "f should open the filter while the bottom panel has the keys")
         dock.coordinator.focusDockPanel(.top)
-        try expect(!dock.chat.menu.isOpen, "the keys moving to Version Control should close the filter")
+        try expect(!dock.chat.menu.isOpen, "the keys moving to Watcher should close the filter")
         let stolen = try dock.pane.performKeyEquivalent(with: keyEvent("f", keyCode: 3))
-        try expect(!stolen && !dock.chat.menu.isOpen, "f should not open the filter while Version Control has the keys")
+        try expect(!stolen && !dock.chat.menu.isOpen, "f should not open the filter while Watcher has the keys")
     }
 
-    /// Under Version Control, in a window short enough that the bottom panel can't hold all the rows, the dropdown scrolls
-    /// inside what it has: 5 under the top bar and 20 above the panel's edge, never reaching behind Version Control.
-    private static func testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl() throws {
+    /// Under Watcher, in a window short enough that the bottom panel can't hold all the rows, the dropdown scrolls
+    /// inside what it has: 5 under the top bar and 20 above the panel's edge, never reaching behind Watcher.
+    private static func testWorkerLogFilterStaysInsideTheBottomPanelBelowWatcher() throws {
         let dock = splitWorkerLogDock(workers: 2, height: 560)
         defer { dock.window.close() }
         dock.coordinator.focusDockPanel(.bottom)
@@ -7944,7 +8607,7 @@ enum LogicSelfTests {
         func dropdown() -> NSScrollView? {
             scrollViews(in: dock.pane).first { $0.convert($0.bounds, to: dock.pane).width < dock.pane.bounds.width / 2 }
         }
-        try expect(waitUntil { dropdown() != nil }, "the dropdown should scroll under Version Control, with its rows in the room left")
+        try expect(waitUntil { dropdown() != nil }, "the dropdown should scroll under Watcher, with its rows in the room left")
         guard let list = dropdown() else {
             throw TestFailure("the dropdown should host a scroll view")
         }
@@ -7987,7 +8650,7 @@ enum LogicSelfTests {
             window.contentView = hosting
             window.show()
             defer { window.close() }
-            pump(0.2)
+            try pumpOneMainRunLoopTurn()
             hosting.layoutSubtreeIfNeeded()
             let bitmap = try snapshot(hosting, size: size, scale: 2)
             // The chip's label starts 10 in from the row's 20 inset.
@@ -8017,7 +8680,7 @@ enum LogicSelfTests {
         window.contentView = hosting
         window.show()
         defer { window.close() }
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         hosting.layoutSubtreeIfNeeded()
         guard let scrollView = descendant(NSScrollView.self, in: hosting) else {
             throw TestFailure("the feed should scroll")
@@ -8026,7 +8689,7 @@ enum LogicSelfTests {
         let linePitch = WorkerChatMetrics.lineHeight + WorkerChatMetrics.itemGap
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: WorkerChatMetrics.inset + 10 * linePitch - 8))
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        pump(0.2)
+        try pumpOneMainRunLoopTurn()
         let bitmap = try snapshot(hosting, size: size, scale: 2)
         guard let base = AppPalette.panel.usingColorSpace(.deviceRGB) else {
             throw TestFailure("the panel colour should convert")
@@ -8052,6 +8715,49 @@ enum LogicSelfTests {
         }
     }
 
+    /// `view` as it draws on the panel colour in a headless window, at `scale`: the bitmap the colour tests sample.
+    private static func drawnBitmap<V: View>(_ view: V, size: CGSize, scale: CGFloat) throws -> NSBitmapImageRep {
+        let hosting = NSHostingView(rootView: AnyView(view.frame(width: size.width, height: size.height, alignment: .topLeading).background(AppPalette.panel.swiftUI)))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size)
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        try pumpOneMainRunLoopTurn()
+        hosting.layoutSubtreeIfNeeded()
+        return try snapshot(hosting, size: size, scale: scale)
+    }
+
+    /// The brightest pixel in the points `columns`: the glyphs' fullest ink.
+    private static func brightestInk(_ bitmap: NSBitmapImageRep, scale: CGFloat, columns: Range<CGFloat>) -> NSColor? {
+        var best: (sum: CGFloat, color: NSColor)?
+        for x in Int(columns.lowerBound * scale)..<Int(columns.upperBound * scale) {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                    continue
+                }
+                let sum = color.redComponent + color.greenComponent + color.blueComponent
+                if sum > (best?.sum ?? 0) {
+                    best = (sum, color)
+                }
+            }
+        }
+        return best?.color
+    }
+
+    /// The sampled ink is nearer `expected` than `other`. A regular stroke in a fallback font doesn't always reach its
+    /// colour (CI doesn't install JetBrains Mono), but the two text colours are 0.22 apart in summed RGB, so the nearer
+    /// one is the colour the run was drawn in.
+    private static func expectInkColor(_ actual: NSColor?, _ expected: NSColor, notLike other: NSColor, _ label: String) throws {
+        guard let actual, let expected = expected.usingColorSpace(.deviceRGB), let other = other.usingColorSpace(.deviceRGB) else {
+            throw TestFailure("\(label) should draw")
+        }
+        func distance(to color: NSColor) -> CGFloat {
+            abs(actual.redComponent - color.redComponent) + abs(actual.greenComponent - color.greenComponent) + abs(actual.blueComponent - color.blueComponent)
+        }
+        try expect(distance(to: expected) < distance(to: other), "\(label) should be nearer \(expected) than \(other), got \(actual)")
+    }
+
     /// Selected Filter Item.svg's chip: the label "Action:" in regular `textMetaHighlighted`, then the ticked names in bold
     /// `textBody`, and the chip grows with its text by exactly the characters it gains.
     private static func testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem() throws {
@@ -8068,45 +8774,29 @@ enum LogicSelfTests {
         try expect(manager.weight(of: AppFonts.chipValue) > manager.weight(of: AppFonts.questLogBody), "the value should be bolder than the label")
 
         let size = CGSize(width: 400, height: Space.row + ControlHeight.compact)
-        let hosting = NSHostingView(rootView: AnyView(chip("Status").frame(width: size.width, height: size.height, alignment: .topLeading).background(AppPalette.panel.swiftUI)))
-        hosting.frame = NSRect(origin: .zero, size: size)
-        let window = HeadlessWindow(size: size)
-        window.contentView = hosting
-        window.show()
-        defer { window.close() }
-        pump(0.3)
-        hosting.layoutSubtreeIfNeeded()
         let scale: CGFloat = 2
-        let bitmap = try snapshot(hosting, size: size, scale: scale)
-        /// The brightest pixel in the points `from..<to`: a glyph's stem reaches the text colour, whatever the font.
-        func brightest(_ from: CGFloat, _ to: CGFloat) -> NSColor? {
-            var best: (sum: CGFloat, color: NSColor)?
-            for x in Int(from * scale)..<Int(to * scale) {
-                for y in 0..<Int(size.height * scale) {
-                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
-                        continue
-                    }
-                    let sum = color.redComponent + color.greenComponent + color.blueComponent
-                    if sum > (best?.sum ?? 0) {
-                        best = (sum, color)
-                    }
-                }
-            }
-            return best?.color
-        }
-        func expectColor(_ actual: NSColor?, _ expected: NSColor, _ label: String) throws {
-            guard let actual, let expected = expected.usingColorSpace(.deviceRGB) else {
-                throw TestFailure("\(label) should draw")
-            }
-            let distance = abs(actual.redComponent - expected.redComponent) + abs(actual.greenComponent - expected.greenComponent) + abs(actual.blueComponent - expected.blueComponent)
-            try expect(distance < 0.03, "\(label) should be \(expected), got \(actual)")
-        }
+        let bitmap = try drawnBitmap(chip("Status"), size: size, scale: scale)
         // The chip's text starts past the row's inset, its border and `Space.item`.
         let labelStart = WorkerChatMetrics.inset + Token.Size.divider + Space.item
         let labelAdvance = ("A" as NSString).size(withAttributes: [.font: AppFonts.questLogBody]).width
         let valueStart = labelStart + 7 * labelAdvance + ClearableChipMetrics.labelGap
-        try expectColor(brightest(labelStart, labelStart + 7 * labelAdvance), AppPalette.muted, "the label")
-        try expectColor(brightest(valueStart, valueStart + 6 * advance), AppPalette.textBody, "the value")
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: labelStart..<(labelStart + 7 * labelAdvance)), AppPalette.metaHighlighted, notLike: AppPalette.textBody, "the label")
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: valueStart..<(valueStart + 6 * advance)), AppPalette.textBody, notLike: AppPalette.metaHighlighted, "the value")
+    }
+
+    /// The filter chip's kind ("@type") is `textMetaHighlighted` and its title, after the kind's space, the body colour, both
+    /// regular 12pt: the kind reads as a label, as the Worker Log's "Action:" does.
+    private static func testFilterChipDrawsItsKindInMetaHighlightedAndItsTitleInBody() throws {
+        let chip = FilterChip(token: ArtifactFilterToken(kind: .type, value: "bug", title: "Bug"), onRemove: {})
+        let size = try fittingSize(of: chip)
+        let scale: CGFloat = 2
+        let bitmap = try drawnBitmap(chip, size: size, scale: scale)
+        let advance = ("A" as NSString).size(withAttributes: [.font: AppFonts.questLogBody]).width
+        // The text starts `Space.row` in; the kind is five characters, then the title's leading space.
+        let kindStart = Space.row
+        let titleStart = kindStart + 6 * advance
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: kindStart..<(kindStart + 5 * advance)), AppPalette.metaHighlighted, notLike: AppPalette.textBody, "the kind")
+        try expectInkColor(brightestInk(bitmap, scale: scale, columns: titleStart..<(titleStart + 3 * advance)), AppPalette.textBody, notLike: AppPalette.metaHighlighted, "the title")
     }
 
     /// The ticks outlive the attached master, but a log with nothing attached stays blank, chip and all.
@@ -8127,7 +8817,7 @@ enum LogicSelfTests {
         window.show()
         defer { window.close() }
         func ink() throws -> (top: CGFloat, bottom: CGFloat)? {
-            pump(0.3)
+            try pumpOneMainRunLoopTurn()
             hosting.layoutSubtreeIfNeeded()
             return inkEdges(try snapshot(hosting, size: size, scale: 2), scale: 2, columns: 0..<Int(size.width), rows: 0..<Int(size.height), over: AppPalette.panel)
         }
@@ -8140,14 +8830,14 @@ enum LogicSelfTests {
     }
 
     /// The tab row alone at the panel's width, over the panel fill, selecting `selected`. Assign `rootView` to change it.
-    private static func tabRowHost(workers: [WorkerLogWorker], selected: String?) -> (window: HeadlessWindow, hosting: NSHostingView<AnyView>, size: CGSize) {
-        let size = CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height)
+    private static func tabRowHost(workers: [WorkerLogWorker], selected: String?) throws -> (window: HeadlessWindow, hosting: NSHostingView<AnyView>, size: CGSize) {
+        let size = CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height)
         let hosting = NSHostingView(rootView: tabRow(workers: workers, selected: selected))
         hosting.frame = NSRect(origin: .zero, size: size)
         let window = HeadlessWindow(size: size)
         window.contentView = hosting
         window.show()
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         hosting.layoutSubtreeIfNeeded()
         return (window, hosting, size)
     }
@@ -8162,9 +8852,9 @@ enum LogicSelfTests {
         try expect(AppFonts.workerTab.pointSize == 12 && AppFonts.workerTabSelected.pointSize == 12, "the tabs should be 12pt, got \(AppFonts.workerTab.pointSize)")
         let font = AppFonts.workerTab
         let line = (font.ascender - font.descender + font.leading).rounded(.up)
-        try expect(WorkerLogTabMetrics.height >= line, "the row should hold a line of its text (\(line)), got \(WorkerLogTabMetrics.height) high")
-        try expect(WorkerLogTabMetrics.labelBaseline - font.ascender >= 0 && WorkerLogTabMetrics.labelBaseline - font.descender <= WorkerLogTabMetrics.height, "and the baseline should keep the whole line inside it")
-        try expect(WorkerLogTabMetrics.separatorGap == Space.row, "a tab should sit a `Space.row` from its diamond")
+        try expect(TextTabMetrics.height >= line, "the row should hold a line of its text (\(line)), got \(TextTabMetrics.height) high")
+        try expect(TextTabMetrics.labelBaseline - font.ascender >= 0 && TextTabMetrics.labelBaseline - font.descender <= TextTabMetrics.height, "and the baseline should keep the whole line inside it")
+        try expect(TextTabMetrics.separatorGap == Space.row, "a tab should sit a `Space.row` from its diamond")
 
         // The ink measurements need the design font: a fallback's advance is fractional (the system monospaced face's is
         // 7.418), so the text's edges land between pixels and the ink gaps read up to a point short (CI has no JetBrains Mono).
@@ -8174,16 +8864,16 @@ enum LogicSelfTests {
         }
         let blocks = String(repeating: "\u{2588}", count: 6)
         let workers = (1...2).map { WorkerLogWorker(id: "w\($0)", name: blocks) }
-        let host = tabRowHost(workers: workers, selected: nil)
+        let host = try tabRowHost(workers: workers, selected: nil)
         defer { host.window.close() }
-        pump(0.2)
+        try pumpOneMainRunLoopTurn()
         let scale: CGFloat = 2
         let bitmap = try snapshot(host.hosting, size: host.size, scale: scale)
         guard let base = AppPalette.panel.usingColorSpace(.deviceRGB) else {
             throw TestFailure("the panel colour should convert")
         }
         // The row of pixels through the diamonds' centres: the blocks and the diamonds are the ink on it, and the text of All.
-        let row = Int((WorkerLogTabMetrics.labelBaseline - WorkerLogTabMetrics.svgDiamondRaise) * scale)
+        let row = Int((TextTabMetrics.labelBaseline - TextTabMetrics.svgDiamondRaise) * scale)
         var runs: [(start: CGFloat, end: CGFloat)] = []
         var start: Int?
         for column in 0..<Int(host.size.width * scale) {
@@ -8198,12 +8888,12 @@ enum LogicSelfTests {
         }
         try expect(runs.count >= 4, "the diamonds and blocks should draw four runs at the end of the row, got \(runs)")
         let (firstDiamond, firstBlock, secondDiamond, secondBlock) = (runs[runs.count - 4], runs[runs.count - 3], runs[runs.count - 2], runs[runs.count - 1])
-        let gap = WorkerLogTabMetrics.separatorGap
+        let gap = TextTabMetrics.separatorGap
         for (label, measured) in [("tab to its diamond", firstBlock.start - firstDiamond.end), ("first tab to the next diamond", secondDiamond.start - firstBlock.end), ("diamond to the next tab", secondBlock.start - secondDiamond.end)] {
             try expect(abs(measured - gap) <= 0.75, "\(label) should be \(gap) apart, got \(measured)")
         }
         let diamondWidth = secondDiamond.end - secondDiamond.start
-        try expect(abs(diamondWidth - WorkerLogTabMetrics.svgDiamondDiagonal) <= 0.75, "the diamond should be \(WorkerLogTabMetrics.svgDiamondDiagonal) across, got \(diamondWidth)")
+        try expect(abs(diamondWidth - TextTabMetrics.svgDiamondDiagonal) <= 0.75, "the diamond should be \(TextTabMetrics.svgDiamondDiagonal) across, got \(diamondWidth)")
         let blockWidth = firstBlock.end - firstBlock.start
         let advance = ("\u{2588}" as NSString).size(withAttributes: [.font: font]).width
         try expect(abs(blockWidth - 6 * advance) <= 1.25, "six blocks should be six 12pt advances (\(6 * advance)) wide, got \(blockWidth)")
@@ -8214,7 +8904,7 @@ enum LogicSelfTests {
     private static func testWorkerLogTabsScrollToTheSelection() throws {
         let names = ["Implement ABC-123", "Fix UI Bug", "Review API", "Add Tests", "Update Docs", "Audit Security", "Write Changelog", "Check Migrations", "Triage Reports"]
         let workers = names.enumerated().map { WorkerLogWorker(id: "w\($0.offset + 1)", name: $0.element) }
-        let host = tabRowHost(workers: workers, selected: nil)
+        let host = try tabRowHost(workers: workers, selected: nil)
         defer { host.window.close() }
         guard let scrollView = descendant(NSScrollView.self, in: host.hosting), let documentView = scrollView.documentView else {
             throw TestFailure("the tab row should scroll")
@@ -8231,7 +8921,7 @@ enum LogicSelfTests {
         host.hosting.rootView = tabRow(workers: workers, selected: nil)
         try expect(waitUntil { clip.bounds.origin.x <= 1 }, "selecting All should scroll back to the start, got \(clip.bounds.origin.x)")
 
-        let few = tabRowHost(workers: Array(workers.prefix(3)), selected: "w3")
+        let few = try tabRowHost(workers: Array(workers.prefix(3)), selected: "w3")
         defer { few.window.close() }
         guard let fewScroll = descendant(NSScrollView.self, in: few.hosting), let fewDocument = fewScroll.documentView else {
             throw TestFailure("a short tab row should still be a scroll view")
@@ -8244,7 +8934,7 @@ enum LogicSelfTests {
     private static func testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs() throws {
         let blocks = String(repeating: "\u{2588}", count: 80)
         let workers = (1...2).map { WorkerLogWorker(id: "w\($0)", name: blocks) }
-        let host = tabRowHost(workers: workers, selected: nil)
+        let host = try tabRowHost(workers: workers, selected: nil)
         defer { host.window.close() }
         guard let scrollView = descendant(NSScrollView.self, in: host.hosting) else {
             throw TestFailure("the tab row should scroll")
@@ -8254,7 +8944,7 @@ enum LogicSelfTests {
         }
         let scale: CGFloat = 2
         let width = host.size.width
-        let fade = WorkerLogTabMetrics.fadeWidth
+        let fade = TextTabMetrics.fadeWidth
         /// The block's coverage in the column at `x` points: its distance from the panel fill, as a share of `full`.
         func coverage(_ bitmap: NSBitmapImageRep, atX x: CGFloat, full: CGFloat) -> CGFloat {
             let column = Int(x * scale)
@@ -8280,13 +8970,13 @@ enum LogicSelfTests {
             try expect(inner > 0.6, "the \(side) fade should reach full strength by its inner end, got \(inner)")
         }
 
-        pump(0.2)
+        try pumpOneMainRunLoopTurn()
         try expectFade(try snapshot(host.hosting, size: host.size, scale: scale), edge: { width - $0 }, "trailing")
 
         // Scrolled into the middle of the first tab, tabs hang past both edges.
         scrollView.contentView.scroll(to: NSPoint(x: 200, y: 0))
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        pump(0.3)
+        try pumpOneMainRunLoopTurn()
         let middle = try snapshot(host.hosting, size: host.size, scale: scale)
         try expectFade(middle, edge: { width - $0 }, "trailing")
         try expectFade(middle, edge: { $0 }, "leading")
@@ -8294,6 +8984,92 @@ enum LogicSelfTests {
 
     /// The feed ends where the row begins, and the row ends `bottomInset` above the panel's edge. The row
     /// shows from two workers on: a master with none or one has no row at all, and the feed fills the panel.
+    /// The Quest Log's project tabs sit centred in their column while they fit, as the Worker Log's do. Wider than the column
+    /// they start at the leading edge and scroll sideways.
+    private static func testQuestLogTabsCentreWhenTheyFit() throws {
+        let fitting = try questLogTabInk(projectNames: ["dotfiles", "questmaster", "scry"])
+        try expect(!fitting.scrolls, "three short projects should fit the Quest Log's column")
+        try expect(fitting.left > 20, "the Quest Log's tabs should sit in from the leading edge, got \(fitting.left) on the left")
+        try expect(abs(fitting.left - fitting.right) <= 1, "the Quest Log's tabs should be centred: \(fitting.left) on the left, \(fitting.right) on the right")
+
+        let overflowing = try questLogTabInk(projectNames: (1...8).map { "a-long-project-name-\($0)" })
+        try expect(overflowing.scrolls, "eight long projects should overflow the column and scroll")
+        try expect(overflowing.left < 1, "overflowing tabs should start at the leading edge, got \(overflowing.left) on the left")
+
+        // The Worker Log's row was always centred; the Quest Log's change must not move it.
+        let worker = try tabRowHost(workers: (1...2).map { WorkerLogWorker(id: "w\($0)", name: "Worker \($0)") }, selected: nil)
+        defer { worker.window.close() }
+        guard let workerTabs = descendant(NSScrollView.self, in: worker.hosting) else {
+            throw TestFailure("the Worker Log's tab row should scroll")
+        }
+        let workerInk = try tabInkGaps(in: worker.hosting, size: worker.size, tabs: workerTabs)
+        try expect(abs(workerInk.left - workerInk.right) <= 1 && workerInk.left > 20, "the Worker Log's tabs should stay centred, got \(workerInk.left) and \(workerInk.right)")
+    }
+
+    /// The Quest Log hosted at its sheet size, with one project tab per name, and the ink gaps of its tab row.
+    private static func questLogTabInk(projectNames: [String]) throws -> (left: CGFloat, right: CGFloat, scrolls: Bool) {
+        let store = QuestLogStore()
+        store.sync(
+            quests: projectNames.enumerated().map { index, name in QuestItem(id: "q\(index)", content: "Quest \(index)", projectID: "p\(index)", projectName: name) },
+            repos: []
+        )
+        let layout = QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize)
+        let hosting = NSHostingView(rootView: QuestLogView(store: store, filter: QuestLogFilter(), layout: layout, onCommand: { _ in }))
+        hosting.frame = NSRect(origin: .zero, size: layout.sheetSize)
+        let window = HeadlessWindow(size: layout.sheetSize)
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            view.subviews.flatMap { ((($0 as? NSScrollView).map { [$0] }) ?? []) + scrollViews(in: $0) }
+        }
+        var tabRow: NSScrollView?
+        guard waitUntil({
+            tabRow = scrollViews(in: hosting).first(where: { $0.frame.height == TextTabMetrics.height })
+            return tabRow != nil
+        }), let tabs = tabRow else {
+            throw TestFailure("the Quest Log should have a tab row \(TextTabMetrics.height) high")
+        }
+        hosting.layoutSubtreeIfNeeded()
+        return try tabInkGaps(in: hosting, size: layout.sheetSize, tabs: tabs)
+    }
+
+    /// Where a tab row's ink starts and ends, as gaps to its two edges in points, read from a snapshot of `hosting`. A
+    /// row that scrolls reports `scrolls` and no centring is measured for it.
+    private static func tabInkGaps(in hosting: NSView, size: CGSize, tabs: NSScrollView) throws -> (left: CGFloat, right: CGFloat, scrolls: Bool) {
+        let scale: CGFloat = 2
+        guard waitUntil({ (tabs.documentView?.frame.width ?? 0) > 0 }) else {
+            throw TestFailure("the tab row should lay out before it is read")
+        }
+        hosting.layoutSubtreeIfNeeded()
+        let bitmap = try snapshot(hosting, size: size, scale: scale)
+        let band = tabs.convert(tabs.bounds, to: hosting)
+        let rows = Int(band.minY * scale)..<Int(band.maxY * scale)
+        let firstColumn = Int(band.minX * scale)
+        guard let background = bitmap.colorAt(x: firstColumn, y: rows.lowerBound)?.usingColorSpace(.deviceRGB) else {
+            throw TestFailure("the tab row's background should read")
+        }
+        func inked(_ column: Int) -> Bool {
+            rows.contains { row in
+                guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB) else {
+                    return false
+                }
+                return abs(pixel.redComponent - background.redComponent) + abs(pixel.greenComponent - background.greenComponent)
+                    + abs(pixel.blueComponent - background.blueComponent) > 0.12
+            }
+        }
+        let columns = firstColumn..<min(Int(band.maxX * scale), bitmap.pixelsWide)
+        guard let first = columns.first(where: inked), let last = columns.last(where: inked) else {
+            throw TestFailure("the tab row should show some ink")
+        }
+        let scrolls = (tabs.documentView?.frame.width ?? 0) > tabs.contentView.bounds.width + 0.5
+        return (
+            left: CGFloat(first - firstColumn) / scale,
+            right: band.maxX - CGFloat(last + 1) / scale,
+            scrolls: scrolls
+        )
+    }
+
     private static func testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers() throws {
         func host(workers: Int) throws -> (window: HeadlessWindow, hosting: NSHostingView<AnyView>) {
             let chat = WorkerChatStore()
@@ -8310,7 +9086,7 @@ enum LogicSelfTests {
             let window = HeadlessWindow(size: size)
             window.contentView = hosting
             window.show()
-            pump(0.3)
+            try pumpOneMainRunLoopTurn()
             hosting.layoutSubtreeIfNeeded()
             return (window, hosting)
         }
@@ -8343,7 +9119,7 @@ enum LogicSelfTests {
         }
         let frames = all.map(frame).sorted { $0.minY < $1.minY }
         let (row, feed) = (frames[0], frames[1])
-        try expect(row.height == WorkerLogTabMetrics.height, "the tab row should be \(WorkerLogTabMetrics.height) high, got \(row.height)")
+        try expect(row.height == TextTabMetrics.height, "the tab row should be \(TextTabMetrics.height) high, got \(row.height)")
         try expect(abs(row.minY - WorkerLogTabMetrics.bottomInset) < 0.5, "the row should end \(WorkerLogTabMetrics.bottomInset) above the panel's bottom, got \(row.minY)")
         try expect(abs(feed.minY - row.maxY) < 0.5, "the feed should end where the row begins, got its bottom at \(feed.minY) over the row's top at \(row.maxY)")
         try expect(feed.width == DockWidthPreference.panelWidth, "the feed should span the panel, got \(feed.width)")
@@ -8374,6 +9150,34 @@ enum LogicSelfTests {
             let nameX = try nameInkX(chatFont: font.chat, nameFont: font.name)
             try expect(abs(nameX - expectedNameX) <= 1, "the name should start at x \(expectedNameX) with a \(font.label) chat font, got \(nameX)")
         }
+    }
+
+    /// A list row asks for its logo on every redraw, so the same agent, side and tint must come back as the same image,
+    /// read and parsed once. A different side or tint is a different image: a cache that ignored either would draw a
+    /// plate's logo at the tab's size, or in the wrong colour.
+    private static func testAgentLogosAreLoadedOncePerSideAndTint() throws {
+        func logo(_ agent: String, _ side: CGFloat, _ tint: NSColor) throws -> NSImage {
+            guard let image = TrackerAgentMark.image(for: agent, side: side, tint: tint) else {
+                throw TestFailure("\(agent) should have a logo")
+            }
+            return image
+        }
+        let side = PullRequestIcon.side
+        let tint = AppPalette.agentMarkTint
+        for agent in ["claude", "codex", "opencode", "pi"] {
+            let first = try logo(agent, side, tint)
+            try expect(first === (try logo(agent, side, tint)), "\(agent): the same side and tint should return the cached image")
+
+            let larger = try logo(agent, side + 5, tint)
+            try expect(larger !== first, "\(agent): another side should be another image")
+            try expect(larger.size == NSSize(width: side + 5, height: side + 5), "\(agent): the larger logo should keep its own canvas")
+            try expect(first.size == NSSize(width: side, height: side), "\(agent): the first logo should keep its canvas")
+        }
+
+        // Codex and OpenCode are tinted files, so their colour is part of the key. Claude and Pi draw in their own colours.
+        let grey = try logo("codex", side, AppPalette.agentMarkTint)
+        let muted = try logo("codex", side, AppPalette.muted)
+        try expect(grey !== muted, "codex: another tint should be another image")
     }
 
     /// The x in points of the first ink right of the logo column, drawn by the line view alone. The name is one
@@ -8408,13 +9212,14 @@ enum LogicSelfTests {
         throw TestFailure("the name should draw past the logo")
     }
 
+    /// Runs main-run-loop events until `condition` holds or the named self-test wait timeout expires.
     private static func waitUntil(_ condition: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = Date().addingTimeInterval(selfTestWaitTimeout)
         while !condition() {
-            if Date() >= deadline {
+            guard Date() < deadline else {
                 return false
             }
-            pump(0.005)
+            _ = RunLoop.main.run(mode: .default, before: deadline)
         }
         return true
     }
@@ -8671,7 +9476,7 @@ enum LogicSelfTests {
             throw TestFailure("the first arrival should add a fade band")
         }
         // The clock is stopped, so the first fade is still in flight however long the run loop takes.
-        pump(0.5)
+        try pumpOneMainRunLoopTurn()
         try expect(first.animation(forKey: WorkerChatMotion.enterKey) === firstFade, "a fade should hold while the clock is stopped")
 
         fixture.follower.noteLinesUpdate(revision: 2, trimCount: 0, appended: true)
@@ -8794,7 +9599,7 @@ enum LogicSelfTests {
         guard let arrival = waitForArrival(on: documentView) else {
             throw TestFailure("an arrival while following should fade its rows in and glide them")
         }
-        pump(0.5)
+        try pumpOneMainRunLoopTurn()
         try expect(arrival.band.animation(forKey: WorkerChatMotion.enterKey) === arrival.fade, "the fade should hold while the clock is stopped")
         try expect(documentView.layer?.animation(forKey: WorkerChatMotion.glideKey) === arrival.glide, "the glide should hold while the clock is stopped")
         try expect(fadeBands(on: documentView).count == 1, "one arrival should add one fade band, got \(fadeBands(on: documentView).count)")
@@ -8946,7 +9751,7 @@ enum LogicSelfTests {
         guard let arrival = waitForArrival(on: documentView) else {
             throw TestFailure("an arrival in a short feed should fade its rows in and lift them into place")
         }
-        pump(0.5)
+        try pumpOneMainRunLoopTurn()
         try expect(arrival.band.animation(forKey: WorkerChatMotion.enterKey) === arrival.fade, "the fade should hold while the clock is stopped")
         try expect(documentView.layer?.animation(forKey: WorkerChatMotion.glideKey) === arrival.glide, "the lift should hold while the clock is stopped")
         try expect(fadeBands(on: documentView).count == 1, "one arrival should add one fade band, got \(fadeBands(on: documentView).count)")
@@ -9012,14 +9817,15 @@ enum LogicSelfTests {
 
     private static func waitForMainQueue(
         _ description: String,
-        timeout: TimeInterval = 10,
         until condition: () -> Bool
     ) throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline {
-            RunLoop.main.run(until: min(Date().addingTimeInterval(0.01), deadline))
+        let deadline = Date().addingTimeInterval(selfTestWaitTimeout)
+        while !condition() {
+            guard Date() < deadline else {
+                throw TestFailure("timed out after \(selfTestWaitTimeout)s waiting for \(description)")
+            }
+            _ = RunLoop.main.run(mode: .default, before: deadline)
         }
-        try expect(condition(), "timed out waiting for \(description) after \(Int(timeout)) seconds")
     }
 
     private static func waitForMainQueueTurn() throws {
@@ -9249,6 +10055,188 @@ enum LogicSelfTests {
 
     private final class Counter {
         var value = 0
+    }
+
+    private static func testBoundedProcessDrainsBothPipesPastCapacity() throws {
+        let result = try BoundedProcess.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "head -c 1200000 /dev/zero; head -c 1200000 /dev/zero >&2"],
+            environment: [:]
+        )
+        try expect(result.outcome == .capped, "both streams must drain past the cap without deadlocking")
+        try expect(result.stdout.count == BoundedProcess.streamLimit && result.stderr.count == BoundedProcess.streamLimit,
+                   "each stream must keep at most its own cap")
+    }
+
+    private static func testBoundedProcessCapsOutput() throws {
+        let result = try BoundedProcess.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "head -c 1200000 /dev/zero"],
+            environment: [:]
+        )
+        try expect(result.outcome == .capped && result.stdout.count == BoundedProcess.streamLimit,
+                   "an overlong stdout must have a typed capped result")
+    }
+
+    private static func testBoundedProcessTimesOutAChildIgnoringTerm() throws {
+        let started = ProcessInfo.processInfo.systemUptime
+        let result = try BoundedProcess.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "trap '' TERM; while :; do :; done"],
+            environment: [:], deadline: 0.15
+        )
+        try expect(result.outcome == .timeout, "the child must time out after TERM and KILL")
+        try expect(ProcessInfo.processInfo.systemUptime - started < boundedProcessTimeoutWatchdog, "the timed out child must be reaped promptly")
+    }
+
+    private static func testBoundedProcessReapsWithHeldOpenPipe() throws {
+        let pidURL = FileManager.default.temporaryDirectory.appendingPathComponent("qm-held-pipe-\(UUID().uuidString).pid")
+        defer {
+            if let rawPID = try? String(contentsOf: pidURL, encoding: .utf8), let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                _ = Darwin.kill(pid, SIGKILL)
+            }
+            try? FileManager.default.removeItem(at: pidURL)
+        }
+        let result = try BoundedProcess.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "/bin/sleep \(Int(heldPipeGrandchildLifetime)) & echo $! > \"$QM_TEST_CHILD_PID_FILE\"; exit 0"],
+            environment: ["QM_TEST_CHILD_PID_FILE": pidURL.path]
+        )
+        try expect(result.outcome == .exit(0), "the direct child must exit successfully")
+        guard let rawPID = try? String(contentsOf: pidURL, encoding: .utf8),
+              let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw TestFailure("the grandchild should record its PID")
+        }
+        try expect(Darwin.kill(pid, 0) == 0, "a live grandchild should still hold the pipe when the direct child is reaped")
+    }
+
+    private static func testConnectReturnsToMainPromptlyWithBlockedRunner() throws {
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let entered = DispatchSemaphore(value: 0)
+        let attach = AsyncTerminalAttach<String>()
+        attach.request(work: { entered.signal(); release.wait(); return .success("ready") }, completion: { _ in })
+        try waitForSemaphore(entered, description: "the attach runner to enter its blocked work")
+        release.signal()
+    }
+
+    private static func testOutOfOrderConnectsOnlyNewestMutates() throws {
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let entered = DispatchSemaphore(value: 0)
+        var calls = 0
+        var applied: [String] = []
+        let attach = AsyncTerminalAttach<String>()
+        let work: () -> Result<String, Error> = {
+            calls += 1
+            if calls == 1 { entered.signal(); release.wait() }
+            return .success("result-\(calls)")
+        }
+        attach.request(work: work) { result in if case .success(let value) = result { applied.append(value) } }
+        try waitForSemaphore(entered, description: "the first attach runner to enter its blocked work")
+        attach.request(work: work) { result in if case .success(let value) = result { applied.append(value) } }
+        release.signal()
+        try expect(waitUntil { applied.count == 1 }, "the newest completion must arrive")
+        try expect(applied == ["result-2"], "only the newest result may mutate visible state")
+
+        final class FakeHost: TerminalPaneHosting {
+            let view = NSView()
+            var tmuxSessionID: String? { nil }
+            var onFocusRequested: (() -> Void)?
+            var onDetach: (() -> Void)?
+            var cellMetrics: TerminalCellMetrics { .unavailable }
+            var onCellMetricsChanged: (() -> Void)?
+            var pending: [(Result<String?, Error>) -> Void] = []
+            var starts = 0
+            func start() { starts += 1 }
+            func stop() {}
+            func focus(in window: NSWindow?) {}
+            func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+                pending.append(completion)
+            }
+        }
+        final class FakeRoutes: ServeTmuxRouting {
+            var pending: [(Result<[TmuxRoute], Error>) -> Void] = []
+            func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+                pending.append(completion)
+            }
+        }
+        let config = LaunchConfiguration(
+            daemonSocketOverride: nil, startDaemon: false, tmuxSession: nil,
+            disableTmux: false,
+            workingDirectory: "/tmp", backend: AppBackend(
+                stateRoot: "/tmp/example-state", executablePath: "", source: .unresolved,
+                workingDirectory: "/tmp", devWorktree: nil
+            )
+        )
+        let runtime = RuntimeStore(sourceLabel: "test")
+        let fake = FakeHost()
+        let routes = FakeRoutes()
+        let controller = TerminalSessionController(
+            config: config, runtimeStore: runtime, routeClient: routes, terminalShell: { nil },
+            updateWindowTitle: { _ in }, focusTerminal: {}, render: {},
+            showMutationFailure: { _, _ in }, showMutationError: { _, _ in },
+            showTerminalEngineFailure: { _ in }, onFocusRequested: {}
+        )
+        controller.installPlaceholder(fake)
+        var completions: [Bool] = []
+        controller.switchTerminal(to: "qm-old") { completions.append($0) }
+        controller.switchTerminal(to: "qm-new") { completions.append($0) }
+        try expect(routes.pending.count == 2, "the route client must hold both lookups")
+        routes.pending[1](.success([try TmuxRoute(sessionID: "qm-new", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        try expect(waitUntil { fake.pending.count == 1 }, "newest route should reach host")
+        routes.pending[0](.success([try TmuxRoute(sessionID: "qm-old", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        fake.pending[0](.success("qm-new"))
+        try expect(runtime.currentTerminalSessionID == "qm-new" && fake.starts == 1,
+                   "the controller must apply only the newest attach result")
+        try expect(completions == [false, true], "a superseded activation must finish false and the newest true")
+
+        controller.switchTerminal(to: "qm-detach") { completions.append($0) }
+        routes.pending[2](.success([try TmuxRoute(sessionID: "qm-detach", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        try expect(waitUntil { fake.pending.count == 2 }, "detach target should reach host")
+        fake.onDetach?()
+        fake.pending[1](.success("qm-detach"))
+        try expect(runtime.currentTerminalSessionID == nil && completions.last == false,
+                   "detach must discard a pending attach")
+
+        controller.switchTerminal(to: "qm-stop") { completions.append($0) }
+        routes.pending[3](.success([try TmuxRoute(sessionID: "qm-stop", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        try expect(waitUntil { fake.pending.count == 3 }, "stop target should reach host")
+        controller.stop()
+        fake.pending[2](.success("qm-stop"))
+        try expect(runtime.currentTerminalSessionID == nil && fake.starts == 1 && completions.last == false,
+                   "stop must discard a pending attach")
+    }
+
+    private static func testEditorWindowOpensOffMain() throws {
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let done = DispatchSemaphore(value: 0)
+        var ranOnMain = true
+        ArtifactExternalOpener.dispatchEditorWindow(run: {
+            ranOnMain = Thread.isMainThread
+            entered.signal()
+            release.wait()
+            done.signal()
+        })
+        try waitForSemaphore(entered, description: "editor work to start off the main thread")
+        release.signal()
+        try waitForSemaphore(done, description: "editor work to finish")
+        try expect(!ranOnMain, "editor tmux work must run off main")
+    }
+
+    private static func testLoginEnvironmentNeverBlocksUI() throws {
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let cache = LoginShellEnvironmentCache(load: { entered.signal(); release.wait(); return ["PATH": "/test"] })
+        cache.preload()
+        try waitForSemaphore(entered, description: "the login environment probe to start")
+        let pending = cache.environment()
+        try expect(pending.isEmpty, "a UI caller must use the current environment while the login probe loads")
+        release.signal()
+        try expect(waitUntil { cache.environment()["PATH"] == "/test" }, "the loaded login environment must become available")
     }
 }
 

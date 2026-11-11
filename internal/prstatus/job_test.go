@@ -14,6 +14,7 @@ import (
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 type jobTmux func(context.Context, ...string) (string, error)
@@ -25,7 +26,7 @@ func jobFixture(t *testing.T) (*Job, *state.Store, *time.Time, *map[string]bool)
 	root := t.TempDir()
 	store := state.OpenStore(root)
 	for _, id := range []string{"qm-live", "qm-dead"} {
-		if err := store.Create(state.Manifest{SessionID: id}); err != nil {
+		if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: id}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -43,7 +44,8 @@ func jobFixture(t *testing.T) (*Job, *state.Store, *time.Time, *map[string]bool)
 		return strings.Join(names, "\n"), nil
 	}))
 	now := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
-	j := NewJob(root, client, nil)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)
+	j := NewJob(root, client, nil, router)
 	j.Now = func() time.Time { return now }
 	return j, store, &now, &live
 }
@@ -316,6 +318,7 @@ func TestStoppedPendingAlertWaitsForLiveWatcher(t *testing.T) {
 		t.Fatal(err)
 	}
 	(*live)["qm-live"] = false
+	j.TmuxRouter.Invalidate()
 	if j.HasWork() {
 		t.Fatal("stopped watcher kept daemon work alive")
 	}
@@ -328,7 +331,8 @@ func TestStoppedPendingAlertWaitsForLiveWatcher(t *testing.T) {
 		t.Fatalf("stopped delivery: calls=%d err=%v", called, err)
 	}
 	(*live)["qm-live"] = true
-	resumed := NewJob(store.Root(), j.Tmux, nil) // a daemon started after the session resumes
+	j.TmuxRouter.Invalidate()
+	resumed := NewJob(store.Root(), j.Tmux, nil, j.TmuxRouter) // a daemon started after the session resumes
 	resumed.Now, resumed.SendAlert = j.Now, j.SendAlert
 	if !resumed.HasWork() {
 		t.Fatal("resumed watcher lost pending work")
@@ -462,10 +466,12 @@ func TestJobCadenceLivenessAndMerged(t *testing.T) {
 		t.Fatal("closed PR lost work")
 	}
 	(*live)["qm-live"] = false
+	j.TmuxRouter.Invalidate()
 	if j.HasWork() {
 		t.Fatal("dead watcher counted")
 	}
 	(*live)["qm-live"] = true
+	j.TmuxRouter.Invalidate()
 	statuses[cold] = state.PullRequestStatus{State: "merged"}
 	if err := state.SavePullRequestStatuses(store.Root(), statuses, nil); err != nil {
 		t.Fatal(err)
@@ -482,6 +488,7 @@ func TestJobNoTmuxServerHasNoWork(t *testing.T) {
 	j.Tmux = tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) {
 		return "", &tmux.ExitError{Code: 1, Stderr: "no server running on /tmp/tmux-test/default"}
 	}))
+	j.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": j.Tmux}, func() string { return "dev_previous" }, nil)
 	if j.HasWork() {
 		t.Fatal("absent tmux server kept job alive")
 	}
@@ -493,6 +500,7 @@ func TestJobNoTmuxServerHasNoWork(t *testing.T) {
 		t.Fatalf("absent tmux server treated as job error: %v", err)
 	}
 	j.Tmux = tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) { return "", syscall.EAGAIN }))
+	j.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": j.Tmux}, func() string { return "dev_previous" }, nil)
 	if !j.HasWork() {
 		t.Fatal("temporary process-spawn failure dropped watched work")
 	}
@@ -635,11 +643,7 @@ func TestJobRefreshWaitsForFetch(t *testing.T) {
 	defer cancel()
 	stopped := make(chan struct{})
 	go func() { _ = j.Run(ctx); close(stopped) }()
-	select {
-	case <-calls:
-	case <-time.After(5 * time.Second):
-		t.Fatal("initial fetch missing")
-	}
+	<-calls
 	result := make(chan error, 1)
 	go func() {
 		hosts, err := j.Refresh(ctx, []string{key})
@@ -648,13 +652,8 @@ func TestJobRefreshWaitsForFetch(t *testing.T) {
 		}
 		result <- err
 	}()
-	select {
-	case err := <-result:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("refresh did not finish")
+	if err := <-result; err != nil {
+		t.Fatal(err)
 	}
 	select {
 	case <-calls:
@@ -666,11 +665,7 @@ func TestJobRefreshWaitsForFetch(t *testing.T) {
 		t.Fatalf("status=%v err=%v", statuses, err)
 	}
 	cancel()
-	select {
-	case <-stopped:
-	case <-time.After(5 * time.Second):
-		t.Fatal("job did not stop")
-	}
+	<-stopped
 }
 
 func TestJobRefreshInsideBackoffReturnsCurrentHostState(t *testing.T) {
@@ -689,21 +684,13 @@ func TestJobRefreshInsideBackoffReturnsCurrentHostState(t *testing.T) {
 	defer cancel()
 	result := make(chan map[string]HostResult, 1)
 	go func() { hosts, _ := j.Refresh(ctx, []string{key}); result <- hosts }()
-	select {
-	case <-j.signal:
-	case <-time.After(5 * time.Second):
-		t.Fatal("wake not queued")
-	}
+	<-j.signal
 	if err := j.step(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case hosts := <-result:
-		item := hosts["github.com"]
-		if calls != 1 || item.Error == "" || item.BackoffUntil != now.Add(90*time.Second).Format(time.RFC3339) || item.CheckedAt != "" {
-			t.Fatalf("calls=%d host=%#v", calls, item)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("refresh waited inside backoff")
+	hosts := <-result
+	item := hosts["github.com"]
+	if calls != 1 || item.Error == "" || item.BackoffUntil != now.Add(90*time.Second).Format(time.RFC3339) || item.CheckedAt != "" {
+		t.Fatalf("calls=%d host=%#v", calls, item)
 	}
 }

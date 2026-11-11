@@ -7,9 +7,9 @@ struct ProjectOrderTests {
         unlistedAndEmptyIDsRankLast()
         firstListingOfAnIDWins()
         sortedItemsFollowTheOrderThenTitle()
-        questSectionsFollowTheProjectOrder()
-        questSectionsUseTheProjectsEffectiveName()
-        questSectionsFallBackToTheStoredNameForAnUnlistedProject()
+        questTabsFollowTheProjectOrder()
+        questTabsUseTheProjectsEffectiveName()
+        questTabsFallBackToTheStoredNameForAnUnlistedProject()
         projectDecodesDefaultNameAndDefaultsToName()
         print("ProjectOrderTests: all tests passed")
     }
@@ -60,45 +60,45 @@ struct ProjectOrderTests {
         )
     }
 
-    private static func questSectionsFollowTheProjectOrder() {
+    private static func questTabsFollowTheProjectOrder() {
         let quests = [
             QuestItem(id: "qst-a", content: "A", projectID: "repo-a", projectName: "Alpha", updatedAt: "2026-07-03T01:00:00Z"),
             QuestItem(id: "qst-x", content: "X", projectID: "repo-x", projectName: "Xray", updatedAt: "2026-07-03T02:00:00Z"),
             QuestItem(id: "qst-b", content: "B", projectID: "repo-b", projectName: "Beta", updatedAt: "2026-07-03T03:00:00Z"),
             QuestItem(id: "qst-none", content: "None", updatedAt: "2026-07-03T04:00:00Z"),
         ]
-        let sections = QuestDisplayState.sections(quests: quests, repos: [], projects: projects)
+        let tabs = QuestDisplayState.projectTabs(quests: quests, repos: [], projects: projects)
         expect(
-            sections.map(\.id) == ["repo-b", "repo-a", "repo-x", "no-project"],
-            "sections should follow the project order, then the unlisted project, then no project; got \(sections.map(\.id))"
+            tabs.map(\.projectID) == ["repo-b", "repo-a", "repo-x"],
+            "tabs should follow the project order, then the unlisted project, with no tab for quests without a project; got \(tabs.map(\.projectID))"
         )
         expect(
-            sections.map(\.title) == ["Beta", "Alpha", "Xray", "No project"],
-            "section titles should follow the same order; got \(sections.map(\.title))"
+            tabs.map(\.title) == ["Beta", "Alpha", "Xray"],
+            "tab titles should follow the same order; got \(tabs.map(\.title))"
         )
     }
 
-    private static func questSectionsUseTheProjectsEffectiveName() {
+    private static func questTabsUseTheProjectsEffectiveName() {
         let quests = [
             QuestItem(id: "qst-a", content: "A", projectID: "repo-a", projectName: "Old Name", updatedAt: "2026-07-03T01:00:00Z"),
         ]
         let renamed = [
             TrackerProject(id: "repo-a", name: "Renamed", defaultName: "alpha-folder", path: "/tmp/alpha-folder"),
         ]
-        let sections = QuestDisplayState.sections(
+        let tabs = QuestDisplayState.projectTabs(
             quests: quests,
             repos: [TrackerRepo(id: "repo-a", name: "alpha-folder", sessions: [])],
             projects: renamed
         )
-        expect(sections.first?.title == "Renamed", "a section should show the project's effective name; got \(sections.first?.title ?? "nil")")
+        expect(tabs.first?.title == "Renamed", "a section should show the project's effective name; got \(tabs.first?.title ?? "nil")")
     }
 
-    private static func questSectionsFallBackToTheStoredNameForAnUnlistedProject() {
+    private static func questTabsFallBackToTheStoredNameForAnUnlistedProject() {
         let quests = [
             QuestItem(id: "qst-x", content: "X", projectID: "repo-x", projectName: "Stored Name", updatedAt: "2026-07-03T01:00:00Z"),
         ]
-        let sections = QuestDisplayState.sections(quests: quests, repos: [], projects: projects)
-        expect(sections.first?.title == "Stored Name", "an unlisted project should show the quest's stored name; got \(sections.first?.title ?? "nil")")
+        let tabs = QuestDisplayState.projectTabs(quests: quests, repos: [], projects: projects)
+        expect(tabs.first?.title == "Stored Name", "an unlisted project should show the quest's stored name; got \(tabs.first?.title ?? "nil")")
     }
 
     private static func projectDecodesDefaultNameAndDefaultsToName() {

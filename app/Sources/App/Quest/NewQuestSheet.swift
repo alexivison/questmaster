@@ -7,11 +7,14 @@ final class NewQuestSheetPresenter: ObservableObject {
     @Published var presentation: NewQuestSheetPresentation?
 
     /// `projects`: the projects the field searches. `initialProject`: the one it opens on, the current
-    /// session's repo for a new quest and the quest's own when editing.
+    /// session's repo for a new quest and the quest's own when editing. `initialTypes` and `initialSize` are the
+    /// quest's tags, shown by an edit only.
     func present(
         projects: [NewQuestProjectOption],
         initialProject: NewQuestProjectOption?,
         initialContent: String = "",
+        initialTypes: [String] = [],
+        initialSize: String = "",
         questID: String = "",
         sessionID: String?,
         mutationClient: ServeMutationSending,
@@ -22,6 +25,8 @@ final class NewQuestSheetPresenter: ObservableObject {
             projects: projects,
             initialProject: initialProject,
             initialContent: initialContent,
+            initialTypes: initialTypes,
+            initialSize: initialSize,
             questID: questID,
             sessionID: sessionID ?? "",
             mutationClient: mutationClient,
@@ -40,6 +45,8 @@ struct NewQuestSheetPresentation: Identifiable {
     let projects: [NewQuestProjectOption]
     let initialProject: NewQuestProjectOption?
     let initialContent: String
+    let initialTypes: [String]
+    let initialSize: String
     let questID: String
     let sessionID: String
     let mutationClient: ServeMutationSending
@@ -48,7 +55,7 @@ struct NewQuestSheetPresentation: Identifiable {
 }
 
 /// new-quest.svg: the project field (projects by name, or directories for a typed path) and the content
-/// filling the rest.
+/// filling the rest. Edit Quest adds the types field and the size select between them.
 struct NewQuestSheetView: View {
     @StateObject private var model: NewQuestSheetModel
 
@@ -71,7 +78,12 @@ struct NewQuestSheetView: View {
         ) {
             VStack(spacing: ModalFormMetrics.fieldSpacing) {
                 projectField
-                    .zIndex(1)
+                    .zIndex(2)
+                if model.form.isEditing {
+                    tagsField
+                        .zIndex(1)
+                    sizeField
+                }
                 contentBox
             }
             .background(FocusSink(nonce: model.sinkNonce))
@@ -120,6 +132,53 @@ struct NewQuestSheetView: View {
         )
     }
 
+    /// The types: the filter's field (`FilterBar`) with the chosen types as chips. The typed text is the query, and the
+    /// types it matches hang under the field while it has focus.
+    private var tagsField: some View {
+        FilterBar(
+            tokens: model.form.tags.tokens,
+            query: Binding(get: { model.form.tags.query }, set: { model.form.tags.typeQuery($0) }),
+            placeholder: model.form.tags.selectedTypes.isEmpty ? "Types..." : "",
+            prompt: nil,
+            showsChipKind: false,
+            focusNonce: model.tagsFocusNonce,
+            suggestions: model.tagSuggestions,
+            highlightedSuggestionID: model.highlightedTagSuggestionID,
+            accessibilityLabel: "Types",
+            previewFocused: model.form.focusedField == .tags,
+            onCommand: { _ in false },
+            onFocusChanged: { model.tagsFocusChanged($0) },
+            onRemoveToken: { model.removeTag($0) },
+            onSelectSuggestion: { model.chooseTag($0) }
+        )
+    }
+
+    /// The size select: a field box reading "Size: M", or the "Size..." placeholder while there is none. The label is
+    /// highlighted meta text and the value the field's body text, neither bold. ←/→ and h/l step it, and a click does.
+    /// It has no text, so the sink holds its keys.
+    private var sizeField: some View {
+        let size = model.form.sizeText
+        let isEmpty = size.isEmpty
+        return HStack(spacing: Space.row) {
+            if isEmpty {
+                sizeRun("Size...", color: AppPalette.textMeta)
+            } else {
+                sizeRun("Size:", color: AppPalette.metaHighlighted)
+                sizeRun(size, color: AppPalette.textBody)
+            }
+        }
+        .padding(.horizontal, FormFieldMetrics.textInset)
+        .frame(maxWidth: .infinity, minHeight: FormFieldMetrics.height, maxHeight: FormFieldMetrics.height, alignment: .topLeading)
+        .fieldChrome(focused: model.form.focusedField == .size)
+        .contentShape(Rectangle())
+        .onTapGesture { model.clickedSize() }
+        .accessibilityLabel("Size \(isEmpty ? "none" : size)")
+    }
+
+    private func sizeRun(_ text: String, color: NSColor) -> some View {
+        BaselineText(text, font: AppFonts.questLogBody, color: color, baseline: FormFieldMetrics.baseline)
+    }
+
     private var contentBox: some View {
         ModalPromptEditor(
             text: Binding(get: { model.form.content }, set: { model.form.content = $0 }),
@@ -142,6 +201,8 @@ final class NewQuestSheetModel: ObservableObject {
     @Published var paths = SuggestionList()
     /// Bumped as a search starts, to put the caret in the project text.
     @Published private(set) var projectFocusNonce = 0
+    /// Bumped as the tags field starts a search, to put the caret in its text.
+    @Published private(set) var tagsFocusNonce = 0
     /// Bumped as the project field returns to SELECT, to take the caret out.
     @Published private(set) var sinkNonce = 0
 
@@ -158,7 +219,9 @@ final class NewQuestSheetModel: ObservableObject {
             initialProject: presentation.initialProject,
             isEditing: !presentation.questID.isEmpty,
             projects: presentation.projects,
-            home: NSHomeDirectory()
+            home: NSHomeDirectory(),
+            types: presentation.initialTypes,
+            size: presentation.initialSize
         )
         questID = presentation.questID
         mutationClient = presentation.mutationClient
@@ -202,6 +265,78 @@ final class NewQuestSheetModel: ObservableObject {
             return
         }
         form.focusedField = field
+    }
+
+    /// A click on a type's row, or its suggestion: the type becomes a chip, and the text keeps the caret.
+    func chooseTag(_ suggestion: ArtifactFilterSuggestion) {
+        guard !form.submitting, let type = QuestTagType(rawValue: suggestion.value) else {
+            return
+        }
+        focusTagsText()
+        form.tags.choose(type)
+    }
+
+    /// A chip's x: the type goes back to the rows, and the text takes the caret as the Quest Log's filter does.
+    func removeTag(_ token: ArtifactFilterToken) {
+        guard !form.submitting, let type = QuestTagType(rawValue: token.value) else {
+            return
+        }
+        focusTagsText()
+        form.tags.remove(type)
+    }
+
+    /// The types text took or lost keyboard focus. Taking it is a click on the field.
+    func tagsFocusChanged(_ focused: Bool) {
+        guard focused else {
+            return
+        }
+        focusedByClick(.tags)
+    }
+
+    /// The types the field lists, as the filter's suggestions (`FilterBar`): each type's name, with no count.
+    var tagSuggestions: [ArtifactFilterSuggestion] {
+        form.tags.rows.map(Self.tagSuggestion)
+    }
+
+    var highlightedTagSuggestionID: String? {
+        form.tags.highlightedRow.map { Self.tagSuggestion($0).id }
+    }
+
+    private static func tagSuggestion(_ type: QuestTagType) -> ArtifactFilterSuggestion {
+        ArtifactFilterSuggestion(
+            mode: .value,
+            kind: .type,
+            value: type.rawValue,
+            title: type.displayName,
+            detail: "",
+            tokenTitle: type.displayName
+        )
+    }
+
+    /// A click on the size select takes focus and steps the size, as a click on the colour's swatch does.
+    func clickedSize() {
+        guard !form.submitting else {
+            return
+        }
+        focusSelect(.size)
+        form.cycleSize(1)
+    }
+
+    /// ←/→ and h/l on the size select (`ModalKeys`).
+    private func cycleSize(_ step: Int) {
+        form.cycleSize(step)
+    }
+
+    /// The types text takes the caret: a click, Tab, or a chip's x (which leaves the field's own focus with the text).
+    private func focusTagsText() {
+        focusedByClick(.tags)
+        tagsFocusNonce += 1
+    }
+
+    /// A select takes focus with no caret. The sink takes it from the text fields, so the select's keys reach the sheet.
+    private func focusSelect(_ field: NewQuestField) {
+        focusedByClick(field)
+        sinkNonce += 1
     }
 
     /// A click into the project text: the click's caret starts a search.
@@ -272,14 +407,15 @@ final class NewQuestSheetModel: ObservableObject {
             fieldKey: { self.handleFieldKey($0) },
             submit: { self.submit() },
             cancel: { self.cancel() },
-            moveFocus: { self.moveFocus($0) }
+            moveFocus: { self.moveFocus($0) },
+            cycle: { self.cycleSize($0) }
         ).handle(event)
     }
 
     private var modalKeyContext: ModalKeyContext {
         ModalKeyContext(
             focus: form.modalFocus,
-            fieldCount: NewQuestField.allCases.count,
+            fieldCount: form.fields.count,
             hasTextFields: true,
             submitting: form.submitting,
             submits: true
@@ -287,10 +423,14 @@ final class NewQuestSheetModel: ObservableObject {
     }
 
     private func handleFieldKey(_ event: NSEvent) -> Bool {
-        guard form.focusedField == .project else {
+        switch form.focusedField {
+        case .project:
+            return handleProjectFieldKey(event)
+        case .tags:
+            return form.tags.handle(event.keymapPress)
+        case .size, .content:
             return false
         }
-        return handleProjectFieldKey(event)
     }
 
     /// The project field's keys, before the sheet's: the shared picker keys (`PickerFieldKey`) for the project
@@ -356,8 +496,13 @@ final class NewQuestSheetModel: ObservableObject {
         let before = form.projectMode
         form.moveFocus(delta)
         follow(from: before)
-        if form.focusedField == .project {
+        switch form.focusedField {
+        case .project, .size:
             sinkNonce += 1
+        case .tags:
+            tagsFocusNonce += 1
+        case .content:
+            break
         }
     }
 

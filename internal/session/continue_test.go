@@ -20,7 +20,7 @@ func TestContinueAgentlessManifestLaunchesShell(t *testing.T) {
 	svc, runner := setupService(t)
 	setMissingAgentRegistry(t, svc)
 	sessionID := "qm-shell-continue"
-	if err := svc.Store.Create(state.Manifest{
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID: sessionID,
 		Title:     "plain",
 		Cwd:       t.TempDir(),
@@ -63,12 +63,12 @@ func TestContinueLaunchUsesCurrentMasterClassVoice(t *testing.T) {
 
 	svc, runner := setupService(t)
 	sessionID := "qm-class-continue"
-	if err := svc.Store.Create(state.Manifest{
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID:   sessionID,
 		Cwd:         t.TempDir(),
 		SessionType: "master",
 		Display:     &state.DisplayMetadata{Class: "barbarian"},
-		Agents:      []state.AgentManifest{{Name: "claude", Role: "agent", CLI: "/bin/sh", Window: 0}},
+		Agents:      []state.AgentManifest{{Name: "claude", Role: "agent", CLI: "/bin/sh", Window: 0, ResumeID: "class-continue-resume"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(state.Manifest{
+	if err := store.Create(state.Manifest{TmuxServer: "questmaster",
 		SessionID: "qm-missing-cli",
 		Cwd:       t.TempDir(),
 		Agents: []state.AgentManifest{
@@ -276,7 +276,7 @@ func TestCascadeWorkers_MissingVsCorruptManifest(t *testing.T) {
 	masterID := "qm-master"
 
 	// Create master manifest with three workers.
-	master := state.Manifest{
+	master := state.Manifest{TmuxServer: "questmaster",
 		SessionID:   masterID,
 		SessionType: "master",
 		Workers:     []string{"qm-missing", "qm-corrupt", "qm-alive"},
@@ -295,7 +295,7 @@ func TestCascadeWorkers_MissingVsCorruptManifest(t *testing.T) {
 	}
 
 	// qm-alive: has manifest and tmux session — should skip (already running).
-	aliveManifest := state.Manifest{SessionID: "qm-alive"}
+	aliveManifest := state.Manifest{TmuxServer: "questmaster", SessionID: "qm-alive"}
 	aliveManifest.SetExtra("parent_session", masterID)
 	if err := store.Create(aliveManifest); err != nil {
 		t.Fatal(err)

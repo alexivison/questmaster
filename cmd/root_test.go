@@ -8,8 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -286,12 +289,34 @@ func TestStartModelAndReasoningEffortFlags(t *testing.T) {
 // client gets the longer send timeout. The daemon keeps tmux's default: an alert
 // that fails to send is retried on the next tick.
 func TestSendTimeoutIsLongerForTheCLIThanForTheDaemon(t *testing.T) {
-	t.Parallel()
-	if got := newCLITmuxClient().SendTimeout; got != cliSendTimeout {
-		t.Errorf("CLI client SendTimeout = %s, want %s", got, cliSendTimeout)
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_current")
+	root := t.TempDir()
+	if err := state.RecordTmuxServerLabel(root, "dev_previous"); err != nil {
+		t.Fatal(err)
 	}
-	if got := newDaemonTmuxClient().SendTimeout; got != tmux.DefaultSendTimeout {
-		t.Errorf("daemon client SendTimeout = %s, want the default %s", got, tmux.DefaultSendTimeout)
+	for _, tc := range []struct {
+		name   string
+		client *tmux.Client
+		want   time.Duration
+	}{
+		{"CLI", newCLITmuxClient(root), cliSendTimeout},
+		{"daemon", newDaemonTmuxClient(root), tmux.DefaultSendTimeout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			router, err := tmuxroute.NewProduction(state.OpenStore(root), tc.client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, manifest := range []state.Manifest{{TmuxServer: "dev_current"}, {TmuxServer: "dev_previous"}} {
+				handle, err := router.Route(manifest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := handle.Client().SendTimeout; got != tc.want {
+					t.Errorf("%s route %q SendTimeout = %s, want %s", tc.name, handle.Label(), got, tc.want)
+				}
+			}
+		})
 	}
 	if cliSendTimeout <= tmux.DefaultSendTimeout {
 		t.Errorf("cliSendTimeout %s is not longer than the default %s", cliSendTimeout, tmux.DefaultSendTimeout)

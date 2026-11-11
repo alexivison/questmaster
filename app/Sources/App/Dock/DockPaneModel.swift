@@ -9,7 +9,7 @@ enum ArtifactFilterSuggestionMode: String {
 
 struct ArtifactFilterSuggestion: Equatable, Identifiable {
     var mode: ArtifactFilterSuggestionMode
-    var kind: ArtifactFilterTokenKind
+    var kind: FilterTokenKind
     var value: String
     var title: String
     var detail: String
@@ -659,7 +659,7 @@ final class DockPaneModel: ObservableObject {
         artifactModel = nextModel
     }
 
-    private func addArtifactFilterToken(kind: ArtifactFilterTokenKind, value: String, title: String) {
+    private func addArtifactFilterToken(kind: FilterTokenKind, value: String, title: String) {
         guard !value.isEmpty,
               !artifactFilterTokens.contains(where: { $0.kind == kind && $0.value == value }) else {
             return
@@ -668,7 +668,7 @@ final class DockPaneModel: ObservableObject {
         syncArtifactFilterSetsFromTokens()
     }
 
-    private func removeArtifactFilterToken(kind: ArtifactFilterTokenKind, value: String) {
+    private func removeArtifactFilterToken(kind: FilterTokenKind, value: String) {
         let nextTokens = artifactFilterTokens.filter { $0.kind != kind || $0.value != value }
         guard nextTokens != artifactFilterTokens else {
             return
@@ -682,13 +682,15 @@ final class DockPaneModel: ObservableObject {
         artifactTypeFilterIDs = Set(artifactFilterTokens.filter { $0.kind == .type }.map(\.value))
     }
 
-    private func filterTokenTitle(kind: ArtifactFilterTokenKind, value: String) -> String {
+    private func filterTokenTitle(kind: FilterTokenKind, value: String) -> String {
         let options: [ArtifactFilterOption]
         switch kind {
         case .project:
             options = artifactModel.projectFilterOptions
         case .type:
             options = artifactModel.typeFilterOptions
+        case .size:
+            options = []
         }
         return options.first { $0.id == value }?.title ?? value
     }
@@ -709,7 +711,7 @@ final class DockPaneModel: ObservableObject {
         guard artifactScope == .all else {
             return nil
         }
-        return Self.filterTrigger(in: artifactFilterQuery)
+        return Self.filterTrigger(in: artifactFilterQuery, kinds: Self.artifactFilterKinds)
     }
 
     static func filterQueryPrefix(in query: String, before range: Range<String.Index>) -> String {
@@ -720,7 +722,11 @@ final class DockPaneModel: ObservableObject {
         return prefix.isEmpty ? "" : "\(prefix) "
     }
 
-    static func filterTrigger(in query: String) -> ArtifactFilterTrigger? {
+    /// The prefixes the artifact filter takes; the Quest Log's `@size` is not one of them.
+    static let artifactFilterKinds: [FilterTokenKind] = [.project, .type]
+
+    /// The `@` token being typed at the end of `query`, when it names one of `kinds` (or is a bare `@`).
+    static func filterTrigger(in query: String, kinds: [FilterTokenKind]) -> ArtifactFilterTrigger? {
         guard !query.isEmpty,
               query.last?.isWhitespace != true else {
             return nil
@@ -736,7 +742,7 @@ final class DockPaneModel: ObservableObject {
         let body = fragment.dropFirst()
         if let colonIndex = body.firstIndex(of: ":") {
             let command = String(body[..<colonIndex])
-            guard let kind = ArtifactFilterTokenKind(rawValue: command) else {
+            guard let kind = FilterTokenKind(rawValue: command), kinds.contains(kind) else {
                 return nil
             }
             let valueStart = body.index(after: colonIndex)
@@ -768,7 +774,7 @@ final class DockPaneModel: ObservableObject {
         switch trigger.mode {
         case .command:
             let commandQuery = trigger.query.lowercased()
-            return ArtifactFilterTokenKind.allCases
+            return Self.artifactFilterKinds
                 .filter { commandQuery.isEmpty || $0.rawValue.hasPrefix(commandQuery) }
                 .map {
                     ArtifactFilterSuggestion(
@@ -803,7 +809,7 @@ final class DockPaneModel: ObservableObject {
     }
 
     private func filterCount(
-        kind: ArtifactFilterTokenKind,
+        kind: FilterTokenKind,
         value: String,
         artifacts: [ArtifactReference],
         tracker: TrackerSnapshot
@@ -814,6 +820,8 @@ final class DockPaneModel: ObservableObject {
                 return projectFilterID(for: artifact, tracker: tracker) == value
             case .type:
                 return ArtifactDisplayState.filterTypeID(for: artifact) == value
+            case .size:
+                return false
             }
         }.count
     }
@@ -1004,7 +1012,7 @@ final class DockPaneModel: ObservableObject {
     /// Shared with the Quest Log's filter (`QuestLogFilter`), like the helpers that parse and match it.
     struct ArtifactFilterTrigger {
         var mode: ArtifactFilterSuggestionMode
-        var kind: ArtifactFilterTokenKind?
+        var kind: FilterTokenKind?
         var query: String
         var range: Range<String.Index>
     }

@@ -16,6 +16,7 @@ import (
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -27,14 +28,33 @@ const agentRole = "agent"
 
 // Service provides messaging operations between questmaster sessions.
 type Service struct {
-	store  *state.Store
-	client *tmux.Client
-	dial   func(context.Context, string, string) (net.Conn, error)
+	store    *state.Store
+	router   *tmuxroute.Router
+	routeErr error
+	dial     func(context.Context, string, string) (net.Conn, error)
 }
 
 // NewService creates a messaging service.
 func NewService(store *state.Store, client *tmux.Client) *Service {
-	return &Service{store: store, client: client}
+	router, err := tmuxroute.NewProduction(store, client)
+	return &Service{store: store, router: router, routeErr: err}
+}
+
+// NewServiceWithRouter uses explicit server clients, including private test sockets.
+func NewServiceWithRouter(store *state.Store, router *tmuxroute.Router) *Service {
+	return &Service{store: store, router: router}
+}
+
+func (s *Service) recipient(id string) (state.Manifest, tmuxroute.Handle, error) {
+	if s.routeErr != nil {
+		return state.Manifest{}, tmuxroute.Handle{}, s.routeErr
+	}
+	m, err := s.store.Read(id)
+	if err != nil {
+		return state.Manifest{}, tmuxroute.Handle{}, fmt.Errorf("read recipient manifest: %w", err)
+	}
+	handle, err := s.router.Route(m)
+	return m, handle, err
 }
 
 // WorkerInfo holds status information for a worker session.
@@ -46,23 +66,31 @@ type WorkerInfo struct {
 
 // Relay sends an unattributed external message to a session's agent pane.
 func (s *Service) Relay(ctx context.Context, workerID, message string) (Delivery, error) {
-	if err := s.validateRelayTarget(workerID); err != nil {
+	if !state.IsValidSessionID(workerID) {
+		return "", fmt.Errorf("invalid worker id: %q", workerID)
+	}
+	m, handle, err := s.recipient(workerID)
+	if err != nil {
+		return "", fmt.Errorf("read worker manifest: %w", err)
+	}
+	if err := rejectPlainSession(m, workerID); err != nil {
 		return "", err
 	}
-	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
+	client := handle.Client()
+	if err := client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
 		return "", err
 	}
-	if err := s.ensureOpenCodeRelayReady(workerID); err != nil {
+	if err := s.ensureOpenCodeRelayReady(m, workerID); err != nil {
 		return "", err
 	}
 
-	target, err := s.client.ResolveRole(ctx, workerID, agentRole, tmux.WindowWorkspace)
+	target, err := client.ResolveRole(ctx, workerID, agentRole, tmux.WindowWorkspace)
 	if err != nil {
 		return "", fmt.Errorf("resolve agent pane in %q: %w", workerID, err)
 	}
 
 	const prefix = "[FROM:external] "
-	return s.deliver(ctx, workerID, target, prefix+message, peerPointer, prefix)
+	return s.deliver(ctx, m, handle, target, prefix+message, peerPointer, prefix)
 }
 
 // RelayFrom sends a message to a worker's agent pane with sender provenance.
@@ -70,22 +98,26 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 	if !state.IsValidSessionID(senderID) {
 		return "", fmt.Errorf("invalid sender id: %q", senderID)
 	}
-	if err := s.validateRelayTarget(targetID); err != nil {
-		return "", err
+	if !state.IsValidSessionID(targetID) {
+		return "", fmt.Errorf("invalid worker id: %q", targetID)
 	}
-	recipient, err := s.store.Read(targetID)
+	recipient, handle, err := s.recipient(targetID)
 	if err != nil {
-		return "", fmt.Errorf("read recipient manifest: %w", err)
+		return "", fmt.Errorf("read worker manifest: %w", err)
 	}
-	sender, _ := s.store.Read(senderID)
-	if err := s.client.EnsureSessionRunning(ctx, targetID, "worker"); err != nil {
+	if err := rejectPlainSession(recipient, targetID); err != nil {
 		return "", err
 	}
-	if err := s.ensureOpenCodeRelayReady(targetID); err != nil {
+	client := handle.Client()
+	sender, _ := s.store.Read(senderID)
+	if err := client.EnsureSessionRunning(ctx, targetID, "worker"); err != nil {
+		return "", err
+	}
+	if err := s.ensureOpenCodeRelayReady(recipient, targetID); err != nil {
 		return "", err
 	}
 
-	target, err := s.client.ResolveRole(ctx, targetID, agentRole, tmux.WindowWorkspace)
+	target, err := client.ResolveRole(ctx, targetID, agentRole, tmux.WindowWorkspace)
 	if err != nil {
 		return "", fmt.Errorf("resolve agent pane in %q: %w", targetID, err)
 	}
@@ -95,7 +127,7 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 	if strings.HasPrefix(prefix, "[MASTER:") {
 		pointer = relayPointer
 	}
-	delivery, err := s.deliver(ctx, targetID, target, prefix+message, pointer, prefix)
+	delivery, err := s.deliver(ctx, recipient, handle, target, prefix+message, pointer, prefix)
 	if err != nil {
 		return "", err
 	}
@@ -105,12 +137,8 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 
 // deliver tries the native socket, then tmux send-keys. A native success means the
 // socket accepted the frame; a send-keys success means the text and Enter were typed.
-func (s *Service) deliver(ctx context.Context, sessionID, target, message string, pointer func(string) string, pointerPrefix string) (Delivery, error) {
-	m, err := s.store.Read(sessionID)
-	if err != nil {
-		return "", fmt.Errorf("read recipient manifest: %w", err)
-	}
-	if err := s.nativeDeliver(ctx, m, target, message); err == nil {
+func (s *Service) deliver(ctx context.Context, m state.Manifest, handle tmuxroute.Handle, target, message string, pointer func(string) string, pointerPrefix string) (Delivery, error) {
+	if err := s.nativeDeliver(ctx, handle.Client(), m, target, message); err == nil {
 		return DeliveryAccepted, nil
 	} else if !errors.Is(err, errNativeUnavailable) {
 		return "", err
@@ -122,34 +150,13 @@ func (s *Service) deliver(ctx context.Context, sessionID, target, message string
 	if indirected {
 		msg = pointerPrefix + msg
 	}
-	if err := s.client.Send(ctx, state.SendLockDir(s.store.Root()), target, msg).Err; err != nil {
+	if err := handle.Client().Send(ctx, state.SendLockDirForServer(s.store.Root(), handle.SendLockNamespace()), target, msg).Err; err != nil {
 		return "", err
 	}
 	return DeliverySubmitted, nil
 }
 
-func (s *Service) validateRelayTarget(workerID string) error {
-	if !state.IsValidSessionID(workerID) {
-		return fmt.Errorf("invalid worker id: %q", workerID)
-	}
-	if s == nil || s.store == nil {
-		return nil
-	}
-	m, err := s.store.Read(workerID)
-	if err != nil {
-		return fmt.Errorf("read worker manifest: %w", err)
-	}
-	return rejectPlainSession(m, workerID)
-}
-
-func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
-	if s == nil || s.store == nil {
-		return nil
-	}
-	m, err := s.store.Read(sessionID)
-	if err != nil {
-		return fmt.Errorf("read relay target manifest: %w", err)
-	}
+func (s *Service) ensureOpenCodeRelayReady(m state.Manifest, sessionID string) error {
 	if err := rejectPlainSession(m, sessionID); err != nil {
 		return err
 	}
@@ -215,7 +222,13 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 	result := BroadcastResult{Registered: len(workers)}
 	var errs []error
 	for _, wid := range workers {
-		alive, err := s.client.HasSession(ctx, wid)
+		recipient, handle, err := s.recipient(wid)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("route worker %s: %w", wid, err))
+			continue
+		}
+		client := handle.Client()
+		alive, err := client.HasSession(ctx, wid)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("check worker %s: %w", wid, err))
 			continue // deliver to remaining workers
@@ -223,16 +236,11 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 		if !alive {
 			continue // dead worker — legitimate skip, not a failure
 		}
-		if err := s.ensureOpenCodeRelayReady(wid); err != nil {
+		if err := s.ensureOpenCodeRelayReady(recipient, wid); err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		recipient, err := s.store.Read(wid)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("read recipient manifest %s: %w", wid, err))
-			continue
-		}
-		target, err := s.client.ResolveRole(ctx, wid, agentRole, tmux.WindowWorkspace)
+		target, err := client.ResolveRole(ctx, wid, agentRole, tmux.WindowWorkspace)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("resolve agent pane in %q: %w", wid, err))
 			continue
@@ -242,7 +250,7 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 		if strings.HasPrefix(prefix, "[MASTER:") {
 			pointer = relayPointer
 		}
-		delivery, err := s.deliver(ctx, wid, target, prefix+message, pointer, prefix)
+		delivery, err := s.deliver(ctx, recipient, handle, target, prefix+message, pointer, prefix)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("send to %q: %w", wid, err))
 			continue
@@ -260,17 +268,17 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 
 // Read captures output from a worker's agent pane.
 func (s *Service) Read(ctx context.Context, workerID string, lines int) (string, error) {
-	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
+	m, handle, err := s.recipient(workerID)
+	if err != nil {
 		return "", err
 	}
-
-	m, err := s.store.Read(workerID)
-	if err != nil {
-		return "", fmt.Errorf("read manifest: %w", err)
+	client := handle.Client()
+	if err := client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
+		return "", err
 	}
 	if len(m.Agents) == 0 {
 		// A plain terminal has one pane; =id: names it whatever its indexes.
-		raw, err := s.client.Capture(ctx, tmux.SessionTarget(workerID), lines)
+		raw, err := client.Capture(ctx, tmux.SessionTarget(workerID), lines)
 		if err != nil {
 			return "", err
 		}
@@ -284,12 +292,12 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 		}
 	}
 
-	target, err := s.client.ResolveRole(ctx, workerID, agentRole, tmux.WindowWorkspace)
+	target, err := client.ResolveRole(ctx, workerID, agentRole, tmux.WindowWorkspace)
 	if err != nil {
 		return "", fmt.Errorf("resolve agent pane in %q: %w", workerID, err)
 	}
 
-	raw, err := s.client.Capture(ctx, target, lines)
+	raw, err := client.Capture(ctx, target, lines)
 	if err != nil {
 		return "", err
 	}
@@ -311,7 +319,7 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) (Delive
 	if parent == "" {
 		return "", fmt.Errorf("session %q has no parent_session — not a worker", sessionID)
 	}
-	parentManifest, err := s.store.Read(parent)
+	parentManifest, handle, err := s.recipient(parent)
 	if err != nil {
 		return "", fmt.Errorf("read parent manifest: %w", err)
 	}
@@ -319,14 +327,15 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) (Delive
 		return "", err
 	}
 
-	if err := s.client.EnsureSessionRunning(ctx, parent, "master"); err != nil {
+	client := handle.Client()
+	if err := client.EnsureSessionRunning(ctx, parent, "master"); err != nil {
 		return "", err
 	}
-	if err := s.ensureOpenCodeRelayReady(parent); err != nil {
+	if err := s.ensureOpenCodeRelayReady(parentManifest, parent); err != nil {
 		return "", err
 	}
 
-	target, err := s.client.ResolveRole(ctx, parent, agentRole, tmux.WindowWorkspace)
+	target, err := client.ResolveRole(ctx, parent, agentRole, tmux.WindowWorkspace)
 	if err != nil {
 		return "", fmt.Errorf("resolve agent pane in master %q: %w", parent, err)
 	}
@@ -337,7 +346,7 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) (Delive
 		prefix = "[WORKER:" + sessionID + "] "
 		pointer = reportPointer
 	}
-	delivery, err := s.deliver(ctx, parent, target, prefix+message, pointer, prefix)
+	delivery, err := s.deliver(ctx, parentManifest, handle, target, prefix+message, pointer, prefix)
 	if err != nil {
 		return "", err
 	}
@@ -360,6 +369,9 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 	}
 
 	seen := make(map[string]bool, len(workerIDs))
+	var ghostHandles []tmuxroute.Handle
+	var ghostHandlesErr error
+	ghostHandlesLoaded := false
 	workers := make([]WorkerInfo, 0, len(workerIDs))
 	observations := make([]sessionactivity.Observation, 0, len(workerIDs))
 	liveness := make(map[string]bool, len(workerIDs))
@@ -370,7 +382,32 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 		seen[wid] = true
 		info := WorkerInfo{SessionID: wid}
 
-		alive, err := s.client.HasSession(ctx, wid)
+		m, handle, readErr := s.recipient(wid)
+		var alive bool
+		var err error
+		if m.SessionID != "" && m.NeedsTmuxBackfill() {
+			readErr = nil // An unrouted historical worker is stopped, not a ghost.
+		} else if readErr == nil {
+			alive, err = handle.Client().HasSession(ctx, wid)
+		} else if errors.Is(readErr, os.ErrNotExist) {
+			if !ghostHandlesLoaded {
+				ghostHandles, ghostHandlesErr = s.router.RecordedHandles()
+				ghostHandlesLoaded = true
+			}
+			err = ghostHandlesErr
+			if err == nil {
+				for _, candidate := range ghostHandles {
+					var found bool
+					found, err = candidate.Client().HasSession(ctx, wid)
+					if err != nil || found {
+						alive = found
+						break
+					}
+				}
+			}
+		} else {
+			err = readErr
+		}
 		if err != nil {
 			info.Status = "error"
 		} else {
@@ -382,7 +419,6 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 			})
 		}
 
-		m, readErr := s.store.Read(wid)
 		if readErr == nil {
 			info.Title = m.Title
 		}

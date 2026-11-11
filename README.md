@@ -76,7 +76,7 @@ questmaster pr refresh owner/repo#42 --session qm-worker123
 
 `pr watch` accepts `owner/repo#number` or an HTTPS pull request URL on github.com or on a host `gh auth status` lists as logged in; other hosts are rejected. `pr events`, `pr refresh` and `pr unwatch` keep working on existing watches on any host. A watch belongs to a session and disappears when that session is deleted or pruned, or once the session reads the PR's merge event with `pr events`, so a merged PR needs no unwatch. A new `pr watch` checks the PR when the daemon can reach the host, and rejects a missing PR or one blocked by access or SSO; an unavailable daemon, timeout or rate limit leaves the watch in place. Repeating a watch does not check it again. PR activity is polled by the daemon and delivered to the watching session as a Questmaster message starting `[PR owner/repo#N]` when it is idle or done; stopped sessions keep their alerts until they resume. Questmaster is a one-way personal setup, so the monitor ignores comments and reviews by the authenticated `gh` login; they neither alert nor appear in `pr events`. If GitHub does not provide that login, no author is filtered. Delivery is at least once, so an alert can repeat after a daemon restart.
 
-Use `pr ls --all` to find another session's watches. `pr events <ref>` can read any watched PR without changing a cursor, and marks every event `untrusted: true` with a `notice`, since comment text is data; by default it previews long bodies (400 bytes, or 200 for bots) and reports `body_truncated` and the original `body_bytes` when cut. `--full` returns whole bodies. `--unread` returns new activity and marks it read, so it requires a watch; use `--session <watcher-id>` for another session's cursor. `pr refresh` requests an immediate status check within GitHub rate limits and reports each host's `checked_at` when a poll ran, or `backoff_until` when it was skipped. Each PR status's `changed_at` moves only when that status changes, except that a legacy status first gets it on the next successful poll. Successful `pr` commands emit JSON; errors exit non-zero with a message.
+Use `pr ls --all` to find another session's watches. Each live watcher has `undelivered_alerts`, the number of recorded events still awaiting alert delivery; a busy watcher can have a nonzero count until it becomes available. Delivery errors are logged by the daemon and retried. `pr events <ref>` can read any watched PR without changing a cursor, and marks every event `untrusted: true` with a `notice`, since comment text is data; by default it previews long bodies (400 bytes, or 200 for bots) and reports `body_truncated` and the original `body_bytes` when cut. `--full` returns whole bodies. `--unread` returns new activity and marks it read, so it requires a watch; use `--session <watcher-id>` for another session's cursor. `pr refresh` requests an immediate status check within GitHub rate limits. A host's `checked_at` means a poll was attempted; inspect `error` before treating it as successful. `backoff_until` delays future polls and can follow an attempted poll. When it appears without `checked_at`, this refresh was skipped. Each PR status's `changed_at` moves only when that status changes, except that a legacy status first gets it on the next successful poll. Successful `pr` commands emit JSON; errors exit non-zero with a message.
 
 Session roles use `agent` for the session's main agent. The CLI accepts
 `--agent`; `--primary` has been removed. Existing manifests with role
@@ -87,6 +87,25 @@ respawned panes are tagged `agent`. Historical `state.jsonl` entries are left
 as written.
 
 Subcommands are agent-first: most lifecycle, messaging, list, and status commands emit JSON for noninteractive success output. Utility commands such as `version`, `agent query`, `hooks`, and `artifact` use text; `questmaster read --text` prints raw pane text.
+
+Install Questmaster's built-in skills explicitly:
+
+```sh
+questmaster skills install
+questmaster skills status
+questmaster skills install --dry-run
+questmaster skills install --check
+questmaster skills uninstall --dry-run
+questmaster skills uninstall
+```
+
+The shared `$HOME/.agents/skills` destination serves Codex, Pi, and OpenCode;
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills` is Claude's user skill directory.
+These user-level locations make installed skills available across projects in
+their compatible harnesses. Questmaster changes these directories only through
+explicit skill commands; app launch and upgrade do not install or update skills.
+`--dry-run` previews changes, and `--check` reports whether installed files
+match the bundled skills.
 
 Install or inspect generated agent hooks:
 
@@ -181,7 +200,54 @@ questmaster daemon status  # inspect its identity, clients, jobs, and build
 questmaster daemon stop    # cleanly stop it
 ```
 
-Running `questmaster` with no subcommand prints help. Lifecycle operations such as `start`, `continue`, `spawn`, and `delete` are available as backend commands for clients and automation.
+Running `questmaster` with no subcommand prints help. Lifecycle operations such as `start`, `continue`, `spawn`, `attach`, and `delete` are available as backend commands for clients and automation. `qm attach <id>` attaches only to a live session; use `qm continue <id>` to restart a stopped one.
+
+### Project quests
+
+Quests may have any combination of the fixed types `bug`, `improvement`, `feature`, `research`, `decision`, and `cleanup`, plus an optional size `S`, `M`, or `L`. Inputs are case-insensitive; types are stored lowercase in the fixed order, and size is stored uppercase. Set tags when adding or editing a quest, and use repeatable or comma-separated filters when listing:
+
+```sh
+questmaster quest add "Research cache behavior" --type research,decision --size M
+questmaster quest edit qst-123 --type bug --type improvement --size S
+questmaster quest ls --type bug,research --size S
+```
+
+`quest ls` matches any selected type and any selected size within each group, and combines the type and size groups with AND. On `quest edit`, omitted flags leave existing tags unchanged; `--type ""` clears types and `--size ""` clears the size.
+
+### Tmux servers
+
+New sessions and workers start on Questmaster's dedicated `tmux -L questmaster` server. Every managed manifest must record a dedicated `tmux_server` label; a missing field or explicit `default` is an error. `qm attach <id>` follows the recorded label. `tmux -L questmaster ls` lists the dedicated server; plain `tmux ls` lists the user's default server. `qm tmux routes` lists recorded dedicated routes, omitting manifests that still need backfill; explicitly naming one of those manifests returns the backfill error. Questmaster cannot attach, send to, continue or delete sessions on the user's default server.
+
+Closing a worker's tmux session keeps its manifest and its place under the master, including its Worker Log history. `qm continue <master>` resumes its registered stopped workers even when the master is already running; live workers stay as they are. The result lists successful resumes in `revived_workers` and unsuccessful ones in `failed_workers`. `qm delete <worker>` and stale-manifest cleanup by `qm prune` remove membership, so deleted workers do not return.
+
+Workers closed by older builds may already be absent from the master's list. Continue each of those once with `qm continue <worker>` to restore membership; continuing only the master cannot discover them. This includes workers stopped during the first dedicated-server rollout. For any remaining legacy migration, the operator must stop the default-server sessions and backfill their manifests first, then continue the master and explicitly continue any workers missing from its list.
+
+The first dedicated session creates the shared `<state root>/tmux/questmaster.conf` and `git-status.sh`. Edit `questmaster.conf`; Questmaster writes it only once. For each dedicated label, it regenerates `enforced.<label>.conf` and `reload.<label>.conf`. The enforced file pins the root ownership marker, server lifetime settings, global `session-closed` cleanup hook, and prefix `R` binding for that label. The reload file sources the user config and enforcement in one tmux command, so a user edit cannot briefly enable a destructive lifetime option on detached sessions. `qm tmux config path` prints the shared and label-specific paths. After an edit, run `qm tmux config check`, then `qm tmux config reload` (or press prefix `R`). Reload refuses a running server whose ownership marker is missing or belongs to another root. Reload adds settings but may leave removed bindings or pane settings in place; use `qm tmux restart` once the dedicated server has no sessions to apply those cleanly. `qm tmux config status` shows the running state.
+
+`QUESTMASTER_TMUX_LABEL=dev_example` selects another dedicated label for a development build. Its value must be 1–32 lowercase letters, digits, underscores, or hyphens, and cannot be `default`. The daemon keeps this override in its own environment and identity. Managed dev panes also carry it so CLI worker spawns stay on the dev server. Existing session routing still uses the label recorded at creation, so changing the variable does not move them. Inspect an override with `tmux -L dev_example ls`.
+
+The state root keeps every named label used to create a session in the owner-only `tmux-servers.json` file. New processes inventory those labels even if a session manifest is damaged. `qm prune` refreshes the record before cleanup and refuses to delete anything if the record is unreadable or a recorded server is unavailable. With a complete server view, it can remove old corrupt manifests.
+
+`qm tmux audit` is read-only. It refreshes the label record and checks dedicated servers, manifests and ownership. Its one default-server reader, `ProbeDefaultSessions`, runs only `list-sessions` on the socket under `${TMUX_TMPDIR:-/tmp}/tmux-<uid>/default`; lifecycle and messaging never use that socket. This keeps the gate able to detect managed sessions left on default. A missing socket or no running server counts as empty; an unreadable label record, unavailable server, or unreadable socket sets `gate` to `unknown` and reports `inventory_error`. Missing, explicit `default`, invalid or corrupt manifest ownership also prevents a ready gate. Prune adds the read-only default probe to its complete dedicated inventory so live default sessions keep their metadata and runtime files. Deleting a session without a manifest also requires that probe and refuses a matching default session before changing sessions, state or PR watches. Both operations refuse an unavailable default probe. `qm status` uses that inventory to locate a live session with a missing or corrupt manifest, and reports ambiguous ownership or incomplete inventory.
+
+Before installing the bundle that removes legacy routing, build its CLI into a temporary directory, inspect the audit, and backfill stopped manifests with that CLI. The installed #466 binary already understands `questmaster` ownership, so it can keep serving sessions while their stopped manifests are backfilled. After reviewing the audit and backfill results, rebuild the app bundle:
+
+```sh
+migration_dir=$(mktemp -d)
+go build -buildvcs=false -o "$migration_dir/qm" .
+"$migration_dir/qm" tmux audit
+"$migration_dir/qm" tmux audit --backfill
+./app/Scripts/build-app.sh
+```
+
+These are operator commands against the real state root; agent verification uses isolated roots and private sockets. Before backfill, missing or explicit `default` ownership appears in `unknown_ownership`; inspect it alongside any live default sessions, unavailable servers or corrupt manifests. The backfill takes one complete read-only snapshot of default and dedicated servers and aborts before any write if that snapshot fails. Under each session's lifecycle lock it re-reads the manifest and rechecks dedicated-server liveness before changing stopped absent/default ownership to **`questmaster`**. This target deliberately ignores `QUESTMASTER_TMUX_LABEL`, so a development build cannot stamp its dev label into the archive.
+
+`--backfill` is the only audit mode that writes. Live sessions are left alone and counted as `skipped_live`; named ownership is counted as `skipped_already_set`. Its JSON result also reports `updated`, `failed` and the first 20 per-manifest errors; a run-level error returns the counts reached so far and exits unsuccessfully. Repeating it leaves already updated ownership alone. Resume IDs, PR watches, runtime paths, timestamps and manifest age are preserved. Nothing starts and no tmux settings change.
+
+If backfill is missed, aggregate reads and new session creation keep working: unlabelled manifests are stopped entries in lists and the tracker, contribute no server to discovery, and are omitted from bulk route responses and PR liveness. Actions directed at those manifests—`continue`, `status`, `delete`, `send`, `read`, `attach`, and explicit route queries—refuse with `qm tmux audit --backfill` in the error. A missed backfill therefore affects those old stopped sessions, rather than emptying the tracker or blocking new work.
+
+The default-server migration was approved after the 2026-11-10 installed audit reported a ready gate with no live legacy managed sessions, orphans, duplicates, unknown ownership or corrupt manifests. Both servers answered. Rollback now requires a routing-capable prior bundle (`app/Scripts/install-app.sh --rollback`) or a code revert and rebuild; never install a bundle older than dedicated-server routing while named sessions exist. A deliberate creation change may select another valid dedicated label; `default` remains reserved. Recorded labels keep existing sessions reachable.
+
 The daemon accepts runtime requests, mutations, and subscriptions after its ready handshake on a socket under `<state-root>/daemon/`. The app gets the socket from `daemon start`'s JSON record. The daemon captures a clean login environment and writes identity-owned `qm` and `questmaster` shims under `<state-root>/daemon/bin/<identity>/`. Quitting the app leaves it running until its idle exit. `daemon check-upgrade` is connect-only: when it verifies a replacement binary, the running daemon re-execs in place with the same PID and socket.
 
 When starting a session, leave the title blank and questmaster derives one from the initial prompt when provided; otherwise the first agent hook fills it after the first message. An explicit title is always kept as-is. Agent pane headers show the session title, including after a rename.
@@ -242,6 +308,8 @@ Build and install from a source checkout:
 
 The script builds the Swift package in release mode, assembles and ad-hoc codesigns `Questmaster.app`, builds the Go `qm` binary into the app bundle, stamps both with one `git describe` version (Info.plist's `CFBundleShortVersionString` and `qm version`), and installs to `/Applications/Questmaster.app` by default (`--install-path` or `QUESTMASTER_INSTALL_PATH` picks another). `Package.swift` declares macOS 14 and Swift tools 5.9; the build script also expects Go and the macOS command-line tools it calls (`swift`, `codesign`, and `install_name_tool`).
 
+On a terminal, both scripts print one line per step (a spinner, the elapsed time and SwiftPM's `[done/total]` count while it runs) and keep each tool's own output in a log shown only when that step fails. The repo's own compiler warnings always show, and a dependency's are counted. `QUESTMASTER_BUILD_VERBOSE=1` streams everything, `NO_COLOR` turns colour off, and output that isn't a terminal (CI) streams in plain text as before.
+
 Installing is `app/Scripts/install-app.sh`, which the build script runs, so running sessions never lose `qm`:
 
 - It stages the new bundle beside the installed one and verifies it: the signature, and a `qm` whose version matches Info.plist. A failure leaves the installed app untouched.
@@ -251,7 +319,9 @@ Installing is `app/Scripts/install-app.sh`, which the build script runs, so runn
 
 `app/Scripts/test-install.sh` tests the installer against throwaway bundles. For a test install of the real bundle, give a temporary `--install-path`, `HOME` and `QUESTMASTER_STATE_ROOT` and pass `--isolated`, which skips LaunchServices and the daemon nudge; the installer refuses a mix of temporary and real paths.
 
-For dev benches and test sessions, `swift run --package-path app Questmaster` from this source checkout uses `go run . daemon start --build-from <worktree>` before any installed `qm`/`questmaster` on `PATH`. Go builds the daemon at a stable worktree identity path. Packaged app launches start `<state root>/bin/current/qm`, the stable link the installer manages, and fall back to the bundled `qm` only while that link doesn't resolve yet (a state root nothing has installed into); `--qm-bin` overrides both. `--no-daemon-start` connects without starting a daemon, and `--daemon-socket` or `QUESTMASTER_DAEMON_SOCKET` selects a socket and also connects without starting. `--state-root` still overrides the state directory.
+To try a development build, run `QUESTMASTER_TMUX_LABEL=dev_example swift run --package-path app Questmaster` from a worktree branched from `origin/main`. Optionally set `QUESTMASTER_STATE_ROOT` or pass `--state-root` for isolated state. The non-bundle app uses `go run . daemon start --build-from <worktree>` before any installed `qm`/`questmaster` on `PATH`. Go builds the daemon at a stable worktree identity path, with a separate socket and shims; it does not replace the installed binary or daemon. It polls PRs only when started with `--jobs`. Sessions created on its named server are invisible to an installed build that predates routing: do not run `questmaster prune` from such a build while those sessions exist. Run dev sessions' commands through `$QUESTMASTER_BIN` (the dev shims): the installed `qm` cannot see sessions on the named server and reports their master as not running. A shell that carries the real install's `QUESTMASTER_BIN` hands it to the panes it creates, so unset it before running a dev `qm` by hand.
+
+Packaged app launches start `<state root>/bin/current/qm`, the stable link the installer manages, and fall back to the bundled `qm` only while that link doesn't resolve yet (a state root nothing has installed into); `--qm-bin` overrides both. `--no-daemon-start` connects without starting a daemon, and `--daemon-socket` or `QUESTMASTER_DAEMON_SOCKET` selects a socket and also connects without starting. `--state-root` still overrides the state directory.
 
 App-created shells use the daemon's identity shims on `PATH` via `QUESTMASTER_PATH_PREFIX` and set `QUESTMASTER_BIN` from the daemon record. Reattach/continue refreshes the tmux session environment after an app move or rebuild; already-running agent processes may need restart because their process environment is fixed. The first canonical `daemon start` migrates old app-written Application Support shims to the canonical binary; `prune` removes unused shim directories.
 

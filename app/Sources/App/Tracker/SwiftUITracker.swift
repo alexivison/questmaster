@@ -992,13 +992,17 @@ final class TrackerPulseClock {
         // Common modes keep the clock running while the user scrolls the list or drags a split.
         let timer = Timer(timeInterval: 1 / framesPerSecond, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.ticks += 1
-                self?.time = Date.now.timeIntervalSinceReferenceDate
+                self?.tick(at: .now)
             }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
         timersStarted += 1
+    }
+
+    func tick(at date: Date) {
+        ticks += 1
+        time = date.timeIntervalSinceReferenceDate
     }
 
     func unsubscribe() {
@@ -1060,7 +1064,7 @@ private struct TrackerPortraitDisc: View {
         Canvas { context, _ in
             context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             context.fillDropShadow(artwork.discEdge, .raised)
-            context.fill(artwork.discEdge, with: .color(AppPalette.panel.swiftUI))
+            context.fill(artwork.discEdge, with: .color(TrackerPlateDesign.discFill.swiftUI))
             if let portrait {
                 context.drawPortrait(portrait, in: artwork.discEdge, strength: TrackerPlateDesign.portraitStrength)
             }
@@ -1605,7 +1609,7 @@ private struct TrackerAgentBadge: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(AppPalette.panel.swiftUI)
+                .fill(TrackerPlateDesign.discFill.swiftUI)
             Circle()
                 .strokeBorder(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Token.Size.divider)
             if let image = TrackerAgentMark.image(for: agent, side: TrackerPlateDesign.badgeLogoSide, tint: AppPalette.agentMarkTint) {

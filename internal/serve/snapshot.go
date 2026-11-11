@@ -18,6 +18,7 @@ import (
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/tracker"
 )
 
@@ -25,6 +26,7 @@ import (
 type Snapshotter struct {
 	store        *state.Store
 	tmuxClient   *tmux.Client
+	router       *tmuxroute.Router
 	fetcher      tracker.SessionFetcher
 	projects     *state.ProjectResolver
 	now          func() time.Time
@@ -33,14 +35,14 @@ type Snapshotter struct {
 }
 
 // NewSnapshotter creates a snapshot reader from existing qm services.
-func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time.Time) *Snapshotter {
+func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time.Time, routers ...*tmuxroute.Router) *Snapshotter {
 	if store == nil {
 		store = state.OpenStore(state.StateRoot())
 	}
-	if tmuxClient == nil {
-		tmuxClient = tmux.NewClient(tmux.DefaultServer())
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
 	}
-	tmuxClient.CacheListSessions(time.Second)
 	if now == nil {
 		now = time.Now
 	}
@@ -48,7 +50,8 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 	return &Snapshotter{
 		store:      store,
 		tmuxClient: tmuxClient,
-		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store, projects),
+		router:     router,
+		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store, projects, router),
 		projects:   projects,
 		now:        now,
 	}
@@ -115,14 +118,16 @@ type UnlistedFolderSnapshot struct {
 }
 
 type QuestSnapshot struct {
-	ID          string `json:"id"`
-	Content     string `json:"content"`
-	ProjectID   string `json:"project_id,omitempty"`
-	ProjectPath string `json:"project_path,omitempty"`
-	ProjectName string `json:"project_name,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
-	SessionID   string `json:"session_id,omitempty"`
+	ID          string   `json:"id"`
+	Content     string   `json:"content"`
+	Types       []string `json:"types,omitempty"`
+	Size        string   `json:"size,omitempty"`
+	ProjectID   string   `json:"project_id,omitempty"`
+	ProjectPath string   `json:"project_path,omitempty"`
+	ProjectName string   `json:"project_name,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+	SessionID   string   `json:"session_id,omitempty"`
 }
 
 // ExchangeRow is the last master-worker instructions or report for a tracker row.
@@ -193,8 +198,8 @@ func (s *Snapshotter) Invalidate(change Change) {
 		// A state.json/artifacts.json rewrite cannot change tmux liveness, so
 		// those keep the 1s ListSessions TTL cache (worst case: a status flip
 		// lags by the TTL). Lifecycle and broad changes still clear it.
-		if s.tmuxClient != nil && (change.BroadTracker || change.Lifecycle || len(change.SessionIDs) == 0) {
-			s.tmuxClient.ClearListSessionsCache()
+		if s.router != nil && (change.BroadTracker || change.Lifecycle || len(change.SessionIDs) == 0) {
+			s.router.Invalidate()
 		}
 		if change.BroadTracker || len(change.SessionIDs) == 0 {
 			s.clearTrackerCache()
@@ -250,10 +255,19 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 			return s.refreshTracker()
 		}
 		before := next.Sessions[idx]
-		if _, live := liveSessions[sessionID]; live {
-			next.Sessions[idx].Status = "active"
-		} else {
-			next.Sessions[idx].Status = "stopped"
+		manifest, manifestErr := s.store.Read(sessionID)
+		if manifestErr != nil {
+			return s.refreshTracker()
+		}
+		next.Sessions[idx].Status = "stopped"
+		if !manifest.NeedsTmuxBackfill() {
+			handle, routeErr := s.router.Route(manifest)
+			if routeErr != nil {
+				return s.refreshTracker()
+			}
+			if _, live := liveSessions[handle.Label()+"\x00"+sessionID]; live {
+				next.Sessions[idx].Status = "active"
+			}
 		}
 		if next.Sessions[idx].Status == "active" {
 			_, _ = state.MarkSessionObserved(sessionID, observedAt)
@@ -327,10 +341,9 @@ func (s *Snapshotter) clockTracker() (TrackerSnapshot, error) {
 }
 
 func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt time.Time, typicalCache *toolTypicalDurationCache) (bool, error) {
-	// Only a "done" row can change on a clock tick (the done→idle fold after
-	// the grace period, applied by MarkSessionObserved). Every other state is
-	// driven by fsnotify, so skip the flock + state.json reads entirely.
-	if row.State != "done" {
+	// Completed turns and SessionStart with no following prompt become idle
+	// after their grace periods. Other states are driven by fsnotify.
+	if row.State != "done" && row.State != "starting" {
 		return false, nil
 	}
 	before := *row
@@ -386,16 +399,18 @@ func sameExchange(a, b *ExchangeRow) bool {
 }
 
 func (s *Snapshotter) liveSessionSet() (map[string]struct{}, error) {
-	if s.tmuxClient == nil {
-		return nil, fmt.Errorf("tmux client is required")
+	if s.router == nil {
+		return nil, fmt.Errorf("tmux router is required")
 	}
-	sessions, err := s.tmuxClient.ListSessions(context.Background())
-	if err != nil {
-		return nil, err
+	inv := s.router.Inventory(context.Background())
+	for _, server := range inv.Servers {
+		if server.Outcome == tmuxroute.Unavailable {
+			return nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+		}
 	}
-	live := make(map[string]struct{}, len(sessions))
-	for _, sessionID := range sessions {
-		live[sessionID] = struct{}{}
+	live := make(map[string]struct{}, len(inv.Rows))
+	for _, row := range inv.Rows {
+		live[row.Label+"\x00"+row.ID] = struct{}{}
 	}
 	return live, nil
 }
@@ -465,6 +480,9 @@ func cloneTrackerSnapshot(snapshot TrackerSnapshot) TrackerSnapshot {
 	}
 	snapshot.Artifacts = cloneArtifactSnapshots(snapshot.Artifacts)
 	snapshot.Quests = append([]QuestSnapshot(nil), snapshot.Quests...)
+	for i := range snapshot.Quests {
+		snapshot.Quests[i].Types = append([]string(nil), snapshot.Quests[i].Types...)
+	}
 	snapshot.Projects = append([]ProjectSnapshot(nil), snapshot.Projects...)
 	snapshot.UnlistedFolders = append([]UnlistedFolderSnapshot(nil), snapshot.UnlistedFolders...)
 	return snapshot
@@ -848,6 +866,8 @@ func questSnapshots(quests []state.Quest) []QuestSnapshot {
 		out = append(out, QuestSnapshot{
 			ID:          quest.ID,
 			Content:     quest.Content,
+			Types:       quest.Types,
+			Size:        quest.Size,
 			ProjectID:   quest.ProjectID,
 			ProjectPath: quest.ProjectPath,
 			ProjectName: quest.ProjectName,
@@ -898,7 +918,7 @@ func questsEqual(a, b []QuestSnapshot) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if !reflect.DeepEqual(a[i], b[i]) {
 			return false
 		}
 	}

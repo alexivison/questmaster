@@ -55,7 +55,7 @@ func TestSessionsJSON_ActiveWhenStateIsWorking(t *testing.T) {
 	setTestStateRoot(t)
 
 	store := setupStore(t)
-	if err := store.Create(state.Manifest{
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID: "qm-active",
 		Title:     "active session",
 		Cwd:       "/tmp/active",
@@ -94,7 +94,7 @@ func TestSessionsJSON_InactiveWhenStateIsIdle(t *testing.T) {
 	setTestStateRoot(t)
 
 	store := setupStore(t)
-	if err := store.Create(state.Manifest{
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID: "qm-quiet",
 		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}); err != nil {
@@ -117,7 +117,7 @@ func TestSessionsJSON_UsesPiHookStateWorkingSignal(t *testing.T) {
 
 	sessionID := "qm-pi-sessions-state"
 	store := setupStore(t)
-	if err := store.Create(state.Manifest{
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous",
 		SessionID: sessionID,
 		Title:     "pi busy",
 		Agents:    []state.AgentManifest{{Name: "pi", Role: "agent"}},
@@ -155,7 +155,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 
 	store := setupStore(t)
 	for _, manifest := range []state.Manifest{
-		{
+		{TmuxServer: "dev_previous",
 			SessionID:   "qm-root",
 			Title:       "root",
 			Cwd:         "/tmp/root",
@@ -163,7 +163,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 			Agents:      []state.AgentManifest{{Name: "claude", Role: "agent"}},
 			SessionType: "",
 		},
-		{
+		{TmuxServer: "dev_previous",
 			SessionID:   "qm-master",
 			Title:       "master",
 			Cwd:         "/tmp/master",
@@ -172,7 +172,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 			Workers:     []string{"qm-worker"},
 			Agents:      []state.AgentManifest{{Name: "codex", Role: "agent"}},
 		},
-		{
+		{TmuxServer: "dev_previous",
 			SessionID: "qm-worker",
 			Title:     "worker",
 			Cwd:       "/tmp/worker",
@@ -182,7 +182,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 				"parent_session": json.RawMessage(`"qm-master"`),
 			},
 		},
-		{
+		{TmuxServer: "dev_previous",
 			SessionID: "qm-orphan",
 			Title:     "orphan",
 			Cwd:       "/tmp/orphan",

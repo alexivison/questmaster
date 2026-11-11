@@ -53,10 +53,10 @@ func TestPRCommands(t *testing.T) {
 	}
 	t.Setenv(state.StateRootEnv, store.Root())
 	t.Setenv(state.SessionEnv, "qm-pr")
-	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-other", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-other", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
 	var result struct {
@@ -82,6 +82,20 @@ func TestPRCommands(t *testing.T) {
 	}
 	if _, err := state.RecordPullRequestEvents(store.Root(), prs[0].Key, []state.PullRequestEvent{{ID: "comment-1", Kind: "comment", OccurredAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), Body: "```ignore me```"}}, nil); err != nil {
 		t.Fatal(err)
+	}
+	var pending []struct {
+		Watchers []struct {
+			UndeliveredAlerts int `json:"undelivered_alerts"`
+		} `json:"watchers"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "ls")), &pending); err != nil || len(pending) != 1 || len(pending[0].Watchers) != 1 || pending[0].Watchers[0].UndeliveredAlerts != 1 {
+		t.Fatalf("ls pending = %+v, %v", pending, err)
+	}
+	if err := state.AdvancePullRequestAlert(store.Root(), prs[0].Key, "qm-pr", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "ls")), &pending); err != nil || pending[0].Watchers[0].UndeliveredAlerts != 0 {
+		t.Fatalf("ls delivered = %+v, %v", pending, err)
 	}
 	var events []state.PullRequestEvent
 	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "events", "owner/repo#7", "--unread")), &events); err != nil || len(events) != 1 || strings.Contains(events[0].Body, "```") {
@@ -128,7 +142,7 @@ func TestPRWatchVerifiesNewWatch(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv(state.StateRootEnv, store.Root())
 			t.Setenv(state.SessionEnv, "qm-pr")
-			if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+			if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 				t.Fatal(err)
 			}
 			calls := 0
@@ -173,7 +187,7 @@ func TestPRWatchVerifiesNewWatch(t *testing.T) {
 func TestPRWatchRejectsPlainSession(t *testing.T) {
 	stubPRDaemon(t)
 	store := setupStore(t)
-	if err := store.Create(state.Manifest{SessionID: "qm-shell"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-shell"}); err != nil {
 		t.Fatal(err)
 	}
 	_, err := runCmdErr(t, store, sessionsRunner(), "pr", "watch", "owner/repo#1", "--session", "qm-shell")
@@ -189,7 +203,7 @@ func TestPRWatchRejectsPlainSession(t *testing.T) {
 func TestPRWatchHostAllowlist(t *testing.T) {
 	stubPRDaemon(t)
 	store := setupStore(t)
-	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
 	existing, _ := state.ParsePullRequestRef("owner/repo#7")
@@ -224,7 +238,7 @@ func TestPREventsPreviewAndFull(t *testing.T) {
 	t.Setenv(state.StateRootEnv, store.Root())
 	t.Setenv(state.SessionEnv, "qm-reader")
 	for _, id := range []string{"qm-reader", "qm-watcher"} {
-		if err := store.Create(state.Manifest{SessionID: id, Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+		if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: id, Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -321,7 +335,7 @@ func TestPRRefreshUsesWatchedScopeAndPersistsStatus(t *testing.T) {
 	t.Setenv(state.StateRootEnv, store.Root())
 	t.Setenv(state.SessionEnv, "qm-pr")
 	for _, id := range []string{"qm-pr", "qm-other"} {
-		if err := store.Create(state.Manifest{SessionID: id, Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+		if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: id, Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -380,7 +394,7 @@ func TestPRRefreshFailsWithoutDaemon(t *testing.T) {
 	store := setupStore(t)
 	t.Setenv(state.StateRootEnv, store.Root())
 	t.Setenv(state.SessionEnv, "qm-pr")
-	if err := store.Create(state.Manifest{SessionID: "qm-pr"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-pr"}); err != nil {
 		t.Fatal(err)
 	}
 	prEnsure = func(context.Context, daemon.Config) (daemon.Record, error) {
@@ -426,7 +440,7 @@ func setupPRSession(t *testing.T) *state.Store {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(state.StateRootEnv, store.Root())
 	t.Setenv(state.SessionEnv, "qm-pr")
-	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
 	return store
@@ -502,7 +516,7 @@ func TestPruneDropsOrphanWatchesAndDryRunPreservesRegistry(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	ref, _ := state.ParsePullRequestRef("owner/repo#1")
-	if err := store.Create(state.Manifest{SessionID: "qm-orphan"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-orphan"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := state.WatchPullRequest(store.Root(), "qm-orphan", ref, time.Now()); err != nil {
@@ -521,7 +535,7 @@ func TestPruneDropsOrphanWatchesAndDryRunPreservesRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{}})
-	dry, err := pruneManifests(t.Context(), store, client, 7, true)
+	dry, err := pruneManifests(t.Context(), store, client, 7, true, testPruneRouter(store, client))
 	if err != nil || dry.DroppedWatches != 2 {
 		t.Fatalf("dry prune = %#v, %v", dry, err)
 	}
@@ -529,7 +543,7 @@ func TestPruneDropsOrphanWatchesAndDryRunPreservesRegistry(t *testing.T) {
 	if err != nil || string(before) != string(after) {
 		t.Fatalf("dry run changed registry: %v", err)
 	}
-	got, err := pruneManifests(t.Context(), store, client, 7, false)
+	got, err := pruneManifests(t.Context(), store, client, 7, false, testPruneRouter(store, client))
 	if err != nil || got.DroppedWatches != 2 {
 		t.Fatalf("prune = %#v, %v", got, err)
 	}
@@ -545,7 +559,7 @@ func TestPruneDropsOrphanWatchesAndDryRunPreservesRegistry(t *testing.T) {
 func TestPRExistingWatchOnUnlistedHostStillWorks(t *testing.T) {
 	stubPRDaemon(t)
 	store := setupStore(t)
-	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
 	ref, err := state.ParsePullRequestRef("https://ghe.example/owner/repo/pull/2")

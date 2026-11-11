@@ -21,6 +21,9 @@ import (
 	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 type server struct {
@@ -29,22 +32,24 @@ type server struct {
 	lock, jobsLock  *os.File
 	listener        net.Listener
 	socketInfo      os.FileInfo
-	mu              sync.Mutex
-	record          Record
-	lastActivity    time.Time
-	active          int
-	stop            chan struct{}
-	upgrade         chan string
-	upgrading       bool
-	nextUpgradeTry  time.Time
-	runtime         *serve.Server
-	sourceMu        sync.Mutex
-	source          serve.ChangeSource
-	sourceClients   int
-	jobsCancel      context.CancelFunc
-	jobsDone        chan struct{}
-	jobsRequested   bool
-	nextJobsTry     time.Time
+	// onStoppedAccepting lets tests synchronize with shutdown's quiesce point.
+	onStoppedAccepting func()
+	mu                 sync.Mutex
+	record             Record
+	lastActivity       time.Time
+	active             int
+	stop               chan struct{}
+	upgrade            chan string
+	upgrading          bool
+	nextUpgradeTry     time.Time
+	runtime            *serve.Server
+	sourceMu           sync.Mutex
+	source             serve.ChangeSource
+	sourceClients      int
+	jobsCancel         context.CancelFunc
+	jobsDone           chan struct{}
+	jobsRequested      bool
+	nextJobsTry        time.Time
 }
 
 func setDetached(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }
@@ -95,10 +100,18 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	s := &server{config: config, id: id, socket: socket, dir: dir, stop: make(chan struct{}, 1), upgrade: make(chan string, 1), lastActivity: time.Now(), jobsRequested: jobsAllowed(id, jobsRequested)}
 	s.runtime = config.Runtime
 	if s.runtime == nil {
-		s.runtime = &serve.Server{Snapshotter: serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)}
+		s.runtime = &serve.Server{}
 	}
 	if s.runtime.Snapshotter == nil {
-		s.runtime.Snapshotter = serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)
+		if s.runtime.TmuxRouter == nil {
+			paths := tmuxconfig.Paths(config.Root)
+			router, err := tmuxroute.NewProduction(state.OpenStore(config.Root), tmux.NewClient(tmux.DefaultServer(paths.Config, paths.Enforced)))
+			if err != nil {
+				return fmt.Errorf("daemon tmux router: %w", err)
+			}
+			s.runtime.TmuxRouter = router
+		}
+		s.runtime.Snapshotter = serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil, s.runtime.TmuxRouter)
 	}
 	for _, job := range config.Jobs {
 		if pr, ok := job.(*prstatus.Job); ok {
@@ -329,7 +342,7 @@ func (s *server) handle(conn net.Conn) {
 	dec := json.NewDecoder(conn)
 	for {
 		var req serve.Request
-		_ = conn.SetReadDeadline(time.Now().Add(s.config.ReadIdleTimeout))
+		_ = conn.SetReadDeadline(s.config.now().Add(s.config.ReadIdleTimeout))
 		if err := dec.Decode(&req); err != nil {
 			return
 		}
@@ -493,6 +506,9 @@ func (s *server) shutdown(idle bool) error {
 	s.mu.Lock()
 	s.record.Accepting = false
 	s.mu.Unlock()
+	if s.onStoppedAccepting != nil {
+		s.onStoppedAccepting()
+	}
 	if !idle {
 		if err := s.closeListener(); err != nil {
 			return err

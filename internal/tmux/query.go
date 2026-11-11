@@ -46,6 +46,33 @@ func (c *Client) ListSessions(ctx context.Context) ([]string, error) {
 	return sessions, nil
 }
 
+// ListSessionsStatus preserves whether the server exists. Inventory must not
+// interpret a failed connection as an empty server.
+func (c *Client) ListSessionsStatus(ctx context.Context) ([]string, bool, error) {
+	out, err := c.runner.Run(ctx, "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		var exitErr *ExitError
+		if errors.As(err, &exitErr) {
+			stderr := exitErr.Stderr
+			if strings.Contains(stderr, "no server running") ||
+				(strings.Contains(stderr, "No such file or directory") && strings.Contains(stderr, "error connecting")) {
+				return nil, false, nil
+			}
+		}
+		return nil, false, fmt.Errorf("list sessions: %w", err)
+	}
+	if out == "" {
+		return nil, true, nil
+	}
+	sessions := strings.Split(out, "\n")
+	for _, name := range sessions {
+		if name == "" || strings.ContainsAny(name, "\r\t") {
+			return nil, false, fmt.Errorf("malformed list-sessions output")
+		}
+	}
+	return sessions, true, nil
+}
+
 func (c *Client) cachedListSessions() ([]string, error, bool) {
 	if c == nil {
 		return nil, nil, false

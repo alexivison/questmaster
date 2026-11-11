@@ -105,10 +105,20 @@ func (c *Client) callerSession(ctx context.Context) (string, bool, error) {
 	}
 	// display-message prints empty pane fields for a pane it cannot find.
 	fields := strings.Split(out, "\t")
-	if len(fields) != 3 || fields[0] != socket || fields[1] != pane || fields[2] == "" {
+	if len(fields) != 3 || canonicalTmuxSocket(fields[0]) != canonicalTmuxSocket(socket) || fields[1] != pane || fields[2] == "" {
 		return "", false, nil
 	}
 	return fields[2], true, nil
+}
+
+func canonicalTmuxSocket(path string) string {
+	if path == "/private/tmp" {
+		return "/tmp"
+	}
+	if strings.HasPrefix(path, "/private/tmp/") {
+		return "/tmp/" + strings.TrimPrefix(path, "/private/tmp/")
+	}
+	return path
 }
 
 // callerClient returns the client tmux treats as the caller's: the most
@@ -342,15 +352,6 @@ func (c *Client) ShowEnvironment(ctx context.Context, session, key string) (stri
 	return "", false, nil
 }
 
-// SetHook registers a tmux hook on a session.
-func (c *Client) SetHook(ctx context.Context, session, hookName, cmd string) error {
-	_, err := c.runner.Run(ctx, "set-hook", "-t", SessionTarget(session), hookName, cmd)
-	if err != nil {
-		return fmt.Errorf("set-hook %s on %s: %w", hookName, session, err)
-	}
-	return nil
-}
-
 // SwitchClient moves the caller's own client to a session. The caller must run
 // in a pane on this server; the client is the one showing that pane's session,
 // never a guess among other clients.
@@ -366,6 +367,12 @@ func (c *Client) SwitchClient(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("switch-client to %s: %w", sessionID, err)
 	}
 	return nil
+}
+
+// CallerOnServer proves the caller's pane belongs to this client's socket.
+func (c *Client) CallerOnServer(ctx context.Context) (bool, error) {
+	_, ok, err := c.callerSession(ctx)
+	return ok, err
 }
 
 // SessionName returns the session of the pane this process runs in. It fails

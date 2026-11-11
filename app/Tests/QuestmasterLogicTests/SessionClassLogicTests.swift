@@ -4,7 +4,7 @@ import QuestmasterCore
 struct SessionClassLogicTests {
     static func run() {
         classesAreTheBackendsInItsOrder()
-        displayNamesAreCapitalised()
+        classAndFamiliarNamesAreCapitalised()
         classIDsParseLeniently()
         classCycleWrapsWithoutRandom()
         classCycleCountsRandomAsASlot()
@@ -26,14 +26,15 @@ struct SessionClassLogicTests {
 
     private static func classesAreTheBackendsInItsOrder() {
         expect(
-            SessionClass.allCases.map(\.rawValue) == ["paladin", "wizard", "druid", "barbarian", "rogue", "cleric", "bard"],
+            SessionClass.allCases.map(\.rawValue) == ["paladin", "wizard", "druid", "barbarian", "rogue", "cleric", "bard", "ranger", "necromancer", "sorcerer", "fighter"],
             "the ids and their order are the backend's (internal/state/session_class.go)"
         )
     }
 
-    private static func displayNamesAreCapitalised() {
+    private static func classAndFamiliarNamesAreCapitalised() {
         expect(SessionClass.cleric.displayName == "Cleric", "the display name is the id, capitalised")
         expect(SessionClass.allCases.allSatisfy { $0.displayName.first?.isUppercase == true }, "every display name starts with a capital")
+        expect(SessionClass.allCases.map(\.familiarName) == ["Clockwork Construct", "Fire Elemental", "Treant", "Bear", "Raven", "Light Spirit", "Imp", "Hawk", "Skeleton", "Lightning Elemental", "War Hound"], "each class names its familiar")
         expect(SessionClass.randomLabel == "Random", "the default's label")
     }
 
@@ -41,12 +42,15 @@ struct SessionClassLogicTests {
         expect(SessionClass(id: "wizard") == .wizard, "an id parses")
         expect(SessionClass(id: " Druid ") == .druid, "case and whitespace don't matter")
         expect(SessionClass(id: "") == nil, "an empty class is no class")
-        expect(SessionClass(id: "ranger") == nil, "an unknown class is no class")
+        expect(SessionClass(id: "ranger") == .ranger, "the ranger class parses")
+        expect(SessionClass(id: " NECROMANCER ") == .necromancer, "a new class parses leniently")
+        expect(SessionClass(id: "unknown") == nil, "an unknown class is no class")
     }
 
     private static func classCycleWrapsWithoutRandom() {
         expect(SessionClass.paladin.next == .wizard, "paladin is followed by wizard")
-        expect(SessionClass.bard.next == .paladin, "bard wraps to paladin: an edit has no Random")
+        expect(SessionClass.bard.next == .ranger, "ranger follows bard")
+        expect(SessionClass.fighter.next == .paladin, "fighter wraps to paladin: an edit has no Random")
         var visited: [SessionClass] = [.paladin]
         for _ in 1..<SessionClass.allCases.count {
             visited.append(visited[visited.count - 1].next)
@@ -57,19 +61,23 @@ struct SessionClassLogicTests {
     private static func classCycleCountsRandomAsASlot() {
         expect(SessionClass.next(after: nil) == .paladin, "Random is followed by paladin")
         expect(SessionClass.next(after: .rogue) == .cleric, "a class is followed by the next")
-        expect(SessionClass.next(after: .bard) == nil, "bard is followed by Random")
+        expect(SessionClass.next(after: .fighter) == nil, "fighter is followed by Random")
         var choice: SessionClass? = nil
         var seen: [SessionClass?] = []
         for _ in 0...SessionClass.allCases.count {
             choice = SessionClass.next(after: choice)
             seen.append(choice)
         }
-        expect(seen == SessionClass.allCases.map { Optional($0) } + [nil], "one full lap is Random, the seven classes, Random")
+        expect(seen == SessionClass.allCases.map { Optional($0) } + [nil], "one full lap is Random, all classes, Random")
     }
 
     private static func portraitNamesCarryTheirKindBecauseResourcesFlatten() {
         expect(SessionPortrait.master(.paladin).resourceName == "class-paladin", "a master portrait is class-<id>")
-        expect(SessionPortrait.familiar(.paladin).resourceName == "familiar-paladin", "a familiar is familiar-<id>")
+        expect(SessionPortrait.familiar(.paladin).resourceName == "familiar-paladin", "a familiar portrait is named for its class")
+        expect(SessionPortrait.familiar(.ranger).resourceName == "familiar-ranger", "ranger uses its familiar portrait")
+        expect(SessionPortrait.familiar(.necromancer).resourceName == "familiar-necromancer", "necromancer uses its familiar portrait")
+        expect(SessionPortrait.familiar(.sorcerer).resourceName == "familiar-sorcerer", "sorcerer uses its familiar portrait")
+        expect(SessionPortrait.familiar(.fighter).resourceName == "familiar-fighter", "fighter uses its familiar portrait")
         expect(SessionPortrait.master(nil).resourceName == "random", "the Random silhouette")
         let names = SessionClass.allCases.flatMap { [SessionPortrait.master($0).resourceName, SessionPortrait.familiar($0).resourceName] }
             + [SessionPortrait.master(nil).resourceName]
@@ -83,7 +91,8 @@ struct SessionClassLogicTests {
         expect(SessionPortrait(session: session(role: "master", sessionClass: "cleric")) == .master(.cleric), "a master shows its class")
         expect(SessionPortrait(session: session(role: "worker", sessionClass: "cleric")) == .familiar(.cleric), "a worker shows its master's familiar")
         expect(SessionPortrait(session: session(role: "master", sessionClass: "")) == nil, "a master without a class falls back to the logo disc")
-        expect(SessionPortrait(session: session(role: "worker", sessionClass: "ranger")) == nil, "an unknown class falls back to the logo disc")
+        expect(SessionPortrait(session: session(role: "worker", sessionClass: "ranger")) == .familiar(.ranger), "a ranger worker shows its hawk familiar")
+        expect(SessionPortrait(session: session(role: "worker", sessionClass: "unknown")) == nil, "an unknown class falls back to the logo disc")
         for role in ["shell", "tmux", "orphan"] {
             expect(SessionPortrait(session: session(role: role, sessionClass: "bard")) == nil, "a \(role) row has no portrait")
         }
@@ -97,9 +106,9 @@ struct SessionClassLogicTests {
         for _ in 1..<SessionClass.allCases.count {
             model.cycleSessionClass()
         }
-        expect(model.sessionClass == .bard && model.classLabel == "Bard", "six more cycles reach bard")
+        expect(model.sessionClass == .fighter && model.classLabel == "Fighter", "ten more cycles reach fighter")
         model.cycleSessionClass()
-        expect(model.sessionClass == nil && model.classLabel == "Random", "bard is followed by Random")
+        expect(model.sessionClass == nil && model.classLabel == "Random", "fighter is followed by Random")
     }
 
     private static func newSessionSendsAClassOnlyWhenOneIsChosen() {
@@ -155,9 +164,9 @@ struct SessionClassLogicTests {
     private static func editPortraitCyclesTheMastersClassAndLeavesTheRestAlone() {
         var master = EditSessionPortrait.choosing(.bard)
         master.cycle()
-        expect(master == .choosing(.paladin), "an edit has no Random: bard wraps to paladin")
+        expect(master == .choosing(.ranger), "an edit moves from bard to ranger")
         master.cycle()
-        expect(master.label == "Wizard", "the label follows the class")
+        expect(master.label == "Necromancer", "the label follows the class")
         var worker = EditSessionPortrait.familiar(.druid)
         worker.cycle()
         expect(worker == .familiar(.druid), "⌃e and a click do nothing on a familiar")
@@ -192,7 +201,7 @@ struct SessionClassLogicTests {
 
     /// A master the backfill hasn't reached has no class, but it is still a master: its row is decided by its role.
     private static func anUnassignedMasterIsEditableAndStartsAtThePaladin() {
-        for sessionClass in ["", "ranger"] {
+        for sessionClass in ["", "unknown"] {
             let session = TrackerSession(id: "qm-1", title: "t", repoName: "r", sessionClass: sessionClass, role: "master")
             var portrait = EditSessionPortrait(session: session)
             let initial = portrait
@@ -209,7 +218,7 @@ struct SessionClassLogicTests {
                 for _ in 0..<SessionClass.allCases.count {
                     portrait.cycle()
                 }
-                expect(portrait == .choosing(.paladin), "after bard it wraps to paladin: an edit has no Random to return to")
+                expect(portrait == .choosing(.paladin), "after fighter it wraps to paladin: an edit has no Random to return to")
             } catch {
                 fail("reclassRequest threw \(error)")
             }
@@ -219,7 +228,7 @@ struct SessionClassLogicTests {
     private static func editPortraitNamesItselfForAssistiveTechnology() {
         expect(EditSessionPortrait.choosing(.cleric).accessibilityLabel == "Class Cleric", "a master's portrait names its class")
         expect(EditSessionPortrait.choosing(nil).accessibilityLabel == "Class Random", "an unassigned master's portrait says Random")
-        expect(EditSessionPortrait.familiar(.druid).accessibilityLabel == "Druid familiar", "a worker's portrait names its familiar")
+        expect(EditSessionPortrait.familiar(.druid).accessibilityLabel == "Treant familiar", "a worker's portrait names its familiar")
         expect(EditSessionPortrait.none.accessibilityLabel == nil, "no portrait, no label")
     }
 

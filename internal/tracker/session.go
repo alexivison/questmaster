@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 var builtinAgentRegistry = func() *agent.Registry {
@@ -79,16 +81,30 @@ type SessionFetcher func(current SessionInfo) (TrackerSnapshot, error)
 
 type sessionIndex struct {
 	liveSessions map[string]struct{}
+	servers      map[string]tmuxroute.ServerInventory
 }
 
 // NewLiveSessionFetcher creates a SessionFetcher backed by shared services.
 // The project resolver and repo-color store are owned by the caller and
 // captured by the returned closure, so their memo tables persist across
 // refresh ticks (a session's cwd does not change projects within a run).
-func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store, projects *state.ProjectResolver) SessionFetcher {
+func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store, projects *state.ProjectResolver, routers ...*tmuxroute.Router) SessionFetcher {
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
+	}
+	if router == nil {
+		return func(SessionInfo) (TrackerSnapshot, error) {
+			return TrackerSnapshot{}, fmt.Errorf("tmux router is required for tracker")
+		}
+	}
+	lastStatus := map[string]string{}
+	var fetchMu sync.Mutex
 	repoColors := state.NewRepoColorStore(store.Root())
 	projectRegistry := state.NewProjectStore(store.Root())
 	return func(current SessionInfo) (TrackerSnapshot, error) {
+		fetchMu.Lock()
+		defer fetchMu.Unlock()
 		manifests, err := store.DiscoverSessions()
 		if err != nil {
 			return TrackerSnapshot{}, fmt.Errorf("discover sessions: %w", err)
@@ -99,22 +115,40 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store, projects
 
 		ctx := context.Background()
 		observedAt := time.Now()
-		index := buildSessionIndex(ctx, tmuxClient)
+		index := buildSessionIndex(ctx, router)
 		// Graceful degradation: a missing or unreadable store reads as "no repo
 		// colors" or "no project settings" rather than failing the refresh.
 		repoColorMap, _ := repoColors.Load()
 		registry, _ := projectRegistry.Load()
 		lookup := projectLookup{resolver: projects, registry: registry, colors: repoColorMap}
 		rows := make([]SessionRow, 0, len(manifests))
+		nextStatus := make(map[string]string, len(manifests))
 		manifestByID := make(map[string]state.Manifest, len(manifests))
 		for _, manifest := range manifests {
 			manifestByID[manifest.SessionID] = manifest
 		}
 
 		for _, manifest := range manifests {
-			alive := index.hasSession(manifest.SessionID)
-
+			label := ""
+			if !manifest.NeedsTmuxBackfill() {
+				handle, err := router.Route(manifest)
+				if err != nil {
+					return TrackerSnapshot{}, fmt.Errorf("route %s: %w", manifest.SessionID, err)
+				}
+				label = handle.Label()
+			}
+			key := label + "\x00" + manifest.SessionID
+			server := index.servers[label]
+			alive := label != "" && index.hasSession(label, manifest.SessionID)
 			row := ManifestToSessionRow(manifest.SessionID, manifest, alive)
+			if server.Outcome == tmuxroute.Unavailable {
+				prior, ok := lastStatus[key]
+				if !ok {
+					return TrackerSnapshot{}, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+				}
+				row.Status = prior
+			}
+			nextStatus[key] = row.Status
 			row.IsCurrent = manifest.SessionID == current.ID
 
 			resolvedAgent := resolveManifestAgent(manifest, agent.RoleAgent)
@@ -127,6 +161,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store, projects
 		}
 		inheritWorkerDisplayColors(rows)
 		InheritWorkerClasses(rows)
+		lastStatus = nextStatus
 
 		return TrackerSnapshot{
 			Sessions:   GroupRowsByRepo(OrderSessionRows(rows), state.NewProjectOrder(registry.Order)),
@@ -336,26 +371,26 @@ func InheritWorkerClasses(rows []SessionRow) {
 	}
 }
 
-func buildSessionIndex(ctx context.Context, tmuxClient *tmux.Client) sessionIndex {
+func buildSessionIndex(ctx context.Context, router *tmuxroute.Router) sessionIndex {
 	index := sessionIndex{
 		liveSessions: make(map[string]struct{}),
+		servers:      make(map[string]tmuxroute.ServerInventory),
 	}
-	if tmuxClient == nil {
+	if router == nil {
 		return index
 	}
-
-	liveSessions, err := tmuxClient.ListSessions(ctx)
-	if err != nil {
-		return index
+	inv := router.Inventory(ctx)
+	for _, server := range inv.Servers {
+		index.servers[server.Label] = server
 	}
-	for _, sessionID := range liveSessions {
-		index.liveSessions[sessionID] = struct{}{}
+	for _, row := range inv.Rows {
+		index.liveSessions[row.Label+"\x00"+row.ID] = struct{}{}
 	}
 	return index
 }
 
-func (i sessionIndex) hasSession(sessionID string) bool {
-	_, ok := i.liveSessions[sessionID]
+func (i sessionIndex) hasSession(label, sessionID string) bool {
+	_, ok := i.liveSessions[label+"\x00"+sessionID]
 	return ok
 }
 

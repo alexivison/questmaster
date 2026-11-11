@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
-	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // StartOpts configures a new session launch.
@@ -52,6 +53,11 @@ type StartResult struct {
 
 // Start creates and launches a new questmaster session.
 func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error) {
+	handle, err := s.router().Creation()
+	if err != nil {
+		return StartResult{}, err
+	}
+	s = s.onHandle(handle)
 	role := roleMaster
 	if opts.MasterID != "" {
 		role = roleWorker
@@ -296,12 +302,22 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			}
 		}
 
+		if err := s.prepareCreation(ctx, handle); err != nil {
+			return s.startRollbackError(ctx, sessionID, false, handle.Label(), err)
+		}
 		pane, err := s.Client.NewSession(ctx, sessionID, "", cwd)
 		if err != nil {
-			return s.startRollbackError(ctx, sessionID, false, fmt.Errorf("create tmux session: %w", err))
+			return s.startRollbackError(ctx, sessionID, false, handle.Label(), fmt.Errorf("create tmux session: %w", err))
+		}
+		if err := s.Store.Update(sessionID, func(m *state.Manifest) { m.TmuxServer = state.TmuxServer(handle.Label()) }); err != nil {
+			return s.startRollbackError(ctx, sessionID, true, handle.Label(), fmt.Errorf("record tmux server: %w", err))
+		}
+		if err := s.verifyCreationOwnership(ctx, handle); err != nil {
+			return s.startRollbackError(ctx, sessionID, true, handle.Label(), err)
 		}
 
 		if err := s.launchSession(ctx, launchConfig{
+			serverLabel: handle.Label(),
 			sessionID:   sessionID,
 			pane:        pane,
 			cwd:         cwd,
@@ -314,7 +330,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			agents:      launchAgents,
 			agentResume: agentResume,
 		}); err != nil {
-			return s.startRollbackError(ctx, sessionID, true, err)
+			return s.startRollbackError(ctx, sessionID, true, handle.Label(), err)
 		}
 
 		result = StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd, Master: role == roleMaster}
@@ -353,20 +369,25 @@ func workerParentBrief(parentID, brief string) string {
 
 // startRollbackError undoes a failed Start. created is true once this Start's
 // new-session succeeded; only then is the tmux session its own to kill.
-func (s *Service) startRollbackError(ctx context.Context, sessionID string, created bool, cause error) error {
-	if rollbackErr := s.rollbackStartedSession(ctx, sessionID, created); rollbackErr != nil {
+func (s *Service) startRollbackError(ctx context.Context, sessionID string, created bool, serverLabel string, cause error) error {
+	if rollbackErr := s.rollbackStartedSession(ctx, sessionID, created, serverLabel); rollbackErr != nil {
 		return fmt.Errorf("%w (rollback failed: %v)", cause, rollbackErr)
 	}
 	return cause
 }
 
-func (s *Service) rollbackStartedSession(ctx context.Context, sessionID string, created bool) error {
+func (s *Service) rollbackStartedSession(ctx context.Context, sessionID string, created bool, serverLabel string) error {
 	var errs []error
 	if created && s.Client != nil {
 		ctx, cancel := rollbackContext(ctx)
 		defer cancel()
 		if err := s.Client.KillSession(ctx, sessionID); err != nil {
 			errs = append(errs, fmt.Errorf("kill partial tmux session: %w", err))
+			// The container survived; keep its manifest reachable on its server.
+			if recordErr := s.Store.Update(sessionID, func(m *state.Manifest) { m.TmuxServer = state.TmuxServer(serverLabel) }); recordErr != nil {
+				errs = append(errs, fmt.Errorf("record live tmux server: %w", recordErr))
+			}
+			return errors.Join(errs...)
 		}
 	}
 	if _, err := s.cleanupStartedSession(sessionID); err != nil {
@@ -396,7 +417,7 @@ func (s *Service) startDisplayMetadata(opts StartOpts) *state.DisplayMetadata {
 }
 
 func (s *Service) activeMasterClasses(ctx context.Context) ([]string, error) {
-	_, classes, err := liveMasterClasses(ctx, s.Store, s.Client)
+	_, classes, err := visibleLiveMasterClasses(ctx, s.Store, s.router())
 	if err != nil {
 		return nil, fmt.Errorf("list live sessions for class assignment: %w", err)
 	}
@@ -441,6 +462,10 @@ var errSessionIDTaken = errors.New("session ID taken")
 // rollback removes that directory and never a legacy one.
 func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, launch func(context.Context, string) error) error {
 	const maxAttempts = 100
+	creation, err := s.router().Creation()
+	if err != nil {
+		return err
+	}
 	timestamp := s.Now()
 	for attempt := range maxAttempts {
 		id := state.NewSessionID(timestamp)
@@ -450,6 +475,7 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, l
 
 		err := s.locked(ctx, []string{id}, func(ctx context.Context) error {
 			template.SessionID = id
+			template.TmuxServer = state.TmuxServer(creation.Label())
 			template.RuntimeDir = state.NewRuntimeDir(s.Store.Root(), id)
 			if err := s.Store.Create(template); err != nil {
 				if errors.Is(err, state.ErrManifestExists) {
@@ -458,18 +484,25 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, l
 				return fmt.Errorf("create manifest: %w", err)
 			}
 
-			// Guard against orphan tmux sessions that have no manifest.
-			// Propagate real transport errors; benign "no server" returns (false, nil).
-			exists, hsErr := s.Client.HasSession(ctx, id)
+			// An orphan can occupy the ID on any recorded dedicated server.
+			handles, hsErr := s.router().RecordedHandles()
 			if hsErr != nil {
-				if delErr := s.Store.Delete(id); delErr != nil && !isManifestNotFound(delErr) {
-					return fmt.Errorf("check tmux session %s: %w (rollback failed: %v)", id, hsErr, delErr)
-				}
+				_ = s.Store.Delete(id)
 				return fmt.Errorf("check tmux session %s: %w", id, hsErr)
 			}
-			if exists {
-				_ = s.Store.Delete(id) // best-effort; retries use different IDs
-				return errSessionIDTaken
+			for _, h := range handles {
+				exists, err := h.Client().HasSession(ctx, id)
+				if err != nil {
+					if h.Label() != creation.Label() {
+						continue // another server's outage cannot prevent creation
+					}
+					_ = s.Store.Delete(id)
+					return err
+				}
+				if exists {
+					_ = s.Store.Delete(id)
+					return errSessionIDTaken
+				}
 			}
 			return launch(ctx, id)
 		})
@@ -479,6 +512,36 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, l
 		return err
 	}
 	return fmt.Errorf("failed to generate unique session ID after %d attempts", maxAttempts)
+}
+
+func (s *Service) prepareCreation(ctx context.Context, handle tmuxroute.Handle) error {
+	if err := tmuxconfig.Prepare(s.Store.Root()); err != nil {
+		return fmt.Errorf("prepare named tmux server: %w", err)
+	}
+	_, present, err := handle.Client().ListSessionsStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect named tmux server: %w", err)
+	}
+	if present {
+		if err := s.verifyCreationOwnership(ctx, handle); err != nil {
+			return err
+		}
+	}
+	if err := state.RecordTmuxServerLabel(s.Store.Root(), handle.Label()); err != nil {
+		return fmt.Errorf("record named tmux server: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) verifyCreationOwnership(ctx context.Context, handle tmuxroute.Handle) error {
+	marker, err := handle.Client().RunBatch(ctx, []string{"show-options", "-gqv", "@questmaster_root"})
+	if err != nil {
+		return fmt.Errorf("read named tmux server ownership: %w", err)
+	}
+	if !tmuxconfig.OwnsRoot(strings.TrimSpace(marker), s.Store.Root(), handle.Label()) {
+		return fmt.Errorf("tmux server %q is unmarked or belongs to another state root; use a different QUESTMASTER_TMUX_LABEL", handle.Label())
+	}
+	return nil
 }
 
 // persistResumeIDs writes resume IDs to the runtime directory.
@@ -503,126 +566,6 @@ func (s *Service) setResumeEnv(ctx context.Context, sessionID string, resume map
 		return err
 	}
 	return nil
-}
-
-// setCleanupHook registers the session-closed hook for cleanup.
-// On session close: deregister from parent's workers list (via jq),
-// remove the runtime dir, then delete the manifest unless it's a master.
-//
-// The cleanup logic is a script in the runtime dir, so neither tmux's format
-// expansion nor shell quoting touches it; the hook only finds and runs it.
-func (s *Service) setCleanupHook(ctx context.Context, sessionID, runtimeDir string) error {
-	// Embed parent ID at hook-creation time so the cleanup script doesn't
-	// need jq to discover it. jq is only used (best-effort) for rewriting
-	// JSON state.
-	var parentID string
-	if m, err := s.Store.Read(sessionID); err == nil {
-		parentID = m.ExtraString("parent_session")
-	}
-
-	if err := writeCleanupScript(runtimeDir, s.Store.Root(), sessionID, parentID); err != nil {
-		return fmt.Errorf("write cleanup script: %w", err)
-	}
-	return s.Client.SetHook(ctx, sessionID, "session-closed", cleanupHookCommand(filepath.Dir(runtimeDir)))
-}
-
-// cleanupHookCommand returns the session-closed hook. tmux may run a
-// session-scoped session-closed hook from a different still-live session, so
-// the hook always cleans the session that actually closed: it finds that
-// session's script by name under base, the directory every runtime directory
-// under this state root shares (state.NewRuntimeDir).
-//
-// The text passes three parsers. tmux's command parser reads the double-quoted
-// argument, where \, " and $ are special: an unescaped $VAR expands there, and
-// an empty one once turned the script's rm -rf of the runtime directory into
-// one of its parent, deleting the tmux socket. run-shell then expands formats,
-// where # is special and ## is a literal #. sh runs the rest, with base
-// single-quoted.
-func cleanupHookCommand(base string) string {
-	script := strings.ReplaceAll(shellQuoteForScript(base), "#", "##") + "/#{q:hook_session_name}/cleanup.sh"
-	command := "test -f " + script + " && /bin/sh " + script + " #{q:hook_session_name}"
-	return `run-shell "` + tmuxDoubleQuoted.Replace(command) + `"`
-}
-
-var tmuxDoubleQuoted = strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`)
-
-// writeCleanupScript writes the session cleanup logic to cleanup.sh in the
-// session's runtime directory, which the script removes last. Paths are
-// single-quoted so spaces and special characters (including apostrophes) are
-// safe. The parent session ID is embedded at generation time so the script
-// doesn't need jq to discover it.
-// jq is only used (best-effort) for rewriting JSON state.
-func writeCleanupScript(runtimeDir, stateRoot, sessionID, parentID string) error {
-	// Perl is used as a portable flock wrapper (macOS ships with Perl;
-	// flock CLI does not exist). system() (not exec) holds the lock
-	// while bash runs the jq rewrites.
-	hookStateRoot := state.StateRoot()
-	script := fmt.Sprintf(`#!/bin/sh
-SR=%s
-HSR=%s
-W=%s
-p=%s
-RD=%s
-closed=${1:-}
-export SR HSR W
-if [ "$closed" != "$W" ]; then
-  exit 0
-fi
-# Best-effort: persist Pi's real session UUID before removing the runtime dir.
-activity="$HSR/$W/state.json"
-if [ -n "$HSR" ] && [ -f "$activity" ] && [ -f "$SR/$W.json" ] && command -v jq >/dev/null 2>&1; then
-  sf=$(jq -r 'select(.version == 1) | (.panes.agent.pi_session_id // .panes.agent.session_file // .panes.primary.pi_session_id // .panes.primary.session_file // empty)' "$activity" 2>/dev/null || true)
-  base=${sf##*/}
-  pi_session_id=
-  case "$base" in
-    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9]Z_????????-????-????-????-????????????.jsonl)
-      pi_session_id=${base#*_}
-      pi_session_id=${pi_session_id%%.jsonl}
-      ;;
-    ????????-????-????-????-????????????)
-      pi_session_id=$base
-      ;;
-  esac
-  case "$pi_session_id" in
-    ????????-????-????-????-????????????) ;;
-    *) pi_session_id= ;;
-  esac
-  case "$pi_session_id" in
-    *[!A-Za-z0-9_-]*) pi_session_id= ;;
-  esac
-  if [ -n "$pi_session_id" ] && ! printf '%%s\n' "$pi_session_id" | grep -Eq '^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$'; then
-    pi_session_id=
-  fi
-  if [ -n "$pi_session_id" ]; then
-    export pi_session_id
-    perl -MFcntl=:flock -e \
-      'open my $f,">",shift or exit 1;flock($f,LOCK_EX) or exit 1;exit(system(@ARGV)>>8)' \
-      "$SR/$W.json.lock" \
-      bash -c 'tmp=$(mktemp)
-        jq --arg v "$pi_session_id" '"'"'.pi_session_id = $v | if (.agents | type) == "array" then .agents = (.agents | map(if .name == "pi" then .resume_id = $v else . end)) else . end'"'"' "$SR/$W.json" >"$tmp" \
-          && mv "$tmp" "$SR/$W.json" \
-          || rm -f "$tmp"'
-  fi
-fi
-# Best-effort: remove this worker from parent's worker list (requires jq).
-if [ -n "$p" ] && [ -f "$SR/$p.json" ] && command -v jq >/dev/null 2>&1; then
-  export p
-  perl -MFcntl=:flock -e \
-    'open my $f,">",shift or exit 1;flock($f,LOCK_EX) or exit 1;exit(system(@ARGV)>>8)' \
-    "$SR/$p.json.lock" \
-    bash -c 'tmp=$(mktemp)
-      jq --arg w "'"$W"'" '"'"'.workers=((.workers//[])-[$w])'"'"' "$SR/$p.json" >"$tmp" \
-        && mv "$tmp" "$SR/$p.json" \
-        || rm -f "$tmp"'
-fi
-rm -rf "$RD"
-# Manifests are NOT deleted on session close — the prune command handles
-# stale manifest cleanup with proper parent deregistration (7-day TTL).
-# Keep the manifest so the tracker can derive this session's role from its parent.
-exit 0
-`, shellQuoteForScript(stateRoot), shellQuoteForScript(hookStateRoot), shellQuoteForScript(sessionID), shellQuoteForScript(parentID), shellQuoteForScript(runtimeDir))
-
-	return state.WriteRuntimeFile(runtimeDir, "cleanup.sh", []byte(script))
 }
 
 // shellQuoteForScript wraps a value in single quotes for safe embedding in

@@ -26,6 +26,12 @@ enum RenderPreview {
         render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-init.png")
         render(newQuestSheetView(.typingPath), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(newQuestSheetView(.searchingProjects), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-projects.png")
+        render(newQuestSheetView(.editNoTags), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-no-tags.png")
+        render(newQuestSheetView(.editTagged), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags.png")
+        render(newQuestSheetView(.editTagsOpen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags-open.png")
+        render(newQuestSheetView(.editTagsSearching), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags-search.png")
+        render(newQuestSheetView(.editAllTypes), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-all-types.png")
+        render(newQuestSheetView(.editSizeFocused), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-size-focused.png")
         render(colorInputView(previewing: false), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input.png")
         render(colorInputView(previewing: true), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input-preview.png")
         let editSession = TrackerEditSession(sessionID: "qm-1", title: "Small Fixes", color: "orange", allowsColor: true)
@@ -108,7 +114,7 @@ enum RenderPreview {
             size: CGSize(width: 340, height: 780),
             to: "\(outputDir)/tracker-list-column.png"
         )
-        // The header at the design's own 631 wide: the mock's state (tracker shown, Worker Log and Version Control open,
+        // The header at the design's own 631 wide: the mock's state (tracker shown, Worker Log and Watcher open,
         // caffeinate on), and everything at rest.
         renderView(actionBarHeaderView(), size: CGSize(width: 631, height: ActionBarMetrics.height), to: "\(outputDir)/action-bar.png")
         renderView(
@@ -116,22 +122,25 @@ enum RenderPreview {
             size: CGSize(width: 631, height: ActionBarMetrics.height),
             to: "\(outputDir)/action-bar-rest.png"
         )
-        // The Version Control panel as the Session Detail Dock draws it, and a row of it as the Pull Request Item draws it.
-        renderView(versionControlPanelView(), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel.png")
-        renderView(versionControlPanelView(state: .empty), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel-empty.png")
-        renderView(versionControlPanelView(state: .notice), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel-notice.png")
-        render(versionControlRowsView(highlight: 1), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design.png")
-        render(versionControlRowsView(highlight: nil), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design-rest.png")
+        // The Watcher panel as the Session Detail Dock draws it, and a row of it as the Pull Request Item draws it.
+        renderView(watcherPanelView(), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel.png")
+        renderView(watcherPanelView(state: .empty), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel-empty.png")
+        renderView(watcherPanelView(state: .notice), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel-notice.png")
+        render(watcherRowsView(highlight: 1, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design.png")
+        render(watcherRowsView(highlight: nil, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design-rest.png")
+        render(watcherRowsView(highlight: nil, rows: watcherCountRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-counts.png")
+        render(watcherRowsView(highlight: nil, rows: watcherReviewRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-reviews.png")
+        render(watcherRowsView(highlight: nil, rows: watcherSqueezeRows()), size: CGSize(width: 300, height: 90), to: "\(outputDir)/watcher-rows-squeezed.png")
         render(pullRequestItemView(), size: CGSize(width: 686, height: 156), to: "\(outputDir)/pull-request-item.png")
-        // The dock split: Version Control over the artifacts or the worker chat, each alone, and either panel with the keys.
+        // The dock split: Watcher over the artifacts or the worker chat, each alone, and either panel with the keys.
         let splitCanvas = CGSize(width: DockWidthPreference.panelWidth + 2 * Space.section, height: 900)
         renderView(dockSplitView(bottom: .artifacts, focus: nil), size: splitCanvas, to: "\(outputDir)/dock-split-artifacts.png")
         renderView(dockSplitView(bottom: .workerChat, focus: nil), size: splitCanvas, to: "\(outputDir)/dock-split-worker-chat.png")
-        renderView(dockSplitView(bottom: nil, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-only-version-control.png")
+        renderView(dockSplitView(bottom: nil, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-only-watcher.png")
         renderView(dockSplitView(bottom: .artifacts, top: false, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-only-bottom.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-focused-top.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-focused-bottom.png")
-        // The Worker Log filter in the split: its chip, open dropdown and worker tabs in the bottom panel under Version Control.
+        // The Worker Log filter in the split: its chip, open dropdown and worker tabs in the bottom panel under Watcher.
         renderView(dockSplitView(bottom: .workerLog(), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-open.png")
         renderView(dockSplitView(bottom: .workerLog(menuOpen: false), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-closed.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.panelWidth, height: 640), to: "\(outputDir)/worker-chat.png")
@@ -158,12 +167,12 @@ enum RenderPreview {
         // The worker tabs (Tabs (Simple).svg at the user's 12pt and 5pt gaps): few tabs that fit, the selected one bold and
         // lit while the panel has the keys and a step dimmer without them, the pointer lighting an unselected one, and tabs
         // too many for the panel scrolling with a fade on each side that has some hidden.
-        render(workerLogTabsView(workers: 4, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-few.png")
-        render(workerLogTabsView(workers: 4, selected: "w2", focused: false), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-unfocused.png")
-        render(workerLogTabsView(workers: 4, selected: nil, hovered: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-hover.png")
-        render(workerLogTabsView(workers: 9, selected: "w5"), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-middle.png")
-        render(workerLogTabsView(workers: 9, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-start.png")
-        render(workerLogTabsView(workers: 9, selected: "w9"), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-end.png")
+        render(workerLogTabsView(workers: 4, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-few.png")
+        render(workerLogTabsView(workers: 4, selected: "w2", focused: false), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-unfocused.png")
+        render(workerLogTabsView(workers: 4, selected: nil, hovered: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-hover.png")
+        render(workerLogTabsView(workers: 9, selected: "w5"), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-middle.png")
+        render(workerLogTabsView(workers: 9, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-start.png")
+        render(workerLogTabsView(workers: 9, selected: "w9"), size: CGSize(width: DockWidthPreference.panelWidth, height: TextTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-end.png")
         renderView(workerLogDockView(menuOpen: false, selected: "w2"), size: logDock, to: "\(outputDir)/worker-log-tabs-dock.png")
         renderView(workerLogDockView(menuOpen: false, workers: 9, selected: "w5"), size: logDock, to: "\(outputDir)/worker-log-tabs-dock-overflow.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
@@ -198,20 +207,23 @@ enum RenderPreview {
         render(artifactListView(showFilter: true, suggesting: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter-suggestions.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
         render(artifactListView(focused: false), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-list-unfocused.png")
-        render(QuestLogView(store: questLogStore(), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log.png")
-        render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-nobody.png")
-        render(QuestLogView(store: questLogStore(filteredTo: "questmaster"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filtered.png")
+        // The Quest Log at its fixed size, over the same quests.
+        let layout = QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize)
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log.png")
+        render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-nobody.png")
+        render(QuestLogView(store: questLogStore(tab: "questmaster"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tab.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tabs-centred.png")
+        render(QuestLogView(store: questLogOverflowStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tabs-overflow.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(tokens: ["@type:bug", "@size:S"]), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-filtered.png")
         render(
-            QuestLogView(store: questLogStore(), filter: questLogFilter(token: false, typing: "@project:"), previewFocused: true, onCommand: { _ in }),
-            size: QuestLogView.size,
+            QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "@type:"), layout: layout, previewFocused: true, onCommand: { _ in }),
+            size: layout.sheetSize,
             to: "\(outputDir)/quest-log-suggestions.png"
         )
-        render(QuestLogView(store: questLogStore(), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-placeholder.png")
-        render(QuestLogView(store: questLogStore(), filter: questLogFilter(token: false), previewFocused: true, onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-focused.png")
-        render(QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "gjpqy"), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-typed.png")
-        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long.png")
-        render(QuestLogView(store: questLogStore(empty: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-empty.png")
-        renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "gjpqy"), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-filter-typed.png")
+        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-long.png")
+        render(QuestLogView(store: questLogStore(empty: true), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-empty.png")
+        renderView(questLogWindowView(), size: questLogWindow, to: "\(outputDir)/quest-log-window.png")
         recordQuestLogAnimations(to: outputDir)
         recordDockPanelAnimations(to: outputDir)
         recordSelectedSessionFade(to: outputDir)
@@ -223,7 +235,7 @@ enum RenderPreview {
         // A long quest scrolled partway down, with the overflow cue at the page's bottom edge.
         let scrolledPage = QuestLogPageScroll()
         scrolledPage.previewOffset = 160
-        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), pageScroll: scrolledPage, onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long-scrolled.png")
+        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(), layout: layout, pageScroll: scrolledPage, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-long-scrolled.png")
         render(newSessionSheetView(title: "gjpqy quest", path: "/tmp/gjpqy/project"), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-descenders.png")
         render(newSessionSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-sheet.png")
         let window = CGSize(width: 1400, height: 900)
@@ -233,7 +245,7 @@ enum RenderPreview {
         renderView(modalWindowView(overQuestLog: true, DestructiveConfirmationSheetView(spec: .deleteQuests(count: 1), onDecision: { _ in })), size: window, to: "\(outputDir)/modal-confirm-over-quest-log.png")
         renderView(modalWindowView(overQuestLog: true, newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-over-quest-log.png")
         // The shared background alone, at the Quest Log design's size, for diffing against its outer path.
-        render(Color.clear.scoopedPanel(), size: QuestLogView.size, to: "\(outputDir)/scooped-panel.png")
+        render(Color.clear.scoopedPanel(), size: QuestLogMetrics.sheetSize, to: "\(outputDir)/scooped-panel.png")
         let pane = CGSize(width: 480, height: 1015)
         renderView(artifactPaneView(highlight: 2, suggesting: true), size: pane, to: "\(outputDir)/artifact-pane.png")
         renderView(artifactPaneView(highlight: 4, focused: false), size: pane, to: "\(outputDir)/artifact-pane-unfocused.png")
@@ -251,6 +263,7 @@ enum RenderPreview {
         render(ToastBanner(message: "Copied qm-1783901769").background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         render(settingsView(loading: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-skeleton.png")
+        render(tmuxSettingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-tmux.png")
         render(projectsSettingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects.png")
         render(projectsSettingsView(arranging: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects-arrange.png")
         render(projectsSettingsView(folders: settingsUnlistedFolders), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects-folders.png")
@@ -279,7 +292,7 @@ enum RenderPreview {
         splitView.addArrangedSubview(TrackerShellView(body: tracker))
         splitView.addArrangedSubview(TerminalShellView(body: terminalBody))
         let dockColumn = DockColumnView(
-            top: DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl)),
+            top: DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher)),
             bottom: DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
         )
         dockColumn.setPanels(DockPanels(bottom: true))
@@ -405,35 +418,92 @@ enum RenderPreview {
         }
     }
 
-    /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws. The rows are views of
-    /// their own, not the store's, because the store sorts by state and the design doesn't. A master with four workers
-    /// watches them.
+    /// One pull request for the watcher fixtures: its numbers and state, the workers (`w1`...`w6`) watching it, and the
+    /// author the backend sends (nil for the viewer's own pull request).
+    private struct WatcherFixture {
+        let number: Int
+        let title: String
+        let state: String
+        let draft: Bool
+        let review: String
+        let ci: String
+        let additions: Int
+        let deletions: Int
+        let watchers: [String]
+        var author: String? = "example-author"
+        var stale = false
+    }
+
+    /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws, with the watchers the
+    /// mock shows (none, one, six with a count of two, one, one, one) and the author it draws on each.
     @MainActor
-    private static func versionControlDesignRows() -> [PullRequestDisplayRow] {
+    private static func watcherDesignRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97612, title: "fix(agent-f): Support independent Edition suggestion field decisions", state: "open", draft: false, review: "changes_requested", ci: "failure", additions: 1250, deletions: 540, watchers: []),
+            WatcherFixture(number: 97612, title: "fix(agent-f): Support independent Edition suggestion field decisions", state: "open", draft: true, review: "none", ci: "none", additions: 1250, deletions: 540, watchers: ["w1"]),
+            WatcherFixture(number: 97613, title: "fix(agent-f): Update dependency versions for stability", state: "open", draft: true, review: "approved", ci: "none", additions: 980, deletions: 320, watchers: ["w2", "w1", "w5", "w6", "w3", "w4"]),
+            WatcherFixture(number: 97614, title: "feat(agent-f): Introduce new logging features", state: "merged", draft: false, review: "review_required", ci: "pending", additions: 760, deletions: 200, watchers: ["w3"]),
+            WatcherFixture(number: 97615, title: "fix(agent-f): Resolve memory leak issue", state: "closed", draft: false, review: "approved", ci: "success", additions: 1400, deletions: 600, watchers: ["w2"]),
+            WatcherFixture(number: 97616, title: "chore(agent-f): Refactor codebase for better readability", state: "closed", draft: false, review: "changes_requested", ci: "none", additions: 500, deletions: 150, watchers: ["w4"]),
+        ])
+    }
+
+    /// Rows watched by none, one, two, four and six workers, with and without an author: the counts a row can show.
+    @MainActor
+    private static func watcherCountRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97620, title: "fix(agent-f): Add retry to the sync job", state: "open", draft: false, review: "none", ci: "none", additions: 120, deletions: 30, watchers: []),
+            WatcherFixture(number: 97621, title: "fix(agent-f): Tighten the cache key", state: "open", draft: false, review: "review_required", ci: "success", additions: 240, deletions: 80, watchers: ["w1"]),
+            WatcherFixture(number: 97622, title: "feat(agent-f): Add the export button", state: "open", draft: true, review: "approved", ci: "pending", additions: 410, deletions: 25, watchers: ["w1", "w2"], author: nil),
+            WatcherFixture(number: 97623, title: "fix(agent-f): Keep the session list in order", state: "merged", draft: false, review: "approved", ci: "success", additions: 66, deletions: 12, watchers: ["w1", "w2", "w3", "w4"]),
+            WatcherFixture(number: 97624, title: "chore(agent-f): Split the watcher module", state: "closed", draft: false, review: "changes_requested", ci: "failure", additions: 900, deletions: 640, watchers: ["w1", "w2", "w3", "w4", "w5", "w6"]),
+        ])
+    }
+
+    /// Each review state the row's glyph draws: approved, commented (with a stack, with none), waiting, changes requested,
+    /// and a stale commented row, which takes its look's icon colour instead of the bubble's grey.
+    @MainActor
+    private static func watcherReviewRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97630, title: "fix(agent-f): Approved and merged next", state: "open", draft: false, review: "approved", ci: "success", additions: 52, deletions: 9, watchers: ["w1"]),
+            WatcherFixture(number: 97631, title: "fix(agent-f): Reviewer left comments", state: "open", draft: false, review: "commented", ci: "success", additions: 88, deletions: 31, watchers: ["w2", "w3"]),
+            WatcherFixture(number: 97632, title: "fix(agent-f): Commented on by someone outside the team", state: "open", draft: false, review: "commented", ci: "none", additions: 14, deletions: 2, watchers: [], author: nil),
+            WatcherFixture(number: 97633, title: "fix(agent-f): Waiting for a review", state: "open", draft: false, review: "review_required", ci: "pending", additions: 300, deletions: 40, watchers: ["w4"]),
+            WatcherFixture(number: 97634, title: "fix(agent-f): Changes requested", state: "open", draft: false, review: "changes_requested", ci: "failure", additions: 210, deletions: 70, watchers: ["w5"]),
+            WatcherFixture(number: 97635, title: "fix(agent-f): Stale commented review", state: "open", draft: false, review: "commented", ci: "none", additions: 36, deletions: 4, watchers: ["w6"], stale: true),
+        ])
+    }
+
+    /// A row whose author and watcher title are both too long for the panel: the author truncates last, the title first.
+    @MainActor
+    private static func watcherSqueezeRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97640, title: "fix(agent-f): Keep the counters readable when the row is narrow", state: "open", draft: false, review: "commented", ci: "success", additions: 1250, deletions: 540, watchers: ["w1"], author: "example-author-with-a-long-login"),
+        ])
+    }
+
+    /// The fixtures as rows of a master with six workers. Each row is made alone, so the store's sort can't reorder them.
+    @MainActor
+    private static func watcherRows(_ fixtures: [WatcherFixture]) -> [PullRequestDisplayRow] {
         let sessions = [
-            TrackerSession(id: "m", title: "Ship version control", repoName: "Repo", agent: "claude", role: "master"),
+            TrackerSession(id: "m", title: "Ship watcher", repoName: "Repo", agent: "claude", role: "master"),
             TrackerSession(id: "w1", title: "Implement ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
             TrackerSession(id: "w2", title: "Fix UI Bug", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
             TrackerSession(id: "w3", title: "Review API", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
             TrackerSession(id: "w4", title: "Update Docs", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w5", title: "Refactor logs", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+            TrackerSession(id: "w6", title: "Write tests", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
         ]
-        // number, title, state, draft, review, ci, additions, deletions, comments, watcher
-        let specs: [(Int, String, String, Bool, String, String, Int, Int, Int, String?)] = [
-            (97612, "fix(agent-f): Support independent Edition suggestion field decisions", "open", false, "changes_requested", "failure", 1250, 540, 20, nil),
-            (97612, "fix(agent-f): Support independent Edition suggestion field decisions", "open", true, "none", "none", 1250, 540, 20, "w1"),
-            (97613, "fix(agent-f): Update dependency versions for stability", "merged", false, "approved", "none", 980, 320, 15, "w2"),
-            (97614, "feat(agent-f): Introduce new logging features", "open", true, "review_required", "success", 760, 200, 10, "w3"),
-            (97615, "fix(agent-f): Resolve memory leak issue", "merged", false, "approved", "success", 1400, 600, 25, "w2"),
-            (97616, "chore(agent-f): Refactor codebase for better readability", "closed", false, "changes_requested", "none", 500, 150, 8, "w4"),
-        ]
-        return specs.map { spec -> PullRequestDisplayRow in
+        return fixtures.map { fixture -> PullRequestDisplayRow in
+            var status: [String: Any] = [
+                "title": fixture.title, "url": "https://github.com/owner/repo/pull/\(fixture.number)", "state": fixture.state, "draft": fixture.draft,
+                "review": fixture.review, "ci": fixture.ci, "additions": fixture.additions, "deletions": fixture.deletions, "stale": fixture.stale,
+            ]
+            status["author"] = fixture.author
             let object: [String: Any] = [
-                "key": "github.com/owner/repo#\(spec.0)-\(spec.2)-\(spec.3)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": spec.0,
-                "watchers": (spec.9.map { [["session_id": $0, "added_at": "2026-10-20T00:00:00Z"]] }) ?? [],
-                "status": [
-                    "title": spec.1, "url": "https://github.com/owner/repo/pull/\(spec.0)", "state": spec.2, "draft": spec.3,
-                    "review": spec.4, "ci": spec.5, "additions": spec.6, "deletions": spec.7, "comments": spec.8, "stale": false,
-                ] as [String: Any],
+                "key": "github.com/owner/repo#\(fixture.number)-\(fixture.state)-\(fixture.draft)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": fixture.number,
+                "watchers": fixture.watchers.map { ["session_id": $0, "added_at": "2026-10-20T00:00:00Z"] },
+                "status": status,
             ]
             let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
             return PullRequestDisplayRow.make(from: [row], selectedSessionID: "m", sessions: sessions)[0]
@@ -442,11 +512,10 @@ enum RenderPreview {
 
     /// The design's rows at the panel's list width (480), `highlight` (an index) on the cursor, for diffing against the SVG.
     @MainActor
-    private static func versionControlRowsView(highlight: Int?) -> some View {
-        let rows = versionControlDesignRows()
-        return VStack(spacing: 0) {
+    private static func watcherRowsView(highlight: Int?, rows: [PullRequestDisplayRow]) -> some View {
+        VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                VersionControlRow(
+                WatcherRow(
                     row: row,
                     look: row.look(isCursor: index == highlight, areaFocused: true),
                     action: {}
@@ -476,7 +545,7 @@ enum RenderPreview {
         let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
         let display = PullRequestDisplayRow.make(from: [row], selectedSessionID: "m", sessions: sessions)[0]
         func item(highlighted: Bool) -> some View {
-            VersionControlRow(row: display, look: display.look(isCursor: highlighted, areaFocused: true), action: {})
+            WatcherRow(row: display, look: display.look(isCursor: highlighted, areaFocused: true), action: {})
                 .frame(width: 642 + 2 * Space.section)
         }
         return ZStack(alignment: .topLeading) {
@@ -487,14 +556,14 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    enum VersionControlPanelState { case design, empty, notice }
+    enum WatcherPanelState { case design, empty, notice }
 
     /// The panel's content over the dock's panel fill: the design's rows with the second on the cursor, the empty state, or a
     /// notice under the first rows.
     @MainActor
-    private static func versionControlContent(_ state: VersionControlPanelState, focused: Bool = true) -> some View {
-        let rows = versionControlDesignRows()
-        return VersionControlList(
+    private static func watcherContent(_ state: WatcherPanelState, focused: Bool = true) -> some View {
+        let rows = watcherDesignRows()
+        return WatcherList(
             rows: state == .empty ? [] : rows,
             cursorKey: rows[1].pullRequest.key,
             isUnwatched: state == .empty,
@@ -505,12 +574,12 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    /// The Version Control panel on its own, 480 x 300 at the Session Detail Dock's offset in its 482 x 305 canvas.
+    /// The Watcher panel on its own, 480 x 300 at the Session Detail Dock's offset in its 482 x 305 canvas.
     @MainActor
-    private static func versionControlPanelView(state: VersionControlPanelState = .design, isRefreshing: @escaping () -> Bool = { false }) -> NSView {
+    private static func watcherPanelView(state: WatcherPanelState = .design, isRefreshing: @escaping () -> Bool = { false }) -> NSView {
         let panel = DockShellView(
-            body: NSHostingView(rootView: versionControlContent(state)),
-            model: DockChromeModel(topBar: .versionControl, isRefreshing: isRefreshing)
+            body: NSHostingView(rootView: watcherContent(state)),
+            model: DockChromeModel(topBar: .watcher, isRefreshing: isRefreshing)
         )
         panel.frame = NSRect(x: 1, y: 5, width: 480, height: 300)
         let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 482, height: 305))
@@ -522,7 +591,7 @@ enum RenderPreview {
 
     enum DockSplitBottom { case artifacts, workerChat, workerLog(menuOpen: Bool = true, workers: Int = 4, cursor: Int = WorkerLogAction.allCases.count) }
 
-    /// The dock column as the shell lays it out, 20 in from a window-coloured canvas's edges: Version Control (unless
+    /// The dock column as the shell lays it out, 20 in from a window-coloured canvas's edges: Watcher (unless
     /// `top` is false) over the artifact list or the worker chat (unless `bottom` is nil), `focus` giving one panel the keys.
     @MainActor
     private static func dockSplitView(bottom: DockSplitBottom?, top: Bool = true, focus: DockPanel?) -> NSView {
@@ -532,8 +601,8 @@ enum RenderPreview {
     @MainActor
     private static func dockSplitCanvas(bottom: DockSplitBottom?, top: Bool = true, focus: DockPanel?) -> (canvas: NSView, column: DockColumnView) {
         let topShell = DockShellView(
-            body: NSHostingView(rootView: versionControlContent(.design, focused: focus == .top)),
-            model: DockChromeModel(topBar: .versionControl)
+            body: NSHostingView(rootView: watcherContent(.design, focused: focus == .top)),
+            model: DockChromeModel(topBar: .watcher)
         )
         let bottomShell: DockShellView
         switch bottom {
@@ -604,13 +673,13 @@ enum RenderPreview {
     }
 
 
-    /// The Version Control title bar at rest and while a refresh spins its mark: the presentation layers sampled over one
+    /// The Watcher title bar at rest and while a refresh spins its mark: the presentation layers sampled over one
     /// turn of the spinner (the offscreen snapshot can't see Core Animation's own animation), as a contact sheet in slow
-    /// motion and a GIF at real speed. Only runs when RENDER_ONLY names `version-control-refresh-spinner`.
+    /// motion and a GIF at real speed. Only runs when RENDER_ONLY names `watcher-refresh-spinner`.
     @MainActor
     private static func recordRefreshSpinner(to dir: String) {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RENDER_ONLY"]?.split(separator: ",").contains("version-control-refresh-spinner") == true else {
+        guard environment["RENDER_ONLY"]?.split(separator: ",").contains("watcher-refresh-spinner") == true else {
             return
         }
         let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 4)
@@ -619,7 +688,7 @@ enum RenderPreview {
         let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
         _ = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true)
         let size = CGSize(width: 482, height: 305)
-        let canvas = versionControlPanelView(isRefreshing: { store.isRefreshing })
+        let canvas = watcherPanelView(isRefreshing: { store.isRefreshing })
         canvas.frame = NSRect(origin: .zero, size: size)
         let window = HeadlessWindow(size: size, scale: scale)
         window.contentView = canvas
@@ -627,7 +696,7 @@ enum RenderPreview {
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         // The title and the mark beside it, from the top left.
         let header = CGRect(x: 121, y: 5, width: 240, height: 40)
-        RingPreview.write(captureLayers(of: canvas, scale: scale, rect: header), to: "\(dir)/version-control-header-rest.png")
+        RingPreview.write(captureLayers(of: canvas, scale: scale, rect: header), to: "\(dir)/watcher-header-rest.png")
 
         _ = store.handle(.refresh)
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
@@ -640,8 +709,8 @@ enum RenderPreview {
                 sheet.append(frame)
             }
         }
-        RingPreview.write(captureLayers(of: canvas, scale: scale), to: "\(dir)/version-control-panel-refreshing.png")
-        RingPreview.write(contactSheet(sheet, columns: 3, background: AppPalette.window.cgColor), to: "\(dir)/version-control-header-spinning-frames.png")
+        RingPreview.write(captureLayers(of: canvas, scale: scale), to: "\(dir)/watcher-panel-refreshing.png")
+        RingPreview.write(contactSheet(sheet, columns: 3, background: AppPalette.window.cgColor), to: "\(dir)/watcher-header-spinning-frames.png")
 
         let gifFrames = Int(WorkingSpinner.period / 0.04)
         let gifBegan = Date()
@@ -652,7 +721,7 @@ enum RenderPreview {
                 gif.append(frame)
             }
         }
-        RingPreview.writeGIF(gif, to: "\(dir)/version-control-header-spinning.gif")
+        RingPreview.writeGIF(gif, to: "\(dir)/watcher-header-spinning.gif")
         window.orderOut(nil)
     }
 
@@ -2171,11 +2240,25 @@ enum RenderPreview {
     }
 
     /// The Quest Log design's own quests (user-quests-modal-v2.svg), newest first within each project.
+    private static let questLogWindow = CGSize(width: 1440, height: 900)
+
+    /// A list with a realistic mix: three projects with tags on some of their quests, a few without a project, and
+    /// some untagged. The first dotfiles quest carries a body (the page's titled layout).
     private static func questLogQuests(longBody: Bool = false) -> [QuestItem] {
-        let projects = [
-            ("dotfiles", ["Add more meta data to shell sessions", "Restore terminal settings on login", "Share editor configs across devices", "Remove unused environment variables"]),
-            ("questmaster", ["Track milestones for active quests", "Sort adventures by upcoming deadline", "Assign party roles to teammates", "Archive completed quest campaigns"]),
-            ("scry", ["Search notes with exact phrases", "Filter results by source and date", "Save frequently used search filters", "Highlight matches in previews"]),
+        let rows: [(project: String, title: String, types: [String], size: String)] = [
+            ("dotfiles", "Add more meta data to shell sessions", ["improvement"], "M"),
+            ("dotfiles", "Restore terminal settings on login", ["bug"], "S"),
+            ("dotfiles", "Share editor configs across devices", [], ""),
+            ("dotfiles", "Remove unused environment variables", ["cleanup"], "S"),
+            ("questmaster", "Track milestones for active quests", ["feature", "research"], "L"),
+            ("questmaster", "Sort adventures by upcoming deadline", ["bug"], "S"),
+            ("questmaster", "Assign party roles to teammates", ["decision"], "M"),
+            ("questmaster", "Archive completed quest campaigns", [], ""),
+            ("scry", "Search notes with exact phrases", ["bug", "improvement"], "S"),
+            ("scry", "Filter results by source and date", [], ""),
+            ("scry", "Save frequently used search filters", ["feature"], "M"),
+            ("", "Pick a name for the pairing channel", ["decision"], "S"),
+            ("", "Jot down the Friday demo", [], ""),
         ]
         var body = """
         The idea is to make questmaster also work well as a tmux session handler
@@ -2187,40 +2270,55 @@ enum RenderPreview {
         if longBody {
             body += "\n\n" + (1...40).map { "- Step \($0): keep going until the page has to scroll" }.joined(separator: "\n")
         }
-        return projects.flatMap { project, titles in
-            titles.enumerated().map { index, title in
-                QuestItem(
-                    id: "\(project)-\(index)",
-                    content: index == 0 && project == "dotfiles" ? "\(title)\n\n\(body)" : title,
-                    projectID: project,
-                    projectName: project,
-                    createdAt: String(format: "2026-09-%02dT10:00:00Z", 8 - index),
-                    updatedAt: String(format: "2026-09-%02dT10:00:00Z", 8 - index)
-                )
-            }
+        var perProject: [String: Int] = [:]
+        return rows.enumerated().map { index, row in
+            let number = perProject[row.project, default: 0]
+            perProject[row.project] = number + 1
+            return QuestItem(
+                id: "\(row.project.isEmpty ? "none" : row.project)-\(number)",
+                content: index == 0 ? "\(row.title)\n\n\(body)" : row.title,
+                types: row.types,
+                size: row.size,
+                projectID: row.project,
+                projectName: row.project,
+                createdAt: String(format: "2026-09-%02dT10:00:00Z", 28 - index),
+                updatedAt: String(format: "2026-09-%02dT10:00:00Z", 28 - index)
+            )
         }
     }
 
-    /// `filteredTo` applies a project token to the list as the app would; the design SVGs draw a token chip
-    /// over the full list, so the design renders show the chip without applying it.
-    @MainActor
-    private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, filteredTo projectID: String? = nil) -> QuestLogStore {
+    /// `tab` selects a project tab, as a click or `]` would; `selecting` selects a quest.
+    private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, tab projectID: String? = nil) -> QuestLogStore {
         let store = QuestLogStore()
-        store.sync(quests: empty ? [] : questLogQuests(longBody: longBody), repos: [], projectIDs: Set([projectID].compactMap { $0 }))
+        store.sync(quests: empty ? [] : questLogQuests(longBody: longBody), repos: [])
+        if let projectID, let index = store.projectTabs.firstIndex(where: { $0.projectID == projectID }) {
+            store.selectTab(index + 1)
+        }
         if let id {
             store.select(id)
         }
         return store
     }
 
-    /// A filter holding a `@project questmaster` token, as the design draws it; `typing` leaves an unfinished
+    /// Quests across eight projects with names too long for the tab row, so it scrolls sideways; the last tab is selected.
+    private static func questLogOverflowStore() -> QuestLogStore {
+        let store = QuestLogStore()
+        store.sync(
+            quests: (1...8).map { QuestItem(id: "t\($0)", content: "Quest \($0)", projectID: "t\($0)", projectName: "a-long-project-name-\($0)") },
+            repos: []
+        )
+        store.selectTab(store.tabTitles.count - 1)
+        return store
+    }
+
+    /// A filter holding the tokens, each typed and accepted as the field takes it; `typing` leaves an unfinished
     /// query in the field so its suggestions open.
     @MainActor
-    private static func questLogFilter(token: Bool = true, typing: String? = nil) -> QuestLogFilter {
+    private static func questLogFilter(tokens: [String] = [], typing: String? = nil) -> QuestLogFilter {
         let filter = QuestLogFilter()
         filter.update(tracker: TrackerSnapshot(repos: [], quests: questLogQuests()))
-        if token {
-            filter.setQuery("@project:questm")
+        for token in tokens {
+            filter.setQuery(token)
             filter.acceptSuggestion()
         }
         if let typing {
@@ -2229,8 +2327,9 @@ enum RenderPreview {
         return filter
     }
 
+    /// The Quest Log over the main shell, as the window draws it. The self-tests host it too.
     @MainActor
-    private static func questLogWindowView() -> NSView {
+    static func questLogWindowView() -> NSView {
         let size = CGSize(width: 1400, height: 900)
         let shell = shellWithHeaderView(size: size, trackerVisible: true, dockVisible: true)
         let stack = InWindowModalStack()
@@ -2386,6 +2485,26 @@ enum RenderPreview {
         )
     }
 
+    @MainActor
+    private static func tmuxSettingsView() -> some View {
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: SettingsPreviewMutationClient(),
+                modelClient: nil,
+                effortClient: nil,
+                runtime: RuntimeStore(sourceLabel: "preview")
+            ),
+            dismiss: {}
+        )
+        model.tmux.details = TmuxSettingsModel(status: TmuxConfigStatus(
+            config: "/tmp/example/tmux/questmaster.conf", enforced: "/tmp/example/tmux/enforced.questmaster.conf",
+            effectiveLabel: "questmaster", running: true, startedUnix: 1_793_872_800, sessions: 1,
+            editedSinceStart: true, enforcedPending: true, templateVersion: 1, builtinTemplateVersion: 3
+        ))
+        model.selectSection(.tmux)
+        return SettingsSheetView(model: model)
+    }
+
     /// settings-projects-mock.png's projects, with their colours; the paths sit under this machine's home directory, so
     /// they show as `~`.
     private static let settingsProjects: [TrackerProject] = {
@@ -2454,6 +2573,32 @@ enum RenderPreview {
         case typingPath
         /// user-new-quest-project-search.png: "questm" typed, the matching project listed.
         case searchingProjects
+        /// edit-quest-no-tags.png: Edit Quest for a quest with no types and no size.
+        case editNoTags
+        /// edit-quest-tags.png: three types chosen and a size, the types field not focused.
+        case editTagged
+        /// edit-quest-tags-open.png: the types field focused with no query: its dropdown lists the types still open.
+        case editTagsOpen
+        /// edit-quest-tags-search.png: the types field focused with "e" typed: the dropdown lists the open types it matches.
+        case editTagsSearching
+        /// edit-quest-all-types.png: every type chosen, so the dropdown has no rows and does not show.
+        case editAllTypes
+        /// edit-quest-size-focused.png: the size select focused, reading "Size: M".
+        case editSizeFocused
+
+        /// The quest's tags for an Edit Quest preview; nil for New Quest.
+        var editedTags: (types: [String], size: String)? {
+            switch self {
+            case .empty, .typingPath, .searchingProjects:
+                return nil
+            case .editNoTags:
+                return (types: [], size: "")
+            case .editTagged, .editTagsOpen, .editTagsSearching, .editSizeFocused:
+                return (types: ["bug", "feature", "research"], size: "M")
+            case .editAllTypes:
+                return (types: QuestTagType.allCases.map(\.rawValue), size: "L")
+            }
+        }
     }
 
     @MainActor
@@ -2462,12 +2607,15 @@ enum RenderPreview {
         let projects = ["questmaster", "scry", "dotfiles"].map { name in
             NewQuestProjectOption(projectID: "\(code)/\(name)/.git", projectPath: "\(code)/\(name)", projectName: name)
         }
+        let edited = preview.editedTags
         let sheet = NewQuestSheetModel(
             presentation: NewQuestSheetPresentation(
                 projects: projects,
-                initialProject: nil,
+                initialProject: edited == nil ? nil : projects[0],
                 initialContent: preview == .empty ? "" : "Add more meta data to shell sessions",
-                questID: "",
+                initialTypes: edited?.types ?? [],
+                initialSize: edited?.size ?? "",
+                questID: edited == nil ? "" : "qst-1",
                 sessionID: "",
                 mutationClient: SettingsPreviewMutationClient(),
                 directoryClient: nil,
@@ -2476,13 +2624,20 @@ enum RenderPreview {
             dismiss: {}
         )
         switch preview {
-        case .empty:
+        case .empty, .editNoTags, .editTagged, .editAllTypes:
             break
         case .typingPath:
             sheet.form.startProjectSearch(.seed("/Users/aleksi.tuo"))
             sheet.paths.show(["/Users/aleksi.tuominen/Code", "/Users/aleksi.tuominen/Code/Scry", "/Users/aleksi.tuominen/Code/Questmaster"])
         case .searchingProjects:
             sheet.form.startProjectSearch(.seed("questm"))
+        case .editTagsOpen:
+            sheet.form.focusedField = .tags
+        case .editTagsSearching:
+            sheet.form.focusedField = .tags
+            sheet.form.tags.typeQuery("e")
+        case .editSizeFocused:
+            sheet.form.focusedField = .size
         }
         return NewQuestSheetView(model: sheet)
     }
@@ -2886,7 +3041,8 @@ enum RenderPreview {
             let shell = shellWithHeaderView(size: size, trackerVisible: true, dockVisible: true)
             let stack = InWindowModalStack()
             (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
-            recordAnimation("quest-log-open-gif", root: shell, size: size, crop: modalCrop, duration: 0.75 * Motion.slowdown, to: dir) {
+            // The Quest Log at its fit is 1280 x 860 in this window: the crop takes all of it, with the scrim around.
+            recordAnimation("quest-log-open-gif", root: shell, size: size, crop: CGRect(x: 40, y: 10, width: 1320, height: 880), duration: 0.75 * Motion.slowdown, capturesLayers: true, to: dir) {
                 stack.presentQuestLog(questLogModal(questLogStore()))
             }
         }
@@ -2924,7 +3080,7 @@ enum RenderPreview {
     @MainActor
     private static func questLogModal(_ store: QuestLogStore) -> QuestLogModal {
         store.open()
-        return QuestLogModal(store: store, filter: questLogFilter(token: false), pageScroll: QuestLogPageScroll(), onCommand: { _ in })
+        return QuestLogModal(store: store, filter: questLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in })
     }
 
     private static func confirmationView() -> some View {

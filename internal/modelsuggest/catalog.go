@@ -114,6 +114,12 @@ type CatalogOptions struct {
 // enumeration, recent launches, and the built-in role defaults, and a model the
 // user types is never gated on the catalog.
 func LoadCatalog(ctx context.Context, opts CatalogOptions) (Catalog, error) {
+	return loadCatalog(ctx, opts, newCatalogWaitTimer)
+}
+
+type catalogWaitTimer func(time.Duration) (<-chan time.Time, func())
+
+func loadCatalog(ctx context.Context, opts CatalogOptions, newTimer catalogWaitTimer) (Catalog, error) {
 	now := opts.Now
 	if now.IsZero() {
 		now = time.Now()
@@ -143,9 +149,9 @@ func LoadCatalog(ctx context.Context, opts CatalogOptions) (Catalog, error) {
 	flight := startCatalogFlight(opts.Root, endpoint, fetch, now)
 	switch {
 	case opts.Refresh || !opts.Background:
-		return awaitCatalog(ctx, flight, catalogFetchTimeout, cached)
+		return awaitCatalog(ctx, flight, catalogFetchTimeout, cached, newTimer)
 	case cached.Empty():
-		return awaitCatalog(ctx, flight, catalogColdWait, cached)
+		return awaitCatalog(ctx, flight, catalogColdWait, cached, newTimer)
 	default:
 		// Stale but usable: answer now, and the flight refreshes the cache for
 		// the next request.
@@ -199,16 +205,21 @@ func (f *catalogFlight) run(root, endpoint string, fetch Fetcher, now time.Time)
 // awaitCatalog waits up to limit for flight, or until ctx ends. When it stops
 // waiting first it returns fallback. The flight keeps running and fills the
 // cache either way.
-func awaitCatalog(ctx context.Context, flight *catalogFlight, limit time.Duration, fallback Catalog) (Catalog, error) {
+func newCatalogWaitTimer(limit time.Duration) (<-chan time.Time, func()) {
 	timer := time.NewTimer(limit)
-	defer timer.Stop()
+	return timer.C, func() { timer.Stop() }
+}
+
+func awaitCatalog(ctx context.Context, flight *catalogFlight, limit time.Duration, fallback Catalog, newTimer catalogWaitTimer) (Catalog, error) {
+	expired, stop := newTimer(limit)
+	defer stop()
 	select {
 	case <-flight.done:
 		if flight.err != nil {
 			return fallback, flight.err
 		}
 		return flight.catalog, nil
-	case <-timer.C:
+	case <-expired:
 		return fallback, fmt.Errorf("model catalog not ready after %s", limit)
 	case <-ctx.Done():
 		return fallback, ctx.Err()

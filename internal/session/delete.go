@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -17,10 +18,16 @@ func (s *Service) Delete(ctx context.Context, sessionID string) (int, error) {
 	}
 	dropped := 0
 	err := s.locked(ctx, []string{sessionID}, func(ctx context.Context) error {
-		if m, err := s.Store.Read(sessionID); err == nil && m.AgentSessionType() == "master" {
+		m, readErr := s.Store.Read(sessionID)
+		if readErr == nil {
+			if _, err := s.router().Route(m); err != nil {
+				return err
+			}
+		}
+		if readErr == nil && m.AgentSessionType() == "master" {
 			for _, workerID := range m.Workers {
 				if err := s.locked(ctx, []string{workerID}, func(ctx context.Context) error {
-					if err := s.Client.KillSession(ctx, workerID); err != nil {
+					if err := s.killRecordedOrOrphan(ctx, workerID); err != nil {
 						return fmt.Errorf("kill worker %s: %w", workerID, err)
 					}
 					count, err := s.cleanupStartedSession(workerID)
@@ -34,7 +41,7 @@ func (s *Service) Delete(ctx context.Context, sessionID string) (int, error) {
 				}
 			}
 		}
-		if err := s.Client.KillSession(ctx, sessionID); err != nil {
+		if err := s.killRecordedOrOrphan(ctx, sessionID); err != nil {
 			return err
 		}
 		count, err := s.cleanupStartedSession(sessionID)
@@ -42,6 +49,46 @@ func (s *Service) Delete(ctx context.Context, sessionID string) (int, error) {
 		return err
 	})
 	return dropped, err
+}
+
+// killRecordedOrOrphan uses a manifest's route when present. Without one,
+// inventory must be complete before Delete may kill any matching session.
+func (s *Service) killRecordedOrOrphan(ctx context.Context, sessionID string) error {
+	m, err := s.Store.Read(sessionID)
+	if err == nil {
+		handle, err := s.router().Route(m)
+		if err != nil {
+			return err
+		}
+		return handle.Client().KillSession(ctx, sessionID)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read manifest: %w", err)
+	}
+	router := s.router()
+	router.Invalidate() // a cached absence cannot justify deleting an orphan
+	inventory, err := router.AuditInventory(ctx)
+	if err != nil {
+		return err
+	}
+	for _, row := range inventory.Rows {
+		if row.ID == sessionID && row.Label == "default" {
+			return fmt.Errorf("session %s is live on default; migrate it before deleting its metadata", sessionID)
+		}
+	}
+	for _, row := range inventory.Rows {
+		if row.ID != sessionID {
+			continue
+		}
+		handle, err := router.Route(state.Manifest{TmuxServer: state.TmuxServer(row.Label)})
+		if err != nil {
+			return err
+		}
+		if err := handle.Client().KillSession(ctx, sessionID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) cleanupStartedSession(sessionID string) (int, error) {

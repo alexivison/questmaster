@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -20,6 +21,9 @@ const (
 
 	// DefaultSendTimeout bounds one whole Send, lock wait to Enter.
 	DefaultSendTimeout = 2 * time.Second
+	// commandPipeWait bounds waits for output pipes inherited by a detached
+	// tmux server or pane process after the tmux client has exited.
+	commandPipeWait = 500 * time.Millisecond
 
 	// PaneRoleOption is the tmux user-option key storing a pane's questmaster role.
 	PaneRoleOption = "@party_role"
@@ -75,27 +79,84 @@ type Runner interface {
 	Run(ctx context.Context, args ...string) (string, error)
 }
 
-// defaultServerLabel is the label tmux itself uses when nothing selects a
-// server. A server label lives at /tmp/tmux-<uid>/<label>.
-const defaultServerLabel = "default"
-
 // Server selects one tmux server. Every command it runs names that server
 // with -L or -S, and the command's environment drops TMUX, TMUX_PANE and
 // TMUX_TMPDIR: they describe the caller's own server, which need not be this
 // one. Build one with DefaultServer or SocketServer.
 type Server struct {
-	flag string // "-L" names a label in tmux's socket directory; "-S" a socket path
-	name string
+	flag         string // "-L" names a label in tmux's socket directory; "-S" a socket path
+	name         string
+	configFiles  []string
+	selectionErr error
 }
+
+// Label returns the selected -L name, or the private socket path for -S tests.
+func (s Server) Label() string { return s.name }
 
 var _ Runner = Server{}
 
-// DefaultServer is the server Questmaster's sessions run on. It is the one
-// place production picks a server. "-L default" is the socket tmux falls back
-// to when no flag, TMUX or TMUX_TMPDIR selects another, /tmp/tmux-<uid>/default,
-// which is also the socket the app's own tmux calls reach.
-func DefaultServer() Server {
-	return Server{flag: "-L", name: defaultServerLabel}
+// DefaultServer is the server new Questmaster sessions run on. Callers must
+// supply both startup config paths so any direct client can safely start it.
+func DefaultServer(config, enforced string) Server {
+	label, err := EffectiveLabel()
+	if err != nil {
+		return Server{flag: "-L", name: "invalid", selectionErr: err}
+	}
+	server, err := NamedServerLabel(label, config, enforced)
+	if err != nil {
+		return Server{flag: "-L", name: label, selectionErr: err}
+	}
+	return server
+}
+
+// EffectiveLabel resolves the dedicated server label. The override is for
+// isolated development and tests; an invalid value is always an error.
+func EffectiveLabel() (string, error) {
+	label, set := os.LookupEnv("QUESTMASTER_TMUX_LABEL")
+	if !set {
+		return "questmaster", nil
+	}
+	if err := ValidateNamedLabel(label); err != nil {
+		return "", fmt.Errorf("invalid QUESTMASTER_TMUX_LABEL %q: %w", label, err)
+	}
+	return label, nil
+}
+
+// ValidateNamedLabel accepts an explicit dedicated-server label. Routing a
+// recorded session must never consult QUESTMASTER_TMUX_LABEL.
+func ValidateNamedLabel(label string) error {
+	if label == "default" || len(label) == 0 || len(label) > 32 {
+		return fmt.Errorf("invalid named tmux label %q", label)
+	}
+	for i := 0; i < len(label); i++ {
+		c := label[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return fmt.Errorf("invalid named tmux label %q", label)
+		}
+	}
+	return nil
+}
+
+// NamedServer selects Questmaster's dedicated server with the user config
+// followed by the enforced settings.
+func NamedServer(config, enforced string) (Server, error) {
+	label, err := EffectiveLabel()
+	if err != nil {
+		return Server{}, err
+	}
+	return NamedServerLabel(label, config, enforced)
+}
+
+// NamedServerLabel addresses a recorded label, independently of the current
+// development override. It is used only by the routing provider.
+func NamedServerLabel(label, config, enforced string) (Server, error) {
+	if err := ValidateNamedLabel(label); err != nil {
+		return Server{}, err
+	}
+	if config == "" || enforced == "" {
+		return Server{}, fmt.Errorf("named tmux server requires both config files")
+	}
+	return Server{flag: "-L", name: label, configFiles: []string{config, enforced}}, nil
 }
 
 // SocketServer selects the server listening on socket. Tests use it with a
@@ -104,11 +165,45 @@ func SocketServer(socket string) Server {
 	return Server{flag: "-S", name: socket}
 }
 
+// SocketServerWithConfig selects a private socket with startup config files.
+// It is useful when validating a configuration without selecting a named server.
+func SocketServerWithConfig(socket string, files ...string) Server {
+	return Server{flag: "-S", name: socket, configFiles: append([]string(nil), files...)}
+}
+
+func (s Server) validationError() error {
+	if s.selectionErr != nil {
+		return s.selectionErr
+	}
+	if s.flag != "-L" {
+		return nil
+	}
+	if err := ValidateNamedLabel(s.name); err != nil {
+		return err
+	}
+	if len(s.configFiles) != 2 || s.configFiles[0] == "" || s.configFiles[1] == "" {
+		return fmt.Errorf("named tmux server %q requires both config files", s.name)
+	}
+	return nil
+}
+
 // Command returns a tmux command on this server. Run uses it; attach runs one
 // directly so tmux gets the terminal.
 func (s Server) Command(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "tmux", append([]string{s.flag, s.name}, args...)...)
+	argv := []string{s.flag, s.name}
+	for _, file := range s.configFiles {
+		argv = append(argv, "-f", file)
+	}
+	cmd := exec.CommandContext(ctx, "tmux", append(argv, args...)...)
+	if err := s.validationError(); err != nil {
+		cmd.Err = err
+		cmd.Path = "/questmaster-invalid-tmux-server-selection"
+	} else if testing.Testing() && s.flag == "-L" {
+		cmd.Path = "/questmaster-test-binary-refuses-named-tmux-server"
+	}
+	cmd.Dir = "/"
 	cmd.Env = serverEnv(os.Environ())
+	cmd.WaitDelay = commandPipeWait
 	return cmd
 }
 
@@ -116,7 +211,16 @@ func (s Server) Command(ctx context.Context, args ...string) *exec.Cmd {
 // Wraps non-zero exits as *ExitError (with stderr) so callers can distinguish
 // "session not found" from transport errors.
 func (s Server) Run(ctx context.Context, args ...string) (string, error) {
+	if err := s.validationError(); err != nil {
+		return "", err
+	}
+	if testing.Testing() && s.flag == "-L" {
+		return "", fmt.Errorf("tmux -L %s is forbidden in a test binary; use tmuxtest private -S sockets or an injected runner", s.name)
+	}
 	out, err := s.Command(ctx, args...).Output()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil // the tmux client exited successfully; a child kept the pipe open
+	}
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -137,7 +241,7 @@ func serverEnv(environ []string) []string {
 	env := make([]string, 0, len(environ))
 	for _, kv := range environ {
 		switch key, _, _ := strings.Cut(kv, "="); key {
-		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR":
+		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR", "QUESTMASTER_SESSION", "QUESTMASTER_TMUX_SERVER", "QUESTMASTER_TMUX_LABEL", "QUESTMASTER_RUNTIME_DIR":
 			continue
 		}
 		env = append(env, kv)
@@ -182,6 +286,7 @@ func (e *ExitError) IsConnectionError() bool {
 type Client struct {
 	runner      Runner
 	SendTimeout time.Duration
+	after       func(time.Duration) <-chan time.Time
 
 	cacheMu              sync.Mutex
 	listSessionsTTL      time.Duration
@@ -193,7 +298,7 @@ type Client struct {
 // NewClient creates a Client that runs every command on server. Production
 // passes DefaultServer(); tests pass a fake Runner.
 func NewClient(server Runner) *Client {
-	return &Client{runner: server, SendTimeout: DefaultSendTimeout}
+	return &Client{runner: server, SendTimeout: DefaultSendTimeout, after: time.After}
 }
 
 // CacheListSessions enables a short-lived cache for the expensive tmux

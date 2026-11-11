@@ -78,5 +78,5 @@ func TestEnsureNudgesOlderProtocolBeforeSpawning(t *testing.T) {
 		t.Fatalf("upgrade handoff: %+v", record)
 	}
 	listener.Close()
-	<-done
+	_ = receiveDaemonTestValue(t, done, "upgrade test listener to stop")
 }

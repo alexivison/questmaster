@@ -3,11 +3,13 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestIdentity(t *testing.T) {
@@ -68,6 +70,45 @@ func TestIdentity(t *testing.T) {
 				t.Fatalf("Identity = %q, want prefix %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDaemonIdentitySeparatesTmuxLabels(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	executable := writeEchoBinary(t, filepath.Join(root, "daemon", "bin", "dev-example", "exe", "qm"), "ok")
+	c := Config{Root: root, Home: home, Executable: executable}
+	_, plain, plainSocket, err := c.resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "questmaster")
+	_, explicit, explicitSocket, err := c.resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_one")
+	_, first, firstSocket, err := c.resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_two")
+	_, second, secondSocket, err := c.resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain == explicit || plain == first || first == second || plainSocket == explicitSocket || plainSocket == firstSocket || firstSocket == secondSocket {
+		t.Fatalf("identities/sockets overlap: %q %q %q %q / %q %q %q %q", plain, explicit, first, second, plainSocket, explicitSocket, firstSocket, secondSocket)
+	}
+}
+
+func TestDaemonRejectsInvalidTmuxLabelBeforeStart(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "default")
+	root := t.TempDir()
+	c := Config{Root: root, Home: t.TempDir(), Executable: writeEchoBinary(t, filepath.Join(root, "daemon", "bin", "dev-example", "exe", "qm"), "ok")}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := Run(ctx, c, false); err == nil || !strings.Contains(err.Error(), "QUESTMASTER_TMUX_LABEL") {
+		t.Fatalf("daemon start error = %v", err)
 	}
 }
 

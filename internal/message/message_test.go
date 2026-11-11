@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
@@ -55,6 +56,7 @@ func createManifest(t *testing.T, store *state.Store, id, title, sessionType str
 	t.Helper()
 	m := state.Manifest{
 		SessionID:   id,
+		TmuxServer:  "dev_previous",
 		Title:       title,
 		Cwd:         "/tmp",
 		SessionType: sessionType,
@@ -69,7 +71,8 @@ func createManifest(t *testing.T, store *state.Store, id, title, sessionType str
 
 func createPlainManifest(t *testing.T, store *state.Store, id, title string) {
 	t.Helper()
-	if err := store.Create(state.Manifest{SessionID: id, Title: title, Cwd: "/tmp"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: id,
+		TmuxServer: "dev_previous", Title: title, Cwd: "/tmp"}); err != nil {
 		t.Fatalf("create plain manifest %s: %v", id, err)
 	}
 }
@@ -197,8 +200,9 @@ func removePiActivityState(t *testing.T, sessionID string) {
 func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string) {
 	t.Helper()
 	m := state.Manifest{
-		SessionID: id,
-		Cwd:       "/tmp",
+		SessionID:  id,
+		TmuxServer: "dev_previous",
+		Cwd:        "/tmp",
 		Agents: []state.AgentManifest{
 			{Name: "claude", Role: agentRole, CLI: "/usr/bin/claude", Window: 1},
 		},
@@ -215,7 +219,8 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 }
 
 func newService(store *state.Store, runner tmux.Runner) *Service {
-	return NewService(store, tmux.NewClient(runner))
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": tmux.NewClient(runner)}, func() string { return "dev_previous" }, nil)
+	return NewServiceWithRouter(store, router)
 }
 
 func flagValue(args []string, flag string) string {
@@ -1731,7 +1736,7 @@ func TestWorkers_IncludesTitles(t *testing.T) {
 	createManifest(t, store, "qm-master", "master", "master")
 
 	// Create worker with title
-	m := state.Manifest{
+	m := state.Manifest{TmuxServer: "dev_previous",
 		SessionID: "qm-w1",
 		Title:     "Fix auth bug",
 		Cwd:       "/tmp",

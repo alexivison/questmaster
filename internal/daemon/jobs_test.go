@@ -52,11 +52,7 @@ func (j *fakeJob) Run(ctx context.Context) error {
 
 func waitForJobStart(t *testing.T, job *fakeJob) {
 	t.Helper()
-	select {
-	case <-job.started:
-	case <-time.After(time.Second):
-		t.Fatal("job did not start")
-	}
+	_ = receiveDaemonTestValue(t, job.started, "job to start")
 }
 
 // newJobsServer builds a daemon on dir with an injected clock. jobsFlag is the --jobs value, so the
@@ -138,13 +134,8 @@ func TestDevDaemonRunsJobsOnlyWhenStartedWithJobsFlag(t *testing.T) {
 	s := newJobsServer(t.TempDir(), "dev-0123456789abcdef", clock, job, false)
 	defer stopJobsServer(s)
 	s.tryJobsLock()
-	if s.jobsLock != nil {
-		t.Fatal("development daemon took jobs.lock without --jobs")
-	}
-	select {
-	case <-job.started:
-		t.Fatal("development daemon ran a job without --jobs")
-	case <-time.After(100 * time.Millisecond):
+	if s.jobsLock != nil || s.jobsCancel != nil || s.jobsDone != nil || job.runs.Load() != 0 {
+		t.Fatal("development daemon took jobs.lock or ran a job without --jobs")
 	}
 
 	withFlag := newFakeJob()

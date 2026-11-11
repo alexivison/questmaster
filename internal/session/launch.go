@@ -8,6 +8,7 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/hooks"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 const openCodeConfigDirEnv = "OPENCODE_CONFIG_DIR"
@@ -16,7 +17,8 @@ const openCodeConfigDirEnv = "OPENCODE_CONFIG_DIR"
 // Both Start and Continue build this from their respective inputs, then
 // delegate to launchSession for the shared setup sequence.
 type launchConfig struct {
-	sessionID string
+	sessionID   string
+	serverLabel string
 	// pane is the ID of the session's one pane, as new-session reported it.
 	pane        string
 	cwd         string
@@ -37,8 +39,11 @@ type resumeInfo struct {
 
 // launchSession performs the shared tmux session setup:
 // set session env → build commands → persist resume IDs → set resume env →
-// choose layout → launch panes → set cleanup hook.
+// choose layout → launch panes.
 func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
+	if err := tmux.ValidateNamedLabel(lc.serverLabel); err != nil {
+		return err
+	}
 	openCodeConfigDir := s.openCodeConfigDir(lc.agents)
 	if openCodeConfigDir != "" {
 		if err := hooks.NewOpenCodeInstaller(openCodeConfigDir).Install(); err != nil {
@@ -55,6 +60,12 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	}
 
 	if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.SessionEnv, lc.sessionID); err != nil {
+		return err
+	}
+	if err := s.Client.SetEnvironment(ctx, lc.sessionID, "QUESTMASTER_TMUX_SERVER", lc.serverLabel); err != nil {
+		return err
+	}
+	if err := s.setPaneCreationLabel(ctx, lc.sessionID, lc.serverLabel); err != nil {
 		return err
 	}
 	if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.RuntimeDirEnv, lc.runtimeDir); err != nil {
@@ -78,7 +89,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		if err := s.launchShellWorkspace(ctx, lc.pane, lc.cwd); err != nil {
 			return err
 		}
-		return s.setCleanupHook(ctx, lc.sessionID, lc.runtimeDir)
+		return nil
 	}
 
 	if lc.agentCmds[agent.RoleAgent] == "" {
@@ -98,11 +109,24 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
-	if err := s.setCleanupHook(ctx, lc.sessionID, lc.runtimeDir); err != nil {
-		return err
-	}
-
 	return nil
+}
+
+// Dev sessions carry their creation label into pane CLIs, including workers.
+// Production panes without an override create on the production server.
+func (s *Service) setPaneCreationLabel(ctx context.Context, sessionID, recorded string) error {
+	label := recorded
+	if label == "questmaster" {
+		var set bool
+		label, set = os.LookupEnv("QUESTMASTER_TMUX_LABEL")
+		if !set {
+			return nil
+		}
+	}
+	if err := tmux.ValidateNamedLabel(label); err != nil {
+		return fmt.Errorf("invalid QUESTMASTER_TMUX_LABEL %q: %w", label, err)
+	}
+	return s.Client.SetEnvironment(ctx, sessionID, "QUESTMASTER_TMUX_LABEL", label)
 }
 
 // syncLaunchedPaneTitle puts the manifest's current title on the new pane. A

@@ -17,6 +17,20 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 )
 
+const catalogTestWaitTimeout = 10 * time.Second
+
+func receiveCatalogTestValue[T any](t *testing.T, ch <-chan T, description string) T {
+	t.Helper()
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(catalogTestWaitTimeout):
+		t.Fatalf("timed out after %s waiting for %s", catalogTestWaitTimeout, description)
+		var zero T
+		return zero
+	}
+}
+
 // upstreamFixture mirrors the shape of the models.dev document, including the
 // records Questmaster must drop (an embedding model with no tool calls, an
 // image-only model) and fields it ignores.
@@ -213,7 +227,7 @@ func TestLoadCatalogTTLBoundaryIsStrictlyLessThan(t *testing.T) {
 	// refresh starts in the background.
 	fetch := newBlockingFetcher(t)
 	boundary := now.Add(catalogTTL)
-	loadCatalogWithin(t, asyncDeadline, CatalogOptions{Root: root, Fetch: fetch.fetch, Now: boundary, Background: true})
+	loadCatalogForTest(CatalogOptions{Root: root, Fetch: fetch.fetch, Now: boundary, Background: true})
 	fetch.awaitStarted(t)
 	if calls := fetch.calls.Load(); calls != 1 {
 		t.Errorf("fetch calls at exactly the TTL = %d, want 1 (a cache this old must not read as fresh)", calls)
@@ -327,17 +341,6 @@ func TestCatalogURLEnvDisablesFetch(t *testing.T) {
 	}
 }
 
-// Bounds the background-refresh tests check. coldCacheWaitLimit is the spec
-// (a request with no cached catalog answers within about 2 s), not the
-// production constant, so the test fails if the production wait grows.
-const (
-	staleServeLimit    = 100 * time.Millisecond
-	coldCacheWaitLimit = 2 * time.Second
-	coldCacheSlack     = 500 * time.Millisecond
-	asyncDeadline      = 5 * time.Second
-	catalogPollEvery   = 5 * time.Millisecond
-)
-
 // blockingFetcher stands in for a slow network. Each call counts itself and
 // signals started, then waits until release opens the gate.
 type blockingFetcher struct {
@@ -372,52 +375,36 @@ func (f *blockingFetcher) release() {
 // background refresh has begun.
 func (f *blockingFetcher) awaitStarted(t *testing.T) {
 	t.Helper()
-	select {
-	case <-f.started:
-	case <-time.After(asyncDeadline):
-		t.Fatalf("no catalog fetch started within %s", asyncDeadline)
-	}
+	_ = receiveCatalogTestValue(t, f.started, "catalog fetch to start")
 }
 
 type loadResult struct {
 	catalog Catalog
 	err     error
-	elapsed time.Duration
 }
 
-// loadCatalogWithin runs LoadCatalog on its own goroutine and fails the test
-// if it has not returned within limit, so a blocking regression fails instead
-// of hanging the suite.
-func loadCatalogWithin(t *testing.T, limit time.Duration, opts CatalogOptions) loadResult {
-	t.Helper()
-	done := make(chan loadResult, 1)
-	start := time.Now()
-	go func() {
-		catalog, err := LoadCatalog(context.Background(), opts)
-		done <- loadResult{catalog: catalog, err: err, elapsed: time.Since(start)}
-	}()
-	select {
-	case result := <-done:
-		return result
-	case <-time.After(limit):
-		t.Fatalf("LoadCatalog did not return within %s", limit)
-		return loadResult{}
-	}
+func loadCatalogForTest(opts CatalogOptions) loadResult {
+	catalog, err := LoadCatalog(context.Background(), opts)
+	return loadResult{catalog: catalog, err: err}
 }
 
-// awaitCachedAt waits until the cache under root holds a catalog fetched at
-// fetchedAt, which is how a finished refresh shows itself on disk.
+// awaitCachedAt joins the background flight before checking its atomic cache
+// write, so the assertion follows the operation instead of polling the disk.
 func awaitCachedAt(t *testing.T, root string, fetchedAt time.Time) {
 	t.Helper()
-	deadline := time.Now().Add(asyncDeadline)
-	for {
-		if cached, _ := readCatalogCache(root); cached.FetchedAt.Equal(fetchedAt) {
-			return
+	catalogFlightsMu.Lock()
+	flight := catalogFlightsByRoot[root]
+	catalogFlightsMu.Unlock()
+	if flight != nil {
+		select {
+		case <-flight.done:
+		case <-time.After(catalogTestWaitTimeout):
+			t.Fatalf("timed out after %s waiting for catalog flight", catalogTestWaitTimeout)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("cache under %s was not refreshed to %s within %s", root, fetchedAt, asyncDeadline)
-		}
-		time.Sleep(catalogPollEvery)
+	}
+	cached, err := readCatalogCache(root)
+	if err != nil || !cached.FetchedAt.Equal(fetchedAt) {
+		t.Fatalf("cache under %s = fetched_at %s, read error %v; want %s", root, cached.FetchedAt, err, fetchedAt)
 	}
 }
 
@@ -491,8 +478,8 @@ func TestHTTPFetcherRefusesPlainHTTP(t *testing.T) {
 }
 
 // TestLoadCatalogServesStaleCacheAtOnceAndRefreshesOnce: a stale cache answers
-// under staleServeLimit while one background refresh runs, and repeated calls
-// during that refresh start no second one.
+// while one background refresh remains blocked, and repeated calls during
+// that refresh start no second one.
 func TestLoadCatalogServesStaleCacheAtOnceAndRefreshesOnce(t *testing.T) {
 	t.Parallel()
 
@@ -509,12 +496,9 @@ func TestLoadCatalogServesStaleCacheAtOnceAndRefreshesOnce(t *testing.T) {
 	fetch := newBlockingFetcher(t)
 	opts := CatalogOptions{Root: root, Fetch: fetch.fetch, Now: now, Background: true}
 
-	first := loadCatalogWithin(t, asyncDeadline, opts)
+	first := loadCatalogForTest(opts)
 	if first.err != nil {
 		t.Errorf("stale load: %v", first.err)
-	}
-	if first.elapsed >= staleServeLimit {
-		t.Errorf("stale cache answered after %s, want under %s while the refresh runs", first.elapsed, staleServeLimit)
 	}
 	if models := first.catalog.Models("example"); len(models) != 1 || models[0].ID != "example-model-stale" {
 		t.Fatalf("stale load = %+v, want the cached catalog", first.catalog)
@@ -522,7 +506,7 @@ func TestLoadCatalogServesStaleCacheAtOnceAndRefreshesOnce(t *testing.T) {
 
 	fetch.awaitStarted(t)
 	for range 3 {
-		loadCatalogWithin(t, asyncDeadline, opts)
+		loadCatalogForTest(opts)
 	}
 	if calls := fetch.calls.Load(); calls != 1 {
 		t.Errorf("refresh starts = %d, want exactly 1 while one refresh is in flight", calls)
@@ -531,7 +515,7 @@ func TestLoadCatalogServesStaleCacheAtOnceAndRefreshesOnce(t *testing.T) {
 	fetch.release()
 	awaitCachedAt(t, root, now)
 
-	refreshed := loadCatalogWithin(t, asyncDeadline, opts)
+	refreshed := loadCatalogForTest(opts)
 	if n := len(refreshed.catalog.Models("anthropic")); n != 3 {
 		t.Errorf("anthropic models after the refresh = %d, want 3", n)
 	}
@@ -540,10 +524,9 @@ func TestLoadCatalogServesStaleCacheAtOnceAndRefreshesOnce(t *testing.T) {
 	}
 }
 
-// TestLoadCatalogColdCacheAnswersWithinBound: with nothing cached, a request
-// waits at most about coldCacheWaitLimit, answers without a catalog, and the
-// fetch it started fills the cache for the next request.
-func TestLoadCatalogColdCacheAnswersWithinBound(t *testing.T) {
+// With nothing cached, expiry returns the empty fallback while the refresh
+// keeps running and fills the cache for the next request.
+func TestLoadCatalogColdCacheReturnsFallbackWhenWaitExpires(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -551,10 +534,26 @@ func TestLoadCatalogColdCacheAnswersWithinBound(t *testing.T) {
 	fetch := newBlockingFetcher(t)
 	opts := CatalogOptions{Root: root, Fetch: fetch.fetch, Now: now, Background: true}
 
-	cold := loadCatalogWithin(t, asyncDeadline, opts)
-	if limit := coldCacheWaitLimit + coldCacheSlack; cold.elapsed > limit {
-		t.Errorf("cold cache answered after %s, want within %s", cold.elapsed, limit)
+	expired := make(chan time.Time)
+	waiting := make(chan struct{})
+	done := make(chan loadResult, 1)
+	go func() {
+		catalog, err := loadCatalog(context.Background(), opts, func(limit time.Duration) (<-chan time.Time, func()) {
+			if limit != catalogColdWait {
+				t.Errorf("cold wait limit = %s, want %s", limit, catalogColdWait)
+			}
+			close(waiting)
+			return expired, func() {}
+		})
+		done <- loadResult{catalog: catalog, err: err}
+	}()
+	if catalogColdWait > 2*time.Second {
+		t.Fatalf("cold wait = %s, want no more than 2s", catalogColdWait)
 	}
+	fetch.awaitStarted(t)
+	_ = receiveCatalogTestValue(t, waiting, "cold catalog request to start its wait timer")
+	close(expired)
+	cold := receiveCatalogTestValue(t, done, "cold catalog request to return its fallback")
 	if !cold.catalog.Empty() {
 		t.Errorf("cold load = %+v, want no catalog while the fetch is still running", cold.catalog)
 	}
@@ -562,11 +561,10 @@ func TestLoadCatalogColdCacheAnswersWithinBound(t *testing.T) {
 		t.Errorf("cold load returned no error, want one saying the catalog is still loading")
 	}
 
-	fetch.awaitStarted(t)
 	fetch.release()
 	awaitCachedAt(t, root, now)
 
-	next := loadCatalogWithin(t, asyncDeadline, opts)
+	next := loadCatalogForTest(opts)
 	if next.err != nil || next.catalog.Empty() {
 		t.Errorf("load after the cache was filled = %+v, err %v, want the catalog", next.catalog, next.err)
 	}
@@ -592,12 +590,15 @@ func TestLoadCatalogWithoutBackgroundWaitsForFreshCatalog(t *testing.T) {
 		t.Fatalf("seed stale cache: %v", err)
 	}
 
-	const fetchDelay = 50 * time.Millisecond
-	slow := func(_ context.Context, _ string) ([]byte, error) {
-		time.Sleep(fetchDelay)
-		return []byte(upstreamFixture), nil
-	}
-	result := loadCatalogWithin(t, asyncDeadline, CatalogOptions{Root: root, Fetch: slow, Now: now})
+	slow := newBlockingFetcher(t)
+	done := make(chan loadResult, 1)
+	go func() {
+		catalog, err := LoadCatalog(context.Background(), CatalogOptions{Root: root, Fetch: slow.fetch, Now: now})
+		done <- loadResult{catalog: catalog, err: err}
+	}()
+	slow.awaitStarted(t)
+	slow.release()
+	result := receiveCatalogTestValue(t, done, "one-shot catalog request to return")
 	if result.err != nil {
 		t.Fatalf("load: %v", result.err)
 	}
@@ -606,9 +607,6 @@ func TestLoadCatalogWithoutBackgroundWaitsForFreshCatalog(t *testing.T) {
 	}
 	if n := len(result.catalog.Models("anthropic")); n != 3 {
 		t.Errorf("anthropic models = %d, want 3 from the fresh fetch", n)
-	}
-	if result.elapsed < fetchDelay {
-		t.Errorf("load answered after %s, before its fetch could finish (%s)", result.elapsed, fetchDelay)
 	}
 }
 
@@ -672,9 +670,8 @@ func TestResolveBackgroundServesStaleCatalogAtOnce(t *testing.T) {
 	}
 	fetch := newBlockingFetcher(t)
 
-	answered := make(chan time.Duration, 1)
+	answered := make(chan struct{}, 1)
 	go func() {
-		start := time.Now()
 		Resolve(context.Background(), ResolveOptions{
 			Agent:      "claude",
 			Role:       agent.RoleMaster,
@@ -684,16 +681,9 @@ func TestResolveBackgroundServesStaleCatalogAtOnce(t *testing.T) {
 			NoProbe:    true,
 			Background: true,
 		})
-		answered <- time.Since(start)
+		answered <- struct{}{}
 	}()
-	select {
-	case elapsed := <-answered:
-		if elapsed >= staleServeLimit {
-			t.Errorf("Resolve answered after %s, want under %s while the refresh runs", elapsed, staleServeLimit)
-		}
-	case <-time.After(asyncDeadline):
-		t.Fatalf("Resolve did not return within %s", asyncDeadline)
-	}
+	<-answered
 
 	fetch.awaitStarted(t)
 	fetch.release()

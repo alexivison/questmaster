@@ -37,6 +37,10 @@ var processDefaultStateRoot = defaultStateRoot(os.Getenv("HOME"))
 // before an observing tracker can fold it back to idle.
 const DoneToIdleGrace = 10 * time.Second
 
+// StartingToIdleGrace allows a resumed agent to reach its prompt before a
+// SessionStart with no following turn is treated as idle.
+const StartingToIdleGrace = 15 * time.Second
+
 const (
 	ArtifactKindHTML     = "html"
 	ArtifactKindMarkdown = "markdown"
@@ -546,6 +550,11 @@ func ArtifactsRegistryPath(root string) string {
 // from interleaving (tmux.Client.Send).
 func SendLockDir(root string) string {
 	return filepath.Join(root, "tmux-send")
+}
+
+// SendLockDirForServer isolates pane locks by dedicated server label.
+func SendLockDirForServer(root, label string) string {
+	return filepath.Join(SendLockDir(root), label)
 }
 
 // ArtifactsRegistryLockPath returns the root-level artifact registry lock path.
@@ -1266,21 +1275,34 @@ func parseArtifactTime(raw string) (time.Time, bool) {
 	return t, err == nil
 }
 
-// MarkSessionObserved applies tracker-side observation to an existing
-// state.json. It never creates state for hookless sessions.
+// MarkSessionObserved folds completed turns and stale SessionStart states to
+// idle in an existing state.json. It never creates state for hookless sessions.
 func MarkSessionObserved(id string, now time.Time) (bool, error) {
+	return MarkSessionObservedAt(StateRoot(), id, now)
+}
+
+// MarkSessionObservedAt applies the same transition for an explicit state root.
+// The PR monitor uses its own root even when it runs without an app subscriber.
+func MarkSessionObservedAt(root, id string, now time.Time) (bool, error) {
 	if now.IsZero() {
 		now = time.Now()
 	}
 	now = now.UTC()
 
 	changed := false
-	err := updateExistingSessionState(id, func(ss *SessionState) bool {
+	err := updateExistingSessionStateAt(root, id, func(ss *SessionState) bool {
 		pane, ok := ss.Panes["agent"]
-		if !ok || pane.State != "done" {
+		if !ok {
 			return false
 		}
-		if !pane.LastEvent.IsZero() && now.Sub(pane.LastEvent) < DoneToIdleGrace {
+		grace := DoneToIdleGrace
+		if pane.State == "starting" && pane.LastKind == "SessionStart" {
+			grace = StartingToIdleGrace
+		} else if pane.State != "done" {
+			return false
+		}
+		if pane.State == "starting" && pane.LastEvent.IsZero() ||
+			!pane.LastEvent.IsZero() && now.Sub(pane.LastEvent) < grace {
 			return false
 		}
 
@@ -1295,13 +1317,16 @@ func MarkSessionObserved(id string, now time.Time) (bool, error) {
 }
 
 func updateExistingSessionState(id string, mutate func(*SessionState) bool) error {
+	return updateExistingSessionStateAt(StateRoot(), id, mutate)
+}
+
+func updateExistingSessionStateAt(root, id string, mutate func(*SessionState) bool) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
 	if mutate == nil {
 		return errors.New("nil mutate function")
 	}
-	root := StateRoot()
 	if root == "" {
 		return errors.New("no state root resolved")
 	}
@@ -1439,8 +1464,10 @@ func appendRotatingJSONL(path string, ev StateEvent) error {
 
 // AppendHookError appends one timestamped line to the session's
 // hook-errors.log. Agents discard a hook's stderr, so this file is where a
-// failed hook leaves its trace. It takes no state lock, so a hook that timed
-// out waiting for that lock can still log, and it rotates like state.jsonl.
+// failed hook leaves its trace when the session state directory exists. It
+// does not create that directory, which may have been deleted with the session.
+// It takes no state lock, so a hook that timed out waiting for that lock can
+// still log, and it rotates like state.jsonl.
 func AppendHookError(id, text string) error {
 	return AppendHookErrorAt(StateRoot(), id, text)
 }
@@ -1453,9 +1480,6 @@ func AppendHookErrorAt(root, id, text string) error {
 	}
 	if root == "" {
 		return errors.New("no state root resolved")
-	}
-	if err := ensureSessionStateDir(root, id); err != nil {
-		return err
 	}
 	line := time.Now().UTC().Format(time.RFC3339Nano) + " " + strings.TrimRight(text, "\n") + "\n"
 	return appendRotatingLine(SessionHookErrorLogPath(root, id), []byte(line))

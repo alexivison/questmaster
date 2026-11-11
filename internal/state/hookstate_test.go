@@ -422,21 +422,11 @@ func TestUpdateAndLogWithEventsKeepsExpansionAtomic(t *testing.T) {
 	case <-time.After(20 * time.Millisecond):
 	}
 	close(releaseExpansion)
-	select {
-	case err := <-firstDone:
-		if err != nil {
-			t.Fatalf("expanded event update: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expanded event update did not finish")
+	if err := <-firstDone; err != nil {
+		t.Fatalf("expanded event update: %v", err)
 	}
-	select {
-	case err := <-stopDone:
-		if err != nil {
-			t.Fatalf("stop update: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("stop update did not finish")
+	if err := <-stopDone; err != nil {
+		t.Fatalf("stop update: %v", err)
 	}
 
 	data, err := os.ReadFile(SessionStateLogPath(root, id))
@@ -1073,6 +1063,38 @@ func TestMarkSessionObservedFoldsStaleDoneToIdle(t *testing.T) {
 	}
 }
 
+func TestMarkSessionObservedStartingGrace(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		age  time.Duration
+		kind string
+		want string
+	}{
+		{"fresh startup", StartingToIdleGrace - time.Second, "SessionStart", "starting"},
+		{"stale resumed startup", StartingToIdleGrace + time.Second, "SessionStart", "idle"},
+		{"other starting state", StartingToIdleGrace + time.Second, "Other", "starting"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := setStateRoot(t)
+			id := "qm-starting"
+			now := time.Now().UTC()
+			if err := SaveSessionState(id, &SessionState{
+				SessionID: id, Version: SchemaVersion,
+				Panes: map[string]PaneState{"agent": {Role: "agent", State: "starting", LastKind: tc.kind, LastEvent: now.Add(-tc.age)}},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := MarkSessionObservedAt(root, id, now); err != nil {
+				t.Fatal(err)
+			}
+			ss, err := LoadSessionStateAt(root, id)
+			if err != nil || ss.Panes["agent"].State != tc.want {
+				t.Fatalf("state = %+v, %v; want %s", ss, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestMarkSessionObservedLeavesFreshDoneUnwritten(t *testing.T) {
 	root := setStateRoot(t)
 	id := "qm-observed-fresh"
@@ -1430,5 +1452,16 @@ func TestStateLockTimeoutDoesNotKeepTheLock(t *testing.T) {
 	defer cancelNext()
 	if err := withStateLockContext(next, root, id, func() error { return nil }); err != nil {
 		t.Fatalf("lock after the timed-out writer was granted it: %v", err)
+	}
+}
+
+func TestAppendHookErrorDoesNotRecreateSessionDirectory(t *testing.T) {
+	root := t.TempDir()
+	const sessionID = "qm-deleted"
+	if err := AppendHookErrorAt(root, sessionID, "late hook"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("error = %v, want missing directory", err)
+	}
+	if _, err := os.Stat(SessionStateDir(root, sessionID)); !os.IsNotExist(err) {
+		t.Fatalf("session directory was recreated: %v", err)
 	}
 }

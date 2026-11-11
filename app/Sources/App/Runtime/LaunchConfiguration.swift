@@ -4,7 +4,6 @@ struct LaunchConfiguration {
     let daemonSocketOverride: String?
     let startDaemon: Bool
     let tmuxSession: String?
-    let shouldAutoDetectTmuxSession: Bool
     let disableTmux: Bool
     let workingDirectory: String
     let backend: AppBackend
@@ -35,70 +34,10 @@ struct LaunchConfiguration {
             daemonSocketOverride: socket.map { canonicalPath($0, relativeTo: workingDirectory) },
             startDaemon: startDaemon,
             tmuxSession: tmuxSession,
-            shouldAutoDetectTmuxSession: tmuxSession == nil && !disableTmux,
             disableTmux: disableTmux,
             workingDirectory: workingDirectory,
             backend: backend
         )
-    }
-
-    static func detectStartupTmuxSession(preferredSessionID: String?) -> String? {
-        startupTmuxSession(preferred: preferredSessionID, sessions: listQuestmasterTmuxSessions())
-    }
-
-    /// Reattach the remembered session when it is still alive; otherwise fall
-    /// back to the newest-created qm- session.
-    static func startupTmuxSession(
-        preferred: String?,
-        sessions: [(created: Int, name: String)]
-    ) -> String? {
-        if let preferred, sessions.contains(where: { $0.name == preferred }) {
-            return preferred
-        }
-        return sessions.max { $0.created < $1.created }?.name
-    }
-
-    private static func listQuestmasterTmuxSessions() -> [(created: Int, name: String)] {
-        guard let tmuxPath = resolveExecutable("tmux") else {
-            return []
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tmuxPath)
-        process.arguments = ["list-sessions", "-F", "#{session_created} #{session_name}"]
-        process.environment = appChildProcessEnvironment()
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return []
-        }
-
-        guard process.terminationStatus == 0 else {
-            return []
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
-            return []
-        }
-
-        return output
-            .split(separator: "\n")
-            .compactMap { line -> (created: Int, name: String)? in
-                let parts = line.split(separator: " ", maxSplits: 1)
-                guard parts.count == 2,
-                      let created = Int(parts[0]),
-                      parts[1].hasPrefix("qm-") else {
-                    return nil
-                }
-                return (created, String(parts[1]))
-            }
     }
 
     private static func value(after flag: String, in arguments: [String]) -> String? {
@@ -111,7 +50,7 @@ struct LaunchConfiguration {
 
 /// Remembers the last session the terminal viewed so a cold start can reattach
 /// it instead of defaulting to the newest-created session. A stale value is
-/// harmless (startup validates it against tmux list-sessions), so the key is
+/// harmless (startup validates it against daemon routes), so the key is
 /// never cleared.
 enum LastSessionPreference {
     static let key = "questmaster.lastSelectedSessionID"

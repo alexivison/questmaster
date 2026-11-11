@@ -36,6 +36,7 @@ func codexToolEndWithResponse(size int64) io.Reader {
 func TestHookCodexLargeToolEndClosesToolWithoutRetainingResponse(t *testing.T) {
 	root := setTestStateRoot(t)
 	const sessionID = "qm-large-hook"
+	seedHookSession(t, root, sessionID)
 	t.Setenv("QUESTMASTER_SESSION", "")
 	t.Setenv("CODEX_THREAD_ID", "")
 	var stderr bytes.Buffer
@@ -46,8 +47,14 @@ func TestHookCodexLargeToolEndClosesToolWithoutRetainingResponse(t *testing.T) {
 	if err != nil || len(before.Panes["agent"].RunningTools) != 1 {
 		t.Fatalf("running tool before tool_end: state=%+v err=%v", before, err)
 	}
-	// Let the recorded duration exceed the store's one-millisecond floor.
-	time.Sleep(2 * time.Millisecond)
+	if err := state.UpdateSessionState(sessionID, func(ss *state.SessionState) bool {
+		pane := ss.Panes["agent"]
+		pane.RunningTools[0].StartedAt = time.Now().Add(-time.Second)
+		ss.Panes["agent"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("seed a recordable tool duration: %v", err)
+	}
 	runtime.GC()
 	var start, end runtime.MemStats
 	runtime.ReadMemStats(&start)
@@ -81,6 +88,7 @@ func TestHookCodexLargeToolEndClosesToolWithoutRetainingResponse(t *testing.T) {
 func TestHookBeyondHardBoundIsDroppedAndLogged(t *testing.T) {
 	root := setTestStateRoot(t)
 	const sessionID = "qm-too-large-hook"
+	seedHookSession(t, root, sessionID)
 	t.Setenv("QUESTMASTER_SESSION", "")
 	var stderr bytes.Buffer
 	_, err := executeHookFastPath([]string{"--session", sessionID, "codex", "tool_end"}, codexToolEndWithResponse(64<<20), &stderr)
@@ -109,11 +117,13 @@ func TestHookBridgesAcceptLargeDiscardedResponse(t *testing.T) {
 			const sessionID = "qm-large-bridge"
 			t.Setenv("QUESTMASTER_SESSION", "")
 			if tc.agent == "opencode" {
-				manifest := state.Manifest{SessionID: sessionID, Agents: []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", ResumeID: "ses_example"}}}
+				manifest := state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID, Agents: []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", ResumeID: "ses_example"}}}
 				manifest.SetExtra("opencode_session_id", "ses_example")
 				if err := state.OpenStore(root).Create(manifest); err != nil {
 					t.Fatal(err)
 				}
+			} else {
+				seedHookSession(t, root, sessionID)
 			}
 			payload := io.MultiReader(strings.NewReader(tc.prefix), io.LimitReader(repeatedHookByte{value: 'x'}, 2<<20), strings.NewReader(tc.suffix))
 			var stderr bytes.Buffer
@@ -133,6 +143,7 @@ func TestHookBridgesAcceptLargeDiscardedResponse(t *testing.T) {
 func TestHookSmallMalformedPayloadStillReachesTolerantHandler(t *testing.T) {
 	root := setTestStateRoot(t)
 	t.Setenv("QUESTMASTER_SESSION", "")
+	seedHookSession(t, root, "qm-small-malformed")
 	var stderr bytes.Buffer
 	if handled, err := executeHookFastPath([]string{"--session", "qm-small-malformed", "claude", "tool_end"}, strings.NewReader(`{"tool_name":`), &stderr); err != nil || !handled || stderr.Len() != 0 {
 		t.Fatalf("hook: handled=%t err=%v stderr=%q", handled, err, stderr.String())
@@ -173,6 +184,16 @@ func stateEventLines(t *testing.T, root, sessionID string) []state.StateEvent {
 	return events
 }
 
+func seedHookSession(t *testing.T, root, sessionID string) {
+	t.Helper()
+	if err := state.OpenStore(root).Create(state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, sessionID), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func productionHookRunner(t *testing.T, root string) *HookRunner {
 	t.Helper()
 	t.Setenv("CLAUDE_SESSION_ID", "")
@@ -193,7 +214,7 @@ func TestHookTmuxCallStopsAtDeadlineAndIsLogged(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	r := productionHookRunner(t, root)
 	store := state.OpenStore(root)
-	if err := store.Create(state.Manifest{SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
 	// A private socket path: even if the fake were not found, a real tmux
@@ -215,6 +236,7 @@ func TestHookTmuxCallStopsAtDeadlineAndIsLogged(t *testing.T) {
 func TestHookStateLockTimeoutSkipsWriteAndLogs(t *testing.T) {
 	root := setTestStateRoot(t)
 	const sessionID = "qm-lock-deadline"
+	seedHookSession(t, root, sessionID)
 	r := productionHookRunner(t, root)
 	if err := os.MkdirAll(filepath.Join(root, sessionID), 0o700); err != nil {
 		t.Fatalf("mkdir session state: %v", err)
@@ -295,6 +317,7 @@ func TestHookOlderTransitionDoesNotRegressNewerState(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := setTestStateRoot(t)
 			sessionID := "qm-order-" + tc.name
+			seedHookSession(t, root, sessionID)
 			r := productionHookRunner(t, root)
 			if tc.seed != nil {
 				r.Now = func() time.Time { return base }
@@ -327,6 +350,7 @@ func TestHookOlderTransitionDoesNotRegressNewerState(t *testing.T) {
 func TestHookOlderToolStartKeepsItsRecordsButNotThePlate(t *testing.T) {
 	root := setTestStateRoot(t)
 	const sessionID = "qm-order-tools"
+	seedHookSession(t, root, sessionID)
 	base := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
 	r := productionHookRunner(t, root)
 	r.Now = func() time.Time { return base }
@@ -362,6 +386,7 @@ func TestHookOlderToolStartKeepsItsRecordsButNotThePlate(t *testing.T) {
 func TestHookCorruptStateIsMovedAsideOnce(t *testing.T) {
 	root := setTestStateRoot(t)
 	const sessionID = "qm-corrupt-state"
+	seedHookSession(t, root, sessionID)
 	r := productionHookRunner(t, root)
 	dir := filepath.Join(root, sessionID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -423,6 +448,7 @@ func TestHookRedactsCredentialsFromActivity(t *testing.T) {
 		t.Run(tc.agent, func(t *testing.T) {
 			root := setTestStateRoot(t)
 			sessionID := "qm-redact-" + tc.agent
+			seedHookSession(t, root, sessionID)
 			r := productionHookRunner(t, root)
 			for _, command := range commands {
 				runHookWithStdin(r, tc.agent, tc.action, sessionID, tc.payload(command))
@@ -447,6 +473,7 @@ func TestHookRedactsCredentialsFromActivity(t *testing.T) {
 func TestHookStateFilesArePrivate(t *testing.T) {
 	root := setTestStateRoot(t)
 	const sessionID = "qm-private-files"
+	seedHookSession(t, root, sessionID)
 	r := productionHookRunner(t, root)
 	runHookWithStdin(r, "claude", "working", sessionID, nil)
 	runHookWithStdin(r, "claude", "no-such-action", sessionID, nil)
@@ -466,6 +493,7 @@ func TestHookStateFilesArePrivate(t *testing.T) {
 func TestHookHandlerErrorsGoToHookErrorLog(t *testing.T) {
 	root := setTestStateRoot(t)
 	const sessionID = "qm-error-log"
+	seedHookSession(t, root, sessionID)
 	r := productionHookRunner(t, root)
 	stderr := runHookWithStdin(r, "claude", "no-such-action", sessionID, nil)
 	if !strings.Contains(stderr, "unknown action") {
@@ -474,5 +502,37 @@ func TestHookHandlerErrorsGoToHookErrorLog(t *testing.T) {
 	log := hookErrorLog(t, root, sessionID)
 	if !strings.Contains(log, "claude/no-such-action") || !strings.Contains(log, "unknown action") {
 		t.Fatalf("hook-errors.log = %q, want the tagged warning", log)
+	}
+}
+
+func TestHookAfterSessionDeletionDoesNotRecreateState(t *testing.T) {
+	for _, tc := range []struct{ agent, action, payload string }{
+		{"claude", "done", `{"session_id":"example"}`},
+		{"claude", "stopped", `{"session_id":"example"}`},
+		{"codex", "done", `{}`},
+		{"pi", "agent_end", `{}`},
+		{"opencode", "event", `{"event":{"type":"session.idle","properties":{}}}`},
+		{"claude", "working", `{}`},
+		{"claude", "no-such-action", `{}`},
+	} {
+		t.Run(tc.agent+"/"+tc.action, func(t *testing.T) {
+			root := setTestStateRoot(t)
+			const sessionID = "qm-deleted"
+			store := state.OpenStore(root)
+			if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Delete(sessionID); err != nil {
+				t.Fatal(err)
+			}
+			var stderr bytes.Buffer
+			runHook(productionHookRunner(t, root), hookOptions{agent: tc.agent, action: tc.action, session: sessionID, stdin: []byte(tc.payload)}, &stderr)
+			if _, err := os.Stat(filepath.Join(root, sessionID)); !os.IsNotExist(err) {
+				t.Fatalf("deleted session state directory exists: %v", err)
+			}
+			if (tc.action == "done" || tc.action == "stopped") && stderr.Len() != 0 {
+				t.Fatalf("late %s hook reported an error: %s", tc.action, stderr.String())
+			}
+		})
 	}
 }

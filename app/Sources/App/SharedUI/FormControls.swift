@@ -30,6 +30,8 @@ enum FormFieldMetrics {
     /// The dropdown rows' text starts 10 in from the dropdown's outer edge, under its field's text: the inset less
     /// the dropdown's 1pt border.
     static let suggestionTextInset = Space.item - Token.Size.divider
+    /// A multi-select row's text starts past its checkbox, which sits where a pick row's text does.
+    static let checkedSuggestionTextInset = suggestionTextInset + CheckboxMetrics.side + Space.item
 }
 
 /// "| text" at a field's trailing end: a divider, then the text, as the model field's effort level and the title field's
@@ -102,15 +104,17 @@ extension FormTextField where Trailing == EmptyView {
     }
 }
 
-/// The one dropdown: under a path, model or colour field, and under the filter fields. It overlays the
-/// fields below it rather than pushing them. Its rows are pick-to-open rows; it only shows while its field
-/// has focus, so a highlighted row has the focused look. `accessory` draws at a row's right end (the colour
-/// rows' swatches, a project's path), 10 in.
+/// The one dropdown: under a path, model or colour field, under the filter fields, and under the tags field. It overlays
+/// the fields below it rather than pushing them. Its rows are pick-to-open rows; it only shows while its field has
+/// focus, so a highlighted row has the focused look. `accessory` draws at a row's right end (the colour rows' swatches,
+/// a project's path), 10 in. `checkedRows` makes it a multi-select list: each row starts with a checkbox, ticked for the
+/// rows in the set, and a click on a row toggles it while the dropdown stays open.
 struct SuggestionDropdown: View {
     let rows: [String]
     let highlightedIndex: Int?
     var onSelect: (Int) -> Void
     var accessory: ((Int, RowLook) -> AnyView)?
+    var checkedRows: Set<Int>?
 
     var body: some View {
         VStack(spacing: FormFieldMetrics.suggestionRowSpacing) {
@@ -122,8 +126,12 @@ struct SuggestionDropdown: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .alignmentGuide(.top) { $0[.firstTextBaseline] - FormFieldMetrics.suggestionBaseline }
-                    .padding(.horizontal, FormFieldMetrics.suggestionTextInset)
+                    .padding(.leading, textLeadingInset)
+                    .padding(.trailing, FormFieldMetrics.suggestionTextInset)
                     .frame(maxWidth: .infinity, minHeight: FormFieldMetrics.suggestionRowHeight, maxHeight: FormFieldMetrics.suggestionRowHeight, alignment: .topLeading)
+                    .overlay(alignment: .leading) {
+                        checkbox(for: index, look: look)
+                    }
                     .overlay(alignment: .trailing) {
                         accessory?(index, look)
                             .padding(.trailing, FormFieldMetrics.segmentTrailing - Token.Size.divider)
@@ -134,6 +142,18 @@ struct SuggestionDropdown: View {
         }
         .dropdownChrome()
         .accessibilityLabel("Suggestions")
+    }
+
+    private var textLeadingInset: CGFloat {
+        checkedRows == nil ? FormFieldMetrics.suggestionTextInset : FormFieldMetrics.checkedSuggestionTextInset
+    }
+
+    @ViewBuilder
+    private func checkbox(for index: Int, look: RowLook) -> some View {
+        if let checkedRows {
+            CheckBox(isChecked: checkedRows.contains(index), markColor: look.text.color)
+                .padding(.leading, FormFieldMetrics.suggestionTextInset)
+        }
     }
 }
 

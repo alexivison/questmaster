@@ -119,6 +119,16 @@ func TestSessionName_ReadsTheCallersPane(t *testing.T) {
 	}
 }
 
+func TestSessionNameNormalizesPrivateTmpAlias(t *testing.T) {
+	setCaller(t, "/tmp/qm-test/sock", "%77")
+	client := NewClient(newMock(func(context.Context, ...string) (string, error) {
+		return "/private/tmp/qm-test/sock\t%77\tqm-worker", nil
+	}))
+	if name, err := client.SessionName(t.Context()); err != nil || name != "qm-worker" {
+		t.Fatalf("SessionName = %q, %v", name, err)
+	}
+}
+
 // TMUX_PANE names a pane on the caller's own server. On another server the
 // same ID is someone else's pane, so SessionName must not answer with it.
 func TestSessionName_RejectsTheCallersPaneWhenOnAnotherServer(t *testing.T) {
@@ -1004,39 +1014,6 @@ func TestShowEnvironment_Error(t *testing.T) {
 
 	_, _, err := c.ShowEnvironment(t.Context(), "qm-s", "KEY")
 	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// SetHook
-// ---------------------------------------------------------------------------
-
-func TestSetHook_Success(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if args[0] != "set-hook" {
-			t.Errorf("expected set-hook, got %s", args[0])
-		}
-		return "", nil
-	})
-	c := NewClient(m)
-
-	if err := c.SetHook(t.Context(), "qm-s", "session-closed", "run-shell 'cleanup'"); err != nil {
-		t.Fatalf("SetHook: %v", err)
-	}
-}
-
-func TestSetHook_Error(t *testing.T) {
-	t.Parallel()
-
-	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "", errors.New("bad hook")
-	})
-	c := NewClient(m)
-
-	if err := c.SetHook(t.Context(), "qm-s", "bad", "cmd"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }

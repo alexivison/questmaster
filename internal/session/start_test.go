@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +13,8 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmux/tmuxtest"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
 )
 
 func TestStartShellSession(t *testing.T) {
@@ -117,15 +118,15 @@ func TestStartAssignsOrPersistsSessionClass(t *testing.T) {
 		want  string
 	}{
 		{name: "automatic", index: 6, want: "bard"},
-		{name: "explicit", class: " Wizard ", want: "wizard"},
+		{name: "explicit", class: " Ranger ", want: "ranger"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			svc, runner := setupService(t)
 			svc.RandClassIndex = func(n int) int {
-				if n != 7 {
-					t.Fatalf("random class choices = %d, want 7", n)
+				if n != 11 {
+					t.Fatalf("random class choices = %d, want 11", n)
 				}
 				return tt.index
 			}
@@ -159,7 +160,7 @@ func TestStartDefaultClassCountsOnlyLiveMasters(t *testing.T) {
 		"qm-live-shell":    "barbarian",
 		"qm-live-worker":   "druid",
 	} {
-		manifest := state.Manifest{SessionID: id, Display: &state.DisplayMetadata{Class: class}}
+		manifest := state.Manifest{TmuxServer: "questmaster", SessionID: id, Display: &state.DisplayMetadata{Class: class}}
 		switch id {
 		case "qm-live-paladin", "qm-live-wizard", "qm-stopped-rogue":
 			manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "agent"}}
@@ -175,8 +176,8 @@ func TestStartDefaultClassCountsOnlyLiveMasters(t *testing.T) {
 		}
 	}
 	svc.RandClassIndex = func(n int) int {
-		if n != 5 {
-			t.Fatalf("least-used classes = %d, want 5", n)
+		if n != 9 {
+			t.Fatalf("least-used classes = %d, want 9", n)
 		}
 		return 1
 	}
@@ -202,7 +203,7 @@ func TestStartRejectsInvalidOrInapplicableSessionClass(t *testing.T) {
 		opts    StartOpts
 		wantErr string
 	}{
-		{name: "invalid", opts: StartOpts{Class: "ranger"}, wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard"},
+		{name: "invalid", opts: StartOpts{Class: "unknown"}, wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard, ranger, necromancer, sorcerer, fighter"},
 		{name: "shell", opts: StartOpts{Shell: true, Class: "wizard"}, wantErr: "shell sessions"},
 		{name: "worker", opts: StartOpts{MasterID: "qm-master", Class: "wizard"}, wantErr: "workers inherit"},
 	}
@@ -241,11 +242,14 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 
 	// Pre-create manifest for the base ID to simulate a concurrent process
 	// claiming it between HasSession and Store.Create.
-	if err := store.Create(state.Manifest{SessionID: "qm-100"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "questmaster", SessionID: "qm-100"}); err != nil {
 		t.Fatal(err)
 	}
 
 	runner := &testRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if args[0] == "show-options" {
+			return tmuxconfig.RootMarker(store.Root(), "questmaster"), nil
+		}
 		if args[0] == "has-session" {
 			return "", &tmux.ExitError{Code: 1} // no tmux session exists
 		}
@@ -377,6 +381,7 @@ func TestStartRollsBackManifestWhenWorkerRegistrationFails(t *testing.T) {
 
 func TestStart_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
+	tmuxtest.StubQuestmaster(t)
 	t.Setenv("CLAUDE_BIN", "")
 	t.Setenv("HOME", t.TempDir())
 	// Isolate the login-shell PATH probe: a real agent CLI on the dev/CI
@@ -416,6 +421,7 @@ func TestStart_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) {
 
 func TestStart_ResolvesAgentFromInteractiveLoginShellPath(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
+	tmuxtest.StubQuestmaster(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PI_BIN", "")
 
@@ -447,6 +453,7 @@ func TestStart_ResolvesAgentFromInteractiveLoginShellPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := newMockRunner()
+	runner.ownerMarker = tmuxconfig.RootMarker(store.Root(), "questmaster")
 	registry, err := agent.NewRegistry(&agent.Config{
 		Agents: map[string]agent.AgentConfig{
 			"pi": {CLI: "pi"},
@@ -508,179 +515,4 @@ func pathContainsDir(path, dir string) bool {
 		}
 	}
 	return false
-}
-
-// W4: Cleanup script uses jq without checking availability.
-// The parent session ID is now embedded at generation time so jq is only
-// used behind availability checks for best-effort JSON rewrites.
-func TestWriteCleanupScript_ChecksJqAvailability(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "cleanup.sh")
-
-	if err := writeCleanupScript(dir, "/state", "qm-test", "qm-master"); err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := string(data)
-
-	// jq usage (worker-list rewrite) should be guarded.
-	if !strings.Contains(script, "command -v jq") {
-		t.Error("cleanup script should check for jq availability before using it")
-	}
-
-	// Parent ID should be embedded, not discovered at runtime.
-	if !strings.Contains(script, "qm-master") {
-		t.Error("cleanup script should embed the parent session ID")
-	}
-}
-
-func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
-	if _, err := exec.LookPath("jq"); err != nil {
-		t.Skip("jq not available")
-	}
-
-	storeDir := t.TempDir()
-	store, err := state.NewStore(storeDir)
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-	sessionID := "qm-pi-cleanup-resume"
-	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
-	if err := store.Create(state.Manifest{
-		SessionID: sessionID,
-		Agents: []state.AgentManifest{
-			{Name: "pi", Role: "agent", CLI: "/usr/bin/pi", Window: 1},
-		},
-	}); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-	writePiResumeState(t, store, sessionID, resumeID)
-
-	runtime := state.NewRuntimeDir(storeDir, sessionID)
-	if err := ensureRuntimeDir(runtime, sessionID); err != nil {
-		t.Fatal(err)
-	}
-	scriptPath := filepath.Join(runtime, "cleanup.sh")
-	if err := writeCleanupScript(runtime, store.Root(), sessionID, ""); err != nil {
-		t.Fatalf("write cleanup script: %v", err)
-	}
-	if out, err := exec.Command("/bin/sh", scriptPath, sessionID).CombinedOutput(); err != nil {
-		t.Fatalf("run cleanup script: %v\n%s", err, out)
-	}
-
-	m, err := store.Read(sessionID)
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
-	if got := manifestAgentResumeID(m.Agents, "agent"); got != resumeID {
-		t.Fatalf("agent resume_id: got %q, want %q", got, resumeID)
-	}
-	if got := m.ExtraString("pi_session_id"); got != resumeID {
-		t.Fatalf("pi_session_id: got %q, want %q", got, resumeID)
-	}
-	if _, err := os.Stat(runtime); !os.IsNotExist(err) {
-		t.Fatalf("runtime dir should be removed, stat err=%v", err)
-	}
-}
-
-// Cleanup script must NOT delete worker manifests — prune handles that.
-// Premature deletion loses the parent data needed to classify workers.
-func TestWriteCleanupScript_DoesNotDeleteWorkerManifest(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "cleanup.sh")
-
-	if err := writeCleanupScript(dir, "/state", "qm-worker", "qm-master"); err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := string(data)
-
-	if strings.Contains(script, "rm -f \"$SR/$W.json\"") {
-		t.Error("cleanup script must not delete worker manifest; prune handles cleanup")
-	}
-	if strings.Contains(script, "rm -f \"$SR/$W.json.lock\"") {
-		t.Error("cleanup script must not delete worker manifest lock")
-	}
-}
-
-func TestWriteCleanupScript_IgnoresDifferentClosedSession(t *testing.T) {
-	storeDir := t.TempDir()
-	store, err := state.NewStore(storeDir)
-	if err != nil {
-		t.Fatalf("new store: %v", err)
-	}
-
-	masterID := "qm-master-wrong-hook"
-	workerID := "qm-worker-wrong-hook"
-	otherID := "qm-other-wrong-hook"
-	if err := store.Create(state.Manifest{SessionID: masterID, SessionType: "master", Workers: []string{workerID}}); err != nil {
-		t.Fatalf("create master: %v", err)
-	}
-	if err := store.Create(state.Manifest{SessionID: workerID}); err != nil {
-		t.Fatalf("create worker: %v", err)
-	}
-	if err := store.Update(workerID, func(m *state.Manifest) {
-		m.SetExtra("parent_session", masterID)
-	}); err != nil {
-		t.Fatalf("set parent: %v", err)
-	}
-
-	runtime := state.NewRuntimeDir(storeDir, workerID)
-	if err := ensureRuntimeDir(runtime, workerID); err != nil {
-		t.Fatal(err)
-	}
-
-	scriptPath := filepath.Join(runtime, "cleanup.sh")
-	if err := writeCleanupScript(runtime, store.Root(), workerID, masterID); err != nil {
-		t.Fatalf("write cleanup script: %v", err)
-	}
-	if out, err := exec.Command("/bin/sh", scriptPath, otherID).CombinedOutput(); err != nil {
-		t.Fatalf("run cleanup script: %v\n%s", err, out)
-	}
-
-	if _, err := os.Stat(runtime); err != nil {
-		t.Fatalf("runtime dir should remain for unrelated closed session, stat err=%v", err)
-	}
-
-	workers, err := store.GetWorkers(masterID)
-	if err != nil {
-		t.Fatalf("get workers: %v", err)
-	}
-	if len(workers) != 1 || workers[0] != workerID {
-		t.Fatalf("workers after unrelated close = %v, want [%s]", workers, workerID)
-	}
-}
-
-func TestWriteCleanupScript_NoParent(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "cleanup.sh")
-
-	if err := writeCleanupScript(dir, "/state", "qm-shell", ""); err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := string(data)
-
-	// Plain sessions should still clean up runtime dir.
-	if !strings.Contains(script, "rm -rf") {
-		t.Error("cleanup script should remove runtime dir for plain sessions")
-	}
 }

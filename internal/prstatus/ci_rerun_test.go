@@ -182,13 +182,37 @@ func TestCIOneRunPolledRepeatedlyIsOneEvent(t *testing.T) {
 func TestCIFailureWhileOtherChecksRunAlertsOncePerRun(t *testing.T) {
 	t.Parallel()
 	p := newCIPoller(t)
-	// GitHub can report FAILURE while other checks still run; each later finish must not alert.
+	// GitHub can report FAILURE while other checks still run. Only the final finish alerts again.
 	p.poll(ciHead, "FAILURE", finishedCheck(ciFirstRun), runningCheck, runningCheck)
 	p.wantCI("failure")
 	p.poll(ciHead, "FAILURE", finishedCheck(ciFirstRun), finishedCheck(ciSecondRun), runningCheck)
-	p.poll(ciHead, "FAILURE", finishedCheck(ciFirstRun), finishedCheck(ciSecondRun), finishedCheck(ciThirdRun))
-	p.poll(ciHead, "FAILURE", finishedCheck(ciFirstRun), finishedCheck(ciSecondRun), finishedCheck(ciThirdRun))
 	p.wantCI("failure")
+	p.poll(ciHead, "FAILURE", finishedCheck(ciFirstRun), finishedCheck(ciSecondRun), finishedCheck(ciThirdRun))
+	for range 5 {
+		p.poll(ciHead, "FAILURE", finishedCheck(ciFirstRun), finishedCheck(ciSecondRun), finishedCheck(ciThirdRun))
+	}
+	p.wantCI("failure", "failure")
+	events := p.ciEvents()
+	if !strings.HasSuffix(events[1].ID, ":settled") || events[1].OccurredAt != ciThirdRun || !events[1].Finished {
+		t.Fatalf("settle event = %+v", events[1])
+	}
+	if !strings.Contains(p.alerts[1], "CI: failure, finished ("+ciHead+")") {
+		t.Fatalf("settle alert = %q", p.alerts[1])
+	}
+}
+
+func TestCIEarlyFailureThenSuccessHasOnlyResultChangeEvent(t *testing.T) {
+	t.Parallel()
+	p := newCIPoller(t)
+	p.poll(ciHead, "FAILURE", finishedCheck(ciFirstRun), runningCheck)
+	p.poll(ciHead, "SUCCESS", finishedCheck(ciFirstRun), finishedCheck(ciSecondRun))
+	for range 5 {
+		p.poll(ciHead, "SUCCESS", finishedCheck(ciFirstRun), finishedCheck(ciSecondRun))
+	}
+	p.wantCI("failure", "success")
+	if strings.Contains(p.alerts[1], "finished") {
+		t.Fatalf("result-change alert = %q", p.alerts[1])
+	}
 }
 
 func TestCIStatusStoredBeforeTheCompletionFieldStaysSilentThenTracksReruns(t *testing.T) {

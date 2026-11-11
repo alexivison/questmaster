@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
@@ -212,11 +214,18 @@ func TestChatCommandReportsPartialWorkerFailure(t *testing.T) {
 	}
 }
 
-func TestChatCommandDiscoversCurrentMaster(t *testing.T) {
+func TestChatCommandUsesDiscoveredLegacyMaster(t *testing.T) {
 	t.Setenv(state.SessionEnv, "")
 	store := setupStore(t)
 	createFeedManifests(t, store, "qm-master", "qm-w1")
-	out := runCmd(t, store, displayRunner(t, "qm-master"), "chat")
+	runner := displayRunner(t, "qm-master")
+	client := tmux.NewClient(runner)
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "questmaster" }, nil)
+	id, err := discoverMasterSessionRouted(t.Context(), store, router)
+	if err != nil || id != "qm-master" {
+		t.Fatalf("discovered master = %q, %v", id, err)
+	}
+	out := runCmd(t, store, runner, "chat", id)
 	var page workerfeed.HistoryPage
 	if err := json.Unmarshal([]byte(out), &page); err != nil {
 		t.Fatal(err)
@@ -228,12 +237,12 @@ func TestChatCommandDiscoversCurrentMaster(t *testing.T) {
 
 func createFeedManifests(t *testing.T, store *state.Store, masterID string, workers ...string) {
 	t.Helper()
-	manifest := state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: workers}
+	manifest := state.Manifest{TmuxServer: "dev_previous", SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: workers}
 	if err := store.Create(manifest); err != nil {
 		t.Fatal(err)
 	}
 	for _, workerID := range workers {
-		worker := state.Manifest{SessionID: workerID, Title: "Worker " + workerID}
+		worker := state.Manifest{TmuxServer: "dev_previous", SessionID: workerID, Title: "Worker " + workerID}
 		worker.SetExtra("parent_session", masterID)
 		if err := store.Create(worker); err != nil {
 			t.Fatal(err)

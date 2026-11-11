@@ -21,14 +21,14 @@ func TestPRRefreshScopesAndWaitsForStatus(t *testing.T) {
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.store.Create(state.Manifest{SessionID: "qm-other"}); err != nil {
+	if err := env.store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-other"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-other", other, env.now); err != nil {
 		t.Fatal(err)
 	}
 	called := false
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, env.tmuxClient, nil), PRRefresh: func(_ context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
+	srv := &Server{Snapshotter: testSnapshotter(env.store, env.tmuxClient, nil), PRRefresh: func(_ context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
 		called = true
 		if !wait {
 			t.Fatal("app refresh did not wait")
@@ -82,7 +82,7 @@ func TestPRRefreshWithoutSessionQueuesWatchedKey(t *testing.T) {
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
 		t.Fatal(err)
 	}
-	srv := &Server{Snapshotter: NewSnapshotter(env.store, env.tmuxClient, nil), PRRefresh: func(_ context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
+	srv := &Server{Snapshotter: testSnapshotter(env.store, env.tmuxClient, nil), PRRefresh: func(_ context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
 		if wait || len(keys) != 1 || keys[0] != ref.Key {
 			return nil, fmt.Errorf("wrong wake: wait=%v keys=%v", wait, keys)
 		}
@@ -92,7 +92,7 @@ func TestPRRefreshWithoutSessionQueuesWatchedKey(t *testing.T) {
 	if response.OK == nil || !*response.OK {
 		t.Fatalf("async wake failed: %s", response.Error)
 	}
-	if err := env.store.Create(state.Manifest{SessionID: "qm-other"}); err != nil {
+	if err := env.store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-other"}); err != nil {
 		t.Fatal(err)
 	}
 	other, _ := state.ParsePullRequestRef("owner/repo#43")
@@ -117,7 +117,7 @@ func TestPRRefreshWithoutSessionQueuesWatchedKey(t *testing.T) {
 
 func TestPullRequestsScopeAndRevision(t *testing.T) {
 	env := seedServeFixture(t)
-	worker := state.Manifest{SessionID: "qm-worker", SessionType: "worker"}
+	worker := state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-worker", SessionType: "worker"}
 	worker.SetExtra("parent_session", "qm-demo")
 	if err := env.store.Create(worker); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 	if err := env.store.Update("qm-demo", func(m *state.Manifest) { m.Workers = []string{"qm-worker"} }); err != nil {
 		t.Fatal(err)
 	}
-	other := state.Manifest{SessionID: "qm-other"}
+	other := state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-other"}
 	if err := env.store.Create(other); err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	snapshotter := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snapshotter := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	srv := &Server{Snapshotter: snapshotter}
 	request := func(id string) []state.PullRequest {
 		t.Helper()
@@ -214,7 +214,7 @@ func TestPullRequestsRegistryRewritePushesTracker(t *testing.T) {
 	env := seedServeFixture(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	source, err := NewFileChangeSource(ctx, snap, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -231,31 +231,27 @@ func TestPullRequestsRegistryRewritePushesTracker(t *testing.T) {
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case change := <-changes:
-		if !change.BroadTracker || !change.Affects(topicTracker) {
-			t.Fatalf("change = %#v", change)
-		}
-		var output bytes.Buffer
-		var baseline Envelope
-		if err := json.Unmarshal(bytes.TrimSpace(first.Bytes()), &baseline); err != nil {
-			t.Fatal(err)
-		}
-		baselineBytes, _ := json.Marshal(baseline.Data)
-		if err := srv.pushChanged(ctx, json.NewEncoder(&output), []string{topicTracker}, map[string][]byte{topicTracker: baselineBytes}, change); err != nil {
-			t.Fatal(err)
-		}
-		var pushed struct {
-			Data TrackerSnapshot `json:"data"`
-		}
-		if err := json.Unmarshal(output.Bytes(), &pushed); err != nil {
-			t.Fatalf("no tracker push: %v", err)
-		}
-		if pushed.Data.Sessions[trackerSessionIndex(pushed.Data.Sessions, "qm-demo")].PullRequestsRev == "" {
-			t.Fatal("push lacked PR revision")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("registry rewrite did not publish")
+	change := <-changes
+	if !change.BroadTracker || !change.Affects(topicTracker) {
+		t.Fatalf("change = %#v", change)
+	}
+	var output bytes.Buffer
+	var baseline Envelope
+	if err := json.Unmarshal(bytes.TrimSpace(first.Bytes()), &baseline); err != nil {
+		t.Fatal(err)
+	}
+	baselineBytes, _ := json.Marshal(baseline.Data)
+	if err := srv.pushChanged(ctx, json.NewEncoder(&output), []string{topicTracker}, map[string][]byte{topicTracker: baselineBytes}, change); err != nil {
+		t.Fatal(err)
+	}
+	var pushed struct {
+		Data TrackerSnapshot `json:"data"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &pushed); err != nil {
+		t.Fatalf("no tracker push: %v", err)
+	}
+	if pushed.Data.Sessions[trackerSessionIndex(pushed.Data.Sessions, "qm-demo")].PullRequestsRev == "" {
+		t.Fatal("push lacked PR revision")
 	}
 }
 
@@ -267,7 +263,7 @@ func TestPullRequestStatusRewritePushesTracker(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	source, err := NewFileChangeSource(ctx, snap, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -284,26 +280,22 @@ func TestPullRequestStatusRewritePushesTracker(t *testing.T) {
 	if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{ref.Key: {Title: "New status", ChangedAt: env.now.Format(time.RFC3339)}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case change := <-changes:
-		if !change.BroadTracker || !change.Affects(topicTracker) {
-			t.Fatalf("change=%#v", change)
-		}
-		var output bytes.Buffer
-		baselineBytes, _ := json.Marshal(baseline)
-		if err := srv.pushChanged(ctx, json.NewEncoder(&output), []string{topicTracker}, map[string][]byte{topicTracker: baselineBytes}, change); err != nil {
-			t.Fatal(err)
-		}
-		var pushed struct {
-			Data TrackerSnapshot `json:"data"`
-		}
-		if err := json.Unmarshal(output.Bytes(), &pushed); err != nil {
-			t.Fatalf("no tracker push: %v", err)
-		}
-		if pushed.Data.Sessions[trackerSessionIndex(pushed.Data.Sessions, "qm-demo")].PullRequestsRev == oldRev {
-			t.Fatal("status push kept old revision")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("status rewrite did not publish")
+	change := <-changes
+	if !change.BroadTracker || !change.Affects(topicTracker) {
+		t.Fatalf("change=%#v", change)
+	}
+	var output bytes.Buffer
+	baselineBytes, _ := json.Marshal(baseline)
+	if err := srv.pushChanged(ctx, json.NewEncoder(&output), []string{topicTracker}, map[string][]byte{topicTracker: baselineBytes}, change); err != nil {
+		t.Fatal(err)
+	}
+	var pushed struct {
+		Data TrackerSnapshot `json:"data"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &pushed); err != nil {
+		t.Fatalf("no tracker push: %v", err)
+	}
+	if pushed.Data.Sessions[trackerSessionIndex(pushed.Data.Sessions, "qm-demo")].PullRequestsRev == oldRev {
+		t.Fatal("status push kept old revision")
 	}
 }

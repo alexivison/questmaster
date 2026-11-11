@@ -20,6 +20,7 @@ timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("ServeRecoveryPolicyTests") { ServeRecoveryPolicyTests.run() }
         timed("DaemonConnectionTests") { DaemonConnectionTests.run() }
         timed("ConnectionStateTests") { ConnectionStateTests.run() }
+        timed("AttachGenerationTests") { AttachGenerationTests.run() }
         timed("NewSessionLogicTests") { NewSessionLogicTests.run() }
         timed("SessionClassLogicTests") { SessionClassLogicTests.run() }
         timed("ColorFieldTests") { ColorFieldTests.run() }
@@ -42,12 +43,15 @@ timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("DisplayClassificationTests") { DisplayClassificationTests.run() }
         timed("ArtifactCoreTests") { ArtifactCoreTests.run() }
         timed("QuestCoreTests") { QuestCoreTests.run() }
+        timed("QuestTagsTests") { QuestTagsTests.run() }
 timed("ProjectOrderTests") { ProjectOrderTests.run() }
         timed("ProjectSettingsTests") { ProjectSettingsTests.run() }
         timed("ShellChromeTests") { ShellChromeTests.run() }
         timed("CaffeineStateTests") { CaffeineStateTests.run() }
         timed("GhosttyConfigParserTests") { GhosttyConfigParserTests.run() }
         timed("TerminalDetachSignalTests") { TerminalDetachSignalTests.run() }
+        try timed("TmuxRouteTests") { try TmuxRouteTests.run() }
+        try timed("TmuxSettingsModelTests") { try TmuxSettingsModelTests.run() }
         timed("WorkerChatTests") { WorkerChatTests.run() }
         timed("WorkerChatScrollTests") { WorkerChatScrollTests.run() }
         timed("WorkerLogFilterTests") { WorkerLogFilterTests.run() }

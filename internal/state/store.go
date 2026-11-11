@@ -4,6 +4,7 @@
 package state
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ var (
 // Store manages manifest files on disk with flock-based locking.
 type Store struct {
 	root string
+	now  func() time.Time
 }
 
 // EnsurePrivateStateRoot creates root if needed and tightens existing roots to
@@ -82,13 +84,18 @@ func (s *Store) lifecycleLockPath(sessionID string) string {
 // serializes starting, continuing and deleting the session. It is separate from
 // the manifest lock, which guards one manifest write at a time.
 func (s *Store) WithLifecycleLock(sessionID string, fn func() error) error {
+	return s.WithLifecycleLockContext(context.Background(), sessionID, fn)
+}
+
+// WithLifecycleLockContext bounds waiting for a lifecycle lock by ctx.
+func (s *Store) WithLifecycleLockContext(ctx context.Context, sessionID string, fn func() error) error {
 	if err := s.validateID(sessionID); err != nil {
 		return err
 	}
 	if err := EnsurePrivateStateRoot(s.root); err != nil {
 		return fmt.Errorf("create state root: %w", err)
 	}
-	return withFileLock(s.lifecycleLockPath(sessionID), fn)
+	return withFileLockContext(ctx, s.lifecycleLockPath(sessionID), fn)
 }
 
 // Create writes a new manifest. Returns an error if it already exists.

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -29,6 +30,10 @@ const (
 	sunPathSize = 104
 	// maxSocketPathBytes is the longest socket path the harness accepts.
 	maxSocketPathBytes = sunPathSize - 1
+	commandTimeout     = 10 * time.Second
+	// tmux server shutdown is OS-scheduled; this is a cleanup watchdog, not a latency assertion.
+	serverExitTimeout = 30 * time.Second
+	serverExitPoll    = 50 * time.Millisecond
 )
 
 // errNoSocket reports a tmux call that is not addressed to a private socket.
@@ -36,12 +41,19 @@ var errNoSocket = errors.New("tmuxtest: tmux call without -S <socket>; refusing 
 
 // Runner runs tmux commands on one private server socket. It satisfies tmux.Runner.
 type Runner struct {
-	socket string
+	socket      string
+	configFiles []string
 }
 
 // NewRunner returns a Runner on a fresh private socket. On cleanup it kills the
 // server and removes the socket directory.
 func NewRunner(t testing.TB) *Runner {
+	return NewRunnerWithConfig(t)
+}
+
+// NewRunnerWithConfig starts a private server with the given config files in
+// order. Every tmux call still names the private -S socket explicitly.
+func NewRunnerWithConfig(t testing.TB, files ...string) *Runner {
 	t.Helper()
 	// Not t.TempDir: its path carries the test name and can exceed the socket limit.
 	dir, err := os.MkdirTemp("", "qmt")
@@ -56,7 +68,7 @@ func NewRunner(t testing.TB) *Runner {
 	if err := checkSocketPath(socket, os.Getuid()); err != nil {
 		t.Fatal(err)
 	}
-	return &Runner{socket: socket}
+	return &Runner{socket: socket, configFiles: append([]string(nil), files...)}
 }
 
 // Socket returns the private socket path.
@@ -70,7 +82,11 @@ func (r *Runner) Run(ctx context.Context, args ...string) (string, error) {
 	if len(args) > 0 && isServerSelector(args[0]) {
 		return "", fmt.Errorf("tmuxtest: %s in the command position would select another server", args[0])
 	}
-	return runTmux(ctx, r.socket, append([]string{"-S", r.socket}, args...))
+	argv := []string{"-S", r.socket}
+	for _, file := range r.configFiles {
+		argv = append(argv, "-f", file)
+	}
+	return runTmux(ctx, r.socket, append(argv, args...))
 }
 
 // RequireIntegration skips t unless QUESTMASTER_TMUX_INTEGRATION=1. With the
@@ -88,16 +104,32 @@ func RequireIntegration(t testing.TB) {
 	t.Logf("tmux -V: %s", version)
 }
 
+// StubQuestmaster gives generated tmux hooks a harmless command in tests.
+// Without it, the os.Executable fallback would point at the Go test binary.
+func StubQuestmaster(t testing.TB) {
+	t.Helper()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "questmaster"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write questmaster hook stub: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 // runTmux runs tmux with argv, which must begin with -S <socket>. It is the one
 // place this package starts tmux against a server.
 func runTmux(ctx context.Context, socket string, argv []string) (string, error) {
 	if len(argv) < 2 || argv[0] != "-S" || argv[1] != socket {
 		return "", fmt.Errorf("%w: %q", errNoSocket, argv)
 	}
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "tmux", argv...)
 	cmd.Env = childEnv(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("tmux %q timed out: %w", argv[2:], ctx.Err())
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return "", &tmux.ExitError{
@@ -115,10 +147,56 @@ func runTmux(ctx context.Context, socket string, argv []string) (string, error) 
 // cleanups run.
 func stopServer(t testing.TB, socket string) {
 	t.Helper()
+	pid, pidErr := runTmux(context.Background(), socket, []string{"-S", socket, "display-message", "-p", "#{pid}"})
+	if pidErr != nil && !isNoServer(pidErr) {
+		t.Errorf("read private tmux server pid %s: %v", socket, pidErr)
+	}
 	_, err := runTmux(context.Background(), socket, []string{"-S", socket, "kill-server"})
 	if err != nil && !isNoServer(err) {
 		t.Errorf("kill private tmux server %s: %v", socket, err)
+		return
 	}
+	if pidErr == nil {
+		if err := waitForServerExit(context.Background(), pid); err != nil {
+			t.Errorf("wait for private tmux server %s to exit: %v", socket, err)
+		}
+	}
+}
+
+func waitForServerExit(ctx context.Context, pid string) error {
+	deadline := time.NewTimer(serverExitTimeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(serverExitPoll)
+	defer ticker.Stop()
+	for {
+		stopped, err := serverStopped(ctx, pid)
+		if err != nil {
+			return fmt.Errorf("check server pid %s: %w", pid, err)
+		}
+		if stopped {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("server pid %s still running after %s", pid, serverExitTimeout)
+		case <-ticker.C:
+		}
+	}
+}
+
+func serverStopped(ctx context.Context, pid string) (bool, error) {
+	out, err := exec.CommandContext(ctx, "ps", "-o", "stat=", "-p", pid).Output()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	stat := strings.TrimSpace(string(out))
+	return stat == "" || strings.HasPrefix(stat, "Z"), nil
 }
 
 func isNoServer(err error) bool {
@@ -132,7 +210,9 @@ func isNoServer(err error) bool {
 
 // tmuxVersion runs `tmux -V`. It names no server and never connects to one.
 func tmuxVersion() (string, error) {
-	cmd := exec.Command("tmux", "-V")
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "tmux", "-V")
 	cmd.Env = childEnv(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {

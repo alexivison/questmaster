@@ -25,10 +25,23 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
+const (
+	// These tests observe separate CLI and daemon processes, so their file and socket events need a generous CI watchdog.
+	daemonProcessWaitTimeout   = 45 * time.Second
+	daemonProcessSocketTimeout = 10 * time.Second
+	daemonProcessPollInterval  = 20 * time.Millisecond
+	daemonProcessFastPoll      = 10 * time.Millisecond
+	daemonProcessIdleGrace     = 300 * time.Millisecond
+	daemonProcessLiveWorkCheck = 400 * time.Millisecond
+	daemonProcessStopCheck     = 300 * time.Millisecond
+)
+
+func daemonProcessDeadline() time.Time { return time.Now().Add(daemonProcessWaitTimeout) }
+
 func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	store := state.OpenStore(h.root)
-	if err := store.Create(state.Manifest{SessionID: "qm-pr-job"}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "dev_previous", SessionID: "qm-pr-job"}); err != nil {
 		t.Fatal(err)
 	}
 	ref, err := state.ParsePullRequestRef("owner/repo#1")
@@ -54,7 +67,7 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command(h.bin, "daemon", "run", "--jobs", "--idle-grace=300ms")
+	cmd := exec.Command(h.bin, "daemon", "run", "--jobs", "--idle-grace="+daemonProcessIdleGrace.String())
 	cmd.Env = h.env
 	var output bytes.Buffer
 	cmd.Stdout = &output
@@ -69,10 +82,10 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		select {
 		case <-done:
-		case <-time.After(3 * time.Second):
+		case <-time.After(daemonProcessWaitTimeout):
 		}
 	})
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := daemonProcessDeadline()
 	var status map[string]any
 	var statusErr error
 	for time.Now().Before(deadline) {
@@ -80,18 +93,18 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 		if statusErr == nil && status["running"] == true && status["has_work"] == true {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if statusErr != nil || status["running"] != true || status["has_work"] != true {
 		t.Fatalf("job not active: %v %v\n%s", status, statusErr, output.String())
 	}
 	statusPath := state.PullRequestStatusPath(h.root)
-	deadline = time.Now().Add(30 * time.Second)
+	deadline = daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(statusPath); err == nil {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if _, err := os.Stat(statusPath); err != nil {
 		t.Fatalf("job did not fetch: %v\n%s", err, output.String())
@@ -104,7 +117,8 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 	if !ok || len(prs) != 1 || prs[0].(map[string]any)["status"].(map[string]any)["title"] != "PR" {
 		t.Fatalf("CLI refresh result: %v", refreshed)
 	}
-	time.Sleep(400 * time.Millisecond)
+	// Observe past the idle grace to prove the live watcher keeps the process alive.
+	time.Sleep(daemonProcessLiveWorkCheck)
 	if status := h.must("daemon", "status"); status["running"] != true {
 		t.Fatalf("job idled with live watcher: %v", status)
 	}
@@ -116,7 +130,7 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("daemon exit: %v\n%s", err, output.String())
 		}
-	case <-time.After(30 * time.Second):
+	case <-time.After(daemonProcessWaitTimeout):
 		t.Fatalf("daemon did not idle out\n%s", output.String())
 	}
 }
@@ -134,9 +148,9 @@ type cachedDaemonBuild struct {
 	err    error
 }
 
-var cachedDaemonCLI, cachedDaemonHelper cachedDaemonBuild
+var cachedDaemonCLI, cachedDaemonHelper, cachedDaemonReplacement, cachedDaemonHelperReplacement cachedDaemonBuild
 
-func (b *cachedDaemonBuild) binary(t *testing.T, source string) string {
+func (b *cachedDaemonBuild) binary(t *testing.T, source string, flags ...string) string {
 	t.Helper()
 	b.Do(func() {
 		var dir string
@@ -145,7 +159,11 @@ func (b *cachedDaemonBuild) binary(t *testing.T, source string) string {
 			return
 		}
 		b.path = filepath.Join(dir, "qm")
-		b.output, b.err = exec.CommandContext(t.Context(), "go", "build", "-p=1", "-buildvcs=false", "-o", b.path, source).CombinedOutput()
+		args := append([]string{"build", "-p=1", "-buildvcs=false"}, flags...)
+		args = append(args, "-o", b.path, source)
+		build := exec.CommandContext(t.Context(), "go", args...)
+		build.Env = append(os.Environ(), "GOPROXY=off")
+		b.output, b.err = build.CombinedOutput()
 	})
 	if b.err != nil {
 		t.Fatalf("build %s: %v\n%s", source, b.err, b.output)
@@ -159,7 +177,27 @@ func copyDaemonBinary(t *testing.T, source, dest string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(dest, data, 0o700); err != nil {
+	tmpName := func() string {
+		syscall.ForkLock.RLock()
+		defer syscall.ForkLock.RUnlock()
+		tmp, err := os.CreateTemp(filepath.Dir(dest), "qm-test-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Remove(tmp.Name()) })
+		if _, err := tmp.Write(data); err != nil {
+			tmp.Close()
+			t.Fatal(err)
+		}
+		if err := tmp.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(tmp.Name(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return tmp.Name()
+	}()
+	if err := os.Rename(tmpName, dest); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -182,13 +220,13 @@ func newDaemonHarness(t *testing.T, root string) *daemonHarness {
 	h := &daemonHarness{t: t, bin: bin, home: home, root: root, env: append(os.Environ(), "HOME="+home, "QUESTMASTER_STATE_ROOT="+root)}
 	t.Cleanup(func() {
 		_, _ = h.command("daemon", "stop")
-		deadline := time.Now().Add(3 * time.Second)
+		deadline := daemonProcessDeadline()
 		for time.Now().Before(deadline) {
 			status, err := h.command("daemon", "status")
 			if err == nil && status["running"] == false {
 				return
 			}
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(daemonProcessPollInterval)
 		}
 		status, err := h.command("daemon", "status")
 		if err == nil {
@@ -206,7 +244,7 @@ func (h *daemonHarness) command(args ...string) (map[string]any, error) {
 }
 
 func (h *daemonHarness) commandBin(bin string, args ...string) (map[string]any, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), daemonProcessSocketTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = h.env
@@ -232,15 +270,31 @@ func (h *daemonHarness) must(args ...string) map[string]any {
 
 func (h *daemonHarness) waitStopped() {
 	h.t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		result, err := h.command("daemon", "status")
 		if err == nil && result["running"] == false {
 			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	h.t.Fatal("daemon did not stop")
+}
+
+func (h *daemonHarness) waitGeneration(generation float64) map[string]any {
+	h.t.Helper()
+	deadline := daemonProcessDeadline()
+	var last map[string]any
+	var lastErr error
+	for time.Now().Before(deadline) {
+		last, lastErr = h.command("daemon", "status")
+		if lastErr == nil && last["generation"] == generation {
+			return last
+		}
+		time.Sleep(daemonProcessPollInterval)
+	}
+	h.t.Fatalf("timed out waiting for daemon generation %.0f: last status=%+v, error=%v", generation, last, lastErr)
+	return nil
 }
 
 func TestDaemonConcurrentStartAndStop(t *testing.T) {
@@ -288,7 +342,8 @@ func TestDaemonConcurrentStartAndStop(t *testing.T) {
 		t.Fatalf("stop returned before exit: %+v", stopped)
 	}
 	h.waitStopped()
-	time.Sleep(300 * time.Millisecond)
+	// Observe past the idle grace to catch a stopped daemon that restarts late.
+	time.Sleep(daemonProcessStopCheck)
 	if after := h.must("daemon", "status"); after["running"] != false {
 		t.Fatalf("leftover run: %+v", after)
 	}
@@ -310,7 +365,7 @@ func TestDaemonExitHandoff(t *testing.T) {
 			old := h.must("daemon", "start")
 			release := filepath.Join(h.root, "daemon", "release-drain")
 			t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
-			deadline := time.Now().Add(5 * time.Second)
+			deadline := daemonProcessDeadline()
 			for {
 				if _, err := os.Stat(filepath.Join(h.root, "daemon", "draining")); err == nil {
 					break
@@ -318,7 +373,7 @@ func TestDaemonExitHandoff(t *testing.T) {
 				if time.Now().After(deadline) {
 					t.Fatal("idle listener did not close")
 				}
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(daemonProcessFastPoll)
 			}
 			if resume {
 				if err := os.WriteFile(filepath.Join(h.root, "daemon", "work"), nil, 0o600); err != nil {
@@ -369,7 +424,6 @@ func TestDaemonExitHandoff(t *testing.T) {
 			if status := h.must("daemon", "status"); status["pid"] != pid {
 				t.Fatalf("handoff status: %+v", status)
 			}
-			time.Sleep(150 * time.Millisecond)
 			ps := exec.Command("ps", "-eo", "pid=,command=")
 			out, err := ps.Output()
 			if err != nil {
@@ -488,13 +542,13 @@ func TestDaemonCanonicalAndDevJobs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = devRun.Process.Signal(syscall.SIGTERM); _ = devRun.Wait() })
 	var child map[string]any
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		child, err = h.commandBin(dev, "daemon", "status")
 		if err == nil && child["running"] == true {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if err != nil || child["running"] != true {
 		t.Fatalf("dev did not start: %v", err)
@@ -537,20 +591,21 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 	}
 	status := h.must("daemon", "start")
 	socket := status["socket"].(string)
-	check := func() bool {
+	check := func() (bool, error) {
 		t.Helper()
-		conn, err := net.DialTimeout("unix", socket, time.Second)
+		conn, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 		if err != nil {
-			t.Fatal(err)
+			return false, fmt.Errorf("dial upgrade socket: %w", err)
 		}
 		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(daemonProcessWaitTimeout))
 		dec := json.NewDecoder(conn)
 		var handshake map[string]any
 		if err := dec.Decode(&handshake); err != nil {
-			t.Fatal(err)
+			return false, fmt.Errorf("read upgrade handshake: %w", err)
 		}
 		if err := json.NewEncoder(conn).Encode(map[string]any{"method": "check-upgrade", "protocol_version": 999}); err != nil {
-			t.Fatal(err)
+			return false, fmt.Errorf("send upgrade probe: %w", err)
 		}
 		var response struct {
 			OK   bool `json:"ok"`
@@ -559,12 +614,20 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 			} `json:"data"`
 		}
 		if err := dec.Decode(&response); err != nil {
-			t.Fatal(err)
+			return false, fmt.Errorf("read upgrade probe: %w", err)
 		}
 		if !response.OK {
-			t.Fatal("version-independent check-upgrade rejected")
+			return false, errors.New("version-independent check-upgrade rejected")
 		}
-		return response.Data.UpgradeAvailable
+		return response.Data.UpgradeAvailable, nil
+	}
+	mustCheck := func() bool {
+		t.Helper()
+		available, err := check()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return available
 	}
 	backup := h.bin + ".old"
 	if err := os.Rename(h.bin, backup); err != nil {
@@ -575,13 +638,13 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 			_ = os.Rename(backup, h.bin)
 		}
 	})
-	if check() {
+	if mustCheck() {
 		t.Fatal("missing binary accepted")
 	}
 	if err := os.WriteFile(h.bin, []byte("partial"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if check() {
+	if mustCheck() {
 		t.Fatal("partial binary accepted")
 	}
 	data, err := os.ReadFile(backup)
@@ -591,7 +654,7 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 	if err := os.WriteFile(h.bin, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if check() {
+	if mustCheck() {
 		t.Fatal("non-runnable binary accepted")
 	}
 	childPIDFile := filepath.Join(h.root, "probe-child.pid")
@@ -602,50 +665,58 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 	if err := os.Chmod(h.bin, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if check() {
+	if mustCheck() {
 		t.Fatal("hung probe accepted")
 	}
-	pidText, err := os.ReadFile(childPIDFile)
-	if err != nil {
-		t.Fatal(err)
+	deadline := daemonProcessDeadline()
+	var pidText []byte
+	for time.Now().Before(deadline) {
+		pidText, err = os.ReadFile(childPIDFile)
+		if err == nil && len(pidText) > 0 {
+			break
+		}
+		time.Sleep(daemonProcessPollInterval)
+	}
+	if len(pidText) == 0 {
+		t.Fatalf("timed out waiting for hung probe child PID file: %v", err)
 	}
 	childPID, err := strconv.Atoi(string(pidText))
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline = daemonProcessDeadline()
 	for time.Now().Before(deadline) && syscall.Kill(childPID, 0) == nil {
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if syscall.Kill(childPID, 0) == nil {
 		_ = syscall.Kill(childPID, syscall.SIGKILL)
-		t.Fatal("probe child survived its timeout")
+		t.Fatal("timed out waiting for probe child to exit after its timeout")
 	}
 	candidate := h.bin + ".new"
-	build := exec.Command("go", "build", "-p=1", "-buildvcs=false", "-ldflags=-buildid=d1-upgrade-probe", "-o", candidate, "..")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("candidate build: %v\n%s", err, out)
-	}
+	copyDaemonBinary(t, cachedDaemonReplacement.binary(t, "..", "-ldflags=-buildid=daemon-test-replacement"), candidate)
 	if err := os.Rename(candidate, h.bin); err != nil {
 		t.Fatal(err)
 	}
-	if !check() {
-		t.Fatal("valid replacement was not recognized")
-	}
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = daemonProcessDeadline()
+	var lastErr error
+	recognized := false
 	for time.Now().Before(deadline) {
-		if after, err := h.command("daemon", "status"); err == nil && after["generation"] == float64(2) {
+		available, err := check()
+		if err == nil && available {
+			recognized = true
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		lastErr = err
+		time.Sleep(daemonProcessPollInterval)
 	}
-	if after := h.must("daemon", "status"); after["generation"] != float64(2) {
-		t.Fatalf("replacement did not re-exec: %+v", after)
+	if !recognized {
+		t.Fatalf("timed out waiting for valid replacement to be recognized: last probe error=%v", lastErr)
 	}
+	h.waitGeneration(2)
 	if err := os.Rename(h.bin, h.bin+".valid"); err != nil {
 		t.Fatal(err)
 	}
-	if check() {
+	if mustCheck() {
 		t.Fatal("upgrade availability stayed true after binary disappeared")
 	}
 	if err := os.Rename(h.bin+".valid", h.bin); err != nil {
@@ -658,25 +729,40 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 
 func TestDaemonDevBuildFromStablePath(t *testing.T) {
 	h := newDaemonHarness(t, "")
-	h.env = append(h.env, "GOFLAGS=-p=1") // The nested worktree build must not multiply CI's package-level compiler load.
-	cache, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
+	goDir := t.TempDir()
+	// The CLI still builds twice; the test supplies the already-built fixture so
+	// compiler scheduling cannot consume the daemon's readiness deadline.
+	goBuild := `#!/bin/sh
+if [ "$#" -ne 5 ] || [ "$1" != build ] || [ "$2" != -buildvcs=false ] || [ "$3" != -o ] || [ "$5" != . ] || [ "$(pwd -P)" != "$QUESTMASTER_TEST_WORKTREE" ]; then
+	printf 'unexpected go build arguments\n' >&2
+	exit 2
+fi
+cp "$QUESTMASTER_TEST_BINARY" "$4"
+`
+	if err := os.WriteFile(filepath.Join(goDir, "go"), []byte(goBuild), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	h.env = append(h.env, "GOMODCACHE="+strings.TrimSpace(string(cache)))
 	worktree, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatal(err)
 	}
+	resolvedWorktree, err := filepath.EvalSymlinks(worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.env = append(h.env, "PATH="+goDir+":"+os.Getenv("PATH"), "QUESTMASTER_TEST_BINARY="+cachedDaemonCLI.binary(t, ".."), "QUESTMASTER_TEST_WORKTREE="+resolvedWorktree, "GOPROXY=off")
 	start := func() map[string]any {
 		t.Helper()
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, h.bin, "daemon", "start", "--build-from", worktree)
 		cmd.Env = h.env
 		var out, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &out, &stderr
 		if err := cmd.Run(); err != nil {
+			if ctx.Err() != nil {
+				t.Fatalf("timed out waiting for dev daemon ready handshake: %v\n%s", ctx.Err(), stderr.String())
+			}
 			t.Fatalf("dev start: %v\n%s", err, stderr.String())
 		}
 		var record map[string]any
@@ -715,7 +801,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	before := h.must("daemon", "start")
 	socket := before["socket"].(string)
-	held, err := net.DialTimeout("unix", socket, time.Second)
+	held, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -727,7 +813,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 	if err := oldDecoder.Decode(&oldHello); err != nil || oldHello.Generation != 1 {
 		t.Fatalf("initial handshake: %+v %v", oldHello, err)
 	}
-	subConn, err := net.DialTimeout("unix", socket, time.Second)
+	subConn, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -753,10 +839,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidate := h.bin + ".new"
-	build := exec.Command("go", "build", "-p=1", "-buildvcs=false", "-ldflags=-buildid=d1b-swap", "-o", candidate, "..")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("replacement build: %v\n%s", err, out)
-	}
+	copyDaemonBinary(t, cachedDaemonReplacement.binary(t, "..", "-ldflags=-buildid=daemon-test-replacement"), candidate)
 	if err := os.Rename(candidate, h.bin); err != nil {
 		t.Fatal(err)
 	}
@@ -782,48 +865,50 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 			default:
 			}
 			conn, err := net.DialTimeout("unix", socket, 100*time.Millisecond)
-			if first {
-				close(firstDial)
-				first = false
-			}
 			if err != nil {
+				var netErr net.Error
+				if errors.As(err, &netErr) && netErr.Timeout() {
+					continue
+				}
 				dialError <- err
 				return
 			}
 			conn.Close()
-			time.Sleep(2 * time.Millisecond)
+			if first {
+				close(firstDial)
+				first = false
+			}
+			time.Sleep(daemonProcessFastPoll)
 		}
 	}()
-	<-firstDial
+	select {
+	case <-firstDial:
+	case err := <-dialError:
+		t.Fatalf("socket dial failed before re-exec: %v", err)
+	case <-time.After(daemonProcessWaitTimeout):
+		t.Fatal("timed out waiting for an initial socket connection before re-exec")
+	}
 	check := h.must("daemon", "check-upgrade")
 	if check["upgrade_started"] != true {
 		t.Fatalf("upgrade was not started: %+v", check)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	var after map[string]any
-	for time.Now().Before(deadline) {
-		after, _ = h.command("daemon", "status")
-		if after["generation"] == float64(2) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	after := h.waitGeneration(2)
 	stop()
 	select {
 	case err := <-dialError:
 		log, _ := os.ReadFile(filepath.Join(h.root, "daemon", "canonical.log"))
-		t.Fatalf("socket refused a connection during re-exec: %v; after=%+v; log=%s", err, after, log)
+		t.Fatalf("socket dial failed during re-exec: %v; after=%+v; log=%s", err, after, log)
 	default:
 	}
 	if after["generation"] != float64(2) || after["pid"] != before["pid"] || after["socket"] != socket {
 		t.Fatalf("re-exec changed daemon identity: before=%+v after=%+v", before, after)
 	}
-	_ = held.SetReadDeadline(time.Now().Add(time.Second))
+	_ = held.SetReadDeadline(time.Now().Add(daemonProcessSocketTimeout))
 	var staleReply map[string]any
 	if err := oldDecoder.Decode(&staleReply); !errors.Is(err, io.EOF) {
 		t.Fatalf("old connection did not close on re-exec: %v %+v", err, staleReply)
 	}
-	_ = subConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = subConn.SetReadDeadline(time.Now().Add(daemonProcessSocketTimeout))
 	for {
 		subLine = nil
 		err := subDecoder.Decode(&subLine)
@@ -834,7 +919,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 			t.Fatalf("old subscription did not close on re-exec: %v %+v", err, subLine)
 		}
 	}
-	fresh, err := net.DialTimeout("unix", socket, time.Second)
+	fresh, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -846,7 +931,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 		t.Fatalf("replacement handshake: %+v %v", freshHello, err)
 	}
 	fresh.Close()
-	freshSub, err := net.DialTimeout("unix", socket, time.Second)
+	freshSub, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -888,7 +973,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 }
 
 func daemonRequest(socket, method string) error {
-	conn, err := net.DialTimeout("unix", socket, time.Second)
+	conn, err := net.DialTimeout("unix", socket, daemonProcessSocketTimeout)
 	if err != nil {
 		return err
 	}
@@ -941,53 +1026,73 @@ func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 	t.Cleanup(func() { _ = run.Process.Kill(); _ = run.Wait() })
 	c := daemon.Config{Root: h.root, Home: h.home, Executable: helper}
 	var before daemon.Record
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		before, _ = daemon.Status(c)
-		if before.Running {
+		if before.Running && before.Jobs {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if !before.Running || !before.Jobs {
-		t.Fatalf("helper did not start with jobs: %+v", before)
+		t.Fatalf("timed out waiting for helper with jobs: %+v", before)
 	}
 	holdDone := make(chan error, 1)
 	go func() { holdDone <- daemonRequest(before.Socket, "hold") }()
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(filepath.Join(h.root, "daemon", "hold-started")); err == nil {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if _, err := os.Stat(filepath.Join(h.root, "daemon", "hold-started")); err != nil {
-		t.Fatal("hold request never dispatched")
+		t.Fatalf("timed out waiting for hold request to dispatch: %v", err)
 	}
 	candidate := helper + ".new"
-	build := exec.Command("go", "build", "-p=1", "-buildvcs=false", "-ldflags=-buildid=d1b-helper-swap", "-o", candidate, "../internal/daemon/testdata/exithelper")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("replacement helper build: %v\n%s", err, out)
-	}
+	copyDaemonBinary(t, cachedDaemonHelperReplacement.binary(t, "../internal/daemon/testdata/exithelper", "-ldflags=-buildid=d1b-helper-swap"), candidate)
 	if err := os.Rename(candidate, helper); err != nil {
 		t.Fatal(err)
 	}
-	checkDone := make(chan struct {
+	type upgradeResult struct {
 		record daemon.Record
 		err    error
-	}, 1)
+	}
+	checkDone := make(chan upgradeResult, 1)
 	go func() {
-		record, err := daemon.CheckUpgrade(c)
-		checkDone <- struct {
-			record daemon.Record
-			err    error
-		}{record, err}
+		for {
+			record, err := daemon.CheckUpgrade(c)
+			if err == nil && !record.UpgradeStarted {
+				time.Sleep(daemonProcessPollInterval)
+				continue
+			}
+			checkDone <- upgradeResult{record, err}
+			return
+		}
 	}()
-	time.Sleep(100 * time.Millisecond)
-	select {
-	case result := <-checkDone:
-		t.Fatalf("upgrade passed in-flight work: %+v %v", result.record, result.err)
-	default:
+	deadline = daemonProcessDeadline()
+	for {
+		select {
+		case result := <-checkDone:
+			t.Fatalf("upgrade passed in-flight work: %+v %v", result.record, result.err)
+		default:
+		}
+		conn, err := net.DialTimeout("unix", before.Socket, daemonProcessSocketTimeout)
+		if err == nil {
+			_ = conn.SetReadDeadline(daemonProcessDeadline())
+			var hello struct {
+				Accepting bool `json:"accepting"`
+			}
+			err = json.NewDecoder(conn).Decode(&hello)
+			conn.Close()
+			if err == nil && !hello.Accepting {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for upgrade to stop accepting requests: %v", err)
+		}
+		time.Sleep(daemonProcessPollInterval)
 	}
 	data, err := os.ReadFile(filepath.Join(h.root, "daemon", "canonical.json"))
 	if err != nil {
@@ -1008,32 +1113,32 @@ func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 		if result.err != nil || !result.record.UpgradeStarted {
 			t.Fatalf("upgrade was not started after request: %+v %v", result.record, result.err)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("upgrade did not resume after request")
+	case <-time.After(daemonProcessWaitTimeout):
+		t.Fatal("timed out waiting for upgrade after request")
 	}
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = daemonProcessDeadline()
 	var after daemon.Record
 	for time.Now().Before(deadline) {
 		after, _ = daemon.Status(c)
 		if after.Generation == 2 {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if after.Generation != 2 || after.PID != before.PID || !after.Jobs {
-		t.Fatalf("helper upgrade failed: before=%+v after=%+v", before, after)
+		t.Fatalf("timed out waiting for helper upgrade: before=%+v after=%+v", before, after)
 	}
 	var starts []byte
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = daemonProcessDeadline()
 	for time.Now().Before(deadline) {
 		starts, _ = os.ReadFile(filepath.Join(h.root, "daemon", "job-starts"))
 		if len(starts) >= 2 {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(daemonProcessPollInterval)
 	}
 	if len(starts) < 2 {
-		t.Fatalf("jobs did not restart: starts=%q", starts)
+		t.Fatalf("timed out waiting for jobs to restart: starts=%q", starts)
 	}
 	if err := daemonRequest(after.Socket, "spawn-child"); err != nil {
 		t.Fatal(err)
@@ -1113,14 +1218,14 @@ func TestDaemonBadHandoffFallsBackToLockedStart(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = run.Process.Kill(); _ = run.Wait() })
-			deadline := time.Now().Add(5 * time.Second)
+			deadline := daemonProcessDeadline()
 			var status map[string]any
 			for time.Now().Before(deadline) {
 				status, _ = h.command("daemon", "status")
 				if status["running"] == true {
 					break
 				}
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(daemonProcessFastPoll)
 			}
 			if status["running"] != true || status["generation"] != float64(1) || status["pid"] != float64(run.Process.Pid) {
 				t.Fatalf("bad handoff did not start normally: %+v", status)
@@ -1167,9 +1272,9 @@ func TestDaemonEnvironmentFromPollutedPaneReachesBothSessionMutations(t *testing
 		}
 	}
 	codexHome := filepath.Join(t.TempDir(), "codex-home")
-	shell := filepath.Join(t.TempDir(), "capture-shell")
-	login := fmt.Sprintf("#!/bin/sh\nprintf 'PATH=%s:/usr/local/bin:/usr/bin\\000CODEX_HOME=%s\\000TMUX_PANE=bad\\000TERM=bad\\000'\n", bin, codexHome)
-	if err := os.WriteFile(shell, []byte(login), 0o700); err != nil {
+	loginFile := filepath.Join(t.TempDir(), "login-env")
+	login := fmt.Sprintf("PATH=%s:/usr/local/bin:/usr/bin\x00CODEX_HOME=%s\x00TMUX_PANE=bad\x00TERM=bad\x00", bin, codexHome)
+	if err := os.WriteFile(loginFile, []byte(login), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(h.root, "daemon"), 0o700); err != nil {
@@ -1182,29 +1287,29 @@ func TestDaemonEnvironmentFromPollutedPaneReachesBothSessionMutations(t *testing
 	}
 	run := exec.Command(helper, "daemon", "run")
 	run.Env = append(h.env,
-		"SHELL="+shell, "SSH_AUTH_SOCK=/tmp/agent.sock", "PATH=/pane/odd",
+		"SHELL=/bin/sh", "SSH_AUTH_SOCK=/tmp/agent.sock", "PATH=/pane/odd",
 		"CLAUDECODE=pane", "TMUX=pane", "TERM=xterm", "QUESTMASTER_SESSION=qm-pane",
-		"QUESTMASTER_QM=/pane/qm")
+		"QUESTMASTER_QM=/pane/qm", "QUESTMASTER_TEST_LOGIN_ENV_FILE="+loginFile)
 	if err := run.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = run.Process.Kill(); _ = run.Wait() })
 	c := daemon.Config{Root: h.root, Home: h.home, Executable: helper}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := daemonProcessDeadline()
 	var record daemon.Record
 	for time.Now().Before(deadline) {
 		record, _ = daemon.Status(c)
 		if record.Running {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(daemonProcessFastPoll)
 	}
 	if !record.Running {
 		t.Fatal("helper daemon did not start")
 	}
 	call := func(method string, data any) map[string]any {
 		t.Helper()
-		conn, err := net.DialTimeout("unix", record.Socket, time.Second)
+		conn, err := net.DialTimeout("unix", record.Socket, daemonProcessSocketTimeout)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1306,13 +1411,13 @@ func TestDaemonIdleExitAndSIGTERM(t *testing.T) {
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := daemonProcessDeadline()
 		for time.Now().Before(deadline) {
 			status, err := h.command("daemon", "status")
 			if err == nil && status["running"] == true {
 				return cmd
 			}
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(daemonProcessPollInterval)
 		}
 		t.Fatal("run did not become ready")
 		return nil

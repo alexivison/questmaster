@@ -216,14 +216,21 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 			events = append(events, state.PullRequestEvent{ID: "state:" + current.State + ":" + stateAt, Kind: "state", State: current.State, OccurredAt: stateAt})
 		}
 	}
-	if (old.CI != current.CI || old.HeadSHA != current.HeadSHA || ciRerunFinished(old, current)) && (current.CI == "success" || current.CI == "failure") {
+	ciChanged := old.CI != current.CI || old.HeadSHA != current.HeadSHA || ciRerunFinished(old, current)
+	settled := ciSettled(old, current)
+	if (ciChanged || settled) && (current.CI == "success" || current.CI == "failure") {
 		completed, err := time.Parse(time.RFC3339Nano, current.CICompletedAt)
 		if err != nil {
 			return nil, nil, HostResult{Error: "CI completion timestamp unavailable"}
 		}
-		// The finish time is part of the ID: a rerun on the same head with the same result is a new event.
 		if !completed.Before(baseline) {
-			events = append(events, state.PullRequestEvent{ID: "ci:" + current.HeadSHA + ":" + current.CI + ":" + current.CICompletedAt, Kind: "ci", Result: current.CI, HeadSHA: current.HeadSHA, OccurredAt: current.CICompletedAt})
+			id := "ci:" + current.HeadSHA + ":" + current.CI + ":" + current.CICompletedAt
+			if ciChanged {
+				events = append(events, state.PullRequestEvent{ID: id, Kind: "ci", Result: current.CI, HeadSHA: current.HeadSHA, OccurredAt: current.CICompletedAt})
+			}
+			if settled {
+				events = append(events, state.PullRequestEvent{ID: id + ":settled", Kind: "ci", Result: current.CI, HeadSHA: current.HeadSHA, OccurredAt: current.CICompletedAt, Finished: true})
+			}
 		}
 	}
 	sort.Slice(events, func(i, j int) bool {
@@ -248,6 +255,11 @@ func ciRerunFinished(old, current state.PullRequestStatus) bool {
 	}
 	after, err := time.Parse(time.RFC3339Nano, current.CICompletedAt)
 	return err == nil && after.After(before)
+}
+
+// ciSettled is the final check finishing after an early result was already recorded.
+func ciSettled(old, current state.PullRequestStatus) bool {
+	return old.CIRunning && !current.CIRunning && old.HeadSHA == current.HeadSHA && old.CI == current.CI && (current.CI == "success" || current.CI == "failure")
 }
 
 func detailFailure(now time.Time, retry, reset string, rate *RateLimit, stderr []byte, runErr error) HostResult {

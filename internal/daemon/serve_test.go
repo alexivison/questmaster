@@ -18,7 +18,13 @@ import (
 	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
+
+func daemonSnapshotterForTest(store *state.Store, client *tmux.Client, now func() time.Time) *serve.Snapshotter {
+	router := tmuxroute.New(store, map[string]*tmux.Client{"questmaster": client}, func() string { return "questmaster" }, nil)
+	return serve.NewSnapshotter(store, client, now, router)
+}
 
 type runtimeTmuxRunner struct{}
 
@@ -51,7 +57,7 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-demo", Title: "first", Cwd: root, SessionType: "master", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "questmaster", SessionID: "qm-demo", Title: "first", Cwd: root, SessionType: "master", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
 	artifactPath := filepath.Join(root, "report.html")
@@ -61,7 +67,7 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 	changes := &runtimeChangeSource{changes: make(chan serve.Change, 4)}
 	var mutations atomic.Int32
 	runtime := &serve.Server{
-		Snapshotter:      serve.NewSnapshotter(store, tmux.NewClient(runtimeTmuxRunner{}), func() time.Time { return time.Unix(100, 0) }),
+		Snapshotter:      daemonSnapshotterForTest(store, tmux.NewClient(runtimeTmuxRunner{}), func() time.Time { return time.Unix(100, 0) }),
 		ChangeSource:     changes,
 		DirQuerier:       func(string) ([]string, error) { return []string{root}, nil },
 		ReasoningEfforts: func(context.Context, string, string) []string { return []string{"high"} },
@@ -70,13 +76,18 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 			return []byte(`{"started":true}`), nil
 		}),
 	}
+	runtime.TmuxRouter = tmuxroute.New(store, map[string]*tmux.Client{"questmaster": tmux.NewClient(runtimeTmuxRunner{})}, func() string { return "questmaster" }, nil)
 	s := &server{
 		config:  Config{Root: root, PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second},
 		runtime: runtime, id: "canonical", record: Record{Root: root, Identity: "canonical", Accepting: true, Generation: 1},
 	}
 	serverConn, clientConn := net.Pipe()
 	defer clientConn.Close()
-	go s.handle(serverConn)
+	serveDone := make(chan struct{})
+	go func() {
+		s.handle(serverConn)
+		close(serveDone)
+	}()
 	dec, enc := json.NewDecoder(clientConn), json.NewEncoder(clientConn)
 	var greeting hello
 	if err := dec.Decode(&greeting); err != nil || greeting.Generation != 1 {
@@ -168,13 +179,7 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 		t.Fatalf("unchanged snapshot emitted duplicate: %+v", duplicate)
 	}
 	clientConn.Close()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if s.clients() == 0 {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	<-serveDone
 	if s.clients() != 0 {
 		t.Fatal("closed subscription remained a daemon client")
 	}
@@ -195,7 +200,7 @@ func TestDaemonStopsWatcherWithoutSubscriber(t *testing.T) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s := &server{runtime: &serve.Server{Snapshotter: serve.NewSnapshotter(state.OpenStore(root), tmux.NewClient(runtimeTmuxRunner{}), nil)}}
+	s := &server{runtime: &serve.Server{Snapshotter: daemonSnapshotterForTest(state.OpenStore(root), tmux.NewClient(runtimeTmuxRunner{}), nil)}}
 	if s.source != nil {
 		t.Fatal("watcher started without a subscriber")
 	}

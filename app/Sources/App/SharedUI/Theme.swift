@@ -16,13 +16,16 @@ enum AppPalette {
     static let text = StateColor.textSelected.color
     static let muted = StateColor.textBody.color
     static let dim = StateColor.textMeta.color
+    /// The label before a value: the Edit Quest sheet's "Size:", the Worker Log chip's "Action:", a filter chip's kind
+    /// ("@type"). The meta step, highlighted.
+    static let metaHighlighted = StateColor.textMetaHighlighted.color
     /// "On", for toggles only (the action bar). Never selected or focused.
     static let brassActive = StateColor.brassActive.color
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
     static let added = NSColor(hex: 0x7ee787)
     static let deleted = NSColor(hex: 0xff7b72)
-    /// Version Control (Session Detail Dock.svg): one green, red and amber, shared by the git state, the review ring, the CI
+    /// Watcher (Session Detail Dock.svg): one green, red and amber, shared by the git state, the review ring, the CI
     /// label and the diff counter, and the indigo of a merged pull request.
     static let gitGreen = NSColor(hex: 0x8cc265)
     static let gitRed = NSColor(hex: 0xdf6567)
@@ -269,6 +272,8 @@ enum AppFonts {
     static let questLogBody = monospaced(size: 12)
     static let questLogRowSelected = monospaced(size: 12, weight: .bold)
     static let questLogTitle = monospaced(size: 14, weight: .bold)
+    /// A Quest Log row's tag chip.
+    static let questTag = monospaced(size: 10)
     static let questLogButton = monospaced(size: 12, weight: .bold)
     /// A selection chip's value: the current selection, in bold.
     static let chipValue = monospaced(size: 12, weight: .bold)

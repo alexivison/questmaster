@@ -57,10 +57,10 @@ func TestDeleteCleansWorkerSessionState(t *testing.T) {
 	}
 	masterID := uniqueRuntimeSessionID(t, "qm-master")
 	workerID := uniqueRuntimeSessionID(t, "qm-worker")
-	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: []string{workerID}}); err != nil {
+	if err := store.Create(state.Manifest{TmuxServer: "questmaster", SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: []string{workerID}}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
-	worker := state.Manifest{SessionID: workerID}
+	worker := state.Manifest{TmuxServer: "questmaster", SessionID: workerID}
 	worker.SetExtra("parent_session", masterID)
 	if err := store.Create(worker); err != nil {
 		t.Fatalf("create worker manifest: %v", err)

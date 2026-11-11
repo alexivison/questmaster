@@ -20,6 +20,7 @@ type PullRequestEvent struct {
 	State      string `json:"state,omitempty"`
 	HeadSHA    string `json:"head_sha,omitempty"`
 	Result     string `json:"result,omitempty"`
+	Finished   bool   `json:"finished,omitempty"`
 	BodyBytes  int    `json:"-"`
 }
 

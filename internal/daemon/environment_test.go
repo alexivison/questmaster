@@ -53,6 +53,16 @@ func TestDaemonEnvironmentUsesAllowlistedBaseAndCapturedLogin(t *testing.T) {
 	}
 }
 
+func TestDaemonEnvironmentCarriesStartingTmuxLabel(t *testing.T) {
+	t.Setenv("QUESTMASTER_TMUX_LABEL", "dev_test")
+	c := Config{Root: t.TempDir(), Home: t.TempDir(), LoginEnvironmentRunner: func(_ context.Context, _ string, base []string) ([]byte, error) {
+		return []byte("QUESTMASTER_TMUX_LABEL=login_value\x00"), nil
+	}}
+	if got := c.daemonEnvironment("dev-example")["QUESTMASTER_TMUX_LABEL"]; got != "dev_test" {
+		t.Fatalf("daemon label = %q, want launching value", got)
+	}
+}
+
 func TestOnlyInstalledIdentitiesGetTheStableExecutableInTheEnvironment(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -19,6 +19,8 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxconfig"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // MutationCommandRunner runs a qm command for serve mutations that belong to
@@ -87,6 +89,8 @@ type mutationPayload struct {
 	ProjectPath     string          `json:"project_path"`
 	ProjectName     string          `json:"project_name"`
 	ProjectChanged  string          `json:"project_changed"`
+	Types           *[]string       `json:"types"`
+	Size            *string         `json:"size"`
 	Extra           map[string]any  `json:"-"`
 }
 
@@ -97,6 +101,15 @@ type mutationHandler func(*Server, context.Context, Request, mutationPayload) (a
 // 2. re-execed qm commands for session lifecycle.
 // New methods should pick one model explicitly instead of crossing layers.
 var mutationRegistry = map[string]mutationHandler{
+	"tmux.config.check": func(s *Server, ctx context.Context, _ Request, _ mutationPayload) (any, error) {
+		return s.tmuxConfigCheck(ctx)
+	},
+	"tmux.config.reload": func(s *Server, ctx context.Context, _ Request, _ mutationPayload) (any, error) {
+		return s.tmuxConfigReload(ctx)
+	},
+	"tmux.server.restart": func(s *Server, ctx context.Context, _ Request, _ mutationPayload) (any, error) {
+		return s.tmuxServerRestart(ctx)
+	},
 	"delete":   mutateDelete,
 	"continue": mutateContinue,
 	"spawn": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
@@ -305,25 +318,40 @@ func (s *Server) mutateRename(ctx context.Context, payload mutationPayload) (any
 	if err != nil {
 		return nil, err
 	}
+	store := s.mutationStore()
 	client := s.TmuxClient
 	if client == nil && s.Snapshotter != nil {
 		client = s.Snapshotter.tmuxClient
 	}
 	if client == nil {
-		client = tmux.NewClient(tmux.DefaultServer())
+		paths := tmuxconfig.Paths(store.Root())
+		client = tmux.NewClient(tmux.DefaultServer(paths.Config, paths.Enforced))
 	}
-	store := s.mutationStore()
-	agentSession := false
+	manifest, err := store.Read(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	router := s.TmuxRouter
+	if router == nil {
+		router, err = tmuxroute.NewProduction(store, client)
+		if err != nil {
+			return nil, err
+		}
+	}
+	handle, err := router.Route(manifest)
+	if err != nil {
+		return nil, err
+	}
+	agentSession := len(manifest.Agents) > 0
 	if err := store.Update(sessionID, func(m *state.Manifest) {
 		m.Title = title
 		m.SetExtra("title_locked", "1")
 		delete(m.Extra, "title_provisional")
-		agentSession = len(m.Agents) > 0
 	}); err != nil {
 		return nil, err
 	}
 	if agentSession {
-		if err := renameSessionPane(ctx, store, client, sessionID, title); err != nil {
+		if err := renameSessionPane(ctx, store, handle.Client(), sessionID, title); err != nil {
 			return nil, fmt.Errorf("rename session pane: %w", err)
 		}
 	}
@@ -472,6 +500,14 @@ func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	var types []string
+	if payload.Types != nil {
+		types = *payload.Types
+	}
+	var size string
+	if payload.Size != nil {
+		size = *payload.Size
+	}
 	quest, err := state.UpsertQuestAt(s.mutationStore().Root(), state.Quest{
 		ID:          strings.TrimSpace(firstNonEmpty(payload.QuestID, payload.ID)),
 		Content:     content,
@@ -479,6 +515,8 @@ func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {
 		ProjectPath: projectPath,
 		ProjectName: projectName,
 		SessionID:   strings.TrimSpace(payload.SessionID),
+		Types:       types,
+		Size:        size,
 	})
 	if err != nil {
 		return nil, err
@@ -518,6 +556,12 @@ func (s *Server) mutateQuestEdit(payload mutationPayload) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+	if payload.Types != nil {
+		quest.Types = *payload.Types
+	}
+	if payload.Size != nil {
+		quest.Size = *payload.Size
 	}
 	saved, err := state.UpsertQuestAt(s.mutationStore().Root(), quest)
 	if err != nil {

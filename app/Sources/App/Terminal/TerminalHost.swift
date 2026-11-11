@@ -8,6 +8,16 @@ struct TerminalLaunchConfig {
     let tmuxSession: String?
     let disableTmux: Bool
     let workingDirectory: String
+    let route: TmuxRoute?
+    let sessionReappeared: Bool
+
+    init(tmuxSession: String?, disableTmux: Bool, workingDirectory: String, route: TmuxRoute? = nil, sessionReappeared: Bool = false) {
+        self.tmuxSession = tmuxSession
+        self.disableTmux = disableTmux
+        self.workingDirectory = workingDirectory
+        self.route = route
+        self.sessionReappeared = sessionReappeared
+    }
 }
 
 @MainActor
@@ -25,7 +35,7 @@ protocol TerminalPaneHosting: AnyObject {
     func start()
     func stop()
     func focus(in window: NSWindow?)
-    func connect(to config: TerminalLaunchConfig) throws
+    func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void)
 }
 
 @MainActor
@@ -64,8 +74,8 @@ final class UnavailableTerminalHost: TerminalPaneHosting {
     func focus(in window: NSWindow?) {
         window?.makeFirstResponder(nil)
     }
-    func connect(to config: TerminalLaunchConfig) throws {
-        throw TerminalHostConnectionError.unavailable(detail)
+    func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+        completion(.failure(TerminalHostConnectionError.unavailable(detail)))
     }
 }
 
@@ -129,8 +139,8 @@ final class DeferredTerminalHost: TerminalPaneHosting {
         (host ?? placeholder).focus(in: window)
     }
 
-    func connect(to config: TerminalLaunchConfig) throws {
-        try (host ?? placeholder).connect(to: config)
+    func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+        (host ?? placeholder).connect(to: config, completion: completion)
     }
 }
 
@@ -203,18 +213,20 @@ private final class TerminalUnavailableView: NSView {
     }
 }
 
-enum TerminalHostConnectDecision: Equatable {
-    case switchEmbeddedClient(String), createSurface
-
-    static func action(liveClientName: String?) -> TerminalHostConnectDecision {
-        liveClientName.map(TerminalHostConnectDecision.switchEmbeddedClient) ?? .createSurface
-    }
+private struct TmuxSessionKey: Hashable {
+    let label: String
+    let sessionID: String
 }
 
-enum TerminalTmuxSessionSyncDecision {
-    static func shouldSync(sessionID: String, syncedSessionIDs: Set<String>) -> Bool {
-        !syncedSessionIDs.contains(sessionID)
-    }
+private struct TrackedTmuxClient {
+    let key: TmuxSessionKey
+    let name: String
+}
+
+private enum PreparedTerminalAttach {
+    case switched(clientName: String, route: TmuxRoute, didSync: Bool)
+    case surface(config: TerminalLaunchConfig, launch: GhosttyTerminalLaunchConfiguration,
+                 title: String, sessionID: String?, tmuxPath: String?, baseline: Set<String>)
 }
 
 @MainActor
@@ -228,15 +240,17 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private var session: GhosttyTerminalSession?
     private var terminalView: GhosttyTerminalView?
     private var focusClickMonitor: Any?
-    private var embeddedClientName: String?
+    private var embeddedClient: TrackedTmuxClient?
+    private var attachedRoute: TmuxRoute?
     private var embeddedClientBaselineNames: Set<String> = []
-    private var embeddedClientTargetSessionID: String?
-    private var syncedTmuxSessionIDs: Set<String> = []
+    private var embeddedClientTarget: TmuxSessionKey?
+    private var syncedTmuxSessions: Set<TmuxSessionKey> = []
     private var clientTrackGeneration = 0
     private var isStarted = false
     private var lastSurfaceLaunchConfig: TerminalLaunchConfig?
     private var surfaceAttachRetriesRemaining = GhosttyKitTerminalHost.maxSurfaceAttachRetries
     private var attachVeil: NSView?
+    private let attach = AsyncTerminalAttach<PreparedTerminalAttach>()
 
     // Surfaces created in roughly the first seconds of the process spawn
     // their child with the configured command silently dropped inside
@@ -284,7 +298,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         self.onTitle = onTitle
         self.host = host
         self.currentTitle = ""
-        try createSurface(for: config)
+        lastSurfaceLaunchConfig = config
+        if config.tmuxSession != nil && !config.disableTmux { showAttachVeil() }
         installFocusClickMonitor()
         containerView.onFilesDropped = { [weak self] urls in
             self?.insertDroppedPaths(urls)
@@ -305,12 +320,14 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     func stop() {
+        attach.stop()
         isStarted = false
         clientTrackGeneration += 1
-        embeddedClientName = nil
+        embeddedClient = nil
+        attachedRoute = nil
         embeddedClientBaselineNames = []
-        embeddedClientTargetSessionID = nil
-        syncedTmuxSessionIDs = []
+        embeddedClientTarget = nil
+        syncedTmuxSessions = []
         attachVeil?.removeFromSuperview()
         attachVeil = nil
         removeFocusClickMonitor()
@@ -327,123 +344,146 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         terminalView?.requestFocus()
     }
 
-    func connect(to config: TerminalLaunchConfig) throws {
-        let target = terminalDebugValue(cleanTerminalSessionID(config.tmuxSession))
-        let action = TerminalHostConnectDecision.action(liveClientName: liveEmbeddedClientName(for: config))
-        switch action {
-        case .switchEmbeddedClient(let clientName):
-            terminalDebugLog("connect target=\(target) switch-client name=\(clientName)")
-            try switchEmbeddedTmuxClient(named: clientName, to: config)
-        case .createSurface:
-            terminalDebugLog("connect target=\(target) createSurface")
-            try createSurface(for: config)
+    func connect(to config: TerminalLaunchConfig, completion: @escaping (Result<String?, Error>) -> Void) {
+        connect(to: config, forceSurface: false, completion: completion)
+    }
+
+    private func connect(
+        to config: TerminalLaunchConfig,
+        forceSurface: Bool,
+        completion: @escaping (Result<String?, Error>) -> Void
+    ) {
+        clientTrackGeneration += 1
+        let priorClient = embeddedClient
+        let priorRoute = attachedRoute
+        let priorBaseline = embeddedClientBaselineNames
+        let priorTarget = embeddedClientTarget?.sessionID
+        let synced = syncedTmuxSessions
+        attach.request(work: {
+            do {
+                let tmuxPath = config.disableTmux ? nil : resolveExecutable("tmux")
+                let environment = ghosttyEnvironment()
+                if !forceSurface, let route = config.route, let tmuxPath,
+                   cleanTerminalSessionID(config.tmuxSession) == route.sessionID,
+                   priorRoute?.label == route.label {
+                    let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, route: route, environment: environment)
+                    let clientName = priorClient.flatMap { tracked in
+                        tracked.key.label == route.label && clients.contains(where: { $0.name == tracked.name }) ? tracked.name : nil
+                    }
+                        ?? EmbeddedTmuxClientResolver.embeddedClientName(
+                            baselineClientNames: priorBaseline, targetSessionID: priorTarget, clients: clients
+                        )
+                    if TmuxRoute.surfaceDecision(attachedLabel: priorRoute?.label, targetLabel: route.label,
+                                                 clientAttached: clientName != nil, sessionReappeared: config.sessionReappeared) == .reuseClient,
+                       let clientName {
+                        let key = TmuxSessionKey(label: route.label, sessionID: route.sessionID)
+                        let didSync = !synced.contains(key)
+                        if didSync {
+                            try TerminalTmuxClientProcess.syncSessionEnvironment(
+                                tmuxPath: tmuxPath, route: route, environment: environment
+                            )
+                        }
+                        try TerminalTmuxClientProcess.switchClient(
+                            tmuxPath: tmuxPath, route: route, clientName: clientName, environment: environment
+                        )
+                        return .success(.switched(clientName: clientName, route: route, didSync: didSync))
+                    }
+                }
+                if !config.disableTmux, let route = config.route, let tmuxPath,
+                   !(try TerminalTmuxClientProcess.sessionExists(tmuxPath: tmuxPath, route: route, environment: environment)) {
+                    throw TerminalHostConnectionError.unavailable("Session \(route.sessionID) is unavailable on tmux server \(route.label)")
+                }
+                let launch = ghosttyLaunchConfiguration(for: config)
+                if !config.disableTmux, cleanTerminalSessionID(config.tmuxSession) != nil,
+                   launch.tmuxSessionID == nil { throw TerminalHostConnectionError.tmuxUnavailable }
+                let launchTmuxPath = launch.tmuxSessionID.flatMap { _ in resolveExecutable("tmux") }
+                let baseline: Set<String>
+                if let launchTmuxPath, let route = config.route {
+                    baseline = Set(TerminalTmuxClientProcess.listClients(
+                        tmuxPath: launchTmuxPath, route: route, environment: launch.configuration.environment
+                    ).map(\.name))
+                } else {
+                    baseline = []
+                }
+                return .success(.surface(
+                    config: config, launch: launch.configuration, title: launch.title,
+                    sessionID: launch.tmuxSessionID, tmuxPath: launchTmuxPath, baseline: baseline
+                ))
+            } catch {
+                return .failure(error)
+            }
+        }) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure(let error): completion(.failure(error))
+            case .success(let prepared):
+                do {
+                    let sessionID = try self.apply(prepared)
+                    completion(.success(sessionID))
+                } catch { completion(.failure(error)) }
+            }
         }
     }
 
-    private func liveEmbeddedClientName(for config: TerminalLaunchConfig) -> String? {
-        guard !config.disableTmux,
-              cleanTerminalSessionID(config.tmuxSession) != nil,
-              let tmuxPath = resolveExecutable("tmux") else {
-            return nil
-        }
-        let clients = TerminalTmuxClientProcess.listClients(
-            tmuxPath: tmuxPath,
-            environment: ghosttyEnvironment()
-        )
-        if let embeddedClientName,
-           clients.contains(where: { $0.name == embeddedClientName }) {
-            return embeddedClientName
-        }
-        embeddedClientName = nil
-        return resolveEmbeddedClientName(clients: clients)
-    }
-
-    private func switchEmbeddedTmuxClient(named clientName: String, to config: TerminalLaunchConfig) throws {
-        guard let targetSessionID = cleanTerminalSessionID(config.tmuxSession),
-              let tmuxPath = resolveExecutable("tmux") else {
-            throw TerminalHostConnectionError.tmuxUnavailable
-        }
-        let environment = ghosttyEnvironment()
-        if TerminalTmuxSessionSyncDecision.shouldSync(sessionID: targetSessionID, syncedSessionIDs: syncedTmuxSessionIDs) {
-            try TerminalTmuxClientProcess.syncSessionEnvironment(
-                tmuxPath: tmuxPath,
-                sessionID: targetSessionID,
-                environment: environment
-            )
-            syncedTmuxSessionIDs.insert(targetSessionID)
-        } else {
-            terminalDebugLog("switch syncSessionEnvironment skipped session=\(targetSessionID)")
-        }
-        try TerminalTmuxClientProcess.switchClient(
-            tmuxPath: tmuxPath,
-            clientName: clientName,
-            targetSessionID: targetSessionID,
-            environment: environment
-        )
-
-        embeddedClientName = clientName
-        embeddedClientTargetSessionID = targetSessionID
-        tmuxSessionID = targetSessionID
-        currentTitle = "tmux session \(targetSessionID)"
-        hideAttachVeil()
-        if isStarted {
-            onTitle(currentTitle)
+    private func apply(_ prepared: PreparedTerminalAttach) throws -> String? {
+        switch prepared {
+        case .switched(let clientName, let route, let didSync):
+            let key = TmuxSessionKey(label: route.label, sessionID: route.sessionID)
+            embeddedClient = TrackedTmuxClient(key: key, name: clientName)
+            embeddedClientTarget = key
+            attachedRoute = route
+            if didSync { syncedTmuxSessions.insert(TmuxSessionKey(label: route.label, sessionID: route.sessionID)) }
+            tmuxSessionID = route.sessionID
+            currentTitle = "tmux session \(route.sessionID)"
+            hideAttachVeil()
+            if isStarted { onTitle(currentTitle) }
+            return route.sessionID
+        case .surface(let config, let launch, let title, let sessionID, let tmuxPath, let baseline):
+            try createSurface(config: config, launch: launch, title: title,
+                              sessionID: sessionID, tmuxPath: tmuxPath, baseline: baseline)
+            return sessionID
         }
     }
 
-    private func createSurface(for config: TerminalLaunchConfig) throws {
+    private func createSurface(
+        config: TerminalLaunchConfig,
+        launch: GhosttyTerminalLaunchConfiguration,
+        title: String,
+        sessionID: String?,
+        tmuxPath: String?,
+        baseline: Set<String>
+    ) throws {
         lastSurfaceLaunchConfig = config
         session?.actionHandler = nil
         session?.closeHandler = nil
         latestCellSizePx = nil
-        let launch = ghosttyLaunchConfiguration(for: config)
-        if !config.disableTmux,
-           cleanTerminalSessionID(config.tmuxSession) != nil,
-           launch.tmuxSessionID == nil {
-            throw TerminalHostConnectionError.tmuxUnavailable
-        }
-
-        applyGhosttyProcessEnvironment(launch.configuration.environment)
-        let tmuxPath = launch.tmuxSessionID.flatMap { _ in resolveExecutable("tmux") }
-        let baselineClientNames = tmuxPath.map {
-            Set(TerminalTmuxClientProcess.listClients(tmuxPath: $0, environment: launch.configuration.environment).map(\.name))
-        } ?? []
-        terminalDebugLog("createSurface target=\(terminalDebugValue(launch.tmuxSessionID)) baseline=\(terminalDebugNames(baselineClientNames))")
-        let session = host.makeSession(configuration: launch.configuration)
+        applyGhosttyProcessEnvironment(launch.environment)
+        terminalDebugLog("createSurface target=\(terminalDebugValue(sessionID)) baseline=\(terminalDebugNames(baseline))")
+        let session = host.makeSession(configuration: launch)
         let terminalView = session.makeView()
         configure(session: session)
         containerView.setTerminalView(terminalView)
-        if launch.tmuxSessionID != nil {
+        if sessionID != nil {
             showAttachVeil()
         } else {
             hideAttachVeil()
         }
         self.session = session
         self.terminalView = terminalView
-        currentTitle = launch.title
-        tmuxSessionID = launch.tmuxSessionID
-        syncedTmuxSessionIDs = Set(cleanTerminalSessionID(launch.tmuxSessionID).map { [$0] } ?? [])
+        currentTitle = title
+        tmuxSessionID = sessionID
+        attachedRoute = config.route
+        syncedTmuxSessions = Set(config.route.map { [TmuxSessionKey(label: $0.label, sessionID: $0.sessionID)] } ?? [])
         trackEmbeddedClient(
-            targetSessionID: launch.tmuxSessionID,
-            baselineClientNames: baselineClientNames,
+            targetSessionID: sessionID,
+            baselineClientNames: baseline,
             tmuxPath: tmuxPath,
-            environment: launch.configuration.environment
+            route: config.route,
+            environment: launch.environment
         )
         if isStarted {
             onTitle(currentTitle)
         }
-    }
-
-    private func resolveEmbeddedClientName(clients: [TerminalTmuxClient]) -> String? {
-        if let clientName = EmbeddedTmuxClientResolver.embeddedClientName(
-            baselineClientNames: embeddedClientBaselineNames,
-            targetSessionID: embeddedClientTargetSessionID,
-            clients: clients
-        ) {
-            embeddedClientName = clientName
-            return clientName
-        }
-        return nil
     }
 
     private func handle(_ action: GhosttyTerminalAction) {
@@ -476,10 +516,12 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     private func handleEmbeddedDetach() {
+        attach.detach()
         clientTrackGeneration += 1
-        embeddedClientName = nil
+        embeddedClient = nil
+        attachedRoute = nil
         embeddedClientBaselineNames = []
-        embeddedClientTargetSessionID = nil
+        embeddedClientTarget = nil
         tmuxSessionID = nil
         hideAttachVeil()
         self.onDetach?()
@@ -533,19 +575,21 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         targetSessionID: String?,
         baselineClientNames: Set<String>,
         tmuxPath: String?,
+        route: TmuxRoute?,
         environment: [String: String]
     ) {
         clientTrackGeneration += 1
-        embeddedClientName = nil
+        embeddedClient = nil
         embeddedClientBaselineNames = baselineClientNames
-        embeddedClientTargetSessionID = targetSessionID
-        guard let tmuxPath else {
+        embeddedClientTarget = route.map { TmuxSessionKey(label: $0.label, sessionID: $0.sessionID) }
+        guard let tmuxPath, let route else {
             return
         }
         pollEmbeddedClient(
             targetSessionID: targetSessionID,
             baselineClientNames: baselineClientNames,
             tmuxPath: tmuxPath,
+            route: route,
             environment: environment,
             generation: clientTrackGeneration,
             attemptsRemaining: Self.surfaceAttachPollAttempts
@@ -556,6 +600,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         targetSessionID: String?,
         baselineClientNames: Set<String>,
         tmuxPath: String,
+        route: TmuxRoute,
         environment: [String: String],
         generation: Int,
         attemptsRemaining: Int
@@ -564,13 +609,14 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             return
         }
         Self.clientPollQueue.async { [weak self] in
-            let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, environment: environment)
+            let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, route: route, environment: environment)
             Task { @MainActor in
                 self?.handlePolledClients(
                     clients,
                     targetSessionID: targetSessionID,
                     baselineClientNames: baselineClientNames,
                     tmuxPath: tmuxPath,
+                    route: route,
                     environment: environment,
                     generation: generation,
                     attemptsRemaining: attemptsRemaining
@@ -584,6 +630,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         targetSessionID: String?,
         baselineClientNames: Set<String>,
         tmuxPath: String,
+        route: TmuxRoute,
         environment: [String: String],
         generation: Int,
         attemptsRemaining: Int
@@ -599,7 +646,9 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             clients: clients
         ) {
             terminalDebugLog("poll attempt=\(attempt) newSinceBaseline=\(terminalDebugClientNames(newClients)) chosen=\(clientName)")
-            embeddedClientName = clientName
+            embeddedClient = TrackedTmuxClient(
+                key: TmuxSessionKey(label: route.label, sessionID: route.sessionID), name: clientName
+            )
             surfaceAttachRetriesRemaining = Self.maxSurfaceAttachRetries
             hideAttachVeil()
             return
@@ -614,6 +663,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
                     targetSessionID: targetSessionID,
                     baselineClientNames: baselineClientNames,
                     tmuxPath: tmuxPath,
+                    route: route,
                     environment: environment,
                     generation: generation,
                     attemptsRemaining: attemptsRemaining - 1
@@ -630,7 +680,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         }
         surfaceAttachRetriesRemaining -= 1
         terminalDebugLog("surface attach retry remaining=\(surfaceAttachRetriesRemaining)")
-        try? createSurface(for: config)
+        connect(to: config, forceSurface: true) { _ in }
     }
 
     private func showAttachVeil() {

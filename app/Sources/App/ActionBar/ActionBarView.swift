@@ -39,7 +39,7 @@ struct ActionBarView: View {
     let onOpenArtifacts: () -> Void
     let onOpenQuests: () -> Void
     let onOpenWorkerChat: () -> Void
-    let onOpenVersionControl: () -> Void
+    let onOpenWatcher: () -> Void
     let onToggleCaffeine: () -> Void
     let onOpenSettings: () -> Void
 
@@ -76,9 +76,9 @@ struct ActionBarView: View {
                     ),
                     ActionBarButtonSpec(
                         icon: .pullRequest,
-                        tooltip: tooltip("Open Version Control", Keymap.Command.toggleVersionControlDock),
+                        tooltip: tooltip("Open Watcher", Keymap.Command.toggleWatcherDock),
                         isActive: model.dockPanels.top,
-                        action: onOpenVersionControl
+                        action: onOpenWatcher
                     ),
                 ])
             }

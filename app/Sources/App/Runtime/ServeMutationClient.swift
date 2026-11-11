@@ -75,6 +75,10 @@ protocol ServeReasoningEffortSuggesting: AnyObject {
     )
 }
 
+protocol ServeTmuxRouting: AnyObject {
+    func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void)
+}
+
 final class UnixSocketMutationClient: ServeMutationSending {
     private let connection: DaemonConnection
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient")
@@ -162,7 +166,7 @@ final class UnixSocketMutationClient: ServeMutationSending {
             CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0 as? Int
         })
         if object["type"] as? String == "response", object["ok"] as? Bool == false {
-            throw ServeClientError.protocolError(object["error"] as? String ?? "mutation failed")
+            throw ServeClientError.responseError(object["error"] as? String ?? "mutation failed")
         }
         guard object["type"] as? String == "response", object["ok"] as? Bool == true else {
             throw ServeClientError.protocolError("mutation response was not an ok response")
@@ -286,6 +290,33 @@ extension UnixSocketMutationClient: ServeReasoningEffortSuggesting {
         }
     }
 }
+
+extension UnixSocketMutationClient {
+    func fetchTmuxRoutes(sessionIDs: [String], live: Bool, completion: @escaping (Result<[TmuxRoute], Error>) -> Void) {
+        queue.async { [connection] in
+            do {
+                let ack = try Self.sendObject([
+                    "id": UUID().uuidString,
+                    "method": "tmux.routes",
+                    "data": ["session_ids": sessionIDs, "live": live],
+                ], connection: connection)
+                completion(.success(try ack.decoded([TmuxRoute].self)))
+            } catch {
+                completion(.failure(Self.tmuxRouteError(error)))
+            }
+        }
+    }
+
+    static func tmuxRouteError(_ error: Error) -> Error {
+        if let serveError = error as? ServeClientError,
+           case .unknownMethod("tmux.routes") = serveError {
+            return TmuxRouteError.unsupportedDaemon
+        }
+        return error
+    }
+}
+
+extension UnixSocketMutationClient: ServeTmuxRouting {}
 
 extension UnixSocketMutationClient {
     func fetchWorkerFeed(_ request: WorkerFeedRequest, completion: @escaping (Result<WorkerFeedPayload, Error>) -> Void) {

@@ -38,6 +38,10 @@ struct ContractFixtureTests {
         expect(tracker.artifacts.contains { $0.sessionID == "qm-orphan" && $0.label == "Orphan" }, "top-level orphan artifact did not decode")
         expect(tracker.quests.count == 2, "top-level quests did not decode")
         expect(tracker.quests.first?.projectPath == "/tmp/questmaster/worktrees/app-contract", "quest project_path did not decode")
+        let taggedQuest = tracker.quests.first { $0.id == "qst-1781842800" }
+        expect(taggedQuest?.types == ["bug", "research"] && taggedQuest?.size == "M", "quest tags did not decode")
+        let untaggedQuest = tracker.quests.first { $0.id == "qst-1781842860" }
+        expect(untaggedQuest?.types.isEmpty == true && untaggedQuest?.size.isEmpty == true, "untagged quest defaults did not decode")
         expect(tracker.quests.contains { $0.id == "qst-1781842860" }, "second quest did not decode")
         expect(tracker.projects.first?.id == "/tmp/questmaster/.git", "tracker project id did not decode")
         expect(tracker.projects.first?.path == "/tmp/questmaster", "tracker project path did not decode")
@@ -112,7 +116,10 @@ struct ContractFixtureTests {
         expect(status?.updatedAt == "2026-06-19T04:20:00Z" && status?.changedAt == "2026-06-19T04:20:00Z", "pull_requests timestamps did not decode")
         expect(status?.additions == 0 && status?.deletions == 0, "pull_requests counters did not decode")
         expect(status?.review == .approved && status?.ci == .success && status?.stale == false, "pull_requests looks did not decode")
-        expect(pulls.data.last?.status?.inaccessibleReason == .saml && pulls.data.last?.status?.state == nil, "pull_requests inaccessible status did not decode")
+        expect(status?.author == nil, "pull_requests author should be omitted for the viewer's own PR")
+        expect(pulls.data[1].status?.inaccessibleReason == .saml && pulls.data[1].status?.state == nil, "pull_requests inaccessible status did not decode")
+        let commented = pulls.data.last?.status
+        expect(commented?.review == .commented && commented?.author == "example-author" && commented?.ci == .pending, "pull_requests commented review and author did not decode")
 
         let request = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_request.json")
         expect(request.method == "pr.refresh" && request.data.sessionID == "qm-demo", "pr.refresh request did not decode")
@@ -120,7 +127,7 @@ struct ContractFixtureTests {
         let wake = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_wake_request.json")
         expect(wake.method == "pr.refresh" && wake.data.sessionID == nil && wake.data.wait == false, "pr.refresh wake did not decode")
         expect(wake.data.keys == ["github.com/owner/repo#42"], "pr.refresh wake key did not decode")
-        // The Version Control dock's r: its own request builder must send exactly this payload.
+        // The Watcher dock's r: its own request builder must send exactly this payload.
         let whole = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_session_request.json")
         expect(whole.method == "pr.refresh" && whole.data.sessionID == "qm-demo" && whole.data.keys == nil && whole.data.wait == true, "pr.refresh session request did not decode")
         let store = PullRequestStore()

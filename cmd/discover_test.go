@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 const (
@@ -44,7 +45,7 @@ func displayRunner(t *testing.T, sessionName string, live ...string) *mockRunner
 		}
 		if len(args) >= 1 && args[0] == "list-sessions" {
 			if len(live) == 0 {
-				return "", &tmux.ExitError{Code: 1}
+				return "", &tmux.ExitError{Code: 1, Stderr: "no server running"}
 			}
 			return strings.Join(live, "\n"), nil
 		}
@@ -63,6 +64,9 @@ func displayRunner(t *testing.T, sessionName string, live ...string) *mockRunner
 
 func TestDiscoverSessionPrefersQuestmasterSessionEnv(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "qm-current")
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	createManifest(t, store, "qm-current", "master", "/tmp", "")
 
 	client := tmux.NewClient(displayRunner(t, "qm-other"))
 	got, err := discoverSession(t.Context(), client)
@@ -71,6 +75,24 @@ func TestDiscoverSessionPrefersQuestmasterSessionEnv(t *testing.T) {
 	}
 	if got != "qm-current" {
 		t.Fatalf("discoverSession = %q, want qm-current", got)
+	}
+}
+
+func TestDiscoverIgnoresForeignTMUX(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
+	t.Setenv("TMUX", "/tmp/foreign.sock,1,0")
+	t.Setenv("TMUX_PANE", "%1")
+	store := setupStore(t)
+	createManifest(t, store, "qm-current", "master", "/tmp", "")
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		if args[0] == "display-message" {
+			return "/tmp/managed.sock\t%1\tqm-current", nil
+		}
+		return "", nil
+	}}
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": tmux.NewClient(runner)}, func() string { return "dev_previous" }, nil)
+	if got, err := discoverSessionRouted(t.Context(), store, router); err == nil {
+		t.Fatalf("discovered %q through foreign TMUX", got)
 	}
 }
 

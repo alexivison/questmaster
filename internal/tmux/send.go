@@ -33,8 +33,10 @@ var paneIDPattern = regexp.MustCompile(`^%[0-9]+$`)
 // send: resolving the pane, taking its send lock, waiting for it to leave copy
 // mode, the text, the pause before Enter and Enter.
 //
-// The send lock is a file per pane in lockDir (state.SendLockDir), held from
-// before the idle check until after Enter, so two senders to one pane, in any
+// The send lock is a file per pane in lockDir. Callers pass the recorded
+// server's directory (state.SendLockDirForServer); legacy still uses the old
+// state.SendLockDir path. The lock is held from before the idle check until
+// after Enter, so two senders to one pane, in any
 // process, never interleave their text and Enter. Text and Enter go to the
 // pane ID resolved first, and the pane must still be alive before Enter: keys
 // sent to a dead pane vanish without an error.
@@ -73,7 +75,7 @@ func (c *Client) send(ctx context.Context, lockDir, target, text string) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(sendEnterDelay):
+	case <-c.after(sendEnterDelay):
 	}
 	if _, err := c.livePane(ctx, pane); err != nil {
 		return fmt.Errorf("before enter: %w", err)

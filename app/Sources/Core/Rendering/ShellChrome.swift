@@ -43,7 +43,7 @@ public struct DockTopBarModel: Equatable {
     }
 
     /// The top panel's bar: its title and the close button, nothing else.
-    public static let versionControl = DockTopBarModel(back: nil, title: "Version Control", showArtifactActions: false, showsLogFilter: false)
+    public static let watcher = DockTopBarModel(back: nil, title: "Watcher", showArtifactActions: false, showsLogFilter: false)
 
     public static func make(
         mode: DockContentMode,

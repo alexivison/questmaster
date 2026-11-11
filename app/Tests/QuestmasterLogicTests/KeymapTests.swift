@@ -160,8 +160,10 @@ controlPageAndHalfPageChords()
         expect(matches(press("k", [.control]), .previousField), "⌃k should move to the previous field")
         expect(!matches(press("k"), .previousField), "plain k must not move to the previous field")
         expect(matches(press(nil, [.control], keyCode: 14), .cycleClass), "⌃e is the class key")
-        expect(matches(press(nil, [.control], keyCode: 14), .cycleEffort), "⌃e cycles the effort")
-        expect(matches(press("e"), .cycleEffort), "e cycles the effort in SELECT")
+        expect(matches(press(nil, [.control], keyCode: 14), .cycleSegment), "⌃e cycles the segment (effort)")
+        expect(matches(press("e"), .cycleSegment), "e cycles the segment in SELECT")
+        expect(matches(press(nil, keyCode: 49), .space), "Space is the tags field's blank key")
+        expect(!matches(press(nil, [.shift], keyCode: 49), .space), "⇧Space is not the blank key")
         expect(matches(press(nil, [.control], keyCode: 15), .refreshModels), "⌃r refreshes the models")
         expect(matches(press("r", [.control]), .recentPaths), "⌃r lists recent paths in the path field")
         expect(matches(press(nil, [.option], keyCode: 123), .optionCycleLeft), "⌥← cycles the colour back")
@@ -221,7 +223,7 @@ controlPageAndHalfPageChords()
         expect(Keymap.Command.toggleDock.modifiers == [.command, .shift], "toggle dock should be command-shift-a, freeing Cmd+3 for session select")
         expect(Keymap.Command.toggleQuestLog.modifiers == [.command, .shift], "toggle quest log should be command-shift-t, freeing Cmd+4 for session select")
         expect(Keymap.Command.toggleWorkerChatDock.displayGlyph == "⇧⌘W", "toggle worker chat glyph was \(Keymap.Command.toggleWorkerChatDock.displayGlyph)")
-        expect(Keymap.Command.toggleVersionControlDock.displayGlyph == "⇧⌘R", "toggle version control glyph was \(Keymap.Command.toggleVersionControlDock.displayGlyph), not command-shift-v, which Ghostty binds to paste_from_selection")
+        expect(Keymap.Command.toggleWatcherDock.displayGlyph == "⇧⌘R", "toggle watcher glyph was \(Keymap.Command.toggleWatcherDock.displayGlyph), not command-shift-v, which Ghostty binds to paste_from_selection")
         expect(Keymap.Command.focusDockTop.displayGlyph == "⇧⌘K" && Keymap.Command.focusDockBottom.displayGlyph == "⇧⌘J", "the dock panel focus chords are shift-command K (up) and J (down), beside ⇧⌘H/L: all navigation shares the modifiers")
         expect(Keymap.Command.focusDockTop.modifiers == Keymap.Command.focusRegionLeft.modifiers && Keymap.Command.focusDockBottom.modifiers == Keymap.Command.focusRegionRight.modifiers, "the dock panel chords use the region chords' modifiers")
         expect(Keymap.Command.toggleCaffeine.modifiers == [.command, .shift], "toggle caffeinate should be command-shift, matching the other dock toggle chords")
@@ -291,7 +293,7 @@ controlPageAndHalfPageChords()
 
     private static func gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter() {
         var tracker = GPrefixTracker()
-        let start = Date()
+        let start = Date(timeIntervalSinceReferenceDate: 0)
         expect(tracker.handleG(now: start) == .pendingSecondG, "first g should arm the chord")
         expect(tracker.handleG(now: start.addingTimeInterval(0.2)) == .jumpToTop, "second g within the window should resolve to jumpToTop")
 
@@ -304,7 +306,7 @@ controlPageAndHalfPageChords()
 
     private static func gPrefixTrackerResetClearsPendingState() {
         var tracker = GPrefixTracker()
-        let start = Date()
+        let start = Date(timeIntervalSinceReferenceDate: 0)
         expect(tracker.handleG(now: start) == .pendingSecondG, "first g should arm the chord")
         tracker.reset()
         expect(
@@ -328,7 +330,7 @@ controlPageAndHalfPageChords()
             Keymap.Command.toggleDock,
             Keymap.Command.toggleQuestLog,
             Keymap.Command.toggleWorkerChatDock,
-            Keymap.Command.toggleVersionControlDock,
+            Keymap.Command.toggleWatcherDock,
             Keymap.Command.widenDock,
             Keymap.Command.narrowDock,
             Keymap.Command.toggleCaffeine,

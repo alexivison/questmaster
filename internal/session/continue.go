@@ -10,6 +10,7 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 // ContinueResult holds the outcome of a Continue operation.
@@ -55,6 +56,14 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 // continueLocked runs under Continue's lifecycle locks, so the liveness check
 // below cannot go stale before new-session or a respawn runs.
 func (s *Service) continueLocked(ctx context.Context, sessionID string) (ContinueResult, error) {
+	m, manifestErr := s.Store.Read(sessionID)
+	if manifestErr == nil {
+		handle, err := s.router().Route(m)
+		if err != nil {
+			return ContinueResult{}, err
+		}
+		s = s.onHandle(handle)
+	}
 	alive, err := s.Client.HasSession(ctx, sessionID)
 	if err != nil {
 		return ContinueResult{}, fmt.Errorf("check session: %w", err)
@@ -64,9 +73,8 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 	}
 
 	// Slow path: reconstruct session from manifest
-	m, err := s.Store.Read(sessionID)
-	if err != nil {
-		return ContinueResult{}, fmt.Errorf("read manifest for %s: %w", sessionID, err)
+	if manifestErr != nil {
+		return ContinueResult{}, fmt.Errorf("read manifest for %s: %w", sessionID, manifestErr)
 	}
 	if _, err := s.persistPiResumeFromActivity(sessionID); err != nil {
 		return ContinueResult{}, fmt.Errorf("persist Pi resume ID: %w", err)
@@ -84,6 +92,17 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 	if err != nil {
 		return ContinueResult{}, err
 	}
+	previousServer := m.TmuxServer
+	creation, err := s.router().Creation()
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	if !launch.shell {
+		if _, ok := launch.agentResume[agent.RoleAgent]; !ok {
+			return ContinueResult{}, fmt.Errorf("session %s has no saved agent resume ID; Continue cannot start a new conversation", sessionID)
+		}
+	}
+	s = s.onHandle(creation)
 
 	rtDir, err := m.RuntimeDirOrLegacy()
 	if err != nil {
@@ -104,14 +123,24 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		}
 	}
 
+	if err := s.prepareCreation(ctx, creation); err != nil {
+		return ContinueResult{}, err
+	}
 	pane, err := s.Client.NewSession(ctx, sessionID, "", cwd)
 	if err != nil {
-		return ContinueResult{}, s.continueRollback(ctx, sessionID, false, fmt.Errorf("create tmux session: %w", err))
+		return ContinueResult{}, fmt.Errorf("create tmux session: %w", err)
+	}
+	if err := s.Store.Update(sessionID, func(m2 *state.Manifest) { m2.TmuxServer = state.TmuxServer(creation.Label()) }); err != nil {
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, previousServer, creation.Label(), false, err)
+	}
+	if err := s.verifyCreationOwnership(ctx, creation); err != nil {
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, previousServer, creation.Label(), true, err)
 	}
 
 	isMaster := roleForManifest(m) == roleMaster
 
 	if err := s.launchSession(ctx, launchConfig{
+		serverLabel: creation.Label(),
 		sessionID:   sessionID,
 		pane:        pane,
 		cwd:         cwd,
@@ -124,11 +153,11 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		agents:      launch.agents,
 		agentResume: launch.agentResume,
 	}); err != nil {
-		return ContinueResult{}, s.continueRollback(ctx, sessionID, true, err)
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, previousServer, creation.Label(), true, err)
 	}
 
 	if err := s.recordResume(sessionID, launch, ""); err != nil {
-		return ContinueResult{}, err
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, previousServer, creation.Label(), true, err)
 	}
 
 	// Re-register with parent master if this is a child worker
@@ -358,6 +387,24 @@ func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, session
 	if err := s.Client.SetEnvironment(ctx, sessionID, state.SessionEnv, sessionID); err != nil {
 		return err
 	}
+	m, readErr := s.Store.Read(sessionID)
+	var handle tmuxroute.Handle
+	var err error
+	if readErr == nil {
+		handle, err = s.router().Route(m)
+	} else {
+		handle, err = s.router().Creation()
+	}
+	if err != nil {
+		return err
+	}
+	label := handle.Label()
+	if err := s.Client.SetEnvironment(ctx, sessionID, "QUESTMASTER_TMUX_SERVER", label); err != nil {
+		return err
+	}
+	if err := s.setPaneCreationLabel(ctx, sessionID, label); err != nil {
+		return err
+	}
 	agentPath := defaultAgentPath()
 	if m, err := s.Store.Read(sessionID); err == nil {
 		agentPath = mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), m.AgentPath, agentPath)
@@ -370,25 +417,30 @@ func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, session
 	return s.refreshAppOwnedSessionEnvironment(ctx, sessionID)
 }
 
-// continueRollback best-effort kills a partially launched tmux session after a
-// Continue failure, but only one this call created: a failed new-session can
-// mean another caller owns a session by that name. Unlike Start's rollback
-// (startRollbackError), it MUST preserve the manifest and runtime/state dirs:
-// Continue reconstructs from a pre-existing manifest, so a later retry depends
-// on that manifest surviving.
-func (s *Service) continueRollback(ctx context.Context, sessionID string, created bool, cause error) error {
-	if !created {
-		return cause
-	}
+// continueRollback preserves the manifest and runtime for a later retry.
+// The prior route is restored only after the new container is gone.
+func (s *Service) continueRollback(ctx context.Context, sessionID string, previousServer state.TmuxServer, newServer string, routeRecorded bool, cause error) error {
 	ctx, cancel := rollbackContext(ctx)
 	defer cancel()
-	_ = s.Client.KillSession(ctx, sessionID)
+	if err := s.Client.KillSession(ctx, sessionID); err != nil {
+		if !routeRecorded {
+			if recordErr := s.Store.Update(sessionID, func(m *state.Manifest) { m.TmuxServer = state.TmuxServer(newServer) }); recordErr != nil {
+				return errors.Join(cause, fmt.Errorf("rollback kill failed: %w", err), fmt.Errorf("record live tmux server: %w", recordErr))
+			}
+		}
+		return errors.Join(cause, fmt.Errorf("rollback kill failed: %w", err))
+	}
+	if routeRecorded {
+		if err := s.Store.Update(sessionID, func(m *state.Manifest) { m.TmuxServer = previousServer }); err != nil {
+			return errors.Join(cause, fmt.Errorf("restore previous tmux server: %w", err))
+		}
+	}
 	return cause
 }
 
 // cascadeWorkers continues all orphaned workers for a master session.
 // A worker is orphaned if it has a manifest on disk but no live tmux session.
-// Workers whose manifests were deleted (intentionally stopped) are skipped.
+// Workers whose manifests were deleted are skipped.
 // It runs without the master's lifecycle lock: each Continue takes it.
 func (s *Service) cascadeWorkers(ctx context.Context, masterID string) (revived, failed []string) {
 	workerIDs, err := s.Store.GetWorkers(masterID)
@@ -397,17 +449,22 @@ func (s *Service) cascadeWorkers(ctx context.Context, masterID string) (revived,
 	}
 
 	for _, wid := range workerIDs {
-		alive, err := s.Client.HasSession(ctx, wid)
+		m, readErr := s.Store.Read(wid)
+		if readErr != nil {
+			if errors.Is(readErr, os.ErrNotExist) {
+				continue
+			}
+			failed = append(failed, wid)
+			continue
+		}
+		handle, err := s.router().Route(m)
+		if err != nil {
+			failed = append(failed, wid)
+			continue
+		}
+		alive, err := handle.Client().HasSession(ctx, wid)
 		if err == nil && alive {
 			continue // already running
-		}
-
-		if _, err := s.Store.Read(wid); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue // no manifest — intentionally stopped, skip
-			}
-			failed = append(failed, wid) // corrupt/unreadable manifest
-			continue
 		}
 
 		if _, err := s.Continue(ctx, wid); err != nil {

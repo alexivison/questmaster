@@ -51,17 +51,6 @@ public struct SessionReasoningEffortOption: Equatable {
     }
 }
 
-/// The keys that cycle the reasoning effort, the model field's alone: ⌃e in both of its states, and plain
-/// e in SELECT, where an e can't be typed. With focus anywhere else neither does anything effort-related.
-public enum NewSessionEffortKey {
-    public static func cycles(_ press: Keymap.KeyPress, field: NewSessionField, mode: PickerFieldMode) -> Bool {
-        guard field == .model, Keymap.matches(press, .cycleEffort) else {
-            return false
-        }
-        return press.modifiers.contains(.control) || mode == .select
-    }
-}
-
 /// ⌃r refetches the models past the backend's catalog cache, while the model field has focus (the path
 /// field's own ⌃r lists its recent directories).
 public enum NewSessionModelRefreshKey {
@@ -311,7 +300,7 @@ public struct NewSessionFormModel: Equatable {
         sessionClass?.displayName ?? SessionClass.randomLabel
     }
 
-    /// Cycles the class through Random and the seven classes, independent of focus (see `SessionClassKey`).
+    /// Cycles the class through Random and all classes, independent of focus (see `SessionClassKey`).
     public mutating func cycleSessionClass() {
         guard !submitting else {
             return
@@ -393,7 +382,7 @@ public struct NewSessionFormModel: Equatable {
     }
 
     /// Cycles the reasoning effort through the model's levels and "default", independent of focus (see
-    /// `NewSessionEffortKey`). A model without levels has nothing to cycle.
+    /// `PickerSegmentKey`). A model without levels has nothing to cycle.
     public mutating func cycleReasoningEffort(_ delta: Int = 1) {
         guard !submitting, hasEffortLevels else {
             return

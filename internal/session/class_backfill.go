@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
 const classBackfillRescanInterval = 10 * time.Minute
@@ -20,18 +21,27 @@ const classBackfillRescanInterval = 10 * time.Minute
 type ClassBackfillJob struct {
 	store          *state.Store
 	tmuxClient     *tmux.Client
+	router         *tmuxroute.Router
 	randomIndex    func(int) int
 	rescanInterval time.Duration
-	hasWork        atomic.Bool
+	// waitForRescan is replaceable so tests can release another pass without waiting on wall time.
+	waitForRescan func(context.Context, time.Duration) bool
+	hasWork       atomic.Bool
 }
 
 // NewClassBackfillJob creates the daemon job with production random selection.
-func NewClassBackfillJob(store *state.Store, tmuxClient *tmux.Client) *ClassBackfillJob {
+func NewClassBackfillJob(store *state.Store, tmuxClient *tmux.Client, routers ...*tmuxroute.Router) *ClassBackfillJob {
+	var router *tmuxroute.Router
+	if len(routers) > 0 {
+		router = routers[0]
+	}
 	job := &ClassBackfillJob{
 		store:          store,
 		tmuxClient:     tmuxClient,
+		router:         router,
 		randomIndex:    rand.IntN,
 		rescanInterval: classBackfillRescanInterval,
+		waitForRescan:  waitForClassBackfillRescan,
 	}
 	job.hasWork.Store(true)
 	return job
@@ -54,17 +64,27 @@ func (j *ClassBackfillJob) Run(ctx context.Context) error {
 		}
 		j.hasWork.Store(false)
 
-		timer := time.NewTimer(j.rescanInterval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		if !j.waitForRescan(ctx, j.rescanInterval) {
 			return nil
-		case <-timer.C:
 		}
 	}
 }
 
+func waitForClassBackfillRescan(ctx context.Context, interval time.Duration) bool {
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 func (j *ClassBackfillJob) runPass(ctx context.Context) error {
+	if j.router == nil {
+		return fmt.Errorf("tmux router is required for class backfill")
+	}
 	manifests, err := j.store.DiscoverSessions()
 	if err != nil {
 		return fmt.Errorf("discover sessions for class backfill: %w", err)
@@ -80,7 +100,7 @@ func (j *ClassBackfillJob) runPass(ctx context.Context) error {
 		return nil
 	}
 	j.hasWork.Store(true)
-	liveSessions, activeClasses, err := liveMasterClasses(ctx, j.store, j.tmuxClient)
+	liveSessions, activeClasses, err := routedLiveMasterClasses(ctx, j.store, j.router)
 	if err != nil {
 		return fmt.Errorf("list live sessions for class backfill: %w", err)
 	}
@@ -109,26 +129,51 @@ func (j *ClassBackfillJob) runPass(ctx context.Context) error {
 	return nil
 }
 
-func liveMasterClasses(ctx context.Context, store *state.Store, tmuxClient *tmux.Client) (map[string]struct{}, []string, error) {
+func routedLiveMasterClasses(ctx context.Context, store *state.Store, router *tmuxroute.Router) (map[string]struct{}, []string, error) {
+	return liveMasterClassesFromInventory(ctx, store, router, false)
+}
+
+// visibleLiveMasterClasses is for Start, where balancing is optional and a
+// temporarily unavailable server should not prevent creating a new master.
+func visibleLiveMasterClasses(ctx context.Context, store *state.Store, router *tmuxroute.Router) (map[string]struct{}, []string, error) {
+	return liveMasterClassesFromInventory(ctx, store, router, true)
+}
+
+func liveMasterClassesFromInventory(ctx context.Context, store *state.Store, router *tmuxroute.Router, allowPartial bool) (map[string]struct{}, []string, error) {
 	if store == nil {
 		return nil, nil, fmt.Errorf("state store is required")
 	}
-	if tmuxClient == nil {
-		return nil, nil, fmt.Errorf("tmux client is required")
+	if router == nil {
+		return nil, nil, fmt.Errorf("tmux router is required for class backfill")
 	}
-	liveSessionIDs, err := tmuxClient.ListSessions(ctx)
-	if err != nil {
-		return nil, nil, err
+	inv := router.Inventory(ctx)
+	if !allowPartial {
+		for _, server := range inv.Servers {
+			if server.Outcome == tmuxroute.Unavailable {
+				return nil, nil, fmt.Errorf("tmux server %s unavailable: %s", server.Label, server.Error)
+			}
+		}
 	}
-	liveSessions := make(map[string]struct{}, len(liveSessionIDs))
-	activeClasses := make([]string, 0, len(liveSessionIDs))
-	for _, sessionID := range liveSessionIDs {
+	liveSessions := make(map[string]struct{}, len(inv.Rows))
+	activeClasses := make([]string, 0, len(inv.Rows))
+	for _, row := range inv.Rows {
+		sessionID := row.ID
 		if !state.IsValidSessionID(sessionID) {
 			continue
 		}
-		liveSessions[sessionID] = struct{}{}
 		manifest, err := store.Read(sessionID)
-		if err != nil || manifest.AgentSessionType() != "master" {
+		if err != nil {
+			continue
+		}
+		handle, err := router.Route(manifest)
+		if err != nil {
+			continue
+		}
+		if handle.Label() != row.Label {
+			continue
+		}
+		liveSessions[sessionID] = struct{}{}
+		if manifest.AgentSessionType() != "master" {
 			continue
 		}
 		if class := manifest.DisplayClass(); class != "" {
