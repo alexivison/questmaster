@@ -794,7 +794,7 @@ struct TrackerAvatarAnimationTests {
         }
         expect(enter.character.frame(at: 0.35, looping: false) == 7, "a summoning's enter should reach the paladin's f7 at 0.35 s")
         expect(enter.behind?.frame(at: 0.35, looping: false) == 15, "the ground circle should reach frame 15 at 0.35 s of its enter")
-        expect(loop.character.frame(at: 0.9, looping: true) == 11, "the summoning's loop should show f11 from 0.8 s")
+        expect(loop.character.frame(at: 0.6, looping: true) == 11, "the summoning's loop should show f11 from 0.5 s")
         expect(finish.behind?.frame(at: 0.25, looping: false) == 11, "the ground circle's finish should reach frame 11 at 0.25 s")
         expect(channellingFinish.character.frame(at: 0, looping: false) == 4, "the channelling's finish should start on the pose's f4")
         expect(channellingFinish.character.frame(at: 9, looping: false) == 1, "the channelling's finish should end on the paladin's f1")
