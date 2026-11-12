@@ -6,12 +6,7 @@ import QuestmasterCore
 /// loads (ghostty_config_get cannot return this repeatable key). nil means fall back to the system mono.
 enum GhosttyFontFamily {
     static let resolved: String? = {
-        let xdgHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] ?? NSHomeDirectory() + "/.config"
-        let directories = [
-            xdgHome + "/ghostty",
-            NSHomeDirectory() + "/Library/Application Support/com.mitchellh.ghostty",
-        ]
-        let families = GhosttyConfigParser.fontFamilies(inDirectories: directories) {
+        let families = GhosttyConfigParser.fontFamilies(inDirectories: GhosttyConfigFiles.searchDirectories) {
             try? String(contentsOfFile: $0, encoding: .utf8)
         }
         return GhosttyConfigParser.firstInstalled(of: families) {

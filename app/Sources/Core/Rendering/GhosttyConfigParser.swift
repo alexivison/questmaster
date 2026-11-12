@@ -1,20 +1,18 @@
 import Foundation
 
-/// Reads the `font-family` list the way Ghostty builds it from its config files, as pure functions over
-/// file contents so the load order, includes and list semantics are testable.
+/// Reads the settings and file list used by the bundled Ghostty config loader, as pure functions over file contents.
 public enum GhosttyConfigParser {
-    private static let maxIncludeDepth = 10
-
     private enum Entry {
         case fontFamily(String)
         case windowPaddingX(String)
         case windowPaddingY(String)
         case include(String)
+        case resetIncludes
     }
 
-    /// The ordered `font-family` list after loading `directories` in order (Ghostty reads `config.ghostty`
-    /// and then `config` in each). The key repeats: every line appends a fallback, and an empty value
-    /// clears the list. A file's `config-file` includes are read after the file itself.
+    /// The ordered `font-family` list after loading default files in directory order, then queued includes.
+    /// Ghostty reads `config` before `config.ghostty` in each directory. The key repeats: every line appends
+    /// a fallback, and an empty value clears the list.
     public static func fontFamilies(inDirectories directories: [String], read: (String) -> String?) -> [String] {
         var families: [String] = []
         for case .fontFamily(let value) in allEntries(inDirectories: directories, read: read) {
@@ -29,6 +27,15 @@ public enum GhosttyConfigParser {
             apply(value, to: &families)
         }
         return families
+    }
+
+    /// The readable files loaded by the bundled Ghostty precedence and include traversal.
+    public static func loadedFiles(
+        inDirectories directories: [String],
+        homeDirectory: String = NSHomeDirectory(),
+        read: (String) -> String?
+    ) -> [String] {
+        loadConfiguration(inDirectories: directories, homeDirectory: homeDirectory, read: read).paths
     }
 
     /// The last `window-padding-x`/`-y` set across `directories`' config files — Ghostty's own
@@ -70,27 +77,76 @@ public enum GhosttyConfigParser {
     }
 
     private static func allEntries(inDirectories directories: [String], read: (String) -> String?) -> [Entry] {
-        var all: [Entry] = []
-        for directory in directories {
-            for name in ["config.ghostty", "config"] {
-                load("\(directory)/\(name)", depth: 0, stack: [], into: &all, read: read)
-            }
-        }
-        return all
+        loadConfiguration(inDirectories: directories, homeDirectory: NSHomeDirectory(), read: read).entries
     }
 
-    private static func load(_ path: String, depth: Int, stack: [String], into all: inout [Entry], read: (String) -> String?) {
-        guard depth <= maxIncludeDepth, !stack.contains(path), let text = read(path) else {
-            return
+    private struct Include {
+        let path: String
+        let relativeTo: String
+    }
+
+    private static func loadConfiguration(
+        inDirectories directories: [String],
+        homeDirectory: String,
+        read: (String) -> String?
+    ) -> (entries: [Entry], paths: [String]) {
+        var all: [Entry] = []
+        var paths: [String] = []
+        var includes: [Include] = []
+
+        for directory in directories {
+            for name in ["config", "config.ghostty"] {
+                let path = "\(directory)/\(name)"
+                guard let text = read(path) else {
+                    continue
+                }
+                paths.append(path)
+                let fileEntries = entries(in: text)
+                all.append(contentsOf: fileEntries)
+                appendIncludes(from: fileEntries, relativeTo: directory, into: &includes)
+            }
         }
-        let fileEntries = entries(in: text)
-        all.append(contentsOf: fileEntries)
-        let directory = (path as NSString).deletingLastPathComponent
-        for case .include(let include) in fileEntries {
-            let optionalStripped = include.hasPrefix("?") ? String(include.dropFirst()) : include
-            let target = optionalStripped.hasPrefix("/") ? optionalStripped : "\(directory)/\(optionalStripped)"
-            load((target as NSString).standardizingPath, depth: depth + 1, stack: stack + [path], into: &all, read: read)
+
+        var includeIndex = 0
+        var loadedIncludes: Set<String> = []
+        while includeIndex < includes.count {
+            let include = includes[includeIndex]
+            includeIndex += 1
+
+            let path = resolve(include.path, relativeTo: include.relativeTo, homeDirectory: homeDirectory)
+            guard loadedIncludes.insert(path).inserted, let text = read(path) else {
+                continue
+            }
+
+            paths.append(path)
+            let fileEntries = entries(in: text)
+            all.append(contentsOf: fileEntries)
+            appendIncludes(from: fileEntries, relativeTo: (path as NSString).deletingLastPathComponent, into: &includes)
         }
+
+        return (all, paths)
+    }
+
+    private static func appendIncludes(from entries: [Entry], relativeTo directory: String, into includes: inout [Include]) {
+        for entry in entries {
+            switch entry {
+            case .include(let path):
+                includes.append(Include(path: path, relativeTo: directory))
+            case .resetIncludes:
+                includes.removeAll(keepingCapacity: true)
+            default:
+                break
+            }
+        }
+    }
+
+    private static func resolve(_ path: String, relativeTo directory: String, homeDirectory: String) -> String {
+        if path.hasPrefix("~/") {
+            let expanded = homeDirectory + "/" + String(path.dropFirst(2))
+            return (expanded as NSString).standardizingPath
+        }
+        let target = path.hasPrefix("/") ? path : "\(directory)/\(path)"
+        return (target as NSString).standardizingPath
     }
 
     private static func apply(_ value: String, to families: inout [String]) {
@@ -109,17 +165,36 @@ public enum GhosttyConfigParser {
                 continue
             }
             let key = line[..<separator].trimmingCharacters(in: .whitespaces)
-            let value = line[line.index(after: separator)...]
-                .trimmingCharacters(in: .whitespaces)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            let rawValue = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
+            let value = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
             switch key {
             case "font-family": entries.append(.fontFamily(value))
             case "window-padding-x": entries.append(.windowPaddingX(value))
             case "window-padding-y": entries.append(.windowPaddingY(value))
-            case "config-file": entries.append(.include(value))
+            case "config-file":
+                if rawValue.isEmpty {
+                    entries.append(.resetIncludes)
+                } else if let include = includeEntry(rawValue) {
+                    entries.append(include)
+                }
             default: break
             }
         }
         return entries
+    }
+
+    /// Matches Ghostty's repeatable path parsing: blank clears the list, while empty optional or quoted paths are ignored.
+    private static func includeEntry(_ rawValue: String) -> Entry? {
+        var value = rawValue
+        if value.hasPrefix("?") {
+            value = String(value.dropFirst())
+        }
+        if value.count >= 2, value.first == "\"", value.last == "\"" {
+            value = String(value.dropFirst().dropLast())
+        }
+        guard !value.isEmpty else {
+            return nil
+        }
+        return .include(value)
     }
 }
