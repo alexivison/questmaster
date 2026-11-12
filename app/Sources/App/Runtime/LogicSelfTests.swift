@@ -16,6 +16,9 @@ enum LogicSelfTests {
         ("testAppBackendResolverFeedsLaunchConfiguration", testAppBackendResolverFeedsLaunchConfiguration),
         ("testLaunchFlagMappingTable", testLaunchFlagMappingTable),
         ("testDaemonEnsureUsesRespawnPolicy", testDaemonEnsureUsesRespawnPolicy),
+        ("testServeClientStopCancelsDaemonStartProcess", testServeClientStopCancelsDaemonStartProcess),
+        ("testServeClientStopInterruptsDaemonRespawnWait", testServeClientStopInterruptsDaemonRespawnWait),
+        ("testServeClientStopInterruptsDaemonHandshakeRead", testServeClientStopInterruptsDaemonHandshakeRead),
         ("testDevBackendBeatsGlobalPathInSourceCheckout", testDevBackendBeatsGlobalPathInSourceCheckout),
         ("testPackagedBundleBeatsDevAndGlobalBackends", testPackagedBundleBeatsDevAndGlobalBackends),
         ("testInstalledBundleStartsTheStableLink", testInstalledBundleStartsTheStableLink),
@@ -173,6 +176,7 @@ enum LogicSelfTests {
         ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
         ("testOneShotServeClientsRejectIncompatibleEnvelopes", testOneShotServeClientsRejectIncompatibleEnvelopes),
         ("testServeStreamReconnectsAfterProtocolMismatch", testServeStreamReconnectsAfterProtocolMismatch),
+        ("testReadLineHonorsSocketTimeout", testReadLineHonorsSocketTimeout),
         ("testReadLineReturnsALineSpanningManyReads", testReadLineReturnsALineSpanningManyReads),
         ("testServeStreamJoinsLinesSplitAcrossWrites", testServeStreamJoinsLinesSplitAcrossWrites),
         ("testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap", testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap),
@@ -343,6 +347,89 @@ enum LogicSelfTests {
         do { _ = try DaemonConnection(config: connectOnly).record() } catch { /* Expected. */ }
         let afterStatus = try String(contentsOf: marker, encoding: .utf8)
         try expect(afterStatus == "xxxxxxxxx", "connect-only should run status once and never Ensure")
+    }
+
+    private static func testServeClientStopCancelsDaemonStartProcess() throws {
+        let fixture = try appBackendFixture()
+        let pidFile = fixture.root.appendingPathComponent("daemon-child.pid")
+        try writeExecutable("#!/bin/sh\nprintf '%s\\n' \"$$\" > '\(pidFile.path)'\nexec /bin/sleep 60\n", to: fixture.qm)
+        let config = LaunchConfiguration.load(environment: fixture.environment,
+                                             workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        let client = UnixSocketServeClient(connection: DaemonConnection(config: config))
+        var childPID: Int32?
+        defer {
+            client.stop()
+            if let childPID { _ = Darwin.kill(childPID, SIGKILL) }
+        }
+
+        client.start(onUpdate: { _ in })
+        let launchDeadline = ProcessInfo.processInfo.systemUptime + 5
+        while !FileManager.default.fileExists(atPath: pidFile.path), ProcessInfo.processInfo.systemUptime < launchDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        try expect(FileManager.default.fileExists(atPath: pidFile.path), "daemon start should launch the fake child")
+        guard let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
+              let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw TestFailure("the fake daemon should record its process id")
+        }
+        childPID = pid
+
+        client.stop()
+        try expect(serveLoopExits(client, within: 1), "stop should terminate an in-flight daemon start promptly")
+        try expect(Darwin.kill(pid, 0) != 0 && errno == ESRCH, "stop should reap the daemon start process")
+    }
+
+    private static func testServeClientStopInterruptsDaemonRespawnWait() throws {
+        let fixture = try appBackendFixture()
+        let attempts = fixture.root.appendingPathComponent("daemon-attempts")
+        try writeExecutable("#!/bin/sh\nprintf x >> '\(attempts.path)'\nexit 1\n", to: fixture.qm)
+        let config = LaunchConfiguration.load(environment: fixture.environment,
+                                             workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        let retryWaitStarted = DispatchSemaphore(value: 0)
+        let connection = DaemonConnection(
+            config: config,
+            respawnPolicy: ServeRespawnPolicy(maxRestarts: 1, delays: [2]),
+            onRespawnWait: { retryWaitStarted.signal() }
+        )
+        let client = UnixSocketServeClient(connection: connection)
+        defer { client.stop() }
+
+        client.start(onUpdate: { _ in })
+        try waitForSemaphore(retryWaitStarted, description: "the daemon connection to enter its respawn wait")
+        client.stop()
+        try expect(serveLoopExits(client, within: 1), "stop should interrupt the daemon respawn wait")
+        try expect((try String(contentsOf: attempts, encoding: .utf8)) == "x", "a stopped daemon connection should not retry")
+    }
+
+    private static func testServeClientStopInterruptsDaemonHandshakeRead() throws {
+        let fixture = try appBackendFixture()
+        var fds: [Int32] = [0, 0]
+        try expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0, "could not create handshake socket pair")
+        defer { close(fds[1]) }
+        let clientEnd = fds[0]
+        let handshakeReadStarted = DispatchSemaphore(value: 0)
+        let recordJSON: [String: Any] = [
+            "running": true, "root": fixture.stateRoot.path, "identity": "canonical", "socket": "socket-pair",
+            "executable": fixture.qm.path, "shim_directory": fixture.root.appendingPathComponent("shim").path,
+            "build": "test", "generation": 1, "accepting": true,
+        ]
+        let record = try JSONDecoder().decode(DaemonRecord.self, from: JSONSerialization.data(withJSONObject: recordJSON))
+        let config = LaunchConfiguration.load(arguments: ["--no-daemon-start"], environment: fixture.environment,
+                                              workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        let connection = DaemonConnection(
+            config: config,
+            record: record,
+            socketConnect: { _ in clientEnd },
+            onHandshakeRead: { handshakeReadStarted.signal() }
+        )
+        let client = UnixSocketServeClient(connection: connection)
+        defer { client.stop() }
+
+        client.start(onUpdate: { _ in })
+        try waitForSemaphore(handshakeReadStarted, description: "the daemon connection to begin the handshake read")
+        client.stop()
+        try expect(serveLoopExits(client, within: 1), "stop should interrupt the handshake read without its two-second timeout")
+        try expect(readsClosed(fds[1]), "stop should close the socket held by the handshake reader")
     }
 
     /// Shells leave the repo groups for a section under every plate, in snapshot order, and the order the cursor and the
@@ -5930,6 +6017,38 @@ enum LogicSelfTests {
         try expect(afterMismatch.contains(.connected), "the recovered tracker should make the connection live again, got \(states)")
     }
 
+    private static func testReadLineHonorsSocketTimeout() throws {
+        var fds: [Int32] = [0, 0]
+        try expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0, "could not create timeout socket pair")
+        defer {
+            shutdown(fds[0], SHUT_RDWR)
+            close(fds[0])
+            close(fds[1])
+        }
+        try UnixSocketIO.setReadTimeout(on: fds[0], seconds: 1)
+        let reader = fds[0]
+        let completed = DispatchSemaphore(value: 0)
+        let timedOut = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            defer { completed.signal() }
+            do {
+                _ = try UnixSocketIO.readLine(from: reader)
+            } catch ServeClientError.protocolError("socket read timed out") {
+                timedOut.signal()
+            } catch {
+                // The test accepts only the configured timeout below.
+            }
+        }
+
+        let returnedBeforeCleanup = completed.wait(timeout: .now() + 2) == .success
+        if !returnedBeforeCleanup {
+            shutdown(fds[0], SHUT_RDWR)
+            _ = completed.wait(timeout: .now() + 1)
+        }
+        let honoredTimeout = returnedBeforeCleanup && timedOut.wait(timeout: .now()) == .success
+        try expect(honoredTimeout, "readLine should honor SO_RCVTIMEO while its silent peer remains open")
+    }
+
     private static func testReadLineReturnsALineSpanningManyReads() throws {
         var fds: [Int32] = [0, 0]
         try expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0, "could not create socket pair")
@@ -6127,9 +6246,13 @@ enum LogicSelfTests {
 
     /// A barrier queued behind the connection loop runs only after it returns.
     private static func serveLoopExits(_ client: UnixSocketServeClient) -> Bool {
+        serveLoopExits(client, within: selfTestWaitTimeout)
+    }
+
+    private static func serveLoopExits(_ client: UnixSocketServeClient, within timeout: TimeInterval) -> Bool {
         let exited = DispatchSemaphore(value: 0)
         client.queue.async { exited.signal() }
-        return exited.wait(timeout: .now() + selfTestWaitTimeout) == .success
+        return exited.wait(timeout: .now() + timeout) == .success
     }
 
     /// One serve tracker event line, without its newline, labelled by `observed_at` and padded by `padding` bytes.

@@ -111,6 +111,62 @@ enum UnixSocketIO {
         }
     }
 
+    /// Reads a bounded handshake line while a stop signal can interrupt the wait. The socket owner also shuts down
+    /// `fd` on cancellation, which wakes `poll` immediately instead of waiting out the deadline.
+    static func readLineCancellable(
+        from fd: Int32,
+        maxBytes: Int?,
+        timeout: TimeInterval,
+        isCancelled: () -> Bool
+    ) throws -> Data {
+        let deadline = DispatchTime.now() + timeout
+        var pending = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            if isCancelled() {
+                throw CancellationError()
+            }
+            var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let now = DispatchTime.now().uptimeNanoseconds
+            let remaining = deadline.uptimeNanoseconds > now ? deadline.uptimeNanoseconds - now : 0
+            let roundedMilliseconds = remaining == 0 ? 0 : (remaining + 999_999) / 1_000_000
+            let waitMilliseconds = Int32(min(roundedMilliseconds, UInt64(Int32.max)))
+            let readyCount = poll(&ready, 1, waitMilliseconds)
+            if readyCount < 0 {
+                if errno == EINTR { continue }
+                throw ServeClientError.protocolError(String(cString: strerror(errno)))
+            }
+            if isCancelled() {
+                throw CancellationError()
+            }
+            if readyCount == 0 {
+                throw ServeClientError.protocolError("socket read timed out")
+            }
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count == 0 {
+                if isCancelled() { throw CancellationError() }
+                throw ServeClientError.protocolError("socket closed before a full line was read")
+            }
+            if count < 0 {
+                if errno == EINTR { continue }
+                if isCancelled() { throw CancellationError() }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw ServeClientError.protocolError("socket read timed out")
+                }
+                throw ServeClientError.protocolError(String(cString: strerror(errno)))
+            }
+            // Only the new bytes can hold the newline; rescanning the whole buffer made a large reply quadratic.
+            let scanStart = pending.endIndex
+            pending.append(buffer, count: count)
+            if let maxBytes, pending.count > maxBytes {
+                throw ServeClientError.protocolError("socket line exceeded \(maxBytes) bytes")
+            }
+            if let newline = pending[scanStart...].firstIndex(of: 0x0a) {
+                return pending.subdata(in: pending.startIndex..<newline)
+            }
+        }
+    }
+
     static func setReadTimeout(on fd: Int32, seconds: Int) throws {
         var timeout = timeval(tv_sec: seconds, tv_usec: 0)
         let result = withUnsafePointer(to: &timeout) { pointer in
