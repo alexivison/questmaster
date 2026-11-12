@@ -29,6 +29,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let signalHandler = SignalHandler()
     private let runtimeStore: RuntimeStore
     private var didStartEnvironmentDependentServices = false
+    private var isResolvingStartupSession = true
     private let navigation = NavigationStore()
     private let dockCoordinator = DockCoordinator()
     private let workerChatStore = WorkerChatStore()
@@ -134,6 +135,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             runtimeStore: runtimeStore,
             navigation: navigation,
             dockCoordinator: dockCoordinator,
+            dockPanels: { [weak self] in self?.dockPanels ?? DockPanels() },
             dockView: { [weak self] in self?.shellHandles?.dockView },
             terminalShell: { [weak self] in self?.shellHandles?.terminalShell },
             splitView: { [weak self] in self?.shellHandles?.splitView },
@@ -324,6 +326,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             let finishStartup = { [weak self] (sessionID: String?) in
                 guard let self else { return }
                 self.terminalSessionController.setAutoDetectedSession(sessionID)
+                self.isResolvingStartupSession = false
                 self.terminalSessionController.installTerminalHost()
                 self.terminalSessionController.start()
                 self.terminalSessionController.drainPendingTerminalAttachments()
@@ -445,9 +448,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    /// Which dock panels show, from the app-wide dock state and whether a session is attached.
+    /// Startup keeps the default panels in the first layout while the attached session is resolved.
     private var dockPanels: DockPanels {
-        dockCoordinator.state.panels(hasSession: runtimeStore.currentTerminalSessionID != nil)
+        dockCoordinator.state.panels(
+            hasSession: runtimeStore.currentTerminalSessionID != nil,
+            isResolvingStartupSession: isResolvingStartupSession
+        )
     }
 
     private func syncPullRequests() {

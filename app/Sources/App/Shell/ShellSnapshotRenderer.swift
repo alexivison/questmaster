@@ -6,6 +6,7 @@ final class ShellSnapshotRenderer {
     private let runtimeStore: RuntimeStore
     private let navigation: NavigationStore
     private let dockCoordinator: DockCoordinator
+    private let dockPanels: () -> DockPanels
     private let dockView: () -> SwiftUIDockPane?
     private let terminalShell: () -> TerminalShellView?
     private let splitView: () -> MainSplitView?
@@ -16,6 +17,7 @@ final class ShellSnapshotRenderer {
         runtimeStore: RuntimeStore,
         navigation: NavigationStore,
         dockCoordinator: DockCoordinator,
+        dockPanels: @escaping () -> DockPanels,
         dockView: @escaping () -> SwiftUIDockPane?,
         terminalShell: @escaping () -> TerminalShellView?,
         splitView: @escaping () -> MainSplitView?,
@@ -25,6 +27,7 @@ final class ShellSnapshotRenderer {
         self.runtimeStore = runtimeStore
         self.navigation = navigation
         self.dockCoordinator = dockCoordinator
+        self.dockPanels = dockPanels
         self.dockView = dockView
         self.terminalShell = terminalShell
         self.splitView = splitView
@@ -36,10 +39,9 @@ final class ShellSnapshotRenderer {
     /// viewed session's artifacts and workers) changes.
     func render(animateDockVisibility: Bool = false, animateDockLayout: Bool = false) {
         let viewedSessionID = runtimeStore.currentTerminalSessionID
-        let hasSession = viewedSessionID != nil
         var shouldAnimateDockVisibility = animateDockVisibility
         var shouldAnimateDockLayout = animateDockLayout
-        var panels = dockCoordinator.state.panels(hasSession: hasSession)
+        var panels = dockPanels()
         if navigation.dockVisible != panels.isShown {
             shouldAnimateDockVisibility = true
         }
@@ -55,7 +57,7 @@ final class ShellSnapshotRenderer {
             if case .open(let artifact) = update.intent, openArtifactDockIfActive(artifact) {
                 shouldAnimateDockVisibility = true
                 shouldAnimateDockLayout = true
-                panels = dockCoordinator.state.panels(hasSession: hasSession)
+                panels = dockPanels()
                 let reopened = navigation.settleDock(panels)
                 if reopened != .unchanged {
                     focusOutcome = reopened
@@ -82,7 +84,9 @@ final class ShellSnapshotRenderer {
         if runtimeStore.currentTerminalSessionID != nil {
             terminalShell()?.clearEnded()
         }
-        focusCoordinator()?.applyNavigationState(animateDockVisibility: shouldAnimateDockVisibility)
+        focusCoordinator()?.applyNavigationState(
+            animateDockVisibility: shouldAnimateDockVisibility && splitView()?.window?.isVisible == true
+        )
         if case .focused = focusOutcome {
             focusCoordinator()?.focusCurrentRegion()
         }
