@@ -12,6 +12,9 @@ struct TrackerAvatarAnimationTests {
         theClericsBlocksPlayAtTheirTimes()
         decodesTheRangersFile()
         decodesTheNecromancersFile()
+        decodesTheSorcerersFile()
+        anIdleMayPlayEffectLayersOnTheirOwnClock()
+        anIdleEffectRejectsBadTracksAndOrigins()
         aCatchHoldsItsClosedHandPastTheRecoil()
         aLoopCyclesEachTrackOnItsOwnClock()
         aSummoningEntersLoopsAndFinishes()
@@ -853,6 +856,70 @@ struct TrackerAvatarAnimationTests {
         expect(pondering?.footRow == 162 && pondering?.bodyColumn == 40, "pondering should stand at the ranger's foot row and body column")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the ranger's summoning should have a ground effect")
         expect(animation.animation(for: .channelling)?.finish != nil, "the ranger's channelling should finish")
+    }
+
+    private static func decodesTheSorcerersFile() {
+        guard let animation = try? decode(AvatarAnimationFixture.classJSON("sorcerer")) else {
+            fail("the sorcerer's file should decode")
+        }
+        expect(animation.idle?.blink == true, "the sorcerer should blink")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xebae9e), "the sorcerer should keep her eyelid colour")
+        expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f8.png", "the sorcerer should resume at the authored rest frame")
+        expect(animation.idle?.breathing?.frames.count == 8, "the sorcerer's breathing should play its 8 authored steps")
+        expect(animation.idle?.breathing?.frames.allSatisfy { !$0.lidPixels.isEmpty } == true, "every breathing frame should carry a blink stencil")
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 135, y: 74), "the release hand should be the sorcerer's hand pixel")
+        expect(animation.fidgets.map(\.name) == ["hair-flick"], "the sorcerer should have the hair-flick fidget")
+        expect(animation.fidgets.first?.frames == Array(2...13), "the hair flick should play idle frames 2 to 13")
+        let idle = animation.animation(for: .idle)
+        expect(idle?.footRow == 162 && idle?.bodyColumn == 50, "idle should stand at the sorcerer's foot row and body column")
+        let channelling = animation.animation(for: .channelling)
+        expect(channelling?.footRow == 186 && channelling?.bodyColumn == 98, "the effect poses should stand on the 192 x 200 canvas's foot row and body column")
+        let calling = animation.animation(for: .callingOut)
+        expect(calling?.bubble == TrackerAvatarPixel(x: 14, y: 20) && calling?.bubbleTail == .right, "the bubble should sit at the sorcerer's anchor, tail toward her")
+        expect(animation.animation(for: .release)?.strikeFrame == 4, "the sorcerer's release should strike on f4")
+        expect(animation.animation(for: .catching)?.strikeFrame == 5, "the sorcerer's catch should strike on f5")
+        expect(animation.spell(.wisp)?.faces == .left, "the sorcerer's wisp should face left")
+    }
+
+    /// An idle may carry `front` and `behind` tracks: each loops on its own clock, and `character_at` says where the figure's canvas sits
+    /// on the effects' canvas. A file without the keys reads exactly as before.
+    private static func anIdleMayPlayEffectLayersOnTheirOwnClock() {
+        guard let bare = try? decode(AvatarAnimationFixture.classJSON("wizard")) else {
+            fail("the wizard's file should decode")
+        }
+        expect(bare.idle?.front == nil && bare.idle?.behind == nil, "a file without the keys should have no idle effect")
+        expect(bare.idle?.characterAt == TrackerAvatarPixel(x: 0, y: 0), "a file without the key should place the figure at the origin")
+        var json = AvatarAnimationFixture.classJSON("wizard")
+        var idle = json["idle"] as? [String: Any] ?? [:]
+        idle["front"] = [[1, 0.3], [2, 0.3], [3, 0.2]]
+        idle["behind"] = [[4, 0.5]]
+        idle["character_at"] = ["x": 48, "y": 24]
+        json["idle"] = idle
+        guard let animation = try? decode(json), let front = animation.idle?.front, let behind = animation.idle?.behind else {
+            fail("an idle with effect tracks should decode")
+        }
+        expect(front.steps.map(\.frame) == [1, 2, 3] && abs(front.seconds - 0.8) < 1e-9, "the front effect should read its own steps")
+        expect(front.frame(at: 0.65, looping: true) == 3 && front.frame(at: 0.85, looping: true) == 1, "the front effect should loop on its own length")
+        expect(behind.frame(at: 7.3, looping: true) == 4, "the behind effect should loop on its own clock")
+        expect(animation.idle?.effect(.front) == front && animation.idle?.effect(.behind) == behind && animation.idle?.effect(.character) == nil,
+               "the effects should be read by layer, and the character is not one")
+        expect(animation.idle?.characterAt == TrackerAvatarPixel(x: 48, y: 24), "the figure's place on the effect canvas should be read")
+        expect(animation.idle?.breathing == bare.idle?.breathing && animation.fidgets == bare.fidgets, "effects should leave breathing and fidgets as they were")
+    }
+
+    private static func anIdleEffectRejectsBadTracksAndOrigins() {
+        for (name, edit) in [
+            ("an empty front track", { (idle: inout [String: Any]) in idle["front"] = [[Int]]() }),
+            ("a step that isn't a frame", { idle in idle["behind"] = [[0, 0.3]] }),
+            ("a step with no time", { idle in idle["front"] = [[1, 0]] }),
+            ("a negative origin", { idle in idle["front"] = [[1, 0.3]]; idle["character_at"] = ["x": -1, "y": 0] }),
+        ] as [(String, (inout [String: Any]) -> Void)] {
+            var json = AvatarAnimationFixture.classJSON("wizard")
+            var idle = json["idle"] as? [String: Any] ?? [:]
+            edit(&idle)
+            json["idle"] = idle
+            expect((try? decode(json)) == nil, "\(name) should not decode")
+        }
     }
 
     private static func decodesTheNecromancersFile() {

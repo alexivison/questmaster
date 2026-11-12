@@ -1,0 +1,92 @@
+{
+  "version": 2,
+  "outline": [
+    "#000000"
+  ],
+  "materials": {
+    "skin": [
+      "#87414d",
+      "#b26765",
+      "#d28e84",
+      "#ebae9e"
+    ],
+    "hair": [
+      "#b38685",
+      "#cfaca3",
+      "#f1ddce"
+    ],
+    "plum": [
+      "#3f2440",
+      "#5d344d",
+      "#7a485d"
+    ],
+    "wine": [
+      "#2a1322",
+      "#4a1d33",
+      "#692b47"
+    ],
+    "charcoal": [
+      "#232129",
+      "#26262e",
+      "#322d3b"
+    ],
+    "gold": [
+      "#8a5a26",
+      "#c28a3e",
+      "#f0c262"
+    ],
+    "leather": [
+      "#402724",
+      "#4a302a",
+      "#523435"
+    ]
+  },
+  "neutral": [],
+  "glow": [],
+  "glow_note": "No effect art yet; glow stays empty until real effect swatches exist.",
+  "regions": "palette-regions/manifest.json",
+  "source_map": {
+    "outline": {
+      "#000000": "#000000"
+    },
+    "skin": {
+      "#87414d": "#87414d",
+      "#b26765": "#b26765",
+      "#d28e84": "#d28e84",
+      "#ebae9e": "#ebae9e"
+    },
+    "hair": {
+      "#b38685": "#b38685",
+      "#cfaca3": "#cfaca3",
+      "#f1ddce": "#f1ddce"
+    },
+    "plum": {
+      "#3f2440": "#3f2440",
+      "#5d344d": "#5d344d",
+      "#7a485d": "#7a485d"
+    },
+    "wine": {
+      "#2a1322": "#2a1322",
+      "#4a1d33": "#4a1d33",
+      "#692b47": "#692b47"
+    },
+    "charcoal": {
+      "#232129": "#232129",
+      "#26262e": "#26262e",
+      "#322d3b": "#322d3b"
+    },
+    "gold": {
+      "#8a5a26": "#8a5a26",
+      "#c28a3e": "#c28a3e",
+      "#f0c262": "#f0c262"
+    },
+    "leather": {
+      "#402724": "#402724",
+      "#4a302a": "#4a302a",
+      "#523435": "#523435"
+    }
+  },
+  "max_shades": {
+    "skin": 4
+  }
+}

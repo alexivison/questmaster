@@ -296,18 +296,38 @@ public struct TrackerAvatarBreathing: Equatable, Sendable {
     }
 }
 
-/// Idle's still frame, optional authored breathing images and blink settings. No pose pixels are moved in code.
+/// Idle's still frame, optional authored breathing images and blink settings. No pose pixels are moved in code. An idle may also play
+/// an effect over (`front`) or under (`behind`) the figure: a track of `01-idle-front-f<n>` / `01-idle-behind-f<n>` art that loops on its
+/// own clock, whatever the figure does. Effect art may stand on a larger canvas than the figure's: `characterAt` is where the figure's
+/// canvas top-left falls on the effect canvas (zero when both share one).
 public struct TrackerAvatarIdleAnimation: Equatable, Sendable {
     public let blink: Bool
     public let lidColour: TrackerAvatarColour?
     public let stillLidPixels: [TrackerAvatarPixel]
     public let breathing: TrackerAvatarBreathing?
+    public let behind: TrackerAvatarTrack?
+    public let front: TrackerAvatarTrack?
+    public let characterAt: TrackerAvatarPixel
 
-    public init(blink: Bool, lidColour: TrackerAvatarColour?, stillLidPixels: [TrackerAvatarPixel], breathing: TrackerAvatarBreathing?) {
+    public init(
+        blink: Bool, lidColour: TrackerAvatarColour?, stillLidPixels: [TrackerAvatarPixel], breathing: TrackerAvatarBreathing?,
+        behind: TrackerAvatarTrack? = nil, front: TrackerAvatarTrack? = nil, characterAt: TrackerAvatarPixel = TrackerAvatarPixel(x: 0, y: 0)
+    ) {
         self.blink = blink
         self.lidColour = lidColour
         self.stillLidPixels = stillLidPixels
         self.breathing = breathing
+        self.behind = behind
+        self.front = front
+        self.characterAt = characterAt
+    }
+
+    public func effect(_ layer: TrackerAvatarLayer) -> TrackerAvatarTrack? {
+        switch layer {
+        case .behind: behind
+        case .front: front
+        case .character: nil
+        }
     }
 }
 
@@ -459,7 +479,16 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         guard !blink || hasCompleteStencil else {
             throw TrackerAvatarAnimationError.missingLidStencil("idle")
         }
-        return TrackerAvatarIdleAnimation(blink: blink, lidColour: lidColour, stillLidPixels: stillPixels, breathing: breathing)
+        let behind = try track(file.behind, named: "idle behind")
+        let front = try track(file.front, named: "idle front")
+        let characterAt = file.characterAt ?? File.Pixel(x: 0, y: 0)
+        guard characterAt.x >= 0, characterAt.y >= 0 else {
+            throw TrackerAvatarAnimationError.invalidAnchor("idle character_at")
+        }
+        return TrackerAvatarIdleAnimation(
+            blink: blink, lidColour: lidColour, stillLidPixels: stillPixels, breathing: breathing,
+            behind: behind, front: front, characterAt: TrackerAvatarPixel(x: characterAt.x, y: characterAt.y)
+        )
     }
 
     private static func breathingTrack(
@@ -650,8 +679,13 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             let blink: Bool?
             let lidPixels: [[Int]]?
             let breathing: Breathing?
+            let behind: [TrackerAvatarStep]?
+            let front: [TrackerAvatarStep]?
+            let characterAt: Pixel?
 
             enum CodingKeys: String, CodingKey {
+                case characterAt = "character_at"
+                case behind, front
                 case eyeRow = "eye_row"
                 case eyeColumns = "eye_columns"
                 case lidColour = "lid_colour"

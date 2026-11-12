@@ -100,6 +100,9 @@ enum LogicSelfTests {
         ("testBundledClericSpritesReadTheirAnimationFile", testBundledClericSpritesReadTheirAnimationFile),
         ("testBundledRangerSpritesReadTheirAnimationFile", testBundledRangerSpritesReadTheirAnimationFile),
         ("testBundledNecromancerSpritesReadTheirAnimationFile", testBundledNecromancerSpritesReadTheirAnimationFile),
+        ("testBundledSorcererSpritesReadTheirAnimationFile", testBundledSorcererSpritesReadTheirAnimationFile),
+        ("testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets", testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets),
+        ("testEveryBundledIdleEffectHasItsArtAndLoops", testEveryBundledIdleEffectHasItsArtAndLoops),
         ("testBundledBardSpellsPlayFramesFacingRight", testBundledBardSpellsPlayFramesFacingRight),
         ("testBundledDruidBubbleTailPointsAtHer", testBundledDruidBubbleTailPointsAtHer),
         ("testTheBubbleStaysInTheSlotAboveTheBanner", testTheBubbleStaysInTheSlotAboveTheBanner),
@@ -1625,6 +1628,28 @@ enum LogicSelfTests {
         return folder
     }
 
+    /// The layered-idle class folder with an idle effect: a three-step front track (0.8 s) and a one-step behind track (0.5 s) on a
+    /// 128 x 180 canvas, with the figure's canvas at (20, 10) on it.
+    @MainActor
+    private static func syntheticIdleEffectFolder() throws -> URL {
+        let folder = try syntheticLayeredIdleFolder(eyes: true)
+        let file = folder.appendingPathComponent("animation.json")
+        guard var json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any],
+              var idle = json["idle"] as? [String: Any] else {
+            throw TestFailure("the synthetic class's animation.json should read as an object with idle data")
+        }
+        idle["front"] = [[1, 0.3], [2, 0.3], [3, 0.2]]
+        idle["behind"] = [[1, 0.5]]
+        idle["character_at"] = ["x": 20, "y": 10]
+        json["idle"] = idle
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        for number in 1...3 {
+            try writeSolidFrame(Double(number) / 10, width: 128, height: 180, to: folder.appendingPathComponent("01-idle-front-f\(number).png"))
+        }
+        try writeSolidFrame(0.5, width: 128, height: 180, to: folder.appendingPathComponent("01-idle-behind-f1.png"))
+        return folder
+    }
+
     /// A frame of the idle loop with no art is missing, like any pose's, and the idle draws nothing until it lands.
     @MainActor
     private static func testALoopingIdleFrameWithoutArtIsMissing() throws {
@@ -1942,11 +1967,11 @@ enum LogicSelfTests {
     }
 
     /// Every bundled class's still flights lead with their heads on their paths. Only the returning wisp flies left; the orb and the
-    /// messenger fly right. How each still is drawn is read from the art: the druid's and the necromancer's wisps face left already, and every
+    /// messenger fly right. How each still is drawn is read from the art: the druid's, the necromancer's and the sorcerer's wisps face left already, and every
     /// other still faces right, so a wisp that faces right needs its file to say so (`faces`) to be mirrored on its way back.
     @MainActor
     private static func testEveryBundledStillLeadsWithItsHeadOnItsPath() throws {
-        let drawnLeft: Set<String> = ["druid S6-returning-wisp", "necromancer S6-returning-wisp"]
+        let drawnLeft: Set<String> = ["druid S6-returning-wisp", "necromancer S6-returning-wisp", "sorcerer S6-returning-wisp"]
         for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
             for spell in TrackerSpellFlight.Spell.allCases {
                 guard let art = sprites.flight(for: spell) else {
@@ -2208,6 +2233,111 @@ enum LogicSelfTests {
         try expect(CATransform3DEqualToTransform(rig.bubble.transform, CATransform3DMakeScale(-1, 1, 1)), "the druid's bubble should draw flipped")
     }
 
+    /// The sorcerer's sprites load from the app bundle: her breathing plays its eight authored steps, each with a lid stencil, she blinks
+    /// in her own lid colour, her bubble's tail points at her, and her spells have frame art.
+    @MainActor
+    private static func testBundledSorcererSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["sorcerer"] else {
+            throw TestFailure("the sorcerer's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.blink == true, "the sorcerer should schedule a blink")
+        try expect(sprites.animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xebae9e), "the sorcerer should blink in her skin colour")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 8 && sprites.idleBreathingArt?.count == 8,
+                   "the sorcerer should load all eight breathing steps and their lid stencils")
+        try expect(sprites.idleBreathingArt?.allSatisfy { $0.lids != nil } == true, "every sorcerer breathing frame should carry a blink stencil")
+        try expect(sprites.animation.fidgets.map(\.name) == ["hair-flick"] && sprites.availableFidgets.count == 1,
+                   "the sorcerer should have the hair-flick fidget with its art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the sorcerer's art")
+        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
+                   "the sorcerer should have the frame art of all three spells")
+        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
+                   "the sorcerer's release should have a hand")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the sorcerer's file plays should have its art, missing: \(missing)")
+    }
+
+    /// An idle's effect layer: a looping track on its own clock, over (`front`) or under (`behind`) the figure, placed by where the
+    /// figure's canvas falls on its own. It keeps playing through a fidget, rests on its first frame under Reduce Motion, and goes
+    /// with the idle. A class whose file has no such key draws no layer for it.
+    @MainActor
+    private static func testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets() throws {
+        defer { Motion.reducesMotion = { false } }
+        Motion.reducesMotion = { false }
+        let folder = try syntheticIdleEffectFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class with an idle effect should read")
+        }
+        try expect(missingFrames(of: sprites).filter { $0.hasPrefix("idle effect") }.isEmpty, "the synthetic idle effect should have all its art")
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = sprites
+        window.contentView = avatar
+        window.show()
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        let roots = avatar.layer?.sublayers ?? []
+        guard let front = roots.first(where: { $0.zPosition > 0 && !$0.isHidden }),
+              let behind = roots.first(where: { $0.zPosition < 0 && !$0.isHidden }),
+              let figure = roots.first(where: { $0.zPosition == 0 && !$0.isHidden }) else {
+            throw TestFailure("an idle with effects should show a front layer, a behind layer and the figure")
+        }
+        guard let frontPlay = front.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation,
+              let behindPlay = behind.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation else {
+            throw TestFailure("the effect layers should play their frames")
+        }
+        try expect(abs(frontPlay.duration - 0.8) < 1e-9 && frontPlay.repeatCount == .infinity && frontPlay.values?.count == 4,
+                   "the front effect should loop its 0.8 s track and close on its first frame")
+        try expect(abs(behindPlay.duration - 0.5) < 1e-9, "the behind effect should keep its own 0.5 s clock")
+        let pixel = TrackerAvatarDesign.pixelPoints
+        try expect(front.frame.minX == figure.frame.minX - 20 * pixel && front.frame.maxY == figure.frame.maxY + 10 * pixel,
+                   "the effect canvas should place the figure's canvas at character_at, got \(front.frame) against \(figure.frame)")
+        // A fidget swaps the figure but not the effects.
+        avatar.configure(pose: .idle, fidget: 2, beat: 0, finish: nil, reduceMotion: false)
+        try expect(!front.isHidden && front.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "the front effect should play through a fidget")
+        // Reduce Motion rests each layer on its first frame.
+        Motion.reducesMotion = { true }
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+        try expect(!front.isHidden && front.animation(forKey: TrackerAvatarMotionKey.frames) == nil
+                   && sameImage(front.contents, sprites.frame(.idle, .front, 1)), "Reduce Motion should hold the front effect's first frame")
+        Motion.reducesMotion = { false }
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        avatar.configure(pose: .pondering, beat: 0, finish: nil, reduceMotion: false)
+        try expect(front.isHidden && behind.isHidden, "another pose should hide the idle's effects")
+
+        // A class whose file has no idle effect draws no layer for it.
+        let plainFolder = try syntheticLayeredIdleFolder(eyes: true)
+        defer { try? FileManager.default.removeItem(at: plainFolder) }
+        guard let plain = TrackerAvatarSprites(classID: "synthetic", folder: plainFolder) else {
+            throw TestFailure("the plain synthetic class should read")
+        }
+        try expect(plain.animation.idle?.front == nil && plain.animation.idle?.behind == nil, "a file without the keys should decode no effect")
+        let plainWindow = HeadlessWindow(size: size)
+        let plainAvatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        plainAvatar.sprites = plain
+        plainWindow.contentView = plainAvatar
+        plainWindow.show()
+        plainAvatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        try expect((plainAvatar.layer?.sublayers ?? []).count == 1, "an idle with no effect should draw only the figure's layers")
+    }
+
+    /// Every bundled class whose idle carries an effect has all its art, and each effect track loops on its own length rather than
+    /// the breathing's.
+    @MainActor
+    private static func testEveryBundledIdleEffectHasItsArtAndLoops() throws {
+        for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
+            for layer in [TrackerAvatarLayer.behind, .front] {
+                guard let track = sprites.animation.idle?.effect(layer) else {
+                    continue
+                }
+                let missing = missingFrames(of: sprites).filter { $0.hasPrefix("idle effect") }
+                try expect(missing.isEmpty, "the \(classID)'s idle \(layer.rawValue) effect should have all its art, missing: \(missing)")
+                try expect(track.frame(at: track.seconds, looping: true) == track.steps[0].frame,
+                           "the \(classID)'s idle \(layer.rawValue) effect should loop back to its first frame after \(track.seconds) s")
+            }
+        }
+    }
+
     /// The necromancer's sprites load from the app bundle: his breathing plays its authored steps with their eyelid stencils,
     /// he never blinks, and all three spells have their frame art.
     @MainActor
@@ -2413,7 +2543,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 129), ("wizard", 150)] {
+        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 129), ("sorcerer", 150), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }
@@ -2519,6 +2649,11 @@ enum LogicSelfTests {
         var missing: [String] = []
         for frame in sprites.animation.idle?.breathing?.frames ?? [] where sprites.idleBreathingFrame(frame.file) == nil {
             missing.append(frame.file)
+        }
+        for layer in [TrackerAvatarLayer.behind, .front] {
+            for step in sprites.animation.idle?.effect(layer)?.steps ?? [] where sprites.frame(.idle, layer, step.frame) == nil {
+                missing.append("idle effect \(layer.rawValue) f\(step.frame)")
+            }
         }
         for pose in TrackerAvatarPose.allCases {
             guard let poseAnimation = sprites.animation.animation(for: pose) else {

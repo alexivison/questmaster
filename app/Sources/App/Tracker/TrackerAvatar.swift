@@ -581,6 +581,64 @@ fileprivate final class TrackerAvatarIdleRig: TrackerAvatarPoseRig {
     }
 }
 
+/// An idle's effect layer (`idle.front` or `idle.behind`): a looping track of `01-idle-<layer>-f<n>` art over or under the figure, on its
+/// own clock. It stays on screen through a fidget, since it is not part of the figure's frames, and rests on its first frame wherever
+/// motion is off. Its canvas may be larger than the figure's, so it is placed by where the figure's canvas falls on it.
+@MainActor
+fileprivate final class TrackerAvatarIdleEffectRig: TrackerAvatarPoseRig {
+    let pose = TrackerAvatarPose.idle
+    let root = CALayer()
+    private let track: TrackerAvatarTrack
+    private let images: [CGImage]
+    private let figureCanvas: CGSize
+    private let placement: TrackerAvatarPoseAnimation
+    private let figureAt: TrackerAvatarPixel
+
+    /// Nil when the idle has no such effect, or a frame its track names has no art.
+    init?(kind: TrackerAvatarLayer, placement: TrackerAvatarPoseAnimation, sprites: TrackerAvatarSprites) {
+        guard let idle = sprites.animation.idle, let track = idle.effect(kind), let figure = sprites.idleFrame(1) else {
+            return nil
+        }
+        let images = track.steps.compactMap { sprites.frame(.idle, kind, $0.frame) }
+        guard images.count == track.steps.count, !images.isEmpty else {
+            return nil
+        }
+        self.track = track
+        self.images = images
+        self.placement = placement
+        figureAt = idle.characterAt
+        figureCanvas = CGSize(width: figure.width, height: figure.height)
+        root.actions = TrackerAvatarLayerActions.immediate
+        root.magnificationFilter = .nearest
+        root.minificationFilter = .nearest
+        // The figure's rigs sit at 0: a behind effect draws under them, a front effect over.
+        root.zPosition = kind == .behind ? -1 : 1
+        root.contents = images[0]
+    }
+
+    func place(in bounds: CGRect) {
+        let canvas = CGSize(width: images[0].width, height: images[0].height)
+        placeRoot(pixels: canvas, footRow: placement.footRow + figureAt.y, bodyColumn: placement.bodyColumn + figureAt.x, in: bounds)
+    }
+
+    func startMotion() {
+        guard root.animation(forKey: TrackerAvatarMotionKey.frames) == nil,
+              let frames = TrackerAvatarFramesAnimation.make(images: images, track: track, duration: track.seconds, looping: true)
+        else {
+            return
+        }
+        frames.repeatCount = .infinity
+        root.add(frames, forKey: TrackerAvatarMotionKey.frames)
+    }
+
+    func stopMotion() {
+        root.removeAnimation(forKey: TrackerAvatarMotionKey.frames)
+        root.contents = images[0]
+    }
+
+    func setLids(shown: Bool) {}
+}
+
 /// A pose drawn as frames. Its loop cycles, or its one-shot plays once. Each layer plays its own track on its own clock: the
 /// character, a `behind` effect that stays put, and a `front` effect that moves with the figure. The figure (the character and any
 /// front effect) is one layer, which the pose's moves carry. A finish or an enter sets each layer to its frame at the
@@ -863,6 +921,9 @@ final class TrackerAvatarView: NSView {
     }
 
     private var rigs: [RigKey: any TrackerAvatarPoseRig] = [:]
+    /// The idle's effect layers, built with the first idle shown. They stay up through a fidget and hide with any other pose.
+    private var effectRigs: [TrackerAvatarIdleEffectRig] = []
+    private var effectRigsBuilt = false
     /// The rig on screen, and its key.
     private var shownKey: RigKey?
     private var shown: (any TrackerAvatarPoseRig)?
@@ -889,6 +950,7 @@ final class TrackerAvatarView: NSView {
     override func layout() {
         super.layout()
         rigs.values.forEach { $0.place(in: bounds) }
+        effectRigs.forEach { $0.place(in: bounds) }
     }
 
     override func viewDidMoveToWindow() {
@@ -930,6 +992,30 @@ final class TrackerAvatarView: NSView {
         shown?.hide()
         shown = key.flatMap(rig(for:))
         shown?.show()
+        showIdleEffects(key == .pose(.idle) || key == .fidget)
+    }
+
+    /// Shows the idle's effect layers while the idle (or one of its fidgets) is on screen, and hides them otherwise.
+    private func showIdleEffects(_ shown: Bool) {
+        if shown, !effectRigsBuilt, let sprites, let placement = sprites.animation.animation(for: .idle) {
+            effectRigsBuilt = true
+            effectRigs = [TrackerAvatarLayer.behind, .front].compactMap {
+                TrackerAvatarIdleEffectRig(kind: $0, placement: placement, sprites: sprites)
+            }
+            for rig in effectRigs {
+                rig.place(in: bounds)
+                rig.root.isHidden = true
+                layer?.addSublayer(rig.root)
+            }
+        }
+        for rig in effectRigs {
+            if shown {
+                rig.root.isHidden = false
+            } else {
+                rig.stopMotion()
+                rig.root.isHidden = true
+            }
+        }
     }
 
     /// The rig that draws `key`, built on first use from the class's sprites. Nil while there are no sprites, or the pose has no art.
@@ -971,6 +1057,9 @@ final class TrackerAvatarView: NSView {
         shown?.hide()
         rigs.values.forEach { $0.root.removeFromSuperlayer() }
         rigs = [:]
+        effectRigs.forEach { $0.root.removeFromSuperlayer() }
+        effectRigs = []
+        effectRigsBuilt = false
         shownKey = nil
         shown = nil
         updateMotion()
@@ -981,9 +1070,11 @@ final class TrackerAvatarView: NSView {
     private func updateMotion() {
         guard window != nil, !reduceMotion else {
             shown?.stopMotion()
+            effectRigs.forEach { $0.stopMotion() }
             stopBlinking()
             return
         }
+        effectRigs.filter { !$0.root.isHidden }.forEach { $0.startMotion() }
         if let finish {
             (shown as? TrackerAvatarFrameRig)?.showFinish(elapsed: finish)
         } else if let enter {
