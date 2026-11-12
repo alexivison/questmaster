@@ -83,11 +83,14 @@ controlPageAndHalfPageChords()
         expect(!matches(press("h", [.command]), .focusLeft), "⌘h must not focus left")
         expect(!matches(press("?", [.shift]), .focusFilter), "shift-/ types ? and is not the filter key")
         expect(matches(press("/"), .focusFilter), "/ should focus the filter")
-        expect(matches(press("H", [.shift]), .previousSection), "shift-h should step to the previous Settings section")
-        expect(matches(press("L", [.shift]), .nextSection), "shift-l should step to the next Settings section")
-        expect(!matches(press("h"), .previousSection) && !matches(press("l"), .nextSection), "plain h and l cycle a select, not the section")
+        expect(matches(press("K", [.shift]), .previousSection), "shift-k should step to the previous Settings section")
+        expect(matches(press("J", [.shift]), .nextSection), "shift-j should step to the next Settings section")
+        expect(!matches(press("H", [.shift]), .previousSection) && !matches(press("L", [.shift]), .nextSection), "shift-h and shift-l should no longer step Settings sections")
+        expect(!matches(press("j"), .nextSection) && !matches(press("k"), .previousSection), "plain j and k move within the selected section")
         expect(!matches(press("H", [.command, .shift]), .previousSection), "⇧⌘H is the focus chord, not the section key")
         expect(!matches(press("L", [.command, .shift]), .nextSection), "⇧⌘L is the focus chord, not the section key")
+        expect(!matches(press("K", [.command, .shift]), .previousSection), "⇧⌘K is the focus chord, not the section key")
+        expect(!matches(press("J", [.command, .shift]), .nextSection), "⇧⌘J is the focus chord, not the section key")
     }
 
     private static func listKeysAreArrowsAndLetters() {

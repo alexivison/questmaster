@@ -359,7 +359,7 @@ final class SettingsSheetModel: ObservableObject {
         if next == .tmux { tmux.loadIfNeeded() }
     }
 
-    /// H and L step through the sidebar's sections, wrapping as the agent tabs do. Arranging holds the section: Save
+    /// K and J step up and down through the sidebar's sections, wrapping as the agent tabs do. Arranging holds the section: Save
     /// or Esc ends it first.
     private func moveSection(_ delta: Int) {
         guard !projects.isArranging else {
@@ -404,7 +404,7 @@ final class SettingsSheetModel: ObservableObject {
         state.selectTab(index)
     }
 
-    /// The sheet's keys: H and L step the sections, the `[` and `]` tabs (its own), then the shared modal keys (`ModalKeys`). The rows are selects,
+    /// The sheet's keys: K and J step the sections, the `[` and `]` tabs (its own), then the shared modal keys (`ModalKeys`). The rows are selects,
     /// so ←/→ cycle a value, and j and k or Tab move between them. Nothing submits: each change applies as it is made.
     func handle(_ event: NSEvent) -> Bool {
         ModalKeyActions(
@@ -467,6 +467,9 @@ final class SettingsSheetModel: ObservableObject {
 
     private func handleFieldKey(_ event: NSEvent) -> Bool {
         let press = event.keymapPress
+        if section == .projects, projects.isArranging {
+            return projects.handleKey(press)
+        }
         if Keymap.matches(press, .previousSection) {
             moveSection(-1)
             return true
