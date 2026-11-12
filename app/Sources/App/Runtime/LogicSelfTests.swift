@@ -105,6 +105,7 @@ enum LogicSelfTests {
         ("testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets", testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets),
         ("testEveryBundledIdleEffectHasItsArtAndLoops", testEveryBundledIdleEffectHasItsArtAndLoops),
         ("testBundledBardSpellsPlayFramesFacingRight", testBundledBardSpellsPlayFramesFacingRight),
+        ("testBundledBarbarianAndWizardWispsPlayFramesFacingRight", testBundledBarbarianAndWizardWispsPlayFramesFacingRight),
         ("testBundledDruidBubbleTailPointsAtHer", testBundledDruidBubbleTailPointsAtHer),
         ("testTheBubbleStaysInTheSlotAboveTheBanner", testTheBubbleStaysInTheSlotAboveTheBanner),
         ("testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot", testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot),
@@ -2216,6 +2217,32 @@ enum LogicSelfTests {
         try expect(wisp.isMirrored(headsLeft: true) && !wisp.isMirrored(headsLeft: false), "the bard's wisp should be mirrored only on its way back")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the bard's file plays should have its art, missing: \(missing)")
+    }
+
+    /// The barbarian's axe and the wizard's rune star are frame tracks drawn facing right: the wisp has flight and impact art and no still
+    /// left, and is mirrored only on its way back. Their orb and messenger keep their stills.
+    @MainActor
+    private static func testBundledBarbarianAndWizardWispsPlayFramesFacingRight() throws {
+        for classID in ["barbarian", "wizard"] {
+            guard let sprites = TrackerAvatarSprites.bundled()[classID] else {
+                throw TestFailure("the \(classID)'s sprites should load from the app bundle")
+            }
+            let track = sprites.animation.spell(.wisp)
+            try expect(track?.flight != nil && track?.impact != nil, "the \(classID)'s wisp should play flight and impact frames")
+            try expect(track?.faces == .right, "the \(classID)'s wisp should say it is drawn facing right")
+            let folder = AppSymbolStyle.resourceBundle().resourceURL?.appendingPathComponent("Sprites/\(classID)", isDirectory: true)
+            let stills = ["flight", "impact"].map { folder?.appendingPathComponent("S6-returning-wisp-\($0).png").path ?? "" }
+            try expect(stills.allSatisfy { !FileManager.default.fileExists(atPath: $0) }, "the \(classID)'s wisp should have no still left")
+            for spell in [TrackerSpellFlight.Spell.orb, .messenger] {
+                try expect(sprites.animation.spell(spell)?.flight == nil, "the \(classID)'s \(spell.resourceName) should still be a still")
+            }
+            guard let wisp = sprites.flight(for: .wisp), sprites.impact(for: .wisp) != nil else {
+                throw TestFailure("the \(classID)'s wisp should have its flight and impact art")
+            }
+            try expect(wisp.isMirrored(headsLeft: true) && !wisp.isMirrored(headsLeft: false), "the \(classID)'s wisp should be mirrored only on its way back")
+            let missing = missingFrames(of: sprites)
+            try expect(missing.isEmpty, "every frame the \(classID)'s file plays should have its art, missing: \(missing)")
+        }
     }
 
     /// The druid's bubble sits at her left, so it says its tail points right, and the rig draws it flipped at the same box.
