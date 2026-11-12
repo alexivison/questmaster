@@ -99,6 +99,7 @@ enum LogicSelfTests {
         ("testBundledRogueSpritesReadTheirAnimationFile", testBundledRogueSpritesReadTheirAnimationFile),
         ("testBundledClericSpritesReadTheirAnimationFile", testBundledClericSpritesReadTheirAnimationFile),
         ("testBundledRangerSpritesReadTheirAnimationFile", testBundledRangerSpritesReadTheirAnimationFile),
+        ("testBundledNecromancerSpritesReadTheirAnimationFile", testBundledNecromancerSpritesReadTheirAnimationFile),
         ("testTheBubbleStaysInTheSlotAboveTheBanner", testTheBubbleStaysInTheSlotAboveTheBanner),
         ("testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot", testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot),
         ("testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible", testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible),
@@ -1943,7 +1944,7 @@ enum LogicSelfTests {
     /// other still faces right, so a wisp that faces right needs its file to say so (`faces`) to be mirrored on its way back.
     @MainActor
     private static func testEveryBundledStillLeadsWithItsHeadOnItsPath() throws {
-        let drawnLeft: Set<String> = ["bard S6-returning-wisp", "druid S6-returning-wisp", "paladin S6-returning-wisp"]
+        let drawnLeft: Set<String> = ["bard S6-returning-wisp", "druid S6-returning-wisp", "necromancer S6-returning-wisp", "paladin S6-returning-wisp"]
         for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
             for spell in TrackerSpellFlight.Spell.allCases {
                 guard let art = sprites.flight(for: spell) else {
@@ -2162,6 +2163,27 @@ enum LogicSelfTests {
         try expect(missing.isEmpty, "every frame the ranger's file plays should have its art, missing: \(missing)")
     }
 
+    /// The necromancer's sprites load from the app bundle: his breathing plays its authored steps with their eyelid stencils,
+    /// he never blinks, and all three spells have their frame art.
+    @MainActor
+    private static func testBundledNecromancerSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["necromancer"] else {
+            throw TestFailure("the necromancer's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.blink == false, "the necromancer should not schedule a blink")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 7 && sprites.idleBreathingArt?.count == 7,
+                   "the necromancer should load all seven breathing steps and their lid stencils")
+        try expect(sprites.animation.fidgets.map(\.name) == ["cough"], "the necromancer should have the cough fidget")
+        try expect(sprites.availableFidgets.count == 1, "the necromancer's fidget should have its art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the necromancer's art")
+        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
+                   "the necromancer should have the frame art of all three spells")
+        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
+                   "the necromancer's release should have a hand")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the necromancer's file plays should have its art, missing: \(missing)")
+    }
+
     /// The shared bubble stays inside the avatar slot, above the banner at its sole. Every bundled
     /// class with an anchor is checked, and a fixture with one covers the path until a class ships one.
     @MainActor
@@ -2322,7 +2344,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("paladin", 171), ("ranger", 153), ("rogue", 129), ("wizard", 150)] {
+        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("necromancer", 161), ("paladin", 171), ("ranger", 153), ("rogue", 129), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }

@@ -11,6 +11,7 @@ struct TrackerAvatarAnimationTests {
         decodesTheClericsFile()
         theClericsBlocksPlayAtTheirTimes()
         decodesTheRangersFile()
+        decodesTheNecromancersFile()
         aCatchHoldsItsClosedHandPastTheRecoil()
         aLoopCyclesEachTrackOnItsOwnClock()
         aSummoningEntersLoopsAndFinishes()
@@ -838,6 +839,26 @@ struct TrackerAvatarAnimationTests {
         expect(pondering?.footRow == 162 && pondering?.bodyColumn == 40, "pondering should stand at the ranger's foot row and body column")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the ranger's summoning should have a ground effect")
         expect(animation.animation(for: .channelling)?.finish != nil, "the ranger's channelling should finish")
+    }
+
+    private static func decodesTheNecromancersFile() {
+        guard let animation = try? decode(AvatarAnimationFixture.classJSON("necromancer")) else {
+            fail("the necromancer's file should decode")
+        }
+        expect(animation.idle?.blink == false, "the necromancer should never blink")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0x4b5c67), "the necromancer should keep the eyelid colour")
+        expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f7.png", "the necromancer should resume at the authored rest frame")
+        expect(animation.idle?.breathing?.frames.count == 7, "the necromancer's breathing should play its 7 authored steps")
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 125, y: 93), "the release hand should be the necromancer's hand pixel")
+        expect(animation.fidgets.map(\.name) == ["cough"], "the necromancer should have the cough fidget")
+        expect(animation.fidgets.first?.frames == [2, 3, 4, 5, 6, 7, 8, 9], "the cough should play idle frames 2 to 9")
+        let pondering = animation.animation(for: .pondering)
+        expect(pondering?.footRow == 162 && pondering?.bodyColumn == 33, "pondering should stand at the necromancer's foot row and body column")
+        let calling = animation.animation(for: .callingOut)
+        expect(calling?.footRow == 186 && calling?.bodyColumn == 81, "the effect poses should stand on the 192 x 200 canvas's foot row and body column")
+        expect(calling?.bubble == TrackerAvatarPixel(x: 154, y: 64), "the bubble should sit at the necromancer's anchor")
+        expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the necromancer's summoning should have a ground effect")
+        expect(animation.animation(for: .channelling)?.finish != nil, "the necromancer's channelling should finish")
     }
 
     /// The cleric's frames at given times, read from his file: the summoning's ground circle opens below the figure, and the
