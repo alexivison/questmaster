@@ -13,6 +13,7 @@ struct TrackerAvatarAnimationTests {
         decodesTheRangersFile()
         decodesTheNecromancersFile()
         decodesTheSorcerersFile()
+        decodesTheFightersFile()
         anIdleMayPlayEffectLayersOnTheirOwnClock()
         anIdleEffectRejectsBadTracksAndOrigins()
         aCatchHoldsItsClosedHandPastTheRecoil()
@@ -879,6 +880,29 @@ struct TrackerAvatarAnimationTests {
         expect(animation.animation(for: .release)?.strikeFrame == 4, "the sorcerer's release should strike on f4")
         expect(animation.animation(for: .catching)?.strikeFrame == 5, "the sorcerer's catch should strike on f5")
         expect(animation.spell(.wisp)?.faces == .left, "the sorcerer's wisp should face left")
+    }
+
+    private static func decodesTheFightersFile() {
+        guard let animation = try? decode(AvatarAnimationFixture.classJSON("fighter")) else {
+            fail("the fighter's file should decode")
+        }
+        expect(animation.idle?.blink == true, "the fighter should blink")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0x7a4a3a), "the fighter should keep his eyelid colour")
+        expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the fighter should resume at the idle frame")
+        expect(animation.idle?.breathing?.frames.count == 9, "the fighter's breathing should play its 9 authored steps")
+        expect(animation.idle?.breathing?.frames.allSatisfy { !$0.lidPixels.isEmpty } == true, "every breathing frame should carry a blink stencil")
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 175, y: 65), "the release hand should be the fighter's hand pixel")
+        expect(animation.fidgets.map(\.name) == ["sword-lowered-gaze"], "the fighter should have the sword-lowered gaze fidget")
+        expect(animation.fidgets.first?.frames.count == 27, "the fidget should play its 27 idle art steps")
+        let idle = animation.animation(for: .idle)
+        expect(idle?.footRow == 184 && idle?.bodyColumn == 52, "idle should stand at the fighter's foot row and body column")
+        let channelling = animation.animation(for: .channelling)
+        expect(channelling?.footRow == 204 && channelling?.bodyColumn == 66, "the channelling effect canvas should stand at its own foot row and body column")
+        let calling = animation.animation(for: .callingOut)
+        expect(calling?.bubble == TrackerAvatarPixel(x: 13, y: 29) && calling?.bubbleTail == .right, "the bubble should sit at the fighter's anchor, tail toward him")
+        expect(animation.animation(for: .release)?.strikeFrame == 4, "the fighter's release should strike on f4")
+        expect(animation.animation(for: .catching)?.strikeFrame == 5, "the fighter's catch should strike on f5")
+        expect(animation.spell(.wisp)?.faces == .left, "the fighter's wisp should face left")
     }
 
     /// An idle may carry `front` and `behind` tracks: each loops on its own clock, and `character_at` says where the figure's canvas sits

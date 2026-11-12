@@ -101,6 +101,7 @@ enum LogicSelfTests {
         ("testBundledRangerSpritesReadTheirAnimationFile", testBundledRangerSpritesReadTheirAnimationFile),
         ("testBundledNecromancerSpritesReadTheirAnimationFile", testBundledNecromancerSpritesReadTheirAnimationFile),
         ("testBundledSorcererSpritesReadTheirAnimationFile", testBundledSorcererSpritesReadTheirAnimationFile),
+        ("testBundledFighterSpritesReadTheirAnimationFile", testBundledFighterSpritesReadTheirAnimationFile),
         ("testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets", testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets),
         ("testEveryBundledIdleEffectHasItsArtAndLoops", testEveryBundledIdleEffectHasItsArtAndLoops),
         ("testBundledBardSpellsPlayFramesFacingRight", testBundledBardSpellsPlayFramesFacingRight),
@@ -1967,11 +1968,11 @@ enum LogicSelfTests {
     }
 
     /// Every bundled class's still flights lead with their heads on their paths. Only the returning wisp flies left; the orb and the
-    /// messenger fly right. How each still is drawn is read from the art: the druid's, the necromancer's and the sorcerer's wisps face left already, and every
+    /// messenger fly right. How each still is drawn is read from the art: the druid's, the necromancer's, the sorcerer's and the fighter's wisps face left already, and every
     /// other still faces right, so a wisp that faces right needs its file to say so (`faces`) to be mirrored on its way back.
     @MainActor
     private static func testEveryBundledStillLeadsWithItsHeadOnItsPath() throws {
-        let drawnLeft: Set<String> = ["druid S6-returning-wisp", "necromancer S6-returning-wisp", "sorcerer S6-returning-wisp"]
+        let drawnLeft: Set<String> = ["druid S6-returning-wisp", "necromancer S6-returning-wisp", "sorcerer S6-returning-wisp", "fighter S6-returning-wisp"]
         for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
             for spell in TrackerSpellFlight.Spell.allCases {
                 guard let art = sprites.flight(for: spell) else {
@@ -2254,6 +2255,29 @@ enum LogicSelfTests {
                    "the sorcerer's release should have a hand")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the sorcerer's file plays should have its art, missing: \(missing)")
+    }
+
+    /// The fighter's sprites load from the app bundle: his breathing plays its nine authored steps, each with a lid stencil, he blinks in his
+    /// own lid colour, his bubble's tail points at him, and his three spells have frame art.
+    @MainActor
+    private static func testBundledFighterSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["fighter"] else {
+            throw TestFailure("the fighter's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.blink == true, "the fighter should schedule a blink")
+        try expect(sprites.animation.idle?.lidColour == TrackerAvatarColour(rgb: 0x7a4a3a), "the fighter should blink in his skin colour")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 9 && sprites.idleBreathingArt?.count == 9,
+                   "the fighter should load all nine breathing steps and their lid stencils")
+        try expect(sprites.idleBreathingArt?.allSatisfy { $0.lids != nil } == true, "every fighter breathing frame should carry a blink stencil")
+        try expect(sprites.animation.fidgets.map(\.name) == ["sword-lowered-gaze"] && sprites.availableFidgets.count == 1,
+                   "the fighter should have the sword-lowered gaze fidget with its art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the fighter's art")
+        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
+                   "the fighter should have the frame art of all three spells")
+        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
+                   "the fighter's release should have a hand")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the fighter's file plays should have its art, missing: \(missing)")
     }
 
     /// An idle's effect layer: a looping track on its own clock, over (`front`) or under (`behind`) the figure, placed by where the
@@ -2543,7 +2567,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 129), ("sorcerer", 150), ("wizard", 150)] {
+        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("fighter", 161), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 129), ("sorcerer", 150), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }

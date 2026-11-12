@@ -1,0 +1,48 @@
+GIMP Palette
+Name: Fighter — palette lock
+Columns: 3
+#
+  0   0   0	outline 1
+ 46  33  31	outline 2
+122  74  58	skin 1
+199 124  82	skin 2
+232 163 116	skin 3
+ 96  62  59	hair 1
+118  85  78	hair 2
+196 164 144	hair 3
+105 108 119	steel_plate_and_gorget 1
+165 166 173	steel_plate_and_gorget 2
+195 198 205	steel_plate_and_gorget 3
+ 31  38  49	chainmail 1
+ 66  72  81	chainmail 2
+ 98 102 111	chainmail 3
+ 78  23  43	crimson_tabard 1
+142  41  58	crimson_tabard 2
+198  73  74	crimson_tabard 3
+ 48  37  42	leather 1
+ 96  68  56	leather 2
+139 102  81	leather 3
+ 56  72 111	glow 1
+115 136 179	glow 2
+168  54  12	glow 3
+180 198 227	glow 4
+143 106  28	glow 5
+ 82  68  47	glow 6
+255 255 255	glow 7
+214 160  44	glow 8
+234 241 253	glow 9
+246 207  90	glow 10
+ 20  16  13	glow 11
+255 240 168	glow 12
+232 115  26	glow 13
+122 135 155	glow 14
+ 79  58  18	glow 15
+168 148 109	glow 16
+125 106  75	glow 17
+ 77  66  59	glow 18
+255 251 230	glow 19
+255 183  58	glow 20
+ 28  37  64	glow 21
+183 195 212	glow 22
+ 43  37  35	glow 23
+205 189 150	glow 24
