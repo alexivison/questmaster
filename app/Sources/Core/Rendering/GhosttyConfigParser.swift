@@ -31,6 +31,11 @@ public enum GhosttyConfigParser {
         return families
     }
 
+    /// The files read by the same precedence and include traversal as the settings helpers.
+    public static func loadedFiles(inDirectories directories: [String], read: (String) -> String?) -> [String] {
+        loadConfiguration(inDirectories: directories, read: read).paths
+    }
+
     /// The last `window-padding-x`/`-y` set across `directories`' config files — Ghostty's own
     /// "last one wins" semantics for a non-repeating key, unlike `font-family`'s fallback list.
     /// `nil` for an axis nothing set (not the same as an explicit `0`).
@@ -70,26 +75,32 @@ public enum GhosttyConfigParser {
     }
 
     private static func allEntries(inDirectories directories: [String], read: (String) -> String?) -> [Entry] {
-        var all: [Entry] = []
-        for directory in directories {
-            for name in ["config.ghostty", "config"] {
-                load("\(directory)/\(name)", depth: 0, stack: [], into: &all, read: read)
-            }
-        }
-        return all
+        loadConfiguration(inDirectories: directories, read: read).entries
     }
 
-    private static func load(_ path: String, depth: Int, stack: [String], into all: inout [Entry], read: (String) -> String?) {
+    private static func loadConfiguration(inDirectories directories: [String], read: (String) -> String?) -> (entries: [Entry], paths: [String]) {
+        var all: [Entry] = []
+        var paths: [String] = []
+        for directory in directories {
+            for name in ["config.ghostty", "config"] {
+                load("\(directory)/\(name)", depth: 0, stack: [], into: &all, paths: &paths, read: read)
+            }
+        }
+        return (all, paths)
+    }
+
+    private static func load(_ path: String, depth: Int, stack: [String], into all: inout [Entry], paths: inout [String], read: (String) -> String?) {
         guard depth <= maxIncludeDepth, !stack.contains(path), let text = read(path) else {
             return
         }
+        paths.append(path)
         let fileEntries = entries(in: text)
         all.append(contentsOf: fileEntries)
         let directory = (path as NSString).deletingLastPathComponent
         for case .include(let include) in fileEntries {
             let optionalStripped = include.hasPrefix("?") ? String(include.dropFirst()) : include
             let target = optionalStripped.hasPrefix("/") ? optionalStripped : "\(directory)/\(optionalStripped)"
-            load((target as NSString).standardizingPath, depth: depth + 1, stack: stack + [path], into: &all, read: read)
+            load((target as NSString).standardizingPath, depth: depth + 1, stack: stack + [path], into: &all, paths: &paths, read: read)
         }
     }
 

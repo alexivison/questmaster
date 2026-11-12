@@ -11,6 +11,7 @@ struct GhosttyConfigParserTests {
         crlfLineEndingsParse()
         configLoadsAfterConfigGhosttyAndAppSupportAfterXDG()
         includesResolveRelativeToTheirFileAndLoadAfterIt()
+        reportsLoadedFilesInOrderIncludingNestedIncludes()
         optionalMissingAndCyclicIncludesAreHarmless()
         anUnavailablePrimaryFallsThroughToAnInstalledFamily()
         readsWindowPaddingAndKeepsTheLastValue()
@@ -70,6 +71,26 @@ struct GhosttyConfigParserTests {
         ]
         let families = GhosttyConfigParser.fontFamilies(inDirectories: ["/d"]) { files[$0] }
         expect(families == ["Own", "Included", "Nested"], "includes should load after their file, relative to it, got \(families)")
+    }
+
+    private static func reportsLoadedFilesInOrderIncludingNestedIncludes() {
+        let files = [
+            "/xdg/ghostty/config.ghostty": "config-file = local/xdg",
+            "/xdg/ghostty/local/xdg": "config-file = /shared/base",
+            "/shared/base": "font-family = Shared",
+            "/xdg/ghostty/config": "font-family = Legacy",
+            "/app/config.ghostty": "config-file = nested/app",
+            "/app/nested/app": "font-family = App",
+        ]
+        let paths = GhosttyConfigParser.loadedFiles(inDirectories: ["/xdg/ghostty", "/app"]) { files[$0] }
+        expect(paths == [
+            "/xdg/ghostty/config.ghostty",
+            "/xdg/ghostty/local/xdg",
+            "/shared/base",
+            "/xdg/ghostty/config",
+            "/app/config.ghostty",
+            "/app/nested/app",
+        ], "loaded file paths should follow the parser's config precedence and recursive includes, got \(paths)")
     }
 
     private static func optionalMissingAndCyclicIncludesAreHarmless() {

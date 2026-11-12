@@ -957,8 +957,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openGhosttyConfig() {
-        let configPath = (NSHomeDirectory() as NSString).appendingPathComponent(".config/ghostty/config")
-        NSWorkspace.shared.open(URL(fileURLWithPath: configPath))
+        var paths = GhosttyConfigFiles.loadedPaths()
+        if paths.isEmpty, let defaultPath = ghosttyConfigOpenPath() {
+            paths = [defaultPath]
+        }
+        guard !paths.isEmpty else {
+            return
+        }
+        for path in paths {
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+        }
     }
 
     @objc private func openNewQuest() {
