@@ -4,7 +4,7 @@ import QuestmasterCore
 /// The dock's state is app-wide: switching sessions leaves it as it was, and only what it lists follows the session.
 struct DockStateTests {
     static func run() {
-        initialStateIsHiddenOnTheList()
+        initialStateOpensWatcherAndWorkerLog()
         transitionsOpenAndSwapTheDock()
         sessionSwitchLeavesTheDockStateUnchanged()
         sessionListFollowsTheSession()
@@ -17,9 +17,11 @@ struct DockStateTests {
         print("DockStateTests: all tests passed")
     }
 
-    private static func initialStateIsHiddenOnTheList() {
+    private static func initialStateOpensWatcherAndWorkerLog() {
         let state = DockState.initial
-        expect(!state.topVisible && !state.bottomVisible && state.dockContent == .artifactList, "first launch should hide both panels, the bottom on the artifact list")
+        expect(state.topVisible && state.bottomVisible && state.dockContent == .workerChat, "startup should show Watcher and the Worker Log")
+        expect(state.panels(hasSession: false, isResolvingStartupSession: true) == DockPanels(top: true, bottom: true), "both panels should be present before startup resolves its session")
+        expect(state.panels(hasSession: false) == DockPanels(), "a resolved startup without a session should hide both panels")
         expect(state.selectedArtifactID == nil && state.dockPreferredFraction == nil, "nothing open, the default width")
         expect(state.artifactScope == .session && state.artifactFilterQuery.isEmpty && state.artifactFilterTokens.isEmpty, "the Session tab, no filter")
     }
@@ -99,7 +101,7 @@ struct DockStateTests {
     /// The two panels are independent: Watcher opens and closes without touching the bottom panel, and the bottom
     /// panel's content changes (an artifact, the worker chat, a scope change) never hide Watcher.
     private static func panelsChangeIndependently() {
-        var state = DockState.initial
+        var state = DockState()
         state.topVisible = true
         expect(state.topVisible && !state.bottomVisible, "showing Watcher opens no bottom panel")
         state.showArtifact("a")
@@ -124,7 +126,7 @@ struct DockStateTests {
         expect(both.panels(hasSession: false) == DockPanels(), "no session hides both")
         expect(DockState(topVisible: true).panels(hasSession: true) == DockPanels(top: true), "only the top")
         expect(DockState(bottomVisible: true).panels(hasSession: true) == DockPanels(bottom: true), "only the bottom")
-        expect(!DockState.initial.panels(hasSession: true).isShown, "first launch shows no panel")
+        expect(DockState.initial.panels(hasSession: true) == DockPanels(top: true, bottom: true), "startup shows both panels with a session")
         expect(DockPanels(top: true).isShown && DockPanels(bottom: true).isShown && !DockPanels().isShown, "the dock region shows while a panel does")
         expect(DockPanels(top: true).contains(.top) && !DockPanels(top: true).contains(.bottom), "a panel set holds only what shows")
     }

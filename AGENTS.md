@@ -411,6 +411,8 @@ again where it was when the keys come back.
   by `ConnectionStateMachine`): its skeleton only while no tracker has come yet (`awaitsFirstTracker`); after a dropped
   connection (every daemon restart) the last tracker stays, drawn at `Token.Opacity.dimmed`, until a fresh one arrives
   (`showsLastTracker`); an incompatible backend empties it and shows its `StatusMessagePane` (`blockingMessage`).
+- Watcher and Worker Log start open in the first window layout, while startup resolves its session; no opening
+  transition runs before the window appears. After startup, both panels hide if no session is attached, keeping their state.
 - Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in
   `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Watcher's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
   ring `Space.item` past the title, on the icon line, taking no room so the centred title never moves. Core decides it

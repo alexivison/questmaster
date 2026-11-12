@@ -2726,6 +2726,7 @@ enum LogicSelfTests {
         )
 
         let coordinator = DockCoordinator()
+        coordinator.state.show(.artifactList)
         let model = DockPaneModel()
         model.onSelectedArtifactChange = { coordinator.state.selectedArtifactID = $0 }
 
