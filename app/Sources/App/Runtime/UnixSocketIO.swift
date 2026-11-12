@@ -86,14 +86,61 @@ enum UnixSocketIO {
     /// Shared by one-shot request/response callers; the streaming client keeps its own buffered
     /// read loop because it must retain bytes across many lines.
     static func readLine(from fd: Int32, maxBytes: Int? = nil) throws -> Data {
+        try readLine(from: fd, maxBytes: maxBytes, deadline: nil, isCancelled: { false })
+    }
+
+    /// Reads a bounded handshake line while a stop signal can interrupt the wait. The socket owner also shuts down
+    /// `fd` on cancellation, which wakes `poll` immediately instead of waiting out the deadline.
+    static func readLine(
+        from fd: Int32,
+        maxBytes: Int?,
+        timeout: TimeInterval,
+        isCancelled: () -> Bool
+    ) throws -> Data {
+        try readLine(from: fd, maxBytes: maxBytes, deadline: DispatchTime.now() + timeout, isCancelled: isCancelled)
+    }
+
+    private static func readLine(
+        from fd: Int32,
+        maxBytes: Int?,
+        deadline: DispatchTime?,
+        isCancelled: () -> Bool
+    ) throws -> Data {
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
+            if isCancelled() {
+                throw CancellationError()
+            }
+            var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let waitMilliseconds: Int32
+            if let deadline {
+                let now = DispatchTime.now().uptimeNanoseconds
+                let remaining = deadline.uptimeNanoseconds > now ? deadline.uptimeNanoseconds - now : 0
+                let roundedMilliseconds = remaining == 0 ? 0 : (remaining + 999_999) / 1_000_000
+                waitMilliseconds = Int32(min(roundedMilliseconds, UInt64(Int32.max)))
+            } else {
+                waitMilliseconds = -1
+            }
+            let readyCount = poll(&ready, 1, waitMilliseconds)
+            if readyCount < 0 {
+                if errno == EINTR { continue }
+                throw ServeClientError.protocolError(String(cString: strerror(errno)))
+            }
+            if isCancelled() {
+                throw CancellationError()
+            }
+            if readyCount == 0 {
+                throw ServeClientError.protocolError("socket read timed out")
+            }
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count == 0 {
+                if isCancelled() { throw CancellationError() }
                 throw ServeClientError.protocolError("socket closed before a full line was read")
             }
             if count < 0 {
+                if errno == EINTR { continue }
+                if isCancelled() { throw CancellationError() }
                 if errno == EAGAIN || errno == EWOULDBLOCK {
                     throw ServeClientError.protocolError("socket read timed out")
                 }

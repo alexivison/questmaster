@@ -2,6 +2,95 @@ import Darwin
 import Foundation
 import QuestmasterCore
 
+/// Cancels the daemon lookup owned by one serve-client loop. The current child process or handshake socket stays
+/// registered here so `stop()` can interrupt work before the loop adopts its streaming socket.
+final class ServeConnectionCancellation: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var cancelled = false
+    private var process: Process?
+    private var handshakeSocket: Int32 = -1
+
+    var isCancelled: Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return cancelled
+    }
+
+    func check() throws {
+        if isCancelled {
+            throw CancellationError()
+        }
+    }
+
+    func launch(_ process: Process) throws {
+        condition.lock()
+        defer { condition.unlock() }
+        guard !cancelled else {
+            throw CancellationError()
+        }
+        self.process = process
+        do {
+            try process.run()
+        } catch {
+            self.process = nil
+            throw error
+        }
+    }
+
+    func release(_ process: Process) {
+        condition.lock()
+        if self.process === process {
+            self.process = nil
+        }
+        condition.unlock()
+    }
+
+    func adoptHandshakeSocket(_ socket: Int32) -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        guard !cancelled else {
+            return false
+        }
+        handshakeSocket = socket
+        return true
+    }
+
+    func releaseHandshakeSocket(_ socket: Int32) {
+        condition.lock()
+        if handshakeSocket == socket {
+            handshakeSocket = -1
+        }
+        condition.unlock()
+    }
+
+    func waitForCancellationOrTimeout(_ seconds: TimeInterval) -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        guard !cancelled else {
+            return true
+        }
+        _ = condition.wait(until: Date(timeIntervalSinceNow: max(0, seconds)))
+        return cancelled
+    }
+
+    func cancel() {
+        condition.lock()
+        guard !cancelled else {
+            condition.unlock()
+            return
+        }
+        cancelled = true
+        if handshakeSocket >= 0 {
+            shutdown(handshakeSocket, SHUT_RDWR)
+        }
+        if let process, process.isRunning {
+            process.terminate()
+        }
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
 /// `@unchecked Sendable`: `stop()` may run on any thread. The fields it shares with the loop sit under `control`. The
 /// loop's own state is touched only on `queue`, and `start` sets `onUpdate` before it queues the loop.
 final class UnixSocketServeClient: @unchecked Sendable {
@@ -11,6 +100,7 @@ final class UnixSocketServeClient: @unchecked Sendable {
     private let onRead: (() -> Void)?
     // A self-test can stop after the client has entered its condition wait.
     private let onRetryWait: (() -> Void)?
+    private let cancellation: ServeConnectionCancellation
     /// Runs the connection loop. Internal so a self-test can tell when the loop has returned.
     let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
     private static let defaultRetryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
@@ -28,7 +118,12 @@ final class UnixSocketServeClient: @unchecked Sendable {
     private var onUpdate: ((RuntimeUpdate) -> Void)?
 
     convenience init(connection: DaemonConnection) {
-        self.init(connect: { try connection.connect() }, invalidate: { connection.invalidate() })
+        let cancellation = ServeConnectionCancellation()
+        self.init(
+            connect: { try connection.connect(cancellation: cancellation) },
+            invalidate: { connection.invalidate() },
+            cancellation: cancellation
+        )
     }
 
     /// `connect` hands over a connected socket; a self-test passes one end of a socket pair.
@@ -37,13 +132,15 @@ final class UnixSocketServeClient: @unchecked Sendable {
         invalidate: @escaping () -> Void,
         onRead: (() -> Void)? = nil,
         onRetryWait: (() -> Void)? = nil,
-        retryDelays: [TimeInterval]? = nil
+        retryDelays: [TimeInterval]? = nil,
+        cancellation: ServeConnectionCancellation = ServeConnectionCancellation()
     ) {
         self.connect = connect
         self.invalidate = invalidate
         self.onRead = onRead
         self.onRetryWait = onRetryWait
         self.retryDelays = retryDelays ?? Self.defaultRetryDelays
+        self.cancellation = cancellation
     }
 
     /// Streams tracker updates, each carrying `.connected`, and every other connection state as an update of its own.
@@ -68,6 +165,7 @@ final class UnixSocketServeClient: @unchecked Sendable {
         }
         control.broadcast()
         control.unlock()
+        cancellation.cancel()
     }
 
     private var isStopped: Bool {

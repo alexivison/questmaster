@@ -13,27 +13,40 @@ final class DaemonConnection: @unchecked Sendable {
     private var lastFailure: Error?
     private let now: () -> Date
     private let hashFile: (String) -> String?
+    private let socketConnect: (String) throws -> Int32
+    private let onHandshakeRead: (() -> Void)?
+    private let onRespawnWait: (() -> Void)?
     private var binaryHashes = BinaryHashCache()
 
     init(
         config: LaunchConfiguration,
         record: DaemonRecord? = nil,
         now: @escaping () -> Date = { Date() },
-        hashFile: @escaping (String) -> String? = DaemonConnection.sha256
+        hashFile: @escaping (String) -> String? = DaemonConnection.sha256,
+        socketConnect: @escaping (String) throws -> Int32 = UnixSocketIO.connect,
+        respawnPolicy: ServeRespawnPolicy = ServeRespawnPolicy(),
+        onHandshakeRead: (() -> Void)? = nil,
+        onRespawnWait: (() -> Void)? = nil
     ) {
         self.config = config
         self.cached = record
         self.now = now
         self.hashFile = hashFile
+        self.socketConnect = socketConnect
+        self.respawnPolicy = respawnPolicy
+        self.onHandshakeRead = onHandshakeRead
+        self.onRespawnWait = onRespawnWait
     }
 
     func invalidate() {
         lock.lock(); cached = nil; lock.unlock()
     }
 
-    func record(userInitiated: Bool = false) throws -> DaemonRecord {
+    func record(userInitiated: Bool = false, cancellation: ServeConnectionCancellation? = nil) throws -> DaemonRecord {
+        try cancellation?.check()
         lock.lock()
         defer { lock.unlock() }
+        try cancellation?.check()
         if let cached { return cached }
         if !respawnPolicy.canAttempt(now: now(), userInitiated: userInitiated) {
             throw lastFailure ?? ServeClientError.connect("backend unavailable")
@@ -44,7 +57,8 @@ final class DaemonConnection: @unchecked Sendable {
         var lastError: Error = ServeClientError.connect("backend unavailable")
         while true {
             do {
-                let data = try run(command)
+                let data = try run(command, cancellation: cancellation)
+                try cancellation?.check()
                 let record = try JSONDecoder().decode(DaemonRecord.self, from: data)
                 guard record.running, record.root == config.backend.stateRoot,
                       !record.identity.isEmpty, !record.socket.isEmpty, record.accepting else {
@@ -57,10 +71,12 @@ final class DaemonConnection: @unchecked Sendable {
                 let diskBuild = binaryHashes.hash(of: Self.fingerprint(record.executable)) { hashFile(record.executable) }
                 if record.shouldCheckUpgrade(diskBuild: diskBuild),
                    let nudge = config.backend.command("check-upgrade") {
-                    _ = try? run(nudge)
+                    _ = try? run(nudge, cancellation: cancellation)
                 }
+                try cancellation?.check()
                 return record
             } catch {
+                try cancellation?.check()
                 lastError = error
             }
             guard config.startDaemon, let delay = respawnPolicy.nextDelay() else {
@@ -70,25 +86,54 @@ final class DaemonConnection: @unchecked Sendable {
                 }
                 throw lastError
             }
-            Thread.sleep(forTimeInterval: delay)
+            onRespawnWait?()
+            if let cancellation {
+                if cancellation.waitForCancellationOrTimeout(delay) {
+                    throw CancellationError()
+                }
+            } else {
+                Thread.sleep(forTimeInterval: delay)
+            }
         }
     }
 
-    func connect(userInitiated: Bool = false) throws -> Int32 {
-        let record = try record(userInitiated: userInitiated)
+    func connect(userInitiated: Bool = false, cancellation: ServeConnectionCancellation? = nil) throws -> Int32 {
+        try cancellation?.check()
+        let record = try record(userInitiated: userInitiated, cancellation: cancellation)
+        try cancellation?.check()
         let fd: Int32
         do {
-            fd = try UnixSocketIO.connect(path: config.daemonSocketOverride ?? record.socket)
+            fd = try socketConnect(config.daemonSocketOverride ?? record.socket)
         } catch {
             invalidate()
             throw error
         }
+        guard cancellation?.adoptHandshakeSocket(fd) ?? true else {
+            shutdown(fd, SHUT_RDWR)
+            close(fd)
+            throw CancellationError()
+        }
         do {
-            try UnixSocketIO.setReadTimeout(on: fd, seconds: 2)
-            let line = try UnixSocketIO.readLine(from: fd, maxBytes: 4096)
+            defer { cancellation?.releaseHandshakeSocket(fd) }
+            onHandshakeRead?()
+            let line: Data
+            if let cancellation {
+                line = try UnixSocketIO.readLine(
+                    from: fd,
+                    maxBytes: 4096,
+                    timeout: 2,
+                    isCancelled: { cancellation.isCancelled }
+                )
+            } else {
+                try UnixSocketIO.setReadTimeout(on: fd, seconds: 2)
+                line = try UnixSocketIO.readLine(from: fd, maxBytes: 4096)
+            }
             let hello = try JSONDecoder().decode(DaemonHandshake.self, from: line)
             try hello.validate(against: record)
-            try UnixSocketIO.setReadTimeout(on: fd, seconds: 0)
+            try cancellation?.check()
+            if cancellation == nil {
+                try UnixSocketIO.setReadTimeout(on: fd, seconds: 0)
+            }
             return fd
         } catch {
             shutdown(fd, SHUT_RDWR)
@@ -98,7 +143,7 @@ final class DaemonConnection: @unchecked Sendable {
         }
     }
 
-    private func run(_ command: AppBackendCommand) throws -> Data {
+    private func run(_ command: AppBackendCommand, cancellation: ServeConnectionCancellation?) throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: command.executable)
         process.arguments = command.arguments
@@ -111,9 +156,15 @@ final class DaemonConnection: @unchecked Sendable {
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.standardError
-        try process.run()
+        if let cancellation {
+            try cancellation.launch(process)
+        } else {
+            try process.run()
+        }
+        defer { cancellation?.release(process) }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        try cancellation?.check()
         if process.terminationStatus != 0 {
             throw ServeClientError.connect("backend command failed (exit \(process.terminationStatus))")
         }
