@@ -635,6 +635,18 @@ struct TrackerAvatarAnimationTests {
         }
         expect(edited.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 56, y: 27), "calling out should carry its bubble anchor")
         expect(edited.animation(for: .pondering)?.bubble == nil, "a pose without a bubble key should draw none")
+        expect(edited.animation(for: .callingOut)?.bubbleTail == .left, "a bubble with no tail key should keep the art as drawn")
+        for (value, tail) in [("left", TrackerAvatarBubbleTail.left), ("right", .right)] {
+            let tailed = try? AvatarAnimationFixture.bard(editing: "11-calling-out") { pose in
+                pose["bubble"] = ["x": 56, "y": 27, "tail": value]
+            }
+            expect(tailed?.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 56, y: 27), "a tail should leave the anchor alone")
+            expect(tailed?.animation(for: .callingOut)?.bubbleTail == tail, "the bubble's tail \(value) should decode")
+        }
+        let badTail = try? AvatarAnimationFixture.bard(editing: "11-calling-out") { pose in
+            pose["bubble"] = ["x": 56, "y": 27, "tail": "up"]
+        }
+        expect(badTail == nil, "a tail that is neither left nor right should fail decoding")
         expectThrows(TrackerAvatarAnimationError.misplacedBubble("02-pondering"), "a bubble on a pose that isn't calling out") {
             _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
                 pose["bubble"] = ["x": 1, "y": 1]
@@ -780,6 +792,8 @@ struct TrackerAvatarAnimationTests {
         guard let animation = try? decode(AvatarAnimationFixture.classJSON("druid")) else {
             fail("the druid's file should decode")
         }
+        expect(animation.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 40, y: 9), "the druid's bubble should sit above her left antler")
+        expect(animation.animation(for: .callingOut)?.bubbleTail == .right, "the druid's bubble tail should point right, at her")
         expect(animation.idle?.blink == false, "the druid should never blink")
         expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xe0a882), "the druid should keep the eyelid colour")
         expect(animation.idle?.breathing?.frames.count == 8, "the druid should keep the eight authored breathing frames")

@@ -637,7 +637,10 @@ the slot's size. The moves are horizontal only (`TrackerAvatarMotion`, Core), so
   without changing the slot's size or moving the plate list or session banner.
 - **Bubble:** calling out may show one shared `!` bubble for every class, `Resources/Sprites/shared/bubble.png`, drawn at one
   point a sprite pixel. Its bottom centre sits on the pose's `bubble` anchor (`{"x", "y"}`, in `11-calling-out`'s canvas
-  pixels, read as `TrackerAvatarPoseAnimation.bubble`), placed like the frames by `foot_row` and `body_column`. A class
+  pixels, read as `TrackerAvatarPoseAnimation.bubble`; an optional `"tail"`, `"left"` or `"right"`, read as `bubbleTail`,
+  says which way the tail points: `bubble.png` is drawn with it down-left, which is `left` and the default, so a class
+  whose bubble sits left of its head, the tail pointing back at it, says `"right"` and the app flips the art about the anchor's x, same box,
+  no smoothing; any other value doesn't read), placed like the frames by `foot_row` and `body_column`. A class
   without an anchor shows none, and a file that puts one on another pose doesn't read. The bubble shows with the pose's
   enter, stays still through the loop, and goes when the pose ends (a snap, as every pose change is). Reduce Motion
   shows it too. It sits over the figure and its front effect (`TrackerAvatarFrameRig.bubble`), and the self-test keeps

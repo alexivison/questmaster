@@ -107,6 +107,8 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
     public let strikeFrame: Int?
     /// Where the shared bubble's bottom centre sits, on the pose's canvas. Only calling out has one; nil draws no bubble.
     public let bubble: TrackerAvatarPixel?
+    /// Which way the bubble's tail points; `left` is the art as drawn.
+    public let bubbleTail: TrackerAvatarBubbleTail
 
     public init(
         footRow: Int,
@@ -116,7 +118,8 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
         finish: TrackerAvatarBlock? = nil,
         once: TrackerAvatarBlock? = nil,
         strikeFrame: Int? = nil,
-        bubble: TrackerAvatarPixel? = nil
+        bubble: TrackerAvatarPixel? = nil,
+        bubbleTail: TrackerAvatarBubbleTail = .left
     ) {
         self.footRow = footRow
         self.bodyColumn = bodyColumn
@@ -126,6 +129,7 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
         self.once = once
         self.strikeFrame = strikeFrame
         self.bubble = bubble
+        self.bubbleTail = bubbleTail
     }
 
     /// The step of the `once` character track the pose strikes on when it names its strike frame: the first step that shows it. Nil
@@ -145,6 +149,13 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
         }
         return once.character.starts[step]
     }
+}
+
+/// Which way the shared bubble's tail points, as `bubble.png` is drawn: `left` (down-left, the default) or `right`, which the app
+/// draws mirrored about the anchor's x. A class whose head sits left of its bubble's anchor points the tail at it with `left`.
+public enum TrackerAvatarBubbleTail: String, Decodable, Sendable {
+    case left
+    case right
 }
 
 /// The way a spell's flight art is drawn: which way its head points. The overlay mirrors it on a flight that heads the other way, so
@@ -564,7 +575,8 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             finish: finish,
             once: once,
             strikeFrame: pose.strikeFrame,
-            bubble: pose.bubble.map { TrackerAvatarPixel(x: $0.x, y: $0.y) }
+            bubble: pose.bubble.map { TrackerAvatarPixel(x: $0.x, y: $0.y) },
+            bubbleTail: pose.bubble?.tail ?? .left
         )
     }
 
@@ -678,6 +690,12 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             let y: Int
         }
 
+        struct Bubble: Decodable {
+            let x: Int
+            let y: Int
+            let tail: TrackerAvatarBubbleTail?
+        }
+
         struct Spell: Decodable {
             let flight: [TrackerAvatarStep]?
             let impact: [TrackerAvatarStep]?
@@ -693,7 +711,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             let finish: [String: [TrackerAvatarStep]]?
             let once: [String: [TrackerAvatarStep]]?
             let strikeFrame: Int?
-            let bubble: Pixel?
+            let bubble: Bubble?
 
             enum CodingKeys: String, CodingKey {
                 case footRow = "foot_row"

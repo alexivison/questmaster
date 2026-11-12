@@ -100,6 +100,8 @@ enum LogicSelfTests {
         ("testBundledClericSpritesReadTheirAnimationFile", testBundledClericSpritesReadTheirAnimationFile),
         ("testBundledRangerSpritesReadTheirAnimationFile", testBundledRangerSpritesReadTheirAnimationFile),
         ("testBundledNecromancerSpritesReadTheirAnimationFile", testBundledNecromancerSpritesReadTheirAnimationFile),
+        ("testBundledBardSpellsPlayFramesFacingRight", testBundledBardSpellsPlayFramesFacingRight),
+        ("testBundledDruidBubbleTailPointsAtHer", testBundledDruidBubbleTailPointsAtHer),
         ("testTheBubbleStaysInTheSlotAboveTheBanner", testTheBubbleStaysInTheSlotAboveTheBanner),
         ("testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot", testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot),
         ("testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible", testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible),
@@ -1940,11 +1942,11 @@ enum LogicSelfTests {
     }
 
     /// Every bundled class's still flights lead with their heads on their paths. Only the returning wisp flies left; the orb and the
-    /// messenger fly right. How each still is drawn is read from the art: the bard's, the druid's and the necromancer's wisps face left already, and every
+    /// messenger fly right. How each still is drawn is read from the art: the druid's and the necromancer's wisps face left already, and every
     /// other still faces right, so a wisp that faces right needs its file to say so (`faces`) to be mirrored on its way back.
     @MainActor
     private static func testEveryBundledStillLeadsWithItsHeadOnItsPath() throws {
-        let drawnLeft: Set<String> = ["bard S6-returning-wisp", "druid S6-returning-wisp", "necromancer S6-returning-wisp"]
+        let drawnLeft: Set<String> = ["druid S6-returning-wisp", "necromancer S6-returning-wisp"]
         for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
             for spell in TrackerSpellFlight.Spell.allCases {
                 guard let art = sprites.flight(for: spell) else {
@@ -2164,6 +2166,48 @@ enum LogicSelfTests {
         try expect(missing.isEmpty, "every frame the ranger's file plays should have its art, missing: \(missing)")
     }
 
+    /// The bard's three spells are frame tracks drawn facing right: each has flight and impact art, no still is left, and the wisp is
+    /// mirrored on its way back because its file says which way it faces.
+    @MainActor
+    private static func testBundledBardSpellsPlayFramesFacingRight() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["bard"] else {
+            throw TestFailure("the bard's sprites should load from the app bundle")
+        }
+        for spell in TrackerSpellFlight.Spell.allCases {
+            let track = sprites.animation.spell(spell)
+            try expect(track?.flight != nil && track?.impact != nil,
+                       "the bard's \(spell.resourceName) should play flight and impact frames")
+            try expect(track?.faces == .right, "the bard's \(spell.resourceName) should say it is drawn facing right")
+            try expect(sprites.flight(for: spell) != nil && sprites.impact(for: spell) != nil,
+                       "the bard's \(spell.resourceName) should have its flight and impact art")
+            let folder = AppSymbolStyle.resourceBundle().resourceURL?.appendingPathComponent("Sprites/bard", isDirectory: true)
+            let stills = ["flight", "impact"].map { folder?.appendingPathComponent("\(spell.resourceName)-\($0).png").path ?? "" }
+            try expect(stills.allSatisfy { !FileManager.default.fileExists(atPath: $0) }, "the bard's \(spell.resourceName) should have no still left")
+        }
+        guard let wisp = sprites.flight(for: .wisp) else {
+            throw TestFailure("the bard's wisp should have its flight art")
+        }
+        try expect(wisp.isMirrored(headsLeft: true) && !wisp.isMirrored(headsLeft: false), "the bard's wisp should be mirrored only on its way back")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the bard's file plays should have its art, missing: \(missing)")
+    }
+
+    /// The druid's bubble sits at her left, so it says its tail points right, and the rig draws it flipped at the same box.
+    @MainActor
+    private static func testBundledDruidBubbleTailPointsAtHer() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["druid"],
+              let pose = sprites.animation.animation(for: .callingOut) else {
+            throw TestFailure("the druid's calling out should load from the app bundle")
+        }
+        try expect(pose.bubble == TrackerAvatarPixel(x: 40, y: 9), "the druid's bubble should sit at x 40, y 9, got \(String(describing: pose.bubble))")
+        try expect(pose.bubbleTail == .right, "the druid's bubble tail should point right, at her")
+        guard let rig = TrackerAvatarFrameRig(pose: .callingOut, placement: pose, sprites: sprites) else {
+            throw TestFailure("the druid's calling out should draw")
+        }
+        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
+        try expect(CATransform3DEqualToTransform(rig.bubble.transform, CATransform3DMakeScale(-1, 1, 1)), "the druid's bubble should draw flipped")
+    }
+
     /// The necromancer's sprites load from the app bundle: his breathing plays its authored steps with their eyelid stencils,
     /// he never blinks, and all three spells have their frame art.
     @MainActor
@@ -2193,7 +2237,29 @@ enum LogicSelfTests {
         where sprites.animation.animation(for: .callingOut)?.bubble != nil {
             try expectBubbleClear(of: sprites, named: classID)
         }
-        try expectBubbleClear(of: try bubbleFixture(), named: "the bubble fixture")
+        let leftTail = try bubbleFixture()
+        let rightTail = try bubbleFixture(tail: "right")
+        try expectBubbleClear(of: leftTail, named: "the bubble fixture")
+        try expectBubbleClear(of: rightTail, named: "the mirrored bubble fixture")
+        try expectMirroredBubbleKeepsItsBox(plain: leftTail, mirrored: rightTail)
+    }
+
+    /// A `tail: "right"` bubble is the same box at the same anchor as the default one, drawn flipped about its x; the default isn't.
+    @MainActor
+    private static func expectMirroredBubbleKeepsItsBox(plain: TrackerAvatarSprites, mirrored: TrackerAvatarSprites) throws {
+        guard let plainPose = plain.animation.animation(for: .callingOut), let mirroredPose = mirrored.animation.animation(for: .callingOut),
+              let plainRig = TrackerAvatarFrameRig(pose: .callingOut, placement: plainPose, sprites: plain),
+              let mirroredRig = TrackerAvatarFrameRig(pose: .callingOut, placement: mirroredPose, sprites: mirrored) else {
+            throw TestFailure("both bubble fixtures should draw calling out")
+        }
+        let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        plainRig.place(in: slot)
+        mirroredRig.place(in: slot)
+        try expect(plainPose.bubbleTail == .left && mirroredPose.bubbleTail == .right, "the fixtures should carry their tails")
+        try expect(plainRig.bubble.frame == mirroredRig.bubble.frame, "a mirrored bubble should keep the unmirrored box, got \(mirroredRig.bubble.frame) vs \(plainRig.bubble.frame)")
+        try expect(CATransform3DIsIdentity(plainRig.bubble.transform), "a left-tail bubble should be drawn as the art is")
+        try expect(CATransform3DEqualToTransform(mirroredRig.bubble.transform, CATransform3DMakeScale(-1, 1, 1)), "a right-tail bubble should flip horizontally")
+        try expect(mirroredRig.bubble.magnificationFilter == .nearest, "a mirrored bubble should stay unsmoothed")
     }
 
     /// A synthetic calling-out pose reaches out of the fixed slot and draws over the plate above it, while its sole meets the banner.
@@ -2305,7 +2371,7 @@ enum LogicSelfTests {
 
     /// The cleric's sprites with a bubble anchor beside his head on the right, read the way a class's file would carry one.
     @MainActor
-    private static func bubbleFixture() throws -> TrackerAvatarSprites {
+    private static func bubbleFixture(tail: String? = nil) throws -> TrackerAvatarSprites {
         guard let folder = AppSymbolStyle.resourceBundle().resourceURL?.appendingPathComponent("Sprites/cleric", isDirectory: true),
               let data = try? Data(contentsOf: folder.appendingPathComponent("animation.json")),
               var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -2313,7 +2379,9 @@ enum LogicSelfTests {
               var calling = poses["11-calling-out"] as? [String: Any] else {
             throw TestFailure("the cleric's calling-out pose should read as JSON")
         }
-        calling["bubble"] = ["x": 52, "y": 24]
+        var anchor: [String: Any] = ["x": 52, "y": 24]
+        anchor["tail"] = tail
+        calling["bubble"] = anchor
         poses["11-calling-out"] = calling
         json["poses"] = poses
         let animation = try TrackerAvatarAnimation(data: JSONSerialization.data(withJSONObject: json))

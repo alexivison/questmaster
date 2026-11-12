@@ -672,12 +672,17 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         }
         let pixel = TrackerAvatarDesign.pixelPoints
         let bottom = CGFloat(Int(canvas.height) - 1 - anchor.y) * pixel
+        bubble.transform = CATransform3DIdentity
         bubble.frame = CGRect(
             x: CGFloat(anchor.x - image.width / 2) * pixel,
             y: bottom,
             width: CGFloat(image.width) * pixel,
             height: CGFloat(image.height) * pixel
         )
+        // The anchor is the bubble's bottom centre, so flipping about the layer's centre keeps its box and only mirrors the art.
+        if placement.bubbleTail == .right {
+            bubble.transform = CATransform3DMakeScale(-1, 1, 1)
+        }
     }
 
     func startMotion() {
