@@ -5,10 +5,12 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -319,6 +321,195 @@ func TestUpgradeQuiesceRejectsClientWithoutCountingIt(t *testing.T) {
 	}
 }
 
+func TestOverloadUpgradeSurvivesOverlappingControlConnection(t *testing.T) {
+	root := t.TempDir()
+	candidate, readyPath, releasePath := gatedUpgradeCandidate(t, root)
+	defer func() { _ = os.WriteFile(releasePath, []byte("continue"), 0o600) }()
+	s := newOverloadUpgradeServer(t, root, candidate)
+
+	clients := make([]net.Conn, 0, proposedMaxConcurrentConnections)
+	defer func() {
+		for _, client := range clients {
+			_ = client.Close()
+		}
+	}()
+	for i := 0; i < proposedMaxConcurrentConnections-1; i++ {
+		conn, err := net.DialTimeout("unix", s.socket, time.Second)
+		if err != nil {
+			t.Fatalf("open normal connection %d: %v", i, err)
+		}
+		clients = append(clients, conn)
+		_ = conn.SetDeadline(time.Now().Add(time.Second))
+		var greeting hello
+		if err := json.NewDecoder(conn).Decode(&greeting); err != nil || !greeting.Accepting {
+			t.Fatalf("normal connection %d handshake: %+v %v", i, greeting, err)
+		}
+	}
+
+	upgradeConn, err := net.DialTimeout("unix", s.socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clients = append(clients, upgradeConn)
+	_ = upgradeConn.SetDeadline(time.Now().Add(5 * time.Second))
+	upgradeDecoder, upgradeEncoder := json.NewDecoder(upgradeConn), json.NewEncoder(upgradeConn)
+	var greeting hello
+	if err := upgradeDecoder.Decode(&greeting); err != nil || !greeting.Accepting {
+		t.Fatalf("upgrade handshake: %+v %v", greeting, err)
+	}
+	request := serve.Request{ID: json.RawMessage(`"upgrade"`), Method: "check-upgrade", ProtocolVersion: ProtocolVersion}
+	if err := upgradeEncoder.Encode(request); err != nil {
+		t.Fatal(err)
+	}
+	waitForDaemonTestFile(t, readyPath)
+
+	statusConn, err := net.DialTimeout("unix", s.socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clients = append(clients, statusConn)
+	_ = statusConn.SetReadDeadline(time.Now().Add(time.Second))
+	var statusGreeting hello
+	statusErr := json.NewDecoder(statusConn).Decode(&statusGreeting)
+	if !errors.Is(statusErr, io.EOF) {
+		t.Errorf("overlapping status connection error = %v, want closed connection", statusErr)
+	}
+	_ = statusConn.Close()
+
+	if err := os.WriteFile(releasePath, []byte("continue"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var reply serve.Envelope
+	if err := upgradeDecoder.Decode(&reply); err != nil || reply.OK == nil || !*reply.OK || string(reply.ID) != `"upgrade"` {
+		t.Fatalf("upgrade response after connection churn: %+v %v", reply, err)
+	}
+	upgradePath := receiveDaemonTestValue(t, s.upgrade, "upgrade path to be queued")
+	if upgradePath != candidate {
+		t.Fatalf("queued upgrade path = %q, want %q", upgradePath, candidate)
+	}
+	if err := s.reexec(upgradePath); err == nil {
+		t.Fatal("fake exec should return an error")
+	}
+	s.mu.Lock()
+	accepting, upgrading := s.record.Accepting, s.upgrading
+	s.mu.Unlock()
+	if !accepting || upgrading {
+		t.Fatalf("failed re-exec left daemon accepting=%t upgrading=%t", accepting, upgrading)
+	}
+}
+
+func TestCheckUpgradeContinuesWhenReplyConnectionCloses(t *testing.T) {
+	root := t.TempDir()
+	candidate, readyPath, releasePath := gatedUpgradeCandidate(t, root)
+	defer func() { _ = os.WriteFile(releasePath, []byte("continue"), 0o600) }()
+	s := newOverloadUpgradeServer(t, root, candidate)
+
+	conn, err := net.DialTimeout("unix", s.socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	decoder := json.NewDecoder(conn)
+	var greeting hello
+	if err := decoder.Decode(&greeting); err != nil || !greeting.Accepting {
+		t.Fatalf("upgrade handshake: %+v %v", greeting, err)
+	}
+	if err := json.NewEncoder(conn).Encode(serve.Request{Method: "check-upgrade", ProtocolVersion: ProtocolVersion}); err != nil {
+		t.Fatal(err)
+	}
+	waitForDaemonTestFile(t, readyPath)
+	_ = conn.Close()
+	if err := os.WriteFile(releasePath, []byte("continue"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	upgradePath := receiveDaemonTestValue(t, s.upgrade, "upgrade path after reply connection closes")
+	if upgradePath != candidate {
+		t.Fatalf("queued upgrade path = %q, want %q", upgradePath, candidate)
+	}
+	if err := s.reexec(upgradePath); err == nil {
+		t.Fatal("fake exec should return an error")
+	}
+	s.mu.Lock()
+	accepting, upgrading := s.record.Accepting, s.upgrading
+	s.mu.Unlock()
+	if !accepting || upgrading {
+		t.Fatalf("failed re-exec left daemon accepting=%t upgrading=%t", accepting, upgrading)
+	}
+}
+
+func gatedUpgradeCandidate(t *testing.T, root string) (candidate, readyPath, releasePath string) {
+	t.Helper()
+	readyPath = filepath.Join(root, "upgrade-probe-ready")
+	releasePath = filepath.Join(root, "upgrade-probe-release")
+	t.Setenv("QUESTMASTER_TEST_UPGRADE_READY", readyPath)
+	t.Setenv("QUESTMASTER_TEST_UPGRADE_RELEASE", releasePath)
+	candidate = filepath.Join(root, "upgrade-candidate")
+	script := "#!/bin/sh\n" +
+		": > \"$QUESTMASTER_TEST_UPGRADE_READY\"\n" +
+		"while [ ! -e \"$QUESTMASTER_TEST_UPGRADE_RELEASE\" ]; do /bin/sleep 0.01; done\n" +
+		"printf '{\"protocol_version\":3}\\n'\n"
+	if err := os.WriteFile(candidate, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return candidate, readyPath, releasePath
+}
+
+func waitForDaemonTestFile(t *testing.T, path string) {
+	t.Helper()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		select {
+		case <-ticker.C:
+		case <-timer.C:
+			t.Fatalf("timed out waiting for %s", path)
+		}
+	}
+}
+
+func newOverloadUpgradeServer(t *testing.T, root, candidate string) *server {
+	t.Helper()
+	dir := filepath.Join(root, "daemon")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	socket, err := SocketPath(root, "upgrade-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(filepath.Join(dir, "upgrade-test.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{
+		config: Config{
+			Root: root, Home: root, Executable: candidate,
+			ReadIdleTimeout: time.Hour, WriteTimeout: time.Second, PollInterval: time.Millisecond,
+			Exec: func(string, []string, []string) error { return io.EOF },
+		},
+		id: "upgrade-test", socket: socket, dir: dir, lock: lock,
+		upgrade: make(chan string, 1),
+		record:  Record{Root: root, Identity: "upgrade-test", Build: "old-build", Accepting: true},
+	}
+	if err := s.listen(); err != nil {
+		_ = lock.Close()
+		t.Fatal(err)
+	}
+	s.accept()
+	t.Cleanup(func() {
+		_ = s.closeListener()
+		_ = lock.Close()
+	})
+	return s
+}
+
 func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -393,6 +584,142 @@ func (c *deadlineCountingConn) readDeadlineValues() []time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]time.Time(nil), c.deadlines...)
+}
+
+func TestDaemonConnectionLimitKeepsStatusAvailable(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "daemon"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	socket, err := SocketPath(root, "canonical")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{
+		config: Config{Root: root, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second},
+		id:     "canonical", socket: socket,
+		record: Record{Root: root, Identity: "canonical", Accepting: true},
+	}
+	if err := s.listen(); err != nil {
+		t.Fatal(err)
+	}
+	s.accept()
+	const idleConnectionAttempts = 1000
+	normalConnectionCount := proposedMaxConcurrentConnections - 1
+	overloadConnectionAttempts := idleConnectionAttempts - normalConnectionCount
+	idle := make([]net.Conn, 0, normalConnectionCount)
+	var overloadConn net.Conn
+	defer func() {
+		_ = s.closeListener()
+		for _, conn := range idle {
+			_ = conn.Close()
+		}
+		if overloadConn != nil {
+			_ = overloadConn.Close()
+		}
+	}()
+	readHello := func(conn net.Conn) (hello, error) {
+		if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			return hello{}, err
+		}
+		var greeting hello
+		err := json.NewDecoder(conn).Decode(&greeting)
+		_ = conn.SetDeadline(time.Time{})
+		return greeting, err
+	}
+
+	for i := 0; i < normalConnectionCount; i++ {
+		conn, err := net.DialTimeout("unix", socket, time.Second)
+		if err != nil {
+			t.Fatalf("open normal connection %d: %v", i, err)
+		}
+		idle = append(idle, conn)
+		greeting, err := readHello(conn)
+		if err != nil || !greeting.Accepting {
+			t.Fatalf("normal connection %d handshake: %+v %v", i, greeting, err)
+		}
+	}
+
+	// Pace the 1,000 overload connections by each accepted handshake. Keep only the current overload client open so
+	// the test exercises the daemon bound without depending on the kernel listen backlog or client FD limit.
+	for i := 0; i < overloadConnectionAttempts; i++ {
+		conn, err := net.DialTimeout("unix", socket, time.Second)
+		if err != nil {
+			t.Fatalf("open overload connection %d: %v", i, err)
+		}
+		greeting, err := readHello(conn)
+		if err != nil || !greeting.Accepting {
+			_ = conn.Close()
+			t.Fatalf("overload connection %d handshake: %+v %v", i, greeting, err)
+		}
+		if overloadConn != nil {
+			_ = overloadConn.Close()
+		}
+		overloadConn = conn
+	}
+
+	statusConn, err := net.DialTimeout("unix", socket, time.Second)
+	if err != nil {
+		t.Fatalf("open status connection: %v", err)
+	}
+	defer statusConn.Close()
+	if err := statusConn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	dec, enc := json.NewDecoder(statusConn), json.NewEncoder(statusConn)
+	var greeting hello
+	if err := dec.Decode(&greeting); err != nil || !greeting.Accepting {
+		t.Fatalf("status handshake: %+v %v", greeting, err)
+	}
+	if err := enc.Encode(serve.Request{Method: "status", ProtocolVersion: ProtocolVersion}); err != nil {
+		t.Fatal(err)
+	}
+	var reply serve.Envelope
+	if err := dec.Decode(&reply); err != nil || reply.OK == nil || !*reply.OK || reply.Topic != "status" {
+		t.Fatalf("status response: %+v %v", reply, err)
+	}
+	if clients := s.clients(); clients > proposedMaxConcurrentConnections {
+		t.Fatalf("daemon retained %d clients after %d idle connections, want at most %d", clients, idleConnectionAttempts, proposedMaxConcurrentConnections)
+	}
+}
+
+func TestDaemonRejectsOversizedRequestWithEnvelope(t *testing.T) {
+	t.Parallel()
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	s := &server{
+		config: Config{ReadIdleTimeout: time.Second, WriteTimeout: time.Second},
+		id:     "canonical", record: Record{Root: "test", Accepting: true},
+	}
+	done := make(chan struct{})
+	go func() {
+		s.handle(serverConn)
+		close(done)
+	}()
+	if err := clientConn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	dec, enc := json.NewDecoder(clientConn), json.NewEncoder(clientConn)
+	var greeting hello
+	if err := dec.Decode(&greeting); err != nil || !greeting.Accepting {
+		t.Fatalf("request handshake: %+v %v", greeting, err)
+	}
+	if err := enc.Encode(map[string]any{
+		"id": "oversized", "method": "status", "protocol_version": ProtocolVersion,
+		"data": strings.Repeat("x", proposedMaxRequestBytes+1),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var reply serve.Envelope
+	if err := dec.Decode(&reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Type != "response" || reply.OK == nil || *reply.OK || reply.Error != "request too large" {
+		t.Fatalf("oversized request envelope: %+v", reply)
+	}
+	clientConn.Close()
+	_ = receiveDaemonTestValue(t, done, "oversized request handler to exit")
 }
 
 func TestConnectionRenewsReadDeadlineForEachRequestAndPreventsIdleExit(t *testing.T) {
