@@ -5,6 +5,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -318,6 +319,195 @@ func TestUpgradeQuiesceRejectsClientWithoutCountingIt(t *testing.T) {
 	if s.clients() != 0 || !s.activity().Equal(activity) {
 		t.Fatal("rejected upgrade client changed the client count or idle activity")
 	}
+}
+
+func TestOverloadUpgradeSurvivesOverlappingControlConnection(t *testing.T) {
+	root := t.TempDir()
+	candidate, readyPath, releasePath := gatedUpgradeCandidate(t, root)
+	defer func() { _ = os.WriteFile(releasePath, []byte("continue"), 0o600) }()
+	s := newOverloadUpgradeServer(t, root, candidate)
+
+	clients := make([]net.Conn, 0, proposedMaxConcurrentConnections)
+	defer func() {
+		for _, client := range clients {
+			_ = client.Close()
+		}
+	}()
+	for i := 0; i < proposedMaxConcurrentConnections-1; i++ {
+		conn, err := net.DialTimeout("unix", s.socket, time.Second)
+		if err != nil {
+			t.Fatalf("open normal connection %d: %v", i, err)
+		}
+		clients = append(clients, conn)
+		_ = conn.SetDeadline(time.Now().Add(time.Second))
+		var greeting hello
+		if err := json.NewDecoder(conn).Decode(&greeting); err != nil || !greeting.Accepting {
+			t.Fatalf("normal connection %d handshake: %+v %v", i, greeting, err)
+		}
+	}
+
+	upgradeConn, err := net.DialTimeout("unix", s.socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clients = append(clients, upgradeConn)
+	_ = upgradeConn.SetDeadline(time.Now().Add(5 * time.Second))
+	upgradeDecoder, upgradeEncoder := json.NewDecoder(upgradeConn), json.NewEncoder(upgradeConn)
+	var greeting hello
+	if err := upgradeDecoder.Decode(&greeting); err != nil || !greeting.Accepting {
+		t.Fatalf("upgrade handshake: %+v %v", greeting, err)
+	}
+	request := serve.Request{ID: json.RawMessage(`"upgrade"`), Method: "check-upgrade", ProtocolVersion: ProtocolVersion}
+	if err := upgradeEncoder.Encode(request); err != nil {
+		t.Fatal(err)
+	}
+	waitForDaemonTestFile(t, readyPath)
+
+	statusConn, err := net.DialTimeout("unix", s.socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clients = append(clients, statusConn)
+	_ = statusConn.SetReadDeadline(time.Now().Add(time.Second))
+	var statusGreeting hello
+	statusErr := json.NewDecoder(statusConn).Decode(&statusGreeting)
+	if !errors.Is(statusErr, io.EOF) {
+		t.Errorf("overlapping status connection error = %v, want closed connection", statusErr)
+	}
+	_ = statusConn.Close()
+
+	if err := os.WriteFile(releasePath, []byte("continue"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var reply serve.Envelope
+	if err := upgradeDecoder.Decode(&reply); err != nil || reply.OK == nil || !*reply.OK || string(reply.ID) != `"upgrade"` {
+		t.Fatalf("upgrade response after connection churn: %+v %v", reply, err)
+	}
+	upgradePath := receiveDaemonTestValue(t, s.upgrade, "upgrade path to be queued")
+	if upgradePath != candidate {
+		t.Fatalf("queued upgrade path = %q, want %q", upgradePath, candidate)
+	}
+	if err := s.reexec(upgradePath); err == nil {
+		t.Fatal("fake exec should return an error")
+	}
+	s.mu.Lock()
+	accepting, upgrading := s.record.Accepting, s.upgrading
+	s.mu.Unlock()
+	if !accepting || upgrading {
+		t.Fatalf("failed re-exec left daemon accepting=%t upgrading=%t", accepting, upgrading)
+	}
+}
+
+func TestCheckUpgradeContinuesWhenReplyConnectionCloses(t *testing.T) {
+	root := t.TempDir()
+	candidate, readyPath, releasePath := gatedUpgradeCandidate(t, root)
+	defer func() { _ = os.WriteFile(releasePath, []byte("continue"), 0o600) }()
+	s := newOverloadUpgradeServer(t, root, candidate)
+
+	conn, err := net.DialTimeout("unix", s.socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	decoder := json.NewDecoder(conn)
+	var greeting hello
+	if err := decoder.Decode(&greeting); err != nil || !greeting.Accepting {
+		t.Fatalf("upgrade handshake: %+v %v", greeting, err)
+	}
+	if err := json.NewEncoder(conn).Encode(serve.Request{Method: "check-upgrade", ProtocolVersion: ProtocolVersion}); err != nil {
+		t.Fatal(err)
+	}
+	waitForDaemonTestFile(t, readyPath)
+	_ = conn.Close()
+	if err := os.WriteFile(releasePath, []byte("continue"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	upgradePath := receiveDaemonTestValue(t, s.upgrade, "upgrade path after reply connection closes")
+	if upgradePath != candidate {
+		t.Fatalf("queued upgrade path = %q, want %q", upgradePath, candidate)
+	}
+	if err := s.reexec(upgradePath); err == nil {
+		t.Fatal("fake exec should return an error")
+	}
+	s.mu.Lock()
+	accepting, upgrading := s.record.Accepting, s.upgrading
+	s.mu.Unlock()
+	if !accepting || upgrading {
+		t.Fatalf("failed re-exec left daemon accepting=%t upgrading=%t", accepting, upgrading)
+	}
+}
+
+func gatedUpgradeCandidate(t *testing.T, root string) (candidate, readyPath, releasePath string) {
+	t.Helper()
+	readyPath = filepath.Join(root, "upgrade-probe-ready")
+	releasePath = filepath.Join(root, "upgrade-probe-release")
+	t.Setenv("QUESTMASTER_TEST_UPGRADE_READY", readyPath)
+	t.Setenv("QUESTMASTER_TEST_UPGRADE_RELEASE", releasePath)
+	candidate = filepath.Join(root, "upgrade-candidate")
+	script := "#!/bin/sh\n" +
+		": > \"$QUESTMASTER_TEST_UPGRADE_READY\"\n" +
+		"while [ ! -e \"$QUESTMASTER_TEST_UPGRADE_RELEASE\" ]; do /bin/sleep 0.01; done\n" +
+		"printf '{\"protocol_version\":3}\\n'\n"
+	if err := os.WriteFile(candidate, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return candidate, readyPath, releasePath
+}
+
+func waitForDaemonTestFile(t *testing.T, path string) {
+	t.Helper()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		select {
+		case <-ticker.C:
+		case <-timer.C:
+			t.Fatalf("timed out waiting for %s", path)
+		}
+	}
+}
+
+func newOverloadUpgradeServer(t *testing.T, root, candidate string) *server {
+	t.Helper()
+	dir := filepath.Join(root, "daemon")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	socket, err := SocketPath(root, "upgrade-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(filepath.Join(dir, "upgrade-test.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{
+		config: Config{
+			Root: root, Home: root, Executable: candidate,
+			ReadIdleTimeout: time.Hour, WriteTimeout: time.Second, PollInterval: time.Millisecond,
+			Exec: func(string, []string, []string) error { return io.EOF },
+		},
+		id: "upgrade-test", socket: socket, dir: dir, lock: lock,
+		upgrade: make(chan string, 1),
+		record:  Record{Root: root, Identity: "upgrade-test", Build: "old-build", Accepting: true},
+	}
+	if err := s.listen(); err != nil {
+		_ = lock.Close()
+		t.Fatal(err)
+	}
+	s.accept()
+	t.Cleanup(func() {
+		_ = s.closeListener()
+		_ = lock.Close()
+	})
+	return s
 }
 
 func TestIdleExitRechecksClientsAndWork(t *testing.T) {

@@ -53,6 +53,7 @@ type server struct {
 	connectionDoneOnce sync.Once
 	overloadMu         sync.Mutex
 	overloadActive     net.Conn
+	overloadInFlight   bool
 	overloadPending    net.Conn
 	overloadWake       chan struct{}
 	stop               chan struct{}
@@ -362,7 +363,13 @@ func (s *server) offerOverloadConnection(conn net.Conn) {
 	default:
 	}
 	if s.overloadActive != nil {
+		if s.overloadInFlight {
+			s.overloadMu.Unlock()
+			_ = conn.Close()
+			return
+		}
 		_ = s.overloadActive.Close()
+		s.overloadActive = nil
 	}
 	if s.overloadPending != nil {
 		_ = s.overloadPending.Close()
@@ -399,6 +406,16 @@ func (s *server) beginRequest() bool {
 		return false
 	}
 	s.active++
+	return true
+}
+
+func (s *server) claimOverloadRequest(conn net.Conn) bool {
+	s.overloadMu.Lock()
+	defer s.overloadMu.Unlock()
+	if s.overloadActive != conn || s.overloadInFlight {
+		return false
+	}
+	s.overloadInFlight = true
 	return true
 }
 
@@ -455,6 +472,7 @@ func (s *server) serveOverloadConnections() {
 			s.overloadPending = nil
 			if conn != nil {
 				s.overloadActive = conn
+				s.overloadInFlight = false
 			}
 			s.overloadMu.Unlock()
 			if conn == nil {
@@ -464,6 +482,7 @@ func (s *server) serveOverloadConnections() {
 			s.overloadMu.Lock()
 			if s.overloadActive == conn {
 				s.overloadActive = nil
+				s.overloadInFlight = false
 			}
 			s.overloadMu.Unlock()
 		}
@@ -493,6 +512,9 @@ func (s *server) handleStatusConnection(conn net.Conn) {
 	if err != nil {
 		return
 	}
+	if !s.claimOverloadRequest(conn) {
+		return
+	}
 	if !s.beginRequest() {
 		_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 		_ = serve.WriteEnvelope(enc, daemonError(req, "exiting"))
@@ -506,11 +528,12 @@ func (s *server) handleStatusConnection(conn net.Conn) {
 	}
 	resp, upgradePath := s.dispatch(req)
 	_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
-	if err := serve.WriteEnvelope(enc, resp); err != nil {
-		return
-	}
+	writeErr := serve.WriteEnvelope(enc, resp)
 	if upgradePath != "" {
 		s.upgrade <- upgradePath
+		return
+	}
+	if writeErr != nil {
 		return
 	}
 	if req.Method == "stop" && resp.OK != nil && *resp.OK {
@@ -562,6 +585,10 @@ func (s *server) handle(conn net.Conn) {
 		_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 		writeErr := serve.WriteEnvelope(enc, resp)
 		s.finishRequest()
+		if upgradePath != "" {
+			s.upgrade <- upgradePath
+			return
+		}
 		if writeErr != nil {
 			if release != nil {
 				release()
@@ -580,10 +607,6 @@ func (s *server) handle(conn net.Conn) {
 			_ = s.runtime.Subscribe(ctx, enc, req, source)
 			cancel()
 			release()
-			return
-		}
-		if upgradePath != "" {
-			s.upgrade <- upgradePath
 			return
 		}
 		if req.Method == "stop" && resp.OK != nil && *resp.OK {
@@ -672,6 +695,7 @@ func (s *server) closeListener() error {
 		if s.overloadActive != nil {
 			_ = s.overloadActive.Close()
 			s.overloadActive = nil
+			s.overloadInFlight = false
 		}
 		if s.overloadPending != nil {
 			_ = s.overloadPending.Close()
