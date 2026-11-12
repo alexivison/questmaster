@@ -116,17 +116,20 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var latestStatus state.PullRequestStatus
+			statusLoaded := false
 			if added {
 				refreshCtx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
 				hosts, refreshErr := prRequest(refreshCtx, config, []string{ref.Key}, true)
 				cancel()
 				if refreshErr == nil {
 					host := hosts[ref.Host]
-					if host.CheckedAt != "" && host.Error == "" && host.BackoffUntil == "" {
-						statuses, err := state.LoadPullRequestStatuses(store.Root())
-						if err == nil && !statuses[ref.Key].Stale {
+					statuses, err := state.LoadPullRequestStatuses(store.Root())
+					if err == nil {
+						latestStatus, statusLoaded = statuses[ref.Key], true
+						if host.CheckedAt != "" && host.Error == "" && host.BackoffUntil == "" && !latestStatus.Stale {
 							var detail string
-							switch statuses[ref.Key].InaccessibleReason {
+							switch latestStatus.InaccessibleReason {
 							case "not_found":
 								detail = "not found; check the owner, repo and number"
 							case "forbidden":
@@ -144,12 +147,20 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 					}
 				}
 			}
+			if !statusLoaded {
+				statuses, err := state.LoadPullRequestStatuses(store.Root())
+				if err == nil {
+					latestStatus = statuses[ref.Key]
+				}
+			}
 			return writeJSON(c.OutOrStdout(), struct {
-				Key        string `json:"key"`
-				SessionID  string `json:"session_id"`
-				Added      bool   `json:"added"`
-				Monitoring string `json:"monitoring"`
-			}{ref.Key, id, added, monitoring})
+				Key         string `json:"key"`
+				SessionID   string `json:"session_id"`
+				Added       bool   `json:"added"`
+				Monitoring  string `json:"monitoring"`
+				Merged      bool   `json:"merged,omitempty"`
+				StatusStale bool   `json:"status_stale,omitempty"`
+			}{ref.Key, id, added, monitoring, latestStatus.State == "merged", latestStatus.Stale})
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
