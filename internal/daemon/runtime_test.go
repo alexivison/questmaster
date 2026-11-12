@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -393,6 +394,101 @@ func (c *deadlineCountingConn) readDeadlineValues() []time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]time.Time(nil), c.deadlines...)
+}
+
+func TestDaemonConnectionLimitKeepsStatusAvailable(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	socket, err := SocketPath(root, "canonical")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{
+		config: Config{Root: root, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second},
+		id:     "canonical", socket: socket,
+		record: Record{Root: root, Identity: "canonical", Accepting: true},
+	}
+	if err := s.listen(); err != nil {
+		t.Fatal(err)
+	}
+	s.accept()
+	idle := make([]net.Conn, 0, 1000)
+	defer func() {
+		_ = s.closeListener()
+		for _, conn := range idle {
+			_ = conn.Close()
+		}
+	}()
+
+	for i := 0; i < cap(idle); i++ {
+		conn, err := net.DialTimeout("unix", socket, time.Second)
+		if err != nil {
+			t.Fatalf("open idle connection %d: %v", i, err)
+		}
+		idle = append(idle, conn)
+	}
+
+	statusConn, err := net.DialTimeout("unix", socket, time.Second)
+	if err != nil {
+		t.Fatalf("open status connection: %v", err)
+	}
+	defer statusConn.Close()
+	if err := statusConn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	dec, enc := json.NewDecoder(statusConn), json.NewEncoder(statusConn)
+	var greeting hello
+	if err := dec.Decode(&greeting); err != nil || !greeting.Accepting {
+		t.Fatalf("status handshake: %+v %v", greeting, err)
+	}
+	if err := enc.Encode(serve.Request{Method: "status", ProtocolVersion: ProtocolVersion}); err != nil {
+		t.Fatal(err)
+	}
+	var reply serve.Envelope
+	if err := dec.Decode(&reply); err != nil || reply.OK == nil || !*reply.OK || reply.Topic != "status" {
+		t.Fatalf("status response: %+v %v", reply, err)
+	}
+	if clients := s.clients(); clients > proposedMaxConcurrentConnections {
+		t.Fatalf("daemon retained %d clients after 1000 idle connections, want at most %d", clients, proposedMaxConcurrentConnections)
+	}
+}
+
+func TestDaemonRejectsOversizedRequestWithEnvelope(t *testing.T) {
+	t.Parallel()
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	s := &server{
+		config: Config{ReadIdleTimeout: time.Second, WriteTimeout: time.Second},
+		id:     "canonical", record: Record{Root: "test", Accepting: true},
+	}
+	done := make(chan struct{})
+	go func() {
+		s.handle(serverConn)
+		close(done)
+	}()
+	if err := clientConn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	dec, enc := json.NewDecoder(clientConn), json.NewEncoder(clientConn)
+	var greeting hello
+	if err := dec.Decode(&greeting); err != nil || !greeting.Accepting {
+		t.Fatalf("request handshake: %+v %v", greeting, err)
+	}
+	if err := enc.Encode(map[string]any{
+		"id": "oversized", "method": "status", "protocol_version": ProtocolVersion,
+		"data": strings.Repeat("x", proposedMaxRequestBytes+1),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var reply serve.Envelope
+	if err := dec.Decode(&reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Type != "response" || reply.OK == nil || *reply.OK || reply.Error != "request too large" {
+		t.Fatalf("oversized request envelope: %+v", reply)
+	}
+	clientConn.Close()
+	_ = receiveDaemonTestValue(t, done, "oversized request handler to exit")
 }
 
 func TestConnectionRenewsReadDeadlineForEachRequestAndPreventsIdleExit(t *testing.T) {
