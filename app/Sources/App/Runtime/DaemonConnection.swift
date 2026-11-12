@@ -118,7 +118,7 @@ final class DaemonConnection: @unchecked Sendable {
             onHandshakeRead?()
             let line: Data
             if let cancellation {
-                line = try UnixSocketIO.readLine(
+                line = try UnixSocketIO.readLineCancellable(
                     from: fd,
                     maxBytes: 4096,
                     timeout: 2,

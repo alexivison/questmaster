@@ -176,6 +176,7 @@ enum LogicSelfTests {
         ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
         ("testOneShotServeClientsRejectIncompatibleEnvelopes", testOneShotServeClientsRejectIncompatibleEnvelopes),
         ("testServeStreamReconnectsAfterProtocolMismatch", testServeStreamReconnectsAfterProtocolMismatch),
+        ("testReadLineHonorsSocketTimeout", testReadLineHonorsSocketTimeout),
         ("testReadLineReturnsALineSpanningManyReads", testReadLineReturnsALineSpanningManyReads),
         ("testServeStreamJoinsLinesSplitAcrossWrites", testServeStreamJoinsLinesSplitAcrossWrites),
         ("testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap", testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap),
@@ -362,7 +363,11 @@ enum LogicSelfTests {
         }
 
         client.start(onUpdate: { _ in })
-        try expect(waitUntil { FileManager.default.fileExists(atPath: pidFile.path) }, "daemon start should launch the fake child")
+        let launchDeadline = ProcessInfo.processInfo.systemUptime + 5
+        while !FileManager.default.fileExists(atPath: pidFile.path), ProcessInfo.processInfo.systemUptime < launchDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        try expect(FileManager.default.fileExists(atPath: pidFile.path), "daemon start should launch the fake child")
         guard let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw TestFailure("the fake daemon should record its process id")
@@ -6010,6 +6015,38 @@ enum LogicSelfTests {
         try expect(!labels.contains("wrong"), "incompatible tracker data should not reach the store")
         let afterMismatch = states.drop(while: { $0.blockingMessage == nil })
         try expect(afterMismatch.contains(.connected), "the recovered tracker should make the connection live again, got \(states)")
+    }
+
+    private static func testReadLineHonorsSocketTimeout() throws {
+        var fds: [Int32] = [0, 0]
+        try expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0, "could not create timeout socket pair")
+        defer {
+            shutdown(fds[0], SHUT_RDWR)
+            close(fds[0])
+            close(fds[1])
+        }
+        try UnixSocketIO.setReadTimeout(on: fds[0], seconds: 1)
+        let reader = fds[0]
+        let completed = DispatchSemaphore(value: 0)
+        let timedOut = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            defer { completed.signal() }
+            do {
+                _ = try UnixSocketIO.readLine(from: reader)
+            } catch ServeClientError.protocolError("socket read timed out") {
+                timedOut.signal()
+            } catch {
+                // The test accepts only the configured timeout below.
+            }
+        }
+
+        let returnedBeforeCleanup = completed.wait(timeout: .now() + 2) == .success
+        if !returnedBeforeCleanup {
+            shutdown(fds[0], SHUT_RDWR)
+            _ = completed.wait(timeout: .now() + 1)
+        }
+        let honoredTimeout = returnedBeforeCleanup && timedOut.wait(timeout: .now()) == .success
+        try expect(honoredTimeout, "readLine should honor SO_RCVTIMEO while its silent peer remains open")
     }
 
     private static func testReadLineReturnsALineSpanningManyReads() throws {

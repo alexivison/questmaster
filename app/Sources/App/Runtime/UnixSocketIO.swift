@@ -86,26 +86,40 @@ enum UnixSocketIO {
     /// Shared by one-shot request/response callers; the streaming client keeps its own buffered
     /// read loop because it must retain bytes across many lines.
     static func readLine(from fd: Int32, maxBytes: Int? = nil) throws -> Data {
-        try readLine(from: fd, maxBytes: maxBytes, deadline: nil, isCancelled: { false })
+        var pending = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count == 0 {
+                throw ServeClientError.protocolError("socket closed before a full line was read")
+            }
+            if count < 0 {
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw ServeClientError.protocolError("socket read timed out")
+                }
+                throw ServeClientError.protocolError(String(cString: strerror(errno)))
+            }
+            // Only the new bytes can hold the newline; rescanning the whole buffer made a large reply quadratic.
+            let scanStart = pending.endIndex
+            pending.append(buffer, count: count)
+            if let maxBytes, pending.count > maxBytes {
+                throw ServeClientError.protocolError("socket line exceeded \(maxBytes) bytes")
+            }
+            if let newline = pending[scanStart...].firstIndex(of: 0x0a) {
+                return pending.subdata(in: pending.startIndex..<newline)
+            }
+        }
     }
 
     /// Reads a bounded handshake line while a stop signal can interrupt the wait. The socket owner also shuts down
     /// `fd` on cancellation, which wakes `poll` immediately instead of waiting out the deadline.
-    static func readLine(
+    static func readLineCancellable(
         from fd: Int32,
         maxBytes: Int?,
         timeout: TimeInterval,
         isCancelled: () -> Bool
     ) throws -> Data {
-        try readLine(from: fd, maxBytes: maxBytes, deadline: DispatchTime.now() + timeout, isCancelled: isCancelled)
-    }
-
-    private static func readLine(
-        from fd: Int32,
-        maxBytes: Int?,
-        deadline: DispatchTime?,
-        isCancelled: () -> Bool
-    ) throws -> Data {
+        let deadline = DispatchTime.now() + timeout
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
@@ -113,15 +127,10 @@ enum UnixSocketIO {
                 throw CancellationError()
             }
             var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-            let waitMilliseconds: Int32
-            if let deadline {
-                let now = DispatchTime.now().uptimeNanoseconds
-                let remaining = deadline.uptimeNanoseconds > now ? deadline.uptimeNanoseconds - now : 0
-                let roundedMilliseconds = remaining == 0 ? 0 : (remaining + 999_999) / 1_000_000
-                waitMilliseconds = Int32(min(roundedMilliseconds, UInt64(Int32.max)))
-            } else {
-                waitMilliseconds = -1
-            }
+            let now = DispatchTime.now().uptimeNanoseconds
+            let remaining = deadline.uptimeNanoseconds > now ? deadline.uptimeNanoseconds - now : 0
+            let roundedMilliseconds = remaining == 0 ? 0 : (remaining + 999_999) / 1_000_000
+            let waitMilliseconds = Int32(min(roundedMilliseconds, UInt64(Int32.max)))
             let readyCount = poll(&ready, 1, waitMilliseconds)
             if readyCount < 0 {
                 if errno == EINTR { continue }
