@@ -589,6 +589,9 @@ func (c *deadlineCountingConn) readDeadlineValues() []time.Time {
 func TestDaemonConnectionLimitKeepsStatusAvailable(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "daemon"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	socket, err := SocketPath(root, "canonical")
 	if err != nil {
 		t.Fatal(err)
@@ -602,21 +605,58 @@ func TestDaemonConnectionLimitKeepsStatusAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.accept()
-	const idleConnectionAttempts = proposedMaxConcurrentConnections + 16
-	idle := make([]net.Conn, 0, idleConnectionAttempts)
+	const idleConnectionAttempts = 1000
+	normalConnectionCount := proposedMaxConcurrentConnections - 1
+	overloadConnectionAttempts := idleConnectionAttempts - normalConnectionCount
+	idle := make([]net.Conn, 0, normalConnectionCount)
+	var overloadConn net.Conn
 	defer func() {
 		_ = s.closeListener()
 		for _, conn := range idle {
 			_ = conn.Close()
 		}
+		if overloadConn != nil {
+			_ = overloadConn.Close()
+		}
 	}()
+	readHello := func(conn net.Conn) (hello, error) {
+		if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			return hello{}, err
+		}
+		var greeting hello
+		err := json.NewDecoder(conn).Decode(&greeting)
+		_ = conn.SetDeadline(time.Time{})
+		return greeting, err
+	}
 
-	for i := 0; i < idleConnectionAttempts; i++ {
+	for i := 0; i < normalConnectionCount; i++ {
 		conn, err := net.DialTimeout("unix", socket, time.Second)
 		if err != nil {
-			t.Fatalf("open idle connection %d: %v", i, err)
+			t.Fatalf("open normal connection %d: %v", i, err)
 		}
 		idle = append(idle, conn)
+		greeting, err := readHello(conn)
+		if err != nil || !greeting.Accepting {
+			t.Fatalf("normal connection %d handshake: %+v %v", i, greeting, err)
+		}
+	}
+
+	// Pace the 1,000 overload connections by each accepted handshake. Keep only the current overload client open so
+	// the test exercises the daemon bound without depending on the kernel listen backlog or client FD limit.
+	for i := 0; i < overloadConnectionAttempts; i++ {
+		conn, err := net.DialTimeout("unix", socket, time.Second)
+		if err != nil {
+			t.Fatalf("open overload connection %d: %v", i, err)
+		}
+		greeting, err := readHello(conn)
+		if err != nil || !greeting.Accepting {
+			_ = conn.Close()
+			t.Fatalf("overload connection %d handshake: %+v %v", i, greeting, err)
+		}
+		if overloadConn != nil {
+			_ = overloadConn.Close()
+		}
+		overloadConn = conn
 	}
 
 	statusConn, err := net.DialTimeout("unix", socket, time.Second)
@@ -640,7 +680,7 @@ func TestDaemonConnectionLimitKeepsStatusAvailable(t *testing.T) {
 		t.Fatalf("status response: %+v %v", reply, err)
 	}
 	if clients := s.clients(); clients > proposedMaxConcurrentConnections {
-		t.Fatalf("daemon retained %d clients after %d idle connections, want at most %d", clients, len(idle), proposedMaxConcurrentConnections)
+		t.Fatalf("daemon retained %d clients after %d idle connections, want at most %d", clients, idleConnectionAttempts, proposedMaxConcurrentConnections)
 	}
 }
 
