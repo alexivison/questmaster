@@ -91,6 +91,25 @@ func TestInstalledShimsFollowTheStableLinkWithoutRewrite(t *testing.T) {
 	}
 }
 
+func TestExecutableForRecordUsesStablePathOnlyForInstalledIdentities(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	executable := filepath.Join(root, "versions", "build", "qm")
+	for _, tc := range []struct {
+		id, want string
+	}{
+		{id: "canonical", want: StableExecutable(root)},
+		{id: "bin-0123456789abcdef", want: StableExecutable(root)},
+		{id: "dev-0123456789abcdef", want: executable},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			if got := executableForRecord(root, tc.id, executable); got != tc.want {
+				t.Fatalf("record executable for %q = %q, want %q", tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDevShimKeepsItsExecutableAndLeavesTheStableLinkAlone(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

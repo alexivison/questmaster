@@ -205,7 +205,7 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if err != nil {
 		return err
 	}
-	s.record = Record{Running: true, PID: os.Getpid(), Root: config.Root, Identity: id, Socket: socket, Executable: config.Executable, ShimDirectory: filepath.Join(config.Root, "daemon", "bin", id), Build: build, Generation: s.record.Generation, Jobs: s.jobsLock != nil, Accepting: true}
+	s.record = Record{Running: true, PID: os.Getpid(), Root: config.Root, Identity: id, Socket: socket, Executable: executableForRecord(config.Root, id, config.Executable), ShimDirectory: filepath.Join(config.Root, "daemon", "bin", id), Build: build, Generation: s.record.Generation, Jobs: s.jobsLock != nil, Accepting: true}
 	if err := s.publish(); err != nil {
 		return err
 	}

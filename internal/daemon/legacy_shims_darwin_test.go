@@ -53,13 +53,19 @@ func TestLegacyShimsMigrateAndPruneSafely(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(linkedBin, "questmaster"), []byte(old), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	canonical := "/Applications/Questmaster.app/Contents/Resources/qm"
+	stateRoot := t.TempDir()
+	first := writeEchoBinary(t, filepath.Join(stateRoot, "bin", "versions", "first", "qm"), "first")
+	second := writeEchoBinary(t, filepath.Join(stateRoot, "bin", "versions", "second", "qm"), "second")
+	if err := ensureStableExecutable(stateRoot, first, true); err != nil {
+		t.Fatal(err)
+	}
+	stable := StableExecutable(stateRoot)
 	for range 2 {
-		if err := MigrateLegacyShims(home, canonical); err != nil {
+		if err := MigrateLegacyShims(home, stable); err != nil {
 			t.Fatal(err)
 		}
 	}
-	want := "#!/bin/sh\nexec '" + canonical + "' \"$@\"\n"
+	want := "#!/bin/sh\nexec '" + stable + "' \"$@\"\n"
 	for _, token := range []string{live, stale} {
 		for _, name := range []string{"qm", "questmaster"} {
 			body, err := os.ReadFile(filepath.Join(support, token, "bin", name))
@@ -67,6 +73,15 @@ func TestLegacyShimsMigrateAndPruneSafely(t *testing.T) {
 				t.Fatalf("%s/%s: %q %v", token, name, body, err)
 			}
 		}
+	}
+	if got := runShim(t, filepath.Join(support, live, "bin", "qm")); got != "first:hello" {
+		t.Fatalf("migrated shim before stable retarget = %q", got)
+	}
+	if err := ensureStableExecutable(stateRoot, second, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := runShim(t, filepath.Join(support, live, "bin", "qm")); got != "second:hello" {
+		t.Fatalf("migrated shim after stable retarget = %q", got)
 	}
 	body, err := os.ReadFile(filepath.Join(support, unknown, "bin", "qm"))
 	if err != nil || string(body) != "#!/bin/sh\necho user-owned\n" {
@@ -100,7 +115,7 @@ func TestLegacyShimsMigrateAndPruneSafely(t *testing.T) {
 	if err := os.Symlink(filepath.Join(home, "Library"), filepath.Join(linkedHome, "Library")); err != nil {
 		t.Fatal(err)
 	}
-	if err := MigrateLegacyShims(linkedHome, canonical); err == nil {
+	if err := MigrateLegacyShims(linkedHome, stable); err == nil {
 		t.Fatal("parent symlink was followed")
 	}
 }

@@ -1307,6 +1307,9 @@ func TestDaemonEnvironmentFromPollutedPaneReachesBothSessionMutations(t *testing
 	if !record.Running {
 		t.Fatal("helper daemon did not start")
 	}
+	if want := daemon.StableExecutable(h.root); record.Executable != want {
+		t.Fatalf("installed daemon record executable=%q, want stable link %q", record.Executable, want)
+	}
 	call := func(method string, data any) map[string]any {
 		t.Helper()
 		conn, err := net.DialTimeout("unix", record.Socket, daemonProcessSocketTimeout)

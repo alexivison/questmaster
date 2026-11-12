@@ -110,9 +110,11 @@ build_qm "" "$T/bin/qm-dev"
 build_qm v1-test "$T/bin/qm-v1"
 build_qm v2-test "$T/bin/qm-v2"
 build_qm v3-test "$T/bin/qm-v3"
+build_qm v4-test "$T/bin/qm-v4"
 make_bundle v1-test "$T/bin/qm-v1" "$T/v1/Questmaster.app"
 make_bundle v2-test "$T/bin/qm-v2" "$T/v2/Questmaster.app"
 make_bundle v3-test "$T/bin/qm-v3" "$T/v3/Questmaster.app"
+make_bundle v4-test "$T/bin/qm-v4" "$T/v4/Questmaster.app"
 make_bundle v3-test "$T/bin/qm-v2" "$T/mismatch/Questmaster.app"
 make_bundle v3-test "$T/bin/qm-v3" "$T/tampered/Questmaster.app"
 echo "tampered" >>"$T/tampered/Questmaster.app/Contents/Resources/qm"
@@ -129,6 +131,7 @@ install --expect-version v1-test "$T/v1/Questmaster.app" >"$T/out" 2>&1 || {
 }
 grep -q "Installed $APP (v1-test)" "$T/out" || fail "first install did not print the stamped version: $(cat "$T/out")"
 expect_installed v1-test
+V1_QM="$(readlink "$STABLE")"
 [ "$(plist_version "$PREVIOUS")" = 0.1.0 ] || fail "the old app was not kept as $PREVIOUS"
 echo "ok - first install over an old-style install prints v1-test and moves both links off the bundle"
 
@@ -166,21 +169,35 @@ echo "ok - a second install is refused while one holds the lock"
 
 # A run killed outright leaves its staged copy behind; pid 99999 is above macOS's pid limit.
 mkdir -p "$APP.staged.99999/Contents"
+RECORD="$STATE/daemon/canonical.json"
+mkdir -p "$(dirname "$RECORD")"
+printf '{"executable":"%s"}\n' "$V1_QM" >"$RECORD"
 install "$T/v3/Questmaster.app" >"$T/out" 2>&1 || {
   cat "$T/out" >&2
   fail "third install failed"
 }
 expect_installed v3-test
 [ "$(plist_version "$PREVIOUS")" = v2-test ] || fail "previous bundle is $(plist_version "$PREVIOUS"), want v2-test"
-[ "$(version_dirs)" = "v2-test v3-test " ] || fail "versions are $(version_dirs), want v2-test v3-test (v1-test pruned)"
-echo "ok - third install prunes versions to the installed and previous ones"
+[ "$(version_dirs)" = "v1-test v2-test v3-test " ] || fail "versions are $(version_dirs), want old record v1-test plus installed and previous versions"
+echo "ok - a legacy versioned daemon record keeps its running binary during prune"
+
+# New daemon records use the stable link, so they do not pin an old version after upgrade.
+printf '{"executable":"%s"}\n' "$STABLE" >"$RECORD"
+install "$T/v4/Questmaster.app" >"$T/out" 2>&1 || {
+  cat "$T/out" >&2
+  fail "fourth install failed"
+}
+expect_installed v4-test
+[ "$(plist_version "$PREVIOUS")" = v3-test ] || fail "previous bundle is $(plist_version "$PREVIOUS"), want v3-test"
+[ "$(version_dirs)" = "v3-test v4-test " ] || fail "versions are $(version_dirs), want the stable record not to pin v1-test or v2-test"
+echo "ok - a stable daemon record does not keep superseded versions alive"
 
 install --rollback >"$T/out" 2>&1 || {
   cat "$T/out" >&2
   fail "rollback failed"
 }
-expect_installed v2-test
-[ "$(plist_version "$PREVIOUS")" = v3-test ] || fail "after rollback the previous bundle is $(plist_version "$PREVIOUS"), want v3-test"
+expect_installed v3-test
+[ "$(plist_version "$PREVIOUS")" = v4-test ] || fail "after rollback the previous bundle is $(plist_version "$PREVIOUS"), want v4-test"
 echo "ok - rollback swaps the bundles and points the stable link at the restored version"
 
 # Mixed real and temporary paths are refused before anything is touched. The "real" paths here are
@@ -200,7 +217,7 @@ fi
 grep -q "temporary" "$T/out" || fail "mixed-path refusal did not explain itself: $(cat "$T/out")"
 [ ! -e "$REAL_LIKE/Questmaster.app" ] && [ ! -e "$REAL_LIKE/home/.local" ] || fail "a refused run touched $REAL_LIKE"
 rm -rf "$REAL_LIKE"
-expect_installed v2-test
+expect_installed v3-test
 echo "ok - mixed temporary and real paths are refused"
 
 echo "install tests passed"
