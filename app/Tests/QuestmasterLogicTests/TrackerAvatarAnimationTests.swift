@@ -310,13 +310,18 @@ struct TrackerAvatarAnimationTests {
             fail("the director's fixture should decode")
         }
         expect(TrackerAvatarPose.allCases.allSatisfy { fixture.animation(for: $0)?.strikeFrame == nil }, "the director's fixture should name no strike frame")
-        for (classID, catchFrame) in [("bard", 5), ("paladin", 4), ("wizard", 4)] {
+        for (classID, catchFrame) in [("bard", 5), ("wizard", 4)] {
             guard let animation = try? decode(AvatarAnimationFixture.classJSON(classID)) else {
                 fail("the \(classID)'s file should decode")
             }
             expect(animation.animation(for: .release)?.strikeFrame == 6, "the \(classID)'s release should strike on its peak, f6")
             expect(animation.animation(for: .catching)?.strikeFrame == catchFrame, "the \(classID)'s catch should strike on its peak, f\(catchFrame)")
         }
+        guard let paladin = try? decode(AvatarAnimationFixture.classJSON("paladin")) else {
+            fail("the paladin's file should decode")
+        }
+        expect(paladin.animation(for: .release)?.strikeFrame == 5, "the paladin's release should strike on its peak, f5")
+        expect(paladin.animation(for: .catching)?.strikeFrame == 6, "the paladin's catch should strike on its peak, f6")
         guard let cleric = try? decode(AvatarAnimationFixture.classJSON("cleric")) else {
             fail("the cleric's file should decode")
         }
@@ -759,19 +764,14 @@ struct TrackerAvatarAnimationTests {
         guard let animation = try? decode(AvatarAnimationFixture.classJSON("paladin")) else {
             fail("the paladin's file should decode")
         }
-        expect(animation.idle?.blink == true, "the paladin should blink")
-        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xe4af49), "the paladin should keep the eyelid colour")
-        expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f5.png", "the paladin should resume at the authored rest frame")
-        expect(animation.idle?.breathing?.frames.map(\.file) == [
-            "01-idle-breath-f1.png", "01-idle-breath-f2.png", "01-idle-breath-f3.png", "01-idle-breath-f4.png",
-            "01-idle-breath-f5.png", "01-idle-breath-f6.png", "01-idle-breath-f7.png", "01-idle-breath-f8.png",
-            "01-idle-breath-f7.png", "01-idle-breath-f6.png", "01-idle-breath-f5.png", "01-idle-breath-f4.png",
-            "01-idle-breath-f3.png", "01-idle-breath-f2.png",
-        ], "the paladin should keep the explicit ping-pong frame order")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 131, y: 92), "the release hand should be the paladin's hand pixel")
-        expect(animation.fidgets.map(\.name) == ["watch"], "the paladin should have the watch fidget")
+        expect(animation.idle?.blink == false, "the paladin wears a closed helm, so he should not blink")
+        expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the paladin should resume at the authored rest frame")
+        expect(animation.idle?.breathing?.frames.map(\.file) == (1...8).map { "01-idle-breath-f\($0).png" },
+               "the paladin should play his eight breathing images in order")
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 126, y: 95), "the release hand should be the paladin's hand pixel")
+        expect(animation.fidgets.map(\.name) == ["shrug"], "the paladin should have the shrug fidget")
         let pondering = animation.animation(for: .pondering)
-        expect(pondering?.footRow == 174 && pondering?.bodyColumn == 56, "pondering should stand at the paladin's foot row and body column")
+        expect(pondering?.footRow == 199 && pondering?.bodyColumn == 50, "pondering should stand at the paladin's foot row and body column")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the paladin's summoning should have a ground effect")
         expect(animation.animation(for: .channelling)?.finish != nil, "the paladin's channelling should finish")
     }
@@ -788,18 +788,18 @@ struct TrackerAvatarAnimationTests {
     }
 
     /// The paladin's frames at given times, read from his file: the summoning's entrance moves him while its ground circle opens
-    /// below the figure, and the channelling's finish plays its entrance backwards, from f4 down to f1.
+    /// below the figure, and the channelling's finish plays its entrance backwards, from f3 down to f1.
     private static func thePaladinsBlocksPlayAtTheirTimes() {
         guard let animation = try? decode(AvatarAnimationFixture.classJSON("paladin")),
               let summoning = animation.animation(for: .summoning), let enter = summoning.enter, let loop = summoning.loop,
               let finish = summoning.finish, let channellingFinish = animation.animation(for: .channelling)?.finish else {
             fail("the paladin's summoning and channelling should have their blocks")
         }
-        expect(enter.character.frame(at: 0.35, looping: false) == 7, "a summoning's enter should reach the paladin's f7 at 0.35 s")
-        expect(enter.behind?.frame(at: 0.35, looping: false) == 15, "the ground circle should reach frame 15 at 0.35 s of its enter")
-        expect(loop.character.frame(at: 0.6, looping: true) == 11, "the summoning's loop should show f11 from 0.5 s")
-        expect(finish.behind?.frame(at: 0.25, looping: false) == 11, "the ground circle's finish should reach frame 11 at 0.25 s")
-        expect(channellingFinish.character.frame(at: 0, looping: false) == 4, "the channelling's finish should start on the pose's f4")
+        expect(enter.character.frame(at: 0.35, looping: false) == 4, "a summoning's enter should reach the paladin's f4 at 0.35 s")
+        expect(enter.behind?.frame(at: 0.35, looping: false) == 4, "the ground circle should reach frame 4 at 0.35 s of its enter")
+        expect(loop.character.frame(at: 0.6, looping: true) == 10, "the summoning's loop should show f10 from 0.6 s")
+        expect(finish.behind?.frame(at: 0.25, looping: false) == 19, "the ground circle's finish should reach frame 19 at 0.25 s")
+        expect(channellingFinish.character.frame(at: 0, looping: false) == 3, "the channelling's finish should start on the pose's f3")
         expect(channellingFinish.character.frame(at: 9, looping: false) == 1, "the channelling's finish should end on the paladin's f1")
     }
 

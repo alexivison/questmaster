@@ -1,37 +1,28 @@
 GIMP Palette
 Name: Paladin — palette lock
-Columns: 3
+Columns: 6
 #
-  8   3   6	outline 1
- 23  17  16	outline 2
-187 125  57	gold 1
-228 175  73	gold 2
-232 193  92	gold 3
- 72  74  78	metal 1
-117 116 105	metal 2
-207 190 144	metal 3
- 48  30  27	leather and cloth 1
- 62  40  32	leather and cloth 2
-130  77  47	leather and cloth 3
-255 251 232	glow 1
-228 175  73	glow 2
-187 125  57	glow 3
-229 221 176	glow 4
-245 226 160	glow 5
-233 214 129	glow 6
-209 149  64	glow 7
-207 190 144	glow 8
-198 171 114	glow 9
-232 193  92	glow 10
-230 181  82	glow 11
-255 172  12	glow 12
-255 169  12	glow 13
-255 185  13	glow 14
-252 115 102	glow 15
-252 155  12	glow 16
-240  62 137	glow 17
-204  97 126	glow 18
-252 204  13	glow 19
-253 242  42	glow 20
-240  92  99	glow 21
-252 146 105	glow 22
+ 33  31  34	steel 1
+ 38  36  41	steel 2
+ 43  42  48	steel 3
+ 51  52  57	steel 4
+ 61  61  66	steel 5
+ 66  66  72	steel 6
+ 81  82  86	steel 7
+107 107 107	steel 8
+ 59  32  28	brown 1
+ 71  44  36	brown 2
+ 97  56  41	brown 3
+119  73  44	brown 4
+153 101  52	gold 1
+197 136  60	gold 2
+243 202 110	gold 3
+  5   4   6	outline 1
+ 17  13  15	outline 2
+ 26  22  26	outline 3
+122  52   8	glow 1
+188  92  10	glow 2
+232 148  24	glow 3
+252 196  56	glow 4
+255 232 130	glow 5
+255 252 225	glow 6

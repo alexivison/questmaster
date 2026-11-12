@@ -1940,11 +1940,11 @@ enum LogicSelfTests {
     }
 
     /// Every bundled class's still flights lead with their heads on their paths. Only the returning wisp flies left; the orb and the
-    /// messenger fly right. How each still is drawn is read from the art: the bard's, the druid's and the paladin's wisps face left already, and every
+    /// messenger fly right. How each still is drawn is read from the art: the bard's, the druid's and the necromancer's wisps face left already, and every
     /// other still faces right, so a wisp that faces right needs its file to say so (`faces`) to be mirrored on its way back.
     @MainActor
     private static func testEveryBundledStillLeadsWithItsHeadOnItsPath() throws {
-        let drawnLeft: Set<String> = ["bard S6-returning-wisp", "druid S6-returning-wisp", "necromancer S6-returning-wisp", "paladin S6-returning-wisp"]
+        let drawnLeft: Set<String> = ["bard S6-returning-wisp", "druid S6-returning-wisp", "necromancer S6-returning-wisp"]
         for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
             for spell in TrackerSpellFlight.Spell.allCases {
                 guard let art = sprites.flight(for: spell) else {
@@ -2076,10 +2076,11 @@ enum LogicSelfTests {
         guard let sprites = TrackerAvatarSprites.bundled()["paladin"] else {
             throw TestFailure("the paladin's sprites should load from the app bundle")
         }
-        try expect(sprites.animation.idle?.breathing?.frames.count == 14, "the paladin should keep the explicit 14-step ping-pong")
-        try expect(sprites.animation.fidgets.map(\.name) == ["watch"], "the paladin should have the watch fidget")
+        try expect(sprites.animation.idle?.blink == false, "the paladin wears a closed helm, so he should not schedule a blink")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 8 && sprites.idleBreathingArt?.count == 8,
+                   "the paladin should load all eight breathing images")
+        try expect(sprites.animation.fidgets.map(\.name) == ["shrug"], "the paladin should have the shrug fidget")
         try expect(sprites.availableFidgets.count == 1, "the paladin's fidget should have its art")
-        try expect(sprites.idleBreathingArt?.count == 14, "the paladin's ping-pong should repeat art frames in its authored order")
         try expect(sprites.idleStillArt != nil, "the paladin should have a still idle image")
         try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the paladin's art")
         try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
@@ -2344,7 +2345,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("necromancer", 161), ("paladin", 171), ("ranger", 153), ("rogue", 129), ("wizard", 150)] {
+        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 129), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }
