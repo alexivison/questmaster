@@ -602,7 +602,8 @@ func TestDaemonConnectionLimitKeepsStatusAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.accept()
-	idle := make([]net.Conn, 0, 1000)
+	const idleConnectionAttempts = proposedMaxConcurrentConnections + 16
+	idle := make([]net.Conn, 0, idleConnectionAttempts)
 	defer func() {
 		_ = s.closeListener()
 		for _, conn := range idle {
@@ -610,7 +611,7 @@ func TestDaemonConnectionLimitKeepsStatusAvailable(t *testing.T) {
 		}
 	}()
 
-	for i := 0; i < cap(idle); i++ {
+	for i := 0; i < idleConnectionAttempts; i++ {
 		conn, err := net.DialTimeout("unix", socket, time.Second)
 		if err != nil {
 			t.Fatalf("open idle connection %d: %v", i, err)
@@ -639,7 +640,7 @@ func TestDaemonConnectionLimitKeepsStatusAvailable(t *testing.T) {
 		t.Fatalf("status response: %+v %v", reply, err)
 	}
 	if clients := s.clients(); clients > proposedMaxConcurrentConnections {
-		t.Fatalf("daemon retained %d clients after 1000 idle connections, want at most %d", clients, proposedMaxConcurrentConnections)
+		t.Fatalf("daemon retained %d clients after %d idle connections, want at most %d", clients, len(idle), proposedMaxConcurrentConnections)
 	}
 }
 
