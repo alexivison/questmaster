@@ -190,6 +190,12 @@ func TestSkillFrontmatterAndSize(t *testing.T) {
 		path := filepath.Join(root, skillsDir, name, "SKILL.md")
 		fields, _ := frontmatter(t, path)
 
+		if strings.HasPrefix(name, "questmaster-") {
+			t.Errorf("%s: repo skills must not start with %q: those names belong to the user-facing skills the binary ships (internal/skills)", path, "questmaster-")
+		}
+		if !strings.Contains(fields["description"], "Questmaster codebase itself") {
+			t.Errorf("%s: description must say the skill is for working on the Questmaster codebase itself", path)
+		}
 		if fields["name"] != name {
 			t.Errorf("%s: name %q must equal the directory %q", path, fields["name"], name)
 		}

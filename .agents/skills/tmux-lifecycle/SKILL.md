@@ -1,6 +1,6 @@
 ---
 name: tmux-lifecycle
-description: Rules for Questmaster's tmux routing, server inventory, manifests, runtime directories and session close/delete/prune lifecycle in the Go backend (internal/tmux, tmuxroute, session, state, daemon, and the continue, delete, prune and tmux audit commands). Read before changing how sessions are created, found, closed, deleted or audited.
+description: For working on the Questmaster codebase itself (not for users of the questmaster CLI). Rules for Questmaster's tmux routing, server inventory, manifests, runtime directories and session close/delete/prune lifecycle in the Go backend (internal/tmux, tmuxroute, session, state, daemon, and the continue, delete, prune and tmux audit commands). Read before changing how sessions are created, found, closed, deleted or audited.
 ---
 
 # Questmaster tmux routing and session lifecycle

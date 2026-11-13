@@ -1,6 +1,6 @@
 ---
 name: app-bundle
-description: Building, installing, rolling back or test-running Questmaster.app and its installer scripts (app/Scripts/build-app.sh, install-app.sh, test-install.sh), and running a branch build with a dev tmux label (QUESTMASTER_TMUX_LABEL, --state-root, QUESTMASTER_BIN). Read before touching app/Scripts or running a dev app.
+description: For working on the Questmaster codebase itself (not for users of the questmaster CLI). Building, installing, rolling back or test-running Questmaster.app and its installer scripts (app/Scripts/build-app.sh, install-app.sh, test-install.sh), and running a branch build with a dev tmux label (QUESTMASTER_TMUX_LABEL, --state-root, QUESTMASTER_BIN). Read before touching app/Scripts or running a dev app.
 ---
 
 # Questmaster app bundle, install and dev runs

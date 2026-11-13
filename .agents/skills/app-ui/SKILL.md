@@ -1,6 +1,6 @@
 ---
 name: app-ui
-description: Rules for any SwiftUI or AppKit view, token, colour, spacing, animation, key handling, empty or loading state or modal in Questmaster's app (app/Sources/App, app/Sources/Core). Read before editing views; covers the interaction-state looks, the 5-point spacing scale, the motion tokens, modal key routing, and the three scan tests (StateRulesScanTests, SpacingRulesScanTests, MotionRulesScanTests) that fail on a break.
+description: For working on the Questmaster codebase itself (not for users of the questmaster CLI). Rules for any SwiftUI or AppKit view, token, colour, spacing, animation, key handling, empty or loading state or modal in Questmaster's app (app/Sources/App, app/Sources/Core). Read before editing views; covers the interaction-state looks, the 5-point spacing scale, the motion tokens, modal key routing, and the three scan tests (StateRulesScanTests, SpacingRulesScanTests, MotionRulesScanTests) that fail on a break.
 ---
 
 # Questmaster app UI rules
