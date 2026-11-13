@@ -2015,7 +2015,12 @@ enum LogicSelfTests {
         lone.frame = root.bounds
         root.addSubview(lone)
         lone.fly(TrackerSpellFlight(spell: .wisp, from: .worker("qm-2"), to: .avatar))
-        RunLoop.current.run(until: Date().addingTimeInterval(Motion.duration(.flight) + 0.15))
+        // Poll for the landing instead of sleeping a fixed time: a slow runner's run loop can be late, which put a fixed check
+        // either before the impact arrived or after it had gone.
+        let landedBy = Date().addingTimeInterval(Motion.duration(.flight) + 2)
+        while Date() < landedBy, lone.layer?.sublayers?.first?.animation(forKey: "spell-impact") == nil {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
         guard let impact = lone.layer?.sublayers?.first, lone.layer?.sublayers?.count == 1,
               let burst = impact.animation(forKey: "spell-impact") as? CAKeyframeAnimation else {
             throw TestFailure("a wisp that has landed should leave only its impact, playing, got \(lone.layer?.sublayers?.count ?? -1) layers")
@@ -2023,7 +2028,10 @@ enum LogicSelfTests {
         try expect(burst.values?.count == 3 && burst.calculationMode == .discrete && burst.repeatCount == 0 && burst.repeatDuration == 0 && burst.duration == 0.2,
                    "the impact should play its two frames once, over its track's 0.2 s, with the last key holding the final frame")
         try expect(impact.transform.m11 == 1, "the impact is a burst, not mirrored")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2 + 0.3))
+        let goneBy = Date().addingTimeInterval(2)
+        while Date() < goneBy, !(lone.layer?.sublayers ?? []).isEmpty {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
         try expect((lone.layer?.sublayers ?? []).isEmpty, "the impact should go when its frames have played, so nothing keeps running after a spell lands")
     }
 
