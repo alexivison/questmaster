@@ -397,6 +397,55 @@ func TestHookOpenCodeFeedEntriesAndRejectedEvents(t *testing.T) {
 	}
 }
 
+// OpenCode's question tool asks the user and waits: question.asked blocks the session with the question
+// until it is answered or dismissed, through the busy status and the tool's own part updates.
+func TestHookOpenCodeQuestionBlocksUntilAnswered(t *testing.T) {
+	for _, closing := range []string{"question.replied", "question.rejected"} {
+		t.Run(closing, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-question")
+			const ocSession = "ses_question"
+			openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": ocSession}})
+			openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
+				"sessionID": ocSession,
+				"status":    map[string]interface{}{"type": "busy"},
+			})
+			openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{"sessionID": ocSession, "tool": "question"})
+			openCodeHookEvent(t, r, sessionID, "question.asked", map[string]interface{}{
+				"id":        "que_1",
+				"sessionID": ocSession,
+				"questions": []interface{}{map[string]interface{}{
+					"question": "Did you see every pose?",
+					"header":   "Demo",
+					"options":  []interface{}{map[string]interface{}{"label": "Yes"}},
+				}},
+			})
+			want := "Question: Did you see every pose?"
+			if pane := rec.lastState.Panes["agent"]; pane.State != "blocked" || pane.Activity != want {
+				t.Fatalf("asked pane: %+v", pane)
+			}
+			openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
+				"sessionID": ocSession,
+				"status":    map[string]interface{}{"type": "busy"},
+			})
+			openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+				"sessionID": ocSession,
+				"part": map[string]interface{}{
+					"type": "tool", "tool": "question", "messageID": "msg_q",
+					"state": map[string]interface{}{"status": "running"},
+				},
+			})
+			if pane := rec.lastState.Panes["agent"]; pane.State != "blocked" || pane.Activity != want {
+				t.Fatalf("question must hold through busy status and its part: %+v", pane)
+			}
+			openCodeHookEvent(t, r, sessionID, closing, map[string]interface{}{"sessionID": ocSession, "requestID": "que_1"})
+			if pane := rec.lastState.Panes["agent"]; pane.State != "working" || pane.Activity != "Question answered" {
+				t.Fatalf("%s pane: %+v", closing, pane)
+			}
+		})
+	}
+}
+
 func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 	r, rec := newTestRunner(t)
 	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-one-session")

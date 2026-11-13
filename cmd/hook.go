@@ -2331,7 +2331,19 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			}
 			clearSubagentWake(&pane)
 		}
-		clearStaleQuestionActivity := !isOvertaken && opts.action == "tool_end" &&
+		// An async question returns at once and leaves the question open, so the session keeps
+		// waiting on the user through the tool's end and the Stop that ends the turn, until the
+		// next prompt. A tool started after it shows that work, and its turn ends done.
+		keepOpenQuestion := !isSubagent && !isOvertaken && prev.State == "blocked" &&
+			strings.HasPrefix(pane.Activity, "Question: ") &&
+			(opts.action == "tool_end" && (isCodexAsyncQuestionTool(payload.ToolName) || isCodexAsyncQuestionTool(pane.Tool)) ||
+				// Only the async question is still blocked after its tool ended.
+				opts.action == "done" && pane.LastKind == "PostToolUse")
+		if keepOpenQuestion {
+			setState, setActivity = "", ""
+			ev.State, ev.Activity = prev.State, ""
+		}
+		clearStaleQuestionActivity := !isOvertaken && !keepOpenQuestion && opts.action == "tool_end" &&
 			isCodexRequestUserInputTool(pane.Tool) && strings.HasPrefix(pane.Activity, "Question: ")
 		if payload.AgentID == "" {
 			if opts.action == "working" || opts.action == "done" {
@@ -2405,7 +2417,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			updateSubagentChat(&pane, &ev, opts.action, payload.AgentID, payload.AgentType)
 		}
 		if payload.AgentID == "" {
-			if opts.action == "done" && finalMessage != "" && pane.State == "done" {
+			if opts.action == "done" && finalMessage != "" && (pane.State == "done" || keepOpenQuestion) {
 				addChatEntry(&ev, &pane, "message", finalMessage)
 			}
 			if opts.action == "tool_start" && payload.ToolName != "" {
@@ -2735,6 +2747,14 @@ func codexPermissionActivity(p codexPayload) string {
 func codexRequestUserInputActivity(p codexPayload) string {
 	text := askUserQuestionText(p.ToolInput)
 	if text == "" {
+		// request_user_input_async names each question by its title.
+		if qs, ok := p.ToolInput["questions"].([]interface{}); ok && len(qs) > 0 {
+			if first, ok := qs[0].(map[string]interface{}); ok {
+				text, _ = first["title"].(string)
+			}
+		}
+	}
+	if text == "" {
 		text = strings.TrimSpace(p.Message)
 	}
 	if text == "" {
@@ -2746,9 +2766,16 @@ func codexRequestUserInputActivity(p codexPayload) string {
 	return "Question: " + truncatePromptLine(text)
 }
 
+// isCodexRequestUserInputTool reports a Codex tool that asks the user: request_user_input waits
+// for the answer, and request_user_input_async returns at once and leaves the question open.
 func isCodexRequestUserInputTool(name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
-	return name == "request_user_input" || strings.HasSuffix(name, ".request_user_input")
+	return name == "request_user_input" || strings.HasSuffix(name, ".request_user_input") || isCodexAsyncQuestionTool(name)
+}
+
+func isCodexAsyncQuestionTool(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	return name == "request_user_input_async" || strings.HasSuffix(name, ".request_user_input_async")
 }
 
 func activityForCodexTool(p codexPayload) string {

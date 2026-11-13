@@ -299,6 +299,13 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 	case "permission.replied":
 		patch.state = "working"
 		patch.activity = "Permission replied"
+	case "question.asked":
+		// The question tool waits for the user's answer.
+		patch.state = "blocked"
+		patch.activity = "Question: " + truncatePromptLine(openCodeQuestionText(event))
+	case "question.replied", "question.rejected":
+		patch.state = "working"
+		patch.activity = "Question answered"
 	case "message.part.updated":
 		// A part carries no role, so don't surface it yet: buffer it and let the
 		// matching assistant message.updated decide whether to record it.
@@ -388,6 +395,11 @@ func updateOpenCodePane(ctx context.Context, r *HookRunner, sessionID string, no
 		preservePermissionBlock := pane.State == "blocked" &&
 			(pane.LastKind == "permission.asked" || strings.HasPrefix(pane.Activity, "Permission: ")) &&
 			(patch.kind == "session.status" || patch.kind == "session.idle" || patch.kind == "tool.execute.before")
+		// An open question holds the same way, and also through the question tool's own part
+		// updates, until it is answered or dismissed.
+		preservePermissionBlock = preservePermissionBlock || pane.State == "blocked" && pane.LastKind == "question.asked" &&
+			(patch.kind == "session.status" || patch.kind == "session.idle" || patch.kind == "tool.execute.before" ||
+				patch.kind == "message.part.updated")
 		if preservePermissionBlock {
 			setState = ""
 			setActivity = ""
@@ -395,7 +407,7 @@ func updateOpenCodePane(ctx context.Context, r *HookRunner, sessionID string, no
 			clearTool = false
 			lastKind = pane.LastKind
 		}
-		if patch.kind == "permission.replied" && pane.State != "blocked" {
+		if (patch.kind == "permission.replied" || patch.kind == "question.replied" || patch.kind == "question.rejected") && pane.State != "blocked" {
 			setState = ""
 		}
 		if isOvertaken {
@@ -652,6 +664,15 @@ func openCodePermissionLabel(event openCodeEvent) string {
 		}
 	}
 	return "permission"
+}
+
+// openCodeQuestionText is the first question a question.asked event carries:
+// `{"id": ..., "sessionID": ..., "questions": [{"question": "...", "header": "...", "options": [...]}]}`.
+func openCodeQuestionText(event openCodeEvent) string {
+	if text := askUserQuestionText(event.Properties); text != "" {
+		return text
+	}
+	return "User input requested"
 }
 
 func openCodeErrorLabel(event openCodeEvent) string {
