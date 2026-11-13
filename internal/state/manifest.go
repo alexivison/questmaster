@@ -1,4 +1,21 @@
 // Package state provides manifest CRUD, locking, and session discovery.
+//
+// Use ProjectResolver for path-to-project attribution. It resolves symlinks,
+// folds linked worktrees onto their main repo, and applies added-folder
+// precedence; one-shot lookups should use ProjectIDAt. Session cwd, artifact,
+// quest, and color seeding must use that mapping. Do not replace it with
+// repo.Resolve, which skips the project registry. ProjectIDForFolder is the
+// separate operation for assigning the ID of a folder being added.
+//
+// ProjectRegistry stores order, added folders, and name overrides in
+// projects.json. RepoColorStore stores colors in repo-colors.json under those
+// same IDs, so project resolution must produce the key used by both.
+//
+// Pull-request watches, event logs, source deduplication, and per-watcher
+// read/alert cursors live together in pull_requests.json. Mutations of that
+// registry go through one flocked atomic write. Keep read_seq separate from
+// alerted_seq: a user reading events and a daemon delivering alerts are
+// independent consumers. Removing a watcher also removes its cursor.
 package state
 
 import (
