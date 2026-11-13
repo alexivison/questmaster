@@ -257,6 +257,51 @@ monitors, web/artifact bridges, and GhosttyKit terminal boundary are AppKit or
 AppKit-adjacent. Prefer SwiftUI for content surfaces and keep domain logic in
 Core.
 
+## Testing conventions
+
+- **Go:** stdlib `testing` only (no testify), table-driven, `t.Parallel()`,
+  `t.Helper()` on helpers. State uses a `t.TempDir()` store; tmux is mocked via a
+  `Runner` func. Goldens live in `testdata/` dirs. Tests that resolve the state
+  root must set `QUESTMASTER_STATE_ROOT` to a temporary directory; the resolver
+  rejects the live root in test binaries. Tests that need real tmux use
+  `internal/tmux/tmuxtest`: every call goes to a private `-S` socket with
+  TMUX, TMUX_PANE and TMUX_TMPDIR stripped. Name them `TestIntegration…` and
+  call `tmuxtest.RequireIntegration` (they run only with
+  `QUESTMASTER_TMUX_INTEGRATION=1`, as in the `tmux-integration` CI job).
+  Production code must not import `tmuxtest`; a test enforces that.
+  `tmux.Server` rejects named `-L` selections in test binaries; inject a fake
+  runner or use a private `tmuxtest` `-S` socket.
+- **Swift:** Core-only, via a custom runner in
+  `app/Tests/QuestmasterLogicTests/main.swift` (no XCTest). Add a pure-Core suite
+  by appending `XxxTests.run()` there. The runner also spawns
+  `Questmaster --run-logic-tests` and asserts a non-zero
+  `Questmaster self-tests: ... passed` line. **UI is not unit-tested**; verify it
+  by building and by manual/bench checks. `Questmaster --render-preview <dir>` (DEBUG; `RENDER_ONLY=name,...`,
+  `RENDER_SCALE=2`) renders the fixtures off-screen. `RenderPreview.renderView` hosts each in a frame-based container, not
+  as the window's content view: a content view's constraints give the window a minimum size, and a hosting view nested
+  in them (a dock panel's body) reports its content's minimum, wrapped text at zero width, so a render came out taller
+  than asked.
+
+## Workflow
+
+- Keep `internal/agent/prompts/` to Questmaster role identity, session mechanics,
+  and CLI behavior. Delegation thresholds, reviewer cadence, model preferences,
+  and general writing or repository practices belong to the user or applicable
+  project instructions, not the injected session prompt.
+- Branch from a freshly fetched `origin/main` (`git fetch origin`, then
+  `git worktree add <path> -b <branch> origin/main`), never from a local `main`:
+  it can be stale or still on a history `main` has since rewritten, and a PR
+  cut from it drags that old history along. Before opening a PR, check that
+  `git log origin/main..HEAD` lists only its own commits. App work and backend
+  work both ship as PRs **direct to `main`** (there is no long-lived integration
+  branch). Open **draft** PRs by default. Prefer separate PRs for backend vs app
+  when the change is separable.
+- Do file edits inside a **dedicated git worktree** so concurrent sessions don't
+  trample each other.
+- **Do not drive the GUI via AppleScript/`osascript`/synthetic keystrokes** — it
+  trips endpoint security here. Verify app changes via `swift build` + the logic
+  tests; leave interactive GUI verification to the human.
+
 ## Interaction states
 
 One set of state rules covers the whole app. A view asks for a state's look
@@ -633,48 +678,3 @@ test reads the presentation layer's opacity, and
 `RENDER_ONLY=selected-session-fade-gif QUESTMASTER_ANIMATION_SLOWDOWN=6 … --render-preview <dir>` records it frame by
 frame from the presentation layers (`recordAnimation(…, capturesLayers: true)`; `QUESTMASTER_ANIMATION_SLOWDOWN` stretches
 every step in DEBUG builds so the recorder can sample it).
-
-## Testing conventions
-
-- **Go:** stdlib `testing` only (no testify), table-driven, `t.Parallel()`,
-  `t.Helper()` on helpers. State uses a `t.TempDir()` store; tmux is mocked via a
-  `Runner` func. Goldens live in `testdata/` dirs. Tests that resolve the state
-  root must set `QUESTMASTER_STATE_ROOT` to a temporary directory; the resolver
-  rejects the live root in test binaries. Tests that need real tmux use
-  `internal/tmux/tmuxtest`: every call goes to a private `-S` socket with
-  TMUX, TMUX_PANE and TMUX_TMPDIR stripped. Name them `TestIntegration…` and
-  call `tmuxtest.RequireIntegration` (they run only with
-  `QUESTMASTER_TMUX_INTEGRATION=1`, as in the `tmux-integration` CI job).
-  Production code must not import `tmuxtest`; a test enforces that.
-  `tmux.Server` rejects named `-L` selections in test binaries; inject a fake
-  runner or use a private `tmuxtest` `-S` socket.
-- **Swift:** Core-only, via a custom runner in
-  `app/Tests/QuestmasterLogicTests/main.swift` (no XCTest). Add a pure-Core suite
-  by appending `XxxTests.run()` there. The runner also spawns
-  `Questmaster --run-logic-tests` and asserts a non-zero
-  `Questmaster self-tests: ... passed` line. **UI is not unit-tested**; verify it
-  by building and by manual/bench checks. `Questmaster --render-preview <dir>` (DEBUG; `RENDER_ONLY=name,...`,
-  `RENDER_SCALE=2`) renders the fixtures off-screen. `RenderPreview.renderView` hosts each in a frame-based container, not
-  as the window's content view: a content view's constraints give the window a minimum size, and a hosting view nested
-  in them (a dock panel's body) reports its content's minimum, wrapped text at zero width, so a render came out taller
-  than asked.
-
-## Workflow
-
-- Keep `internal/agent/prompts/` to Questmaster role identity, session mechanics,
-  and CLI behavior. Delegation thresholds, reviewer cadence, model preferences,
-  and general writing or repository practices belong to the user or applicable
-  project instructions, not the injected session prompt.
-- Branch from a freshly fetched `origin/main` (`git fetch origin`, then
-  `git worktree add <path> -b <branch> origin/main`), never from a local `main`:
-  it can be stale or still on a history `main` has since rewritten, and a PR
-  cut from it drags that old history along. Before opening a PR, check that
-  `git log origin/main..HEAD` lists only its own commits. App work and backend
-  work both ship as PRs **direct to `main`** (there is no long-lived integration
-  branch). Open **draft** PRs by default. Prefer separate PRs for backend vs app
-  when the change is separable.
-- Do file edits inside a **dedicated git worktree** so concurrent sessions don't
-  trample each other.
-- **Do not drive the GUI via AppleScript/`osascript`/synthetic keystrokes** — it
-  trips endpoint security here. Verify app changes via `swift build` + the logic
-  tests; leave interactive GUI verification to the human.
