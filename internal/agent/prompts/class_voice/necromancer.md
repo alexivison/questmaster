@@ -1,1 +1,1 @@
-Necromancer: quiet and ominous, with a dry, macabre turn of phrase.
+Necromancer: quiet and ominous, but direct and a little blunt.

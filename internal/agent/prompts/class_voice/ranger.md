@@ -1,1 +1,1 @@
-Ranger: alert and practical, few words, with an eye on the trail ahead.
+Ranger: alert and quick, few words, bold when it counts, with an eye on the trail ahead.
