@@ -4,7 +4,7 @@ import Foundation
 /// a finish's) come from the class's `animation.json`.
 public enum TrackerAvatarTiming {
     /// A steady pose stays this long before a different one shows, so tool calls that change several times a second
-    /// don't flicker. Calling out is the exception: it cuts in at once.
+    /// don't flicker. Calling out is the exception: it doesn't wait for the hold (it still waits for a block that has an end).
     public static let holdSeconds: TimeInterval = 1.0
     /// The least working stretch that earns a bow when it ends. A shorter turn goes straight to idle; the user may tune this.
     public static let minimumBowWorkSeconds: TimeInterval = 60
@@ -69,9 +69,14 @@ public struct TrackerAvatarFrame: Equatable {
 /// events, and asks for a frame at a clock time. Times are seconds from one clock, the same one each call uses, and that
 /// clock is the wall clock, so a session's own working start (its `elapsedSince`) can be compared with it.
 ///
+/// - Nothing that has an end is cut: an enter, a finish and a one-shot (a cue's beat, the bow) always play to their end. A loop has
+///   no end, so it is left whenever another pose is wanted or a cue starts: its own finish plays first, if it has one. A cue, a
+///   steady change and calling out each wait for the block on screen to end, never for each other beyond that.
 /// - The steady pose follows the attached session (`TrackerAvatarPose.pose(for:catalog:)`), when its class has art. A change
-///   holds the pose on screen for `holdSeconds` before the next one shows, and only the latest desired pose is kept meanwhile.
-///   Calling out shows at once.
+///   holds the pose on screen for `holdSeconds` before the next one shows (and until its enter has ended), and only the latest
+///   desired pose is kept meanwhile. Calling out skips the hold, and jumps ahead of the queued cues, but follows the same rule
+///   otherwise: the loop it leaves finishes first and an enter or a finish on screen ends first. A steady change also waits for
+///   the cues queued or playing.
 /// - A turn that ends after a working stretch of at least `minimumBowWorkSeconds` bows once. The bow waits for the
 ///   sub-agents of that turn to stop, then waits for the pose's hold like any other change. The pose's finish plays first,
 ///   and the bow plays for its one-shot's length.
@@ -81,10 +86,11 @@ public struct TrackerAvatarFrame: Equatable {
 ///   then its loop. The hold counts from the pose's arrival, so the enter counts toward it. A pose that continues doesn't replay
 ///   its enter, and Reduce Motion skips it.
 /// - A steady pose with a `finish` plays it when it leaves for another pose, once the hold has run, and the new pose shows (on its
-///   own enter, if it has one) when the finish ends. Calling out cuts in with no finish, a cue cuts a finish short, a pose without
-///   a finish snaps, and Reduce Motion skips it.
-/// - Events play as cues, one after another: a cue is a few beats, each holding a pose and maybe starting a spell. At most
-///   `queueCapacity` cues wait behind the one playing; a burst past that drops the newest.
+///   own enter, if it has one) when the finish ends. A pose without a finish snaps, and Reduce Motion skips it.
+/// - Events play as cues, one after another: a cue is a few beats, each holding a pose and maybe starting a spell. A cue waits
+///   for an enter, a finish or a bow on screen to end, then leaves a loop through the loop's finish before its first beat. The loop
+///   doesn't come back after the cues: the pose wanted then shows on its enter. At most `queueCapacity` cues wait behind the one playing; a
+///   burst past that drops the newest.
 /// - A spawn casts the summoning first: its enter, one loop cycle and its finish, on one beat, then the release with the orb. When
 ///   the summoning is on screen already (its command is still running), the release waits for that summoning to finish instead.
 /// - A pose whose file names its strike frame has an entrance before the strike, and the spell keeps to the strike. A release
@@ -145,13 +151,16 @@ public struct TrackerAvatarDirector {
     /// Cues waiting to play, in order. `playing` holds the beats left of the cue on now.
     private var queued: [[Beat]] = []
     private var playing: [Beat] = []
+    /// The time from which the next beat could start, were nothing on screen: the end of the beat before, or the arrival of the
+    /// cue that found the avatar idle. A block that has an end can only push the start later.
+    private var slotFreeAt: TimeInterval = 0
     private var beatPose: TrackerAvatarPose?
     private var beatEnd: TimeInterval?
     private var launches: [TrackerSpellFlight] = []
     /// The beat's spell, while the beat's pose is still entering. It launches at its time, and no later than the beat's end.
     private var delayedLaunch: DelayedLaunch?
     private var beatCount = 0
-    /// A steady pose's finish in progress: its tracks play from `startedAt`, and the pose wanted then snaps in when they end.
+    /// A steady pose's finish in progress: its tracks play from `startedAt`, and the pose wanted then shows when they end.
     private var finishing: Finish?
     /// The cast cue on the beat now, and when its beat began; its phases time the enter and the finish on that beat.
     private var beatCast: CastCue?
@@ -159,10 +168,16 @@ public struct TrackerAvatarDirector {
     /// Spawns whose release waits for the summoning on screen to finish. Each entry is one cue's beats, queued when that summoning ends.
     private var waitingForSummoning: [[Beat]] = []
 
+    /// The finish of the loop a cue leaves, once it has played: the figure rests on its last frame until a beat covers it, and the
+    /// pose wanted when the cues run out shows on its enter, never the loop that finished. Nil when no cue has left the loop.
+    private var rest: Finish?
+
     private struct Finish: Equatable {
         let pose: TrackerAvatarPose
         let block: TrackerAvatarBlock
         let startedAt: TimeInterval
+        /// Whether it plays because a cue is leaving the loop, not because another steady pose is wanted.
+        var forCue = false
     }
 
     public init(reducesMotion: Bool, catalog: TrackerAvatarCatalog) {
@@ -224,6 +239,7 @@ public struct TrackerAvatarDirector {
         beatCast = nil
         delayedLaunch = nil
         finishing = nil
+        rest = nil
         bowPending = false
         bowRequested = false
         bowShownSince = nil
@@ -309,6 +325,9 @@ public struct TrackerAvatarDirector {
         guard !beats.isEmpty else {
             return
         }
+        if beatEnd == nil, !hasBeats {
+            slotFreeAt = now
+        }
         queued.append(beats)
         advance(to: now)
     }
@@ -324,40 +343,80 @@ public struct TrackerAvatarDirector {
         return Beat(pose: beat.pose, seconds: beat.seconds, flight: nil)
     }
 
-    /// Ends the beats that are over, starts the next ones, and applies the steady pose once it has held.
+    /// Ends the beats that are over, starts the next ones, and applies the steady pose once it has held. A finish that has played ends
+    /// before the next beat starts, so a beat that waited for it begins on the steady pose it led to.
     private mutating func advance(to now: TimeInterval) {
-        startIdleBeat(at: now)
+        endFinish(at: now)
+        startQueuedBeat(at: now)
         while let end = beatEnd, now >= end {
             startBeat(at: end)
         }
         launchDelayedFlight(at: now)
         endFinish(at: now)
-        startIdleBeat(at: now)
+        startQueuedBeat(at: now)
         updateBow(at: now)
         applySteady(at: now)
-        startIdleBeat(at: now)
+        startQueuedBeat(at: now)
     }
 
-    /// Starts the next queued beat when none is playing, so a release that a finish or a change let go plays at once.
-    private mutating func startIdleBeat(at now: TimeInterval) {
-        if beatEnd == nil {
-            startBeat(at: now)
+    /// Whether any beat is playing or waiting to play, the one on screen included.
+    private var hasBeats: Bool {
+        !playing.isEmpty || !queued.isEmpty
+    }
+
+    /// When the block with an end that the steady pose is in ends, if it is in one: its finish, its enter, or its bow. A loop has no
+    /// end, so nil leaves the pose free to be left or cut in on. Under Reduce Motion nothing has an end.
+    private var steadyBlockEnd: TimeInterval? {
+        guard !reducesMotion else {
+            return nil
         }
+        if let finishing {
+            return Self.finishEnd(of: finishing)
+        }
+        var end = steadyEnter.map { enterSince + $0.seconds }
+        if steadyShown == .bow {
+            end = max(end ?? 0, steadyShownSince + bowSeconds)
+        }
+        return end
     }
 
-    /// Starts the next beat at `start`, taking the next cue when the one playing has run out. With nothing left, the avatar
-    /// falls back to its steady pose. A pose's cue cuts a finish short: the cue plays, then the steady pose resumes.
+    /// Starts the next queued beat when none is playing and nothing on screen has an end ahead of it, at the moment that was so:
+    /// the beat's slot freed, or the block on screen ended, whichever came last.
+    private mutating func startQueuedBeat(at now: TimeInterval) {
+        guard beatEnd == nil, hasBeats else {
+            return
+        }
+        let start = max(slotFreeAt, steadyBlockEnd ?? slotFreeAt)
+        guard start <= now else {
+            return
+        }
+        startBeat(at: start)
+    }
+
+    /// Ends the beat on screen at `start` and starts the next at once, when nothing on screen has an end ahead of `start`: otherwise
+    /// the avatar goes back to the steady pose and the beat waits for that block to end. Calling out may come on screen first: it
+    /// doesn't wait behind the cues. With nothing left, the avatar falls back to its steady pose, which may now change.
     private mutating func startBeat(at start: TimeInterval) {
         // The beat before is over, and its spell left by its end.
         launchDelayedFlight(at: start)
-        if playing.isEmpty, !queued.isEmpty {
-            playing = queued.removeFirst()
-        }
-        guard !playing.isEmpty else {
-            beatPose = nil
-            beatEnd = nil
-            beatCast = nil
+        beatPose = nil
+        beatEnd = nil
+        beatCast = nil
+        slotFreeAt = start
+        applySteady(at: start)
+        guard hasBeats else {
             return
+        }
+        if let blockEnd = steadyBlockEnd, start < blockEnd {
+            return
+        }
+        if playing.isEmpty {
+            // A cue that leaves a loop leaves it through its finish, which plays before the cue's first beat.
+            if rest == nil, let shown = steadyShown, let block = cueFinishBlock(leaving: shown) {
+                finishing = Finish(pose: shown, block: block, startedAt: start, forCue: true)
+                return
+            }
+            playing = queued.removeFirst()
         }
         let beat = playing.removeFirst()
         beatPose = beat.pose
@@ -366,7 +425,6 @@ public struct TrackerAvatarDirector {
         beatStartedAt = start
         if beat.pose != nil {
             beatCount += 1
-            finishing = nil
         }
         if let flight = beat.flight {
             if beat.launchAfter > 0 {
@@ -412,29 +470,41 @@ public struct TrackerAvatarDirector {
         return bowRequested ? .bow : steady
     }
 
-    /// Applies the steady pose the session calls for. Calling out cuts in at once, with no finish. Any other change waits for
-    /// the hold; then the pose leaving plays its finish first, when it has one, and the new pose shows when the finish ends.
+    /// Applies the steady pose the session calls for, once nothing with an end is on screen: no beat, finish, enter or bow. Any change
+    /// but calling out also waits for the hold and for the queued cues. A loop that leaves plays its finish first, when it has one,
+    /// and the new pose shows when the finish ends. Calling out skips the hold and the queue.
     private mutating func applySteady(at now: TimeInterval) {
         steadyWanted = wantedSteady()
-        if steadyWanted == .callingOut, steadyShown != .callingOut {
-            finishing = nil
-            show(.callingOut, at: now)
+        guard finishing == nil, beatEnd == nil else {
             return
         }
-        guard finishing == nil, steadyWanted != steadyShown else {
+        if rest != nil {
+            // The loop a cue left has finished: calling out, or the cues running out, shows the wanted pose on its enter.
+            if (steadyWanted == .callingOut && steadyShown != .callingOut) || !hasBeats {
+                rest = nil
+                show(steadyWanted, at: now, entering: true)
+            }
             return
         }
-        guard now - steadyShownSince >= TrackerAvatarTiming.holdSeconds else {
+        guard steadyWanted != steadyShown else {
             return
         }
-        if beatEnd == nil, let shown = steadyShown, let block = finishBlock(leaving: shown, for: steadyWanted) {
+        if steadyWanted != .callingOut {
+            guard !hasBeats, now - steadyShownSince >= TrackerAvatarTiming.holdSeconds else {
+                return
+            }
+        }
+        if let blockEnd = steadyBlockEnd, now < blockEnd {
+            return
+        }
+        if let shown = steadyShown, let block = finishBlock(leaving: shown, for: steadyWanted) {
             finishing = Finish(pose: shown, block: block, startedAt: now)
             return
         }
         show(steadyWanted, at: now)
     }
 
-    /// Ends a finish once its tracks have played, and snaps to the pose wanted then. The hold already ran before the finish,
+    /// Ends a finish once its tracks have played, and shows the pose wanted then. The hold already ran before the finish,
     /// so the new pose shows at once, and opens on its enter from the finish's end. The finish left the figure at rest, so even the
     /// pose that finished, if it is wanted again by now, plays its enter again.
     private mutating func endFinish(at now: TimeInterval) {
@@ -443,17 +513,27 @@ public struct TrackerAvatarDirector {
         }
         let end = Self.finishEnd(of: finishing)
         self.finishing = nil
+        slotFreeAt = max(slotFreeAt, end)
+        if finishing.forCue {
+            rest = finishing
+            return
+        }
         enterSince = end
         show(wantedSteady(), at: end)
     }
 
-    private mutating func show(_ pose: TrackerAvatarPose?, at time: TimeInterval) {
-        if pose != steadyShown {
+    /// Shows `pose` as the steady pose. `entering` opens it on its enter even when it is the pose shown, as after a finish.
+    private mutating func show(_ pose: TrackerAvatarPose?, at time: TimeInterval, entering: Bool = false) {
+        if pose != steadyShown || entering {
             enterSince = time
         }
         if steadyShown == .summoning, pose != .summoning {
             // The summoning is over (its finish, if any, has played): the spawns that waited on it release now.
-            queued += waitingForSummoning.map { $0.compactMap(withMotion) }.filter { !$0.isEmpty }
+            let released = waitingForSummoning.map { $0.compactMap(withMotion) }.filter { !$0.isEmpty }
+            if beatEnd == nil, !hasBeats, !released.isEmpty {
+                slotFreeAt = time
+            }
+            queued += released
             waitingForSummoning = []
         }
         steadyShown = pose
@@ -494,6 +574,10 @@ public struct TrackerAvatarDirector {
     private func finishElapsed(at now: TimeInterval) -> TimeInterval? {
         if let finishing {
             return now - finishing.startedAt
+        }
+        if beatPose == nil, let rest {
+            // Resting after a cue's finish: the last frame holds until a beat covers it.
+            return now - rest.startedAt
         }
         guard !reducesMotion, let cast = beatCast else {
             return nil
@@ -538,10 +622,19 @@ public struct TrackerAvatarDirector {
     }
 
     /// The finish a steady change from `shown` to `wanted` plays first, when there is one: the shown pose's own `finish` block, which
-    /// only a pose with a loop can have. A bow is a steady change too, so it waits for the finish. Calling out cuts in, a change to the
+    /// only a pose with a loop can have. A bow and calling out are steady changes too, so they wait for the finish. A change to the
     /// same pose isn't a change, and nothing finishes under Reduce Motion.
     private func finishBlock(leaving shown: TrackerAvatarPose, for wanted: TrackerAvatarPose?) -> TrackerAvatarBlock? {
-        guard !reducesMotion, let wanted, wanted != shown, wanted != .callingOut else {
+        guard !reducesMotion, let wanted, wanted != shown else {
+            return nil
+        }
+        return animation?.animation(for: shown)?.finish
+    }
+
+    /// The finish a cue plays first when it leaves the steady pose `shown`: that pose's own `finish` block. A pose with none is cut at
+    /// once, and nothing finishes under Reduce Motion.
+    private func cueFinishBlock(leaving shown: TrackerAvatarPose) -> TrackerAvatarBlock? {
+        guard !reducesMotion else {
             return nil
         }
         return animation?.animation(for: shown)?.finish
