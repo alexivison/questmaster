@@ -65,7 +65,7 @@ struct TrackerAvatarAnimationTests {
         expect(animation.fidgets.isEmpty, "the bard's strumming idle should leave him no fidgets")
         expect(animation.animation(for: .idle)?.loop?.character.steps.map(\.frame) == Array(1...9), "idle should strum through f1 to f9")
         let pondering = animation.animation(for: .pondering)
-        expect(pondering?.footRow == 162 && pondering?.bodyColumn == 56, "pondering should stand at the bard's foot row and body column")
+        expect(pondering?.footRow == 179 && pondering?.bodyColumn == 56, "pondering should stand at the bard's foot row and body column (its canvas is padded 17 rows on top for the thought staff)")
         expect(pondering?.finish?.character.steps.map(\.frame) == [4, 2, 1], "pondering's finish should play its entrance backwards to f1")
         expect(animation.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 58, y: 10), "calling out should anchor the shared bubble at the bard's head")
     }
@@ -768,11 +768,11 @@ struct TrackerAvatarAnimationTests {
             "01-idle-breath-f1.png", "01-idle-breath-f2.png", "01-idle-breath-f3.png",
             "01-idle-breath-f6.png", "01-idle-breath-f7.png", "01-idle-breath-f8.png",
         ], "the wizard should keep the sparse authored frame names")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 58, y: 14), "the release hand should be the wizard's hand pixel")
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 58, y: 26), "the release hand should be the wizard's hand pixel (its release canvas is padded 12 rows on top)")
         expect(animation.fidgets.map(\.name) == ["hood", "staff-tap"], "fidgets should come in name order")
         expect(animation.fidgets.first?.track.steps.map(\.frame) == Array(2...9), "the hood should play idle frames 2 to 9")
         let pondering = animation.animation(for: .pondering)
-        expect(pondering?.footRow == 158 && pondering?.bodyColumn == 36, "pondering should stand at the wizard's foot row and body column")
+        expect(pondering?.footRow == 179 && pondering?.bodyColumn == 36, "pondering should stand at the wizard's foot row and body column (its canvas is padded 21 rows on top for the constellation)")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the wizard's summoning should have a ground effect")
     }
 

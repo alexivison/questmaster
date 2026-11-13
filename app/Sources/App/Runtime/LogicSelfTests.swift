@@ -2234,7 +2234,11 @@ enum LogicSelfTests {
             let stills = ["flight", "impact"].map { folder?.appendingPathComponent("S6-returning-wisp-\($0).png").path ?? "" }
             try expect(stills.allSatisfy { !FileManager.default.fileExists(atPath: $0) }, "the \(classID)'s wisp should have no still left")
             for spell in [TrackerSpellFlight.Spell.orb, .messenger] {
-                try expect(sprites.animation.spell(spell)?.flight == nil, "the \(classID)'s \(spell.resourceName) should still be a still")
+                let frames = sprites.animation.spell(spell)
+                try expect(frames?.flight != nil && frames?.impact != nil, "the \(classID)'s \(spell.resourceName) should play flight and impact frames")
+                try expect(frames?.faces == nil, "the \(classID)'s \(spell.resourceName) frames should face right by default and say nothing")
+                let spellStills = ["flight", "impact"].map { folder?.appendingPathComponent("\(spell.resourceName)-\($0).png").path ?? "" }
+                try expect(spellStills.allSatisfy { !FileManager.default.fileExists(atPath: $0) }, "the \(classID)'s \(spell.resourceName) should have no still left")
             }
             guard let wisp = sprites.flight(for: .wisp), sprites.impact(for: .wisp) != nil else {
                 throw TestFailure("the \(classID)'s wisp should have its flight and impact art")

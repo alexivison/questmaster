@@ -29,7 +29,7 @@
         "f12",
         "f13"
       ],
-      "foot_row": 162,
+      "foot_row": 179,
       "body_column": 56,
       "body_column_measured": 56,
       "body_column_overridden": true
@@ -80,9 +80,9 @@
         "f12",
         "f13"
       ],
-      "foot_row": 162,
-      "body_column": 56,
-      "body_column_measured": 56,
+      "foot_row": 187,
+      "body_column": 81,
+      "body_column_measured": 81,
       "body_column_overridden": true
     },
     "06-scrying": {
@@ -94,7 +94,7 @@
         "f11",
         "f12"
       ],
-      "foot_row": 162,
+      "foot_row": 170,
       "body_column": 56,
       "body_column_measured": 56,
       "body_column_overridden": true
@@ -111,7 +111,7 @@
         "f16",
         "f17"
       ],
-      "foot_row": 162,
+      "foot_row": 166,
       "body_column": 56,
       "body_column_measured": 56,
       "body_column_overridden": true
