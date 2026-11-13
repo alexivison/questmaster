@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,6 +12,103 @@ import (
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
+
+func TestHookAgentOwnership(t *testing.T) {
+	hooks := []struct {
+		agent, action, payload, wantState string
+	}{
+		{"claude", "done", `{"last_assistant_message":"Nested answer"}`, "done"},
+		{"codex", "done", `{"last_assistant_message":"Nested answer"}`, "done"},
+		{"pi", "agent_end", `{"errorMessage":"Example provider error"}`, "blocked"},
+		{"pi", "session_shutdown", `{}`, "stopped"},
+		{"pi", "batch", `{"events":[{"action":"agent_end","payload":{"errorMessage":"Example provider error"}},{"action":"session_shutdown","payload":{}}]}`, "stopped"},
+		{"opencode", "event", `{"version":"1.17.11","event":{"type":"session.status","properties":{"status":{"type":"busy"}}}}`, "working"},
+	}
+	for _, path := range []string{"fast", "cobra"} {
+		for _, owner := range []string{"claude", "codex", "pi", "opencode"} {
+			for _, hook := range hooks {
+				t.Run(path+"/"+owner+"/"+hook.agent+"/"+hook.action, func(t *testing.T) {
+					root := setTestStateRoot(t)
+					t.Setenv("QUESTMASTER_TMUX_SERVER", "questmaster")
+					t.Setenv("QUESTMASTER_TMUX_LABEL", "")
+					if err := os.Unsetenv("QUESTMASTER_TMUX_LABEL"); err != nil {
+						t.Fatal(err)
+					}
+					t.Setenv("TMUX_PANE", "%7")
+					t.Setenv("CODEX_THREAD_ID", "")
+					const id = "qm-owner"
+					store := state.OpenStore(root)
+					if err := store.Create(state.Manifest{
+						SessionID: id, TmuxServer: "questmaster",
+						Agents: []state.AgentManifest{{Name: owner, Role: "agent"}},
+					}); err != nil {
+						t.Fatal(err)
+					}
+					if err := state.UpdateAndLogAt(root, id, &state.StateEvent{Agent: owner, Action: "working"}, func(ss *state.SessionState) bool {
+						pane := state.PaneState{Role: "agent", Agent: owner, State: "working", Activity: "Managed task"}
+						if owner == "opencode" {
+							pane.OpenCodeSessionID = "ses_example"
+						}
+						ss.Panes["agent"] = pane
+						return true
+					}); err != nil {
+						t.Fatal(err)
+					}
+					files := []string{state.SessionStatePath(root, id), state.SessionStateLogPath(root, id), filepath.Join(root, id+".json")}
+					before := make([][]byte, len(files))
+					for i, file := range files {
+						var err error
+						before[i], err = os.ReadFile(file)
+						if err != nil {
+							t.Fatal(err)
+						}
+					}
+					args := []string{"--session", id, hook.agent, hook.action}
+					var stderr bytes.Buffer
+					if path == "fast" {
+						if handled, err := executeHookFastPath(args, strings.NewReader(hook.payload), &stderr); err != nil || !handled {
+							t.Fatalf("hook handled=%t err=%v", handled, err)
+						}
+					} else {
+						cmd := newHookCmd(store, tmux.NewClient(allPassRunner()))
+						cmd.SetArgs(args)
+						cmd.SetIn(strings.NewReader(hook.payload))
+						cmd.SetErr(&stderr)
+						if err := cmd.Execute(); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if stderr.Len() != 0 {
+						t.Fatalf("hook stderr = %q", stderr.String())
+					}
+					if owner == hook.agent {
+						ss, err := state.LoadSessionStateAt(root, id)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if pane := ss.Panes["agent"]; pane.Agent != owner || pane.State != hook.wantState {
+							t.Fatalf("owner hook pane = %+v, want %s/%s", pane, owner, hook.wantState)
+						}
+						log, err := os.ReadFile(files[1])
+						if err != nil || bytes.Equal(log, before[1]) {
+							t.Fatalf("owner hook did not append an event: %v", err)
+						}
+						return
+					}
+					for i, file := range files {
+						after, err := os.ReadFile(file)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if !bytes.Equal(before[i], after) {
+							t.Errorf("foreign %s hook changed %s", hook.agent, filepath.Base(file))
+						}
+					}
+				})
+			}
+		}
+	}
+}
 
 func TestHookEnvAbsentMakesNoWrites(t *testing.T) {
 	root := setTestStateRoot(t)
