@@ -2,7 +2,7 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The pointer (AGENTS.md, "Interaction states"): it shows the hover look on the row under it, the keys move the
+/// The pointer (.agents/skills/app-ui/references/interaction-states.md): it shows the hover look on the row under it, the keys move the
 /// cursor, and a click acts. Only in the tracker, while it has the keys, does hover move the cursor; there only real
 /// pointer motion counts, so a list that scrolls under a still pointer after a key press keeps its cursor, and the
 /// list doesn't scroll to a cursor the pointer moved (`cursor`).

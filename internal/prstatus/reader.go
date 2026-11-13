@@ -1,4 +1,19 @@
-// Package prstatus reads watched pull-request summaries from GitHub GraphQL.
+// Package prstatus polls watched pull-request summaries and records new
+// comments, reviews, CI results, and state changes from GitHub.
+//
+// Use the authenticated viewer login when interpreting reviews and comments.
+// When known, omit user-authored activity from that viewer from the event log;
+// when unavailable, keep the author data and do not infer a viewer. Apply the
+// same rule to review status so the viewer's own discussion does not count as
+// outside review activity.
+//
+// state owns watches, event source IDs, events, and per-watcher cursors. Commit
+// source IDs with newly recorded events and keep read and alert cursors
+// independent. For relevant pending alerts, advance alerted_seq only after a
+// non-empty delivery; leave held or failed sends pending. CI events
+// superseded by a newer head may be advanced without sending. Production
+// sends go through message.Service.Notify, which gates alerts on session
+// liveness, idle/done state, and recent tmux input.
 package prstatus
 
 import (

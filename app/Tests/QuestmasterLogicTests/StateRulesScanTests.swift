@@ -1,6 +1,6 @@
 import Foundation
 
-/// Keeps the app on the interaction-state rules (AGENTS.md, "Interaction states") by scanning app/Sources/App. A
+/// Keeps the app on the interaction-state rules (.agents/skills/app-ui/references/interaction-states.md) by scanning app/Sources/App. A
 /// source scan can't see everything; each rule is a pattern precise enough to have no false positives on the tree.
 struct StateRulesScanTests {
     struct Rule {
@@ -110,7 +110,7 @@ struct StateRulesScanTests {
                 failures.append("\(rule) \(file): \(count) break(s) of the interaction-state rules")
             }
         }
-        expect(failures.isEmpty, "interaction-state rules (AGENTS.md):\n" + failures.joined(separator: "\n"))
+        expect(failures.isEmpty, "interaction-state rules (.agents/skills/app-ui/references/interaction-states.md, shadows-and-components.md):\n" + failures.joined(separator: "\n"))
     }
 
     /// Every Swift file under app/Sources/App, by its path there, with its source.

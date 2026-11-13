@@ -14,6 +14,17 @@
 // validates a model — an id the user types is passed to the harness as-is,
 // which is the only way a model released this morning can be used this
 // morning.
+//
+// Each harness declares its catalog sources and effort source in agent.Spec.
+// Add or change a harness there; do not maintain a model or effort list here.
+// Suggestions are not an allowlist: model IDs pass through to the harness
+// unchanged. Effort validation rejects a value only when the declared source
+// reports supported levels, including a source-wide fallback when it has no
+// model-specific entry.
+//
+// Tests must disable or inject catalog fetches and inject effort-source data.
+// They must not access models.dev, run real harnesses, or read a real Codex
+// cache.
 package modelsuggest
 
 import (

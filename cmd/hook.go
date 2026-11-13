@@ -419,8 +419,19 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	// A final hook can arrive after deletion has removed the manifest and state.
 	// Do not recreate the deleted session just to record that late event.
 	if r.Store != nil {
-		if _, err := r.Store.Read(id); errors.Is(err, os.ErrNotExist) {
+		manifest, err := r.Store.Read(id)
+		if errors.Is(err, os.ErrNotExist) {
 			return
+		}
+		// Child harnesses inherit QUESTMASTER_SESSION. Their hooks must not
+		// overwrite the managed agent's state or enter its worker feed. An
+		// adopted shell still permits agent succession in its recorded pane.
+		if err == nil && len(manifest.Agents) > 0 && !manifestTracksAgent(manifest, opts.agent) {
+			adoptedPane, adoptionManaged := manifestAdoptedPane(manifest)
+			pane := os.Getenv("TMUX_PANE")
+			if !adoptionManaged || pane == "" || pane != adoptedPane {
+				return
+			}
 		}
 	}
 

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The class avatar's timings, in seconds. A view never states a duration (AGENTS.md, "Motion"). The art's own lengths (a one-shot's,
+/// The class avatar's timings, in seconds. A view never states a duration (.agents/skills/app-ui/references/motion.md). The art's own lengths (a one-shot's,
 /// a finish's) come from the class's `animation.json`.
 public enum TrackerAvatarTiming {
     /// A steady pose stays this long before a different one shows, so tool calls that change several times a second
