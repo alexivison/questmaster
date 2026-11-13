@@ -81,7 +81,7 @@ func legacyShims(bin *os.Root) (map[string]string, bool) {
 }
 
 // MigrateLegacyShims keeps old sessions' PATH and hook binaries usable after cutover.
-func MigrateLegacyShims(home, canonical string) error {
+func MigrateLegacyShims(home, stable string) error {
 	root, err := openLegacyRoot(home)
 	if err != nil {
 		return err
@@ -94,7 +94,7 @@ func MigrateLegacyShims(home, canonical string) error {
 	if err != nil {
 		return err
 	}
-	script := "#!/bin/sh\nexec '" + strings.ReplaceAll(canonical, "'", "'\\''") + "' \"$@\"\n"
+	script := "#!/bin/sh\nexec '" + strings.ReplaceAll(stable, "'", "'\\''") + "' \"$@\"\n"
 	for _, entry := range entries {
 		if !legacyToken.MatchString(entry.Name()) {
 			continue

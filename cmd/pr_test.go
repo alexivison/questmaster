@@ -184,6 +184,51 @@ func TestPRWatchVerifiesNewWatch(t *testing.T) {
 	}
 }
 
+func TestPRWatchReportsCachedMergedStateAfterAutomaticEnd(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupPRSession(t)
+	ref, err := state.ParsePullRequestRef("owner/repo#7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prRequest = func(context.Context, daemon.Config, []string, bool) (map[string]prstatus.HostResult, error) {
+		return map[string]prstatus.HostResult{"github.com": {CheckedAt: "2026-11-12T00:00:00Z"}}, nil
+	}
+	var first struct {
+		Added bool `json:"added"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "watch", "owner/repo#7")), &first); err != nil || !first.Added {
+		t.Fatalf("initial watch = %+v, %v", first, err)
+	}
+	if err := state.SavePullRequestStatuses(store.Root(), map[string]state.PullRequestStatus{ref.Key: {State: "merged"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.RecordPullRequestEvents(store.Root(), ref.Key, []state.PullRequestEvent{{
+		ID: "state:merged", Kind: "state", State: "merged", OccurredAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = runCmd(t, store, sessionsRunner(), "pr", "events", "owner/repo#7", "--unread")
+	prs, err := state.LoadPullRequests(store.Root())
+	if err != nil || len(prs) != 0 {
+		t.Fatalf("merged read left a watch: %v %v", prs, err)
+	}
+
+	var result struct {
+		Added  bool `json:"added"`
+		Merged bool `json:"merged"`
+	}
+	out := runCmd(t, store, sessionsRunner(), "pr", "watch", "owner/repo#7")
+	if err := json.Unmarshal([]byte(out), &result); err != nil || !result.Added || !result.Merged {
+		t.Fatalf("rewatch of cached merged PR = %q, %+v, %v", out, result, err)
+	}
+	_ = runCmd(t, store, sessionsRunner(), "pr", "events", "owner/repo#7", "--unread")
+	prs, err = state.LoadPullRequests(store.Root())
+	if err != nil || len(prs) != 0 {
+		t.Fatalf("post-merge read changed watch policy: %v %v", prs, err)
+	}
+}
+
 func TestPRWatchRejectsPlainSession(t *testing.T) {
 	stubPRDaemon(t)
 	store := setupStore(t)

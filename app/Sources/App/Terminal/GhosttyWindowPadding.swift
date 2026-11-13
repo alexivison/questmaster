@@ -17,12 +17,7 @@ enum GhosttyWindowPadding {
     static let fallback: (x: Double, y: Double) = (10, 10)
 
     static let resolved: (x: Double, y: Double) = {
-        let xdgHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] ?? NSHomeDirectory() + "/.config"
-        let directories = [
-            xdgHome + "/ghostty",
-            NSHomeDirectory() + "/Library/Application Support/com.mitchellh.ghostty",
-        ]
-        return GhosttyConfigParser.windowPadding(inDirectories: directories) {
+        return GhosttyConfigParser.windowPadding(inDirectories: GhosttyConfigFiles.searchDirectories) {
             try? String(contentsOfFile: $0, encoding: .utf8)
         } ?? fallback
     }()

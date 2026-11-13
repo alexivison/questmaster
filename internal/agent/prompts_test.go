@@ -176,6 +176,8 @@ func TestSessionPromptsDescribeQuestmasterPRAlerts(t *testing.T) {
 				"questmaster pr events <ref> --unread",
 				"deleted or pruned",
 				"ends on its own once the watcher reads a merged PR's merge event",
+				"A post-merge watch remains supported, but ends on its next event read when saved status is already merged",
+				"do not repeat a watch only to keep a merged PR listed",
 				"not your own polling",
 				"gh pr checks --watch",
 				"A one-off gh pr view or gh pr checks",

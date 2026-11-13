@@ -3,6 +3,8 @@
 package daemon
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -26,6 +28,15 @@ import (
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
+// These proposed limits bound daemon sockets and individual request lines.
+const (
+	proposedMaxConcurrentConnections = 64
+	proposedMaxRequestBytes          = 1 << 20
+	requestReadBufferBytes           = 4 << 10
+)
+
+var errRequestTooLarge = errors.New("request too large")
+
 type server struct {
 	config          Config
 	id, socket, dir string
@@ -38,6 +49,13 @@ type server struct {
 	record             Record
 	lastActivity       time.Time
 	active             int
+	connectionDone     chan struct{}
+	connectionDoneOnce sync.Once
+	overloadMu         sync.Mutex
+	overloadActive     net.Conn
+	overloadInFlight   bool
+	overloadPending    net.Conn
+	overloadWake       chan struct{}
 	stop               chan struct{}
 	upgrade            chan string
 	upgrading          bool
@@ -187,7 +205,7 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if err != nil {
 		return err
 	}
-	s.record = Record{Running: true, PID: os.Getpid(), Root: config.Root, Identity: id, Socket: socket, Executable: config.Executable, ShimDirectory: filepath.Join(config.Root, "daemon", "bin", id), Build: build, Generation: s.record.Generation, Jobs: s.jobsLock != nil, Accepting: true}
+	s.record = Record{Running: true, PID: os.Getpid(), Root: config.Root, Identity: id, Socket: socket, Executable: executableForRecord(config.Root, id, config.Executable), ShimDirectory: filepath.Join(config.Root, "daemon", "bin", id), Build: build, Generation: s.record.Generation, Jobs: s.jobsLock != nil, Accepting: true}
 	if err := s.publish(); err != nil {
 		return err
 	}
@@ -312,47 +330,244 @@ func (s *server) listen() error {
 
 func (s *server) accept() {
 	ln := s.listener
+	slots := make(chan struct{}, proposedMaxConcurrentConnections-1)
+	s.connectionDone = make(chan struct{})
+	s.overloadWake = make(chan struct{}, 1)
+	go s.serveOverloadConnections()
 	go func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			go s.handle(conn)
+			select {
+			case slots <- struct{}{}:
+				go func(conn net.Conn) {
+					defer func() { <-slots }()
+					s.handle(conn)
+				}(conn)
+			default:
+				s.offerOverloadConnection(conn)
+			}
 		}
 	}()
 }
 
-func (s *server) handle(conn net.Conn) {
-	defer conn.Close()
+func (s *server) offerOverloadConnection(conn net.Conn) {
+	s.overloadMu.Lock()
+	select {
+	case <-s.connectionDone:
+		s.overloadMu.Unlock()
+		_ = conn.Close()
+		return
+	default:
+	}
+	if s.overloadActive != nil {
+		if s.overloadInFlight {
+			s.overloadMu.Unlock()
+			_ = conn.Close()
+			return
+		}
+		_ = s.overloadActive.Close()
+		s.overloadActive = nil
+	}
+	if s.overloadPending != nil {
+		_ = s.overloadPending.Close()
+	}
+	s.overloadPending = conn
+	s.overloadMu.Unlock()
+	select {
+	case s.overloadWake <- struct{}{}:
+	default:
+	}
+}
+
+func (s *server) connectionHello() hello {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	h := hello{Root: s.record.Root, Identity: s.id, ProtocolVersion: ProtocolVersion, Generation: s.record.Generation, Accepting: s.record.Accepting}
 	if h.Accepting {
 		s.record.Clients++
 	}
+	return h
+}
+
+func (s *server) finishClient() {
+	s.mu.Lock()
+	s.record.Clients--
+	s.lastActivity = time.Now()
 	s.mu.Unlock()
+}
+
+func (s *server) beginRequest() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.record.Accepting {
+		return false
+	}
+	s.active++
+	return true
+}
+
+func (s *server) claimOverloadRequest(conn net.Conn) bool {
+	s.overloadMu.Lock()
+	defer s.overloadMu.Unlock()
+	if s.overloadActive != conn || s.overloadInFlight {
+		return false
+	}
+	s.overloadInFlight = true
+	return true
+}
+
+func (s *server) finishRequest() {
+	s.mu.Lock()
+	s.active--
+	s.lastActivity = time.Now()
+	s.mu.Unlock()
+}
+
+func readDaemonRequest(reader *bufio.Reader) (serve.Request, error) {
+	consumedBytes := 0
+	for {
+		var line []byte
+		for {
+			part, err := reader.ReadSlice('\n')
+			consumedBytes += len(part)
+			if consumedBytes > proposedMaxRequestBytes {
+				return serve.Request{}, errRequestTooLarge
+			}
+			line = append(line, part...)
+			if err == bufio.ErrBufferFull {
+				continue
+			}
+			if err != nil && err != io.EOF {
+				return serve.Request{}, err
+			}
+			if err == io.EOF && len(line) == 0 {
+				return serve.Request{}, io.EOF
+			}
+			break
+		}
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var req serve.Request
+		if err := json.Unmarshal(line, &req); err != nil {
+			return serve.Request{}, err
+		}
+		return req, nil
+	}
+}
+
+func (s *server) serveOverloadConnections() {
+	for {
+		select {
+		case <-s.connectionDone:
+			return
+		case <-s.overloadWake:
+		}
+		for {
+			s.overloadMu.Lock()
+			conn := s.overloadPending
+			s.overloadPending = nil
+			if conn != nil {
+				s.overloadActive = conn
+				s.overloadInFlight = false
+			}
+			s.overloadMu.Unlock()
+			if conn == nil {
+				break
+			}
+			s.handleStatusConnection(conn)
+			s.overloadMu.Lock()
+			if s.overloadActive == conn {
+				s.overloadActive = nil
+				s.overloadInFlight = false
+			}
+			s.overloadMu.Unlock()
+		}
+	}
+}
+
+// handleStatusConnection preserves a status path when full handlers are all occupied.
+func (s *server) handleStatusConnection(conn net.Conn) {
+	defer conn.Close()
+	h := s.connectionHello()
 	if h.Accepting {
-		defer func() { s.mu.Lock(); s.record.Clients--; s.lastActivity = time.Now(); s.mu.Unlock() }()
+		defer s.finishClient()
 	}
 	enc := json.NewEncoder(conn)
 	_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 	if err := enc.Encode(h); err != nil || !h.Accepting {
 		return
 	}
-	dec := json.NewDecoder(conn)
+	reader := bufio.NewReaderSize(conn, requestReadBufferBytes)
+	_ = conn.SetReadDeadline(s.config.now().Add(s.config.ReadIdleTimeout))
+	req, err := readDaemonRequest(reader)
+	if errors.Is(err, errRequestTooLarge) {
+		_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+		_ = serve.WriteEnvelope(enc, daemonError(serve.Request{}, errRequestTooLarge.Error()))
+		return
+	}
+	if err != nil {
+		return
+	}
+	if !s.claimOverloadRequest(conn) {
+		return
+	}
+	if !s.beginRequest() {
+		_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+		_ = serve.WriteEnvelope(enc, daemonError(req, "exiting"))
+		return
+	}
+	defer s.finishRequest()
+	if req.Method != "status" && req.Method != "stop" && req.Method != "check-upgrade" {
+		_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+		_ = serve.WriteEnvelope(enc, daemonError(req, "daemon busy"))
+		return
+	}
+	resp, upgradePath := s.dispatch(req)
+	_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+	writeErr := serve.WriteEnvelope(enc, resp)
+	if upgradePath != "" {
+		s.upgrade <- upgradePath
+		return
+	}
+	if writeErr != nil {
+		return
+	}
+	if req.Method == "stop" && resp.OK != nil && *resp.OK {
+		select {
+		case s.stop <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *server) handle(conn net.Conn) {
+	defer conn.Close()
+	h := s.connectionHello()
+	if h.Accepting {
+		defer s.finishClient()
+	}
+	enc := json.NewEncoder(conn)
+	_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+	if err := enc.Encode(h); err != nil || !h.Accepting {
+		return
+	}
+	reader := bufio.NewReaderSize(conn, requestReadBufferBytes)
 	for {
-		var req serve.Request
 		_ = conn.SetReadDeadline(s.config.now().Add(s.config.ReadIdleTimeout))
-		if err := dec.Decode(&req); err != nil {
+		req, err := readDaemonRequest(reader)
+		if errors.Is(err, errRequestTooLarge) {
+			_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+			_ = serve.WriteEnvelope(enc, daemonError(serve.Request{}, errRequestTooLarge.Error()))
 			return
 		}
-		s.mu.Lock()
-		accepting := s.record.Accepting
-		if accepting {
-			s.active++
+		if err != nil {
+			return
 		}
-		s.mu.Unlock()
-		if !accepting {
+		if !s.beginRequest() {
 			_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 			_ = serve.WriteEnvelope(enc, daemonError(req, "exiting"))
 			return
@@ -369,10 +584,11 @@ func (s *server) handle(conn net.Conn) {
 		}
 		_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 		writeErr := serve.WriteEnvelope(enc, resp)
-		s.mu.Lock()
-		s.active--
-		s.lastActivity = time.Now()
-		s.mu.Unlock()
+		s.finishRequest()
+		if upgradePath != "" {
+			s.upgrade <- upgradePath
+			return
+		}
 		if writeErr != nil {
 			if release != nil {
 				release()
@@ -391,10 +607,6 @@ func (s *server) handle(conn net.Conn) {
 			_ = s.runtime.Subscribe(ctx, enc, req, source)
 			cancel()
 			release()
-			return
-		}
-		if upgradePath != "" {
-			s.upgrade <- upgradePath
 			return
 		}
 		if req.Method == "stop" && resp.OK != nil && *resp.OK {
@@ -477,6 +689,20 @@ func (s *server) activity() time.Time { s.mu.Lock(); defer s.mu.Unlock(); return
 func (s *server) clients() int        { s.mu.Lock(); defer s.mu.Unlock(); return s.record.Clients }
 
 func (s *server) closeListener() error {
+	if s.connectionDone != nil {
+		s.connectionDoneOnce.Do(func() { close(s.connectionDone) })
+		s.overloadMu.Lock()
+		if s.overloadActive != nil {
+			_ = s.overloadActive.Close()
+			s.overloadActive = nil
+			s.overloadInFlight = false
+		}
+		if s.overloadPending != nil {
+			_ = s.overloadPending.Close()
+			s.overloadPending = nil
+		}
+		s.overloadMu.Unlock()
+	}
 	var closeErr error
 	if s.listener != nil {
 		closeErr = s.listener.Close()

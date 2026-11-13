@@ -28,7 +28,7 @@ extension Keymap {
 
         // Screen-specific: no meaning shared with another screen
         case editRepo
-        // Settings: H and L step through the sidebar's sections (vim-style, as LazyVim steps buffers)
+        // Settings: K and J step up and down through the sidebar's sections.
         case previousSection
         case nextSection
         // Settings' Projects list: R arranges, n adds, e (the shared edit) edits, and K/J move the highlighted row while arranging
@@ -106,8 +106,8 @@ extension Keymap {
         case .edit: return [.character("e")]
 
         case .editRepo: return [.character("E")]
-        case .previousSection: return [.character("H")]
-        case .nextSection: return [.character("L")]
+        case .previousSection: return [.character("K")]
+        case .nextSection: return [.character("J")]
         case .arrangeProjects: return [.character("r")]
         case .addProject: return [.character("n")]
         case .moveRowUp: return [.character("K")]

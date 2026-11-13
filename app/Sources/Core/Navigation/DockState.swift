@@ -77,8 +77,8 @@ public struct DockState: Equatable {
         self.artifactFilterTokens = artifactFilterTokens
     }
 
-    /// First launch: both panels hidden, the bottom one on the artifact list.
-    public static let initial = DockState()
+    /// Startup: Watcher and the Worker Log are open before the window appears.
+    public static let initial = DockState(topVisible: true, bottomVisible: true, dockContent: .workerChat)
 
     /// Shows `content` in the bottom panel, opening it if it's hidden. The top panel stays as it was.
     public mutating func show(_ content: DockContent) {
@@ -101,10 +101,11 @@ public struct DockState: Equatable {
         dockContent = .artifactList
     }
 
-    /// Which panels show: with no session (a detached terminal) both hide, and their state stays, so they come back
-    /// as they were when a session attaches.
-    public func panels(hasSession: Bool) -> DockPanels {
-        DockPanels(top: topVisible && hasSession, bottom: bottomVisible && hasSession)
+    /// Keep the initial layout while startup resolves its session. After that, a detached terminal hides both
+    /// panels without changing their state, so they come back as they were when a session attaches.
+    public func panels(hasSession: Bool, isResolvingStartupSession: Bool = false) -> DockPanels {
+        let showsPanels = hasSession || isResolvingStartupSession
+        return DockPanels(top: topVisible && showsPanels, bottom: bottomVisible && showsPanels)
     }
 
     /// A new artifact in the viewed session opens in the viewer, opening the bottom panel if it's hidden, but never over

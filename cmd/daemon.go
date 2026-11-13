@@ -133,7 +133,7 @@ func newDaemonCmd(store *state.Store, router *tmuxroute.Router, routerErr error)
 			if err != nil {
 				return err
 			}
-			if err := daemon.MigrateLegacyShims(home, record.Executable); err != nil {
+			if err := daemon.MigrateLegacyShims(home, daemon.StableExecutable(c.Root)); err != nil {
 				return err
 			}
 		}

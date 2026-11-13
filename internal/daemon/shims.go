@@ -42,6 +42,14 @@ func installedIdentity(id string) bool {
 	return id == "canonical" || strings.HasPrefix(id, "bin-")
 }
 
+// executableForRecord keeps installed records independent of the version directory behind the stable link.
+func executableForRecord(root, id, executable string) string {
+	if installedIdentity(id) {
+		return StableExecutable(root)
+	}
+	return executable
+}
+
 // ensureStableForIdentity points the stable path at an installed build. Development builds are skipped.
 func ensureStableForIdentity(root, id, executable string) error {
 	if !installedIdentity(id) {

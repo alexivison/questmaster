@@ -554,7 +554,7 @@ func logGhosttyConfiguration(host: GhosttyTerminalHost) {
     }
 }
 
-private func ghosttyConfigOpenPath() -> String? {
+func ghosttyConfigOpenPath() -> String? {
     let path = ghostty_config_open_path()
     defer { ghostty_string_free(path) }
     guard let pointer = path.ptr, path.len > 0 else {
