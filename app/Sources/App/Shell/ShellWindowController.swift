@@ -83,7 +83,6 @@ final class ShellWindowController {
 
         let trackerEffectExecutor = makeTrackerEffectExecutor(window)
         let keyboardBridge = TrackerKeyboardBridge()
-        let headerAlignment = TrackerHeaderAlignmentModel()
         let trackerContent = TrackerKeyboardHostingView(rootView: TrackerRootView(
             store: runtimeStore,
             avatarStage: avatarStage,
@@ -91,7 +90,6 @@ final class ShellWindowController {
             keyboardBridge: keyboardBridge,
             newSessionPresenter: newSessionPresenter,
             destructiveConfirmationPresenter: destructiveConfirmationPresenter,
-            headerAlignment: headerAlignment,
             onEffect: { [weak trackerEffectExecutor] effect in
                 trackerEffectExecutor?.execute(effect) ?? false
             }
@@ -142,7 +140,6 @@ final class ShellWindowController {
             guard let terminalHost else { return }
             let cell = terminalHost.cellMetrics
             self?.applyResizeIncrements(cell: cell)
-            headerAlignment.cellHeight = cell.cellHeight
             splitView?.applyCanonicalLayout()
         }
 

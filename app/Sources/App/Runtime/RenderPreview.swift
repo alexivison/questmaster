@@ -15,6 +15,10 @@ enum RenderPreview {
         let outputDir = CommandLine.arguments.count > flagIndex + 1
             ? CommandLine.arguments[flagIndex + 1]
             : NSTemporaryDirectory()
+        // Review switch for the avatar's gap above the banner (0, 5 or 10).
+        if let gap = ProcessInfo.processInfo.environment["RENDER_AVATAR_GAP"].flatMap(Double.init) {
+            TrackerListMetrics.avatarBannerGapOverride = CGFloat(gap)
+        }
 
         render(newSessionView(.initial), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-init.png")
         render(newSessionView(.filled), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")

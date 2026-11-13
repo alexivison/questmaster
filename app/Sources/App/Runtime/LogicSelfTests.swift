@@ -112,7 +112,7 @@ enum LogicSelfTests {
         ("testBundledDruidBubbleTailPointsAtHer", testBundledDruidBubbleTailPointsAtHer),
         ("testTheBubbleStaysInTheSlotAboveTheBanner", testTheBubbleStaysInTheSlotAboveTheBanner),
         ("testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot", testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot),
-        ("testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible", testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible),
+        ("testTheSoleStandsAboveTheBannerAndStaysVisible", testTheSoleStandsAboveTheBannerAndStaysVisible),
         ("testTheAvatarStandsOnTheFullWidthBannerAboveTheShells", testTheAvatarStandsOnTheFullWidthBannerAboveTheShells),
         ("testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList", testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList),
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
@@ -781,8 +781,8 @@ enum LogicSelfTests {
             return (weight / (scale * scale), weight == 0 ? .zero : CGPoint(x: sum.x / weight, y: sum.y / weight))
         }
 
-        /// The first plate starts at the tracker header inset; each following row adds its height and a gap.
-        let masterTop = TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: 0)
+        /// The first plate starts level with the action bar header's bottom; each following row adds its height and a gap.
+        let masterTop = TrackerListMetrics.firstSectionTopInset
         let workerTop = masterTop + TrackerNameplateRole.master.canvasSize.height + TrackerListMetrics.spacing
         let collapsedTop = workerTop + TrackerNameplateRole.worker.canvasSize.height + TrackerListMetrics.spacing
         let gutter = TrackerListMetrics.sidePadding
@@ -925,8 +925,9 @@ enum LogicSelfTests {
 
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
         try expectClose(TrackerListMetrics.spacing, 10, "every gap in the list")
-        try expectClose(TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: 0), 0, "first section starts at the tracker top")
+        try expectClose(TrackerListMetrics.firstSectionTopInset, ActionBarMetrics.height, "first plate starts level with the action bar header's bottom edge")
         try expectClose(TrackerListMetrics.avatarClearance, 40, "clearance between the list and the avatar slot")
+        try expectClose(TrackerListMetrics.avatarBannerGap, Space.item, "gap between the avatar's sole and the banner")
         try expectClose(SelectedSessionTagMetrics.width, 260, "banner matches a master plate's width")
         try expectClose(SelectedSessionTagMetrics.tabInset, 5, "id tab inset on each side")
         try expectClose(TrackerListMetrics.contentWidth, TrackerPlateDesign.topLevelSize.width + TrackerPlateDesign.glowBandWidth, "tracker content width, the master plate's and its band's")
@@ -2617,9 +2618,10 @@ enum LogicSelfTests {
         try expect(bandHeight > 0, "the synthetic pose should have top rows outside the slot")
     }
 
-    /// A real tracker with a synthetic pixel mark that crosses the foot row: its sole stays visible while the id tab
-    /// hides its lower pixels. The tall-pose test separately checks that the avatar still draws above the plates.
-    private static func testTheBannerCoversArtBelowTheSoleButKeepsTheSoleVisible() throws {
+    /// A real tracker with a synthetic pixel mark that crosses the foot row: its sole stays visible, art hanging below it
+    /// shows in the gap, and the id tab starts `avatarBannerGap` below the sole. The tall-pose test separately checks that
+    /// the avatar still draws above the plates.
+    private static func testTheSoleStandsAboveTheBannerAndStaysVisible() throws {
         let art = try TrackerAvatarOverflowFixture.make()
         defer { try? FileManager.default.removeItem(at: art.folder) }
         let fixture = try TrackerFixture(masters: 1, shells: 2, viewed: "master-0", height: 700, sessionClass: "wizard")
@@ -2642,9 +2644,12 @@ enum LogicSelfTests {
             guard let bitmap = try? snapshot(fixture.view, size: fixture.size, scale: scale) else { return false }
             probe = PixelProbe(bitmap: bitmap, height: bitmap.pixelsHigh)
             return probe?.isColor(column, soleRow, marker) == true
-        }, "the sprite's last sole row should remain visible directly above the banner")
-        try expect(probe?.isColor(column, hangingRow, AppPalette.panel) == true,
-                   "the banner's id tab should cover the sprite pixels hanging below the sole")
+        }, "the sprite's last sole row should remain visible above the banner")
+        try expect(probe?.isColor(column, hangingRow, marker) == true,
+                   "the sprite pixels hanging below the sole should show in the gap above the banner")
+        let tabRow = Int((sole + TrackerListMetrics.avatarBannerGap + 2) * scale)
+        try expect(probe?.isColor(column, tabRow, AppPalette.panel) == true,
+                   "the banner's id tab should start \(TrackerListMetrics.avatarBannerGap) below the sole")
     }
 
     private static func descendants(of view: NSView) -> [NSView] {
@@ -2719,7 +2724,7 @@ enum LogicSelfTests {
                     let bannerTop = bannerBottom - SelectedSessionTagMetrics.height
                     let slot = fixture.view.convert(avatar.bounds, from: avatar)
                     let sole = fixture.view.isFlipped ? slot.maxY : fixture.size.height - slot.minY
-                    try expect(abs(sole - bannerTop) < 1, "\(sessionClass) with \(shells) shells: the sole should touch the banner top at \(bannerTop), got \(sole)")
+                    try expect(abs(sole + TrackerListMetrics.avatarBannerGap - bannerTop) < 1, "\(sessionClass) with \(shells) shells: the sole should stand \(TrackerListMetrics.avatarBannerGap) above the banner top at \(bannerTop), got \(sole)")
                     try expect(slot.size == CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight),
                                "the reserved slot should keep the same size for every class")
                     try expect(abs(slot.minX - TrackerListMetrics.sidePadding) < 1, "the avatar and banner should start at the plates' leading inset")
@@ -2727,7 +2732,7 @@ enum LogicSelfTests {
                     let probe = try fixture.probe()
                     let left = Int(TrackerListMetrics.sidePadding)
                     let tabMiddle = Int(bannerTop + SelectedSessionTagMetrics.tabHeight / 2)
-                    try expect(probe.isColor(left + Int(Space.item), tabMiddle, AppPalette.panel), "the banner's id tab should sit directly under the slot")
+                    try expect(probe.isColor(left + Int(Space.item), tabMiddle, AppPalette.panel), "the banner's id tab should sit under the slot, \(TrackerListMetrics.avatarBannerGap) below its sole")
                     try expect(probe.isColor(left + Int(Space.row) - 1, tabMiddle, AppPalette.window), "the id tab should stay inset 5pt")
                     let barMiddle = Int(bannerBottom - SelectedSessionTagMetrics.borderWidth - SelectedSessionTagMetrics.barHeight / 2)
                     let color = TrackerNameplateColor.barLightness(AppPalette.displayColor("indigo") ?? AppPalette.muted)

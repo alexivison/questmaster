@@ -226,7 +226,6 @@ struct TrackerRootView: View {
     private let keyboardBridge: TrackerKeyboardBridge?
     @ObservedObject private var newSessionPresenter: NewSessionSheetPresenter
     @ObservedObject private var destructiveConfirmationPresenter: DestructiveConfirmationPresenter
-    @ObservedObject private var headerAlignment: TrackerHeaderAlignmentModel
 
     @State private var commandState = TrackerCommandState()
     @State private var listKeys = ListKeyResolver()
@@ -246,7 +245,6 @@ struct TrackerRootView: View {
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
         destructiveConfirmationPresenter: DestructiveConfirmationPresenter,
-        headerAlignment: TrackerHeaderAlignmentModel = TrackerHeaderAlignmentModel(),
         onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
@@ -256,7 +254,6 @@ struct TrackerRootView: View {
         self.onEffect = onEffect
         _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
         _destructiveConfirmationPresenter = ObservedObject(wrappedValue: destructiveConfirmationPresenter)
-        _headerAlignment = ObservedObject(wrappedValue: headerAlignment)
         _snapshot = State(initialValue: store.snapshot)
         _currentTerminalSessionID = State(initialValue: store.currentTerminalSessionID)
     }
@@ -319,7 +316,7 @@ struct TrackerRootView: View {
         let plateCursorID = TrackerShellSection.plateCursorID(selectedID, in: rows)
         let list = Group {
             if connection.awaitsFirstTracker {
-                TrackerSkeletonPlaceholder(topInset: TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: headerAlignment.cellHeight))
+                TrackerSkeletonPlaceholder(topInset: TrackerListMetrics.firstSectionTopInset)
             } else {
                 if rows.isEmpty {
                     // A backend that doesn't fit says so; otherwise there is just nothing to list.
@@ -351,7 +348,7 @@ struct TrackerRootView: View {
                                 onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
-                            .padding(.top, index == 0 ? TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: headerAlignment.cellHeight) : TrackerListMetrics.spacing)
+                            .padding(.top, index == 0 ? TrackerListMetrics.firstSectionTopInset : TrackerListMetrics.spacing)
                         }
                     }
                 }
@@ -390,7 +387,7 @@ struct TrackerRootView: View {
         .opacity(connection.showsLastTracker ? Token.Opacity.dimmed : 1)
     }
 
-    /// The avatar's sole stands on the banner below its fixed slot, above the pinned shell section.
+    /// The avatar's sole stands `avatarBannerGap` above the banner below its fixed slot, above the pinned shell section.
     private func avatarBlock() -> some View {
         TrackerAvatarSlot(
             pose: avatarStage.pose,
@@ -402,6 +399,7 @@ struct TrackerRootView: View {
             handle: avatarStage.avatar
         )
         .padding(.leading, TrackerListMetrics.sidePadding)
+        .padding(.bottom, TrackerListMetrics.avatarBannerGap)
         // Tall poses reach over the scrolling plates; the banner above this layer covers art below the sole.
         .zIndex(1)
     }

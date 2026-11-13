@@ -1,11 +1,11 @@
 ---
 name: class-avatar
-description: For working on the Questmaster codebase itself (not for users of the questmaster CLI). The class avatar - the animated pixel-art figure of the attached master's class standing on the session banner in the tracker - its per-class animation.json and sprite art, poses, cues, spell flights to the Worker Log, the idle (breathing, blink, fidgets, idle effects), the calling-out bubble and the avatar slot. Read before changing any of it or adding a class's art.
+description: For working on the Questmaster codebase itself (not for users of the questmaster CLI). The class avatar - the animated pixel-art figure of the attached master's class standing just above the session banner in the tracker - its per-class animation.json and sprite art, poses, cues, spell flights to the Worker Log, the idle (breathing, blink, fidgets, idle effects), the calling-out bubble and the avatar slot. Read before changing any of it or adding a class's art.
 ---
 
 # Class avatar
 
-The attached master's class stands as an animated sprite on the session banner at the bottom of the tracker. Core decides
+The attached master's class stands as an animated sprite just above the session banner at the bottom of the tracker. Core decides
 what it does (`TrackerAvatarDirector`, `TrackerAvatarPose`, `TrackerAvatarAnimation`, all pure and tested); the App target
 draws it (`TrackerAvatar*`, `TrackerFlightOverlay`). Each class's art and timings are one folder of PNGs plus its
 `animation.json`, made by a sprite pipeline outside this repo; the palettes are documented in `docs/sprites/palettes/`.

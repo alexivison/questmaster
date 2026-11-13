@@ -15,7 +15,6 @@ timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("ShellSplitLayoutTests") { ShellSplitLayoutTests.run() }
         timed("TerminalCellSnappingTests") { TerminalCellSnappingTests.run() }
         timed("GhosttyGapDerivationTests") { GhosttyGapDerivationTests.run() }
-        timed("TrackerHeaderAlignmentTests") { TrackerHeaderAlignmentTests.run() }
         timed("DockWidthPreferenceTests") { DockWidthPreferenceTests.run() }
         timed("ServeRecoveryPolicyTests") { ServeRecoveryPolicyTests.run() }
         timed("DaemonConnectionTests") { DaemonConnectionTests.run() }
