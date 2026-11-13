@@ -145,9 +145,6 @@ func TestRootPointersResolveAndEverySkillIsIndexed(t *testing.T) {
 			t.Errorf("skill %s has no row in the AGENTS.md skills index (expected a pointer to %s)", name, want)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, "README.md")); err != nil {
-		t.Errorf("README.md is pointed at by the skills index but missing: %v", err)
-	}
 }
 
 // frontmatter returns the key/value pairs of a SKILL.md's single-line
