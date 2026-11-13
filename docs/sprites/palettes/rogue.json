@@ -1,114 +1,62 @@
 {
   "version": 2,
   "outline": [
-    "#070f18",
-    "#18222b"
+    "#161012"
   ],
   "materials": {
-    "navy cloth": [
-      "#142331",
-      "#2e4153",
-      "#536679"
-    ],
-    "teal trim": [
-      "#123b49",
-      "#2d7180",
-      "#61a8b0"
-    ],
-    "blue-black mask": [
-      "#0b1015",
-      "#18212a",
-      "#2a343d"
-    ],
-    "leather": [
-      "#2f1a12",
-      "#55301f",
-      "#7d4b2c"
+    "skin": [
+      "#965a46",
+      "#c77750",
+      "#f3a876"
     ],
     "steel": [
-      "#465562",
-      "#798d99",
-      "#becdd3"
+      "#5e728d",
+      "#7f97b6",
+      "#c5d8e9"
     ],
-    "skin": [
-      "#8f6255",
-      "#b97d62",
-      "#dea585"
+    "teal": [
+      "#215872",
+      "#246680",
+      "#296f8a"
     ],
-    "parchment": [
-      "#765942",
-      "#b69069",
-      "#dfc49a"
+    "navy": [
+      "#162239",
+      "#253d5d",
+      "#4a5772"
+    ],
+    "mask": [
+      "#0c1523",
+      "#161f39",
+      "#1b3d49"
+    ],
+    "leather": [
+      "#212233",
+      "#523236",
+      "#75423b"
+    ],
+    "paper": [
+      "#b8935f",
+      "#e9c585",
+      "#fdeea5"
     ],
     "shadow form": [
-      "#241830",
-      "#57316c",
-      "#8c5daa"
+      "#241a3a",
+      "#3d2a63",
+      "#5a4090"
+    ],
+    "silver glint": [
+      "#cfd8e4"
     ]
   },
   "neutral": [],
   "glow": [
-    "#9372b3",
-    "#9176aa",
-    "#e7f1f3"
+    "#2b1d52",
+    "#44307f",
+    "#5f45a8",
+    "#7d5fd0",
+    "#a285ec",
+    "#c8b6fa",
+    "#eee6ff"
   ],
-  "glow_note": "Observed in the current staged workbench effects; effects are not palette-locked.",
-  "regions": "palette-regions/manifest.json",
-  "source_map": {
-    "outline": {
-      "#070f18": "#070f18",
-      "#142331": "#18222b"
-    },
-    "navy cloth": {
-      "#142331": "#142331",
-      "#2e4153": "#2e4153",
-      "#536679": "#536679"
-    },
-    "teal trim": {
-      "#123b49": "#123b49",
-      "#2d7180": "#2d7180"
-    },
-    "blue-black mask": {
-      "#142331": "#0b1015",
-      "#172532": "#18212a",
-      "#2c3b49": "#2a343d",
-      "#2e4153": "#18212a",
-      "#3e292f": "#2a343d",
-      "#536679": "#2a343d",
-      "#553636": "#2a343d"
-    },
-    "leather": {
-      "#3e292f": "#55301f",
-      "#553636": "#55301f",
-      "#774a40": "#7d4b2c"
-    },
-    "steel": {
-      "#465562": "#465562",
-      "#798d99": "#798d99",
-      "#becdd3": "#becdd3"
-    },
-    "skin": {
-      "#123b49": "#8f6255",
-      "#2d7180": "#8f6255",
-      "#2e4153": "#8f6255",
-      "#3e292f": "#8f6255",
-      "#536679": "#8f6255",
-      "#553636": "#8f6255",
-      "#734e48": "#8f6255",
-      "#774a40": "#8f6255",
-      "#798d99": "#b97d62",
-      "#aa6b54": "#8f6255",
-      "#d5986f": "#dea585"
-    },
-    "parchment": {
-      "#765942": "#765942",
-      "#b69069": "#b69069",
-      "#dfc49a": "#dfc49a"
-    },
-    "shadow form": {
-      "#241830": "#241830",
-      "#57316c": "#57316c",
-      "#8c5daa": "#8c5daa"
-    }
-  }
+  "glow_note": "The seven colours of the pose effects, dark to light (shadow-violet smoke, near-black violet to pale lilac, used by the smoke, pool, swooshes and spells); the silver glints add #7f8da4, #aebbd0, #d6dfec, #f2f6fb and #ffffff, and the spells' paper is #e9e2cf. The shadow form (the signature's silhouette) and its silver glint are body materials. Redone 2026-11-13 from the new base (Rogue/redo-2026-11-13/base/palette.json)."
 }

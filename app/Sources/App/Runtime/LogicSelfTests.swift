@@ -2236,8 +2236,10 @@ enum LogicSelfTests {
         guard let breathing = sprites.animation.idle?.breathing else {
             throw TestFailure("the rogue's authored breathing track should load")
         }
-        try expect(breathing.frames.count == 8 && sprites.idleBreathingArt?.count == 8,
-                   "the rogue should load all eight sparse breathing frames and their lid stencils")
+        try expect(breathing.frames.count == 9 && sprites.idleBreathingArt?.count == 9,
+                   "the rogue should load all nine breathing frames and their lid stencils")
+        try expect(sprites.animation.fidgets.map(\.name) == ["flip", "glance"] && sprites.availableFidgets.count == 2,
+                   "the rogue should have the flip and glance fidgets, with their art")
         try expect(breathing.frames.allSatisfy { Set($0.lidPixels.map(\.y)).count > 1 },
                    "the rogue's blink stencils should preserve their multi-row pixels")
         try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0)?.drawnFacing == .right },
@@ -2693,7 +2695,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 154), ("fighter", 161), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 129), ("sorcerer", 150), ("wizard", 150)] {
+        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 154), ("fighter", 161), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 118), ("sorcerer", 150), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }
