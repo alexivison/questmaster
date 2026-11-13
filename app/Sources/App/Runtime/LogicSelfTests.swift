@@ -1734,7 +1734,7 @@ enum LogicSelfTests {
         try expect(!druidAvatar.isBlinkScheduled, "the druid's blink:false setting should prevent scheduled blinks")
         druidAvatar.showEyelids(true)
         let druidLids = (druidAvatar.layer?.sublayers ?? []).first(where: { !$0.isHidden })?.sublayers?.first(where: { $0.name == TrackerAvatarMotionKey.lids })
-        try expect(druidLids?.opacity == 1, "a forced render should still be able to show the druid's recorded lid stencil")
+        try expect(druidLids == nil || druidLids?.opacity == 0, "her eyes are closed in every frame, so a forced render has no lid stencil to paint")
     }
 
     /// A release whose file names its strike frame steps forward as that frame begins, not on its second step: the synthetic class's
@@ -1969,11 +1969,11 @@ enum LogicSelfTests {
     }
 
     /// Every bundled class's still flights lead with their heads on their paths. Only the returning wisp flies left; the orb and the
-    /// messenger fly right. How each still is drawn is read from the art: the druid's, the necromancer's, the sorcerer's and the fighter's wisps face left already, and every
+    /// messenger fly right. How each still is drawn is read from the art: the necromancer's, the sorcerer's and the fighter's wisps face left already, and every
     /// other still faces right, so a wisp that faces right needs its file to say so (`faces`) to be mirrored on its way back.
     @MainActor
     private static func testEveryBundledStillLeadsWithItsHeadOnItsPath() throws {
-        let drawnLeft: Set<String> = ["druid S6-returning-wisp", "necromancer S6-returning-wisp", "sorcerer S6-returning-wisp", "fighter S6-returning-wisp"]
+        let drawnLeft: Set<String> = ["necromancer S6-returning-wisp", "sorcerer S6-returning-wisp", "fighter S6-returning-wisp"]
         for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
             for spell in TrackerSpellFlight.Spell.allCases {
                 guard let art = sprites.flight(for: spell) else {
@@ -2126,8 +2126,8 @@ enum LogicSelfTests {
             throw TestFailure("the druid's sprites should load from the app bundle")
         }
         try expect(sprites.animation.idle?.blink == false, "the druid should not schedule a blink")
-        try expect(sprites.animation.idle?.breathing?.frames.count == 8 && sprites.idleBreathingArt?.count == 8,
-                   "the druid should load all eight authored frames and eyelid stencils")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 9 && sprites.idleBreathingArt?.count == 9,
+                   "the druid should load all nine authored breathing frames")
         try expect(sprites.availableFidgets.count > 0, "the druid's bird fidget art should remain available")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the druid's file plays should have its art, missing: \(missing)")
@@ -2256,7 +2256,7 @@ enum LogicSelfTests {
               let pose = sprites.animation.animation(for: .callingOut) else {
             throw TestFailure("the druid's calling out should load from the app bundle")
         }
-        try expect(pose.bubble == TrackerAvatarPixel(x: 40, y: 9), "the druid's bubble should sit at x 40, y 9, got \(String(describing: pose.bubble))")
+        try expect(pose.bubble == TrackerAvatarPixel(x: 18, y: 50), "the druid's bubble should sit at x 18, y 50, got \(String(describing: pose.bubble))")
         try expect(pose.bubbleTail == .right, "the druid's bubble tail should point right, at her")
         guard let rig = TrackerAvatarFrameRig(pose: .callingOut, placement: pose, sprites: sprites) else {
             throw TestFailure("the druid's calling out should draw")
@@ -2598,7 +2598,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 153), ("fighter", 161), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 129), ("sorcerer", 150), ("wizard", 150)] {
+        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 154), ("fighter", 161), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 129), ("sorcerer", 150), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }

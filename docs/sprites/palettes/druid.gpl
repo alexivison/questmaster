@@ -1,48 +1,36 @@
 GIMP Palette
 Name: Druid — palette lock
-Columns: 3
+Columns: 6
 #
-  1   5   6	outline 1
- 28  34  28	outline 2
- 70  82  38	leaves 1
-102 107  42	leaves 2
-150 132  51	leaves 3
- 42  31  20	wood and leather 1
- 79  54  32	wood and leather 2
-125  85  46	wood and leather 3
-159 115  54	antlers and trim 1
-202 159  80	antlers and trim 2
-230 184 110	antlers and trim 3
-143 136 133	stag fur 1
-203 184 192	stag fur 2
-245 234 221	stag fur 3
- 49  64  91	bird 1
-122 158 196	bird 2
-243 234 208	bird 3
-122  76  53	skin 1
-176 122  85	skin 2
-224 168 130	skin 3
-143 207 154	glow 1
-179 226 176	glow 2
-235 252 227	glow 3
-244 255 240	glow 4
-217 247 207	glow 5
-182 232 176	glow 6
-180 227 174	glow 7
-236 253 230	glow 8
-182 230 179	glow 9
-233 252 225	glow 10
-232 253 210	glow 11
-200 169 112	glow 12
-228 194 141	glow 13
-252 252 252	glow 14
-253 253 212	glow 15
-177 206  81	glow 16
-237 250 224	glow 17
-251 251 236	glow 18
-226 251 150	glow 19
-192 216 118	glow 20
-224 251 143	glow 21
-221 244 163	glow 22
-243 250 224	glow 23
-209 235 139	glow 24
+ 30  20  22	outline 1
+170 130 105	skin 1
+209 158 131	skin 2
+238 179 153	skin 3
+ 66  50  44	hair 1
+ 97  75  64	hair 2
+136 103  87	hair 3
+140 121 101	antler 1
+164 142 121	antler 2
+184 161 138	antler 3
+ 82  58  47	belt 1
+104  71  56	belt 2
+148 122  96	belt 3
+149 144 117	dress 1
+171 163 133	dress 2
+196 188 162	dress 3
+ 98  96  70	under 1
+115 112  83	under 2
+128 125  93	under 3
+185 153 130	fur 1
+218 190 166	fur 2
+241 221 198	fur 3
+135 109  91	hoof 1
+140 115  96	hoof 2
+160 134 112	hoof 3
+ 47  95  66	glow 1
+ 79 148 104	glow 2
+134 208 154	glow 3
+185 240 194	glow 4
+226 251 224	glow 5
+246 255 242	glow 6
+255 255 255	glow 7

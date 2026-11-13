@@ -796,13 +796,12 @@ struct TrackerAvatarAnimationTests {
         guard let animation = try? decode(AvatarAnimationFixture.classJSON("druid")) else {
             fail("the druid's file should decode")
         }
-        expect(animation.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 40, y: 9), "the druid's bubble should sit above her left antler")
+        expect(animation.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 18, y: 50), "the druid's bubble should sit left of her antlers")
         expect(animation.animation(for: .callingOut)?.bubbleTail == .right, "the druid's bubble tail should point right, at her")
         expect(animation.idle?.blink == false, "the druid should never blink")
-        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xe0a882), "the druid should keep the eyelid colour")
-        expect(animation.idle?.breathing?.frames.count == 8, "the druid should keep the eight authored breathing frames")
-        expect(animation.idle?.breathing?.frames.first?.lidPixels == [TrackerAvatarPixel(x: 63, y: 37), TrackerAvatarPixel(x: 64, y: 37)],
-               "closed-eye metadata should still be decoded for the druid")
+        expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xeeb399), "the druid should keep the eyelid colour")
+        expect(animation.idle?.breathing?.frames.count == 9, "the druid should have her nine authored breathing frames")
+        expect(animation.idle?.breathing?.frames.first?.lidPixels.isEmpty ?? true, "her eyes are closed in every frame, so she carries no eyelid stencil")
     }
 
     /// The paladin's frames at given times, read from his file: the summoning's entrance moves him while its ground circle opens

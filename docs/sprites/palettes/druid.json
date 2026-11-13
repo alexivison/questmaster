@@ -1,157 +1,59 @@
 {
   "version": 2,
   "outline": [
-    "#010506",
-    "#1c221c"
+    "#1e1416"
   ],
   "materials": {
-    "leaves": [
-      "#465226",
-      "#666b2a",
-      "#968433"
-    ],
-    "wood and leather": [
-      "#2a1f14",
-      "#4f3620",
-      "#7d552e"
-    ],
-    "antlers and trim": [
-      "#9f7336",
-      "#ca9f50",
-      "#e6b86e"
-    ],
-    "stag fur": [
-      "#8f8885",
-      "#cbb8c0",
-      "#f5eadd"
-    ],
-    "bird": [
-      "#31405b",
-      "#7a9ec4",
-      "#f3ead0"
-    ],
     "skin": [
-      "#7a4c35",
-      "#b07a55",
-      "#e0a882"
+      "#aa8269",
+      "#d19e83",
+      "#eeb399"
+    ],
+    "hair": [
+      "#42322c",
+      "#614b40",
+      "#886757"
+    ],
+    "antler": [
+      "#8c7965",
+      "#a48e79",
+      "#b8a18a"
+    ],
+    "belt": [
+      "#523a2f",
+      "#684738",
+      "#947a60"
+    ],
+    "dress": [
+      "#959075",
+      "#aba385",
+      "#c4bca2"
+    ],
+    "under": [
+      "#626046",
+      "#737053",
+      "#807d5d"
+    ],
+    "fur": [
+      "#b99982",
+      "#dabea6",
+      "#f1ddc6"
+    ],
+    "hoof": [
+      "#876d5b",
+      "#8c7360",
+      "#a08670"
     ]
   },
   "neutral": [],
   "glow": [
-    "#8fcf9a",
-    "#b3e2b0",
-    "#ebfce3",
-    "#f4fff0",
-    "#d9f7cf",
-    "#b6e8b0",
-    "#b4e3ae",
-    "#ecfde6",
-    "#b6e6b3",
-    "#e9fce1",
-    "#e8fdd2",
-    "#c8a970",
-    "#e4c28d",
-    "#fcfcfc",
-    "#fdfdd4",
-    "#b1ce51",
-    "#edfae0",
-    "#fbfbec",
-    "#e2fb96",
-    "#c0d876",
-    "#e0fb8f",
-    "#ddf4a3",
-    "#f3fae0",
-    "#d1eb8b"
+    "#2f5f42",
+    "#4f9468",
+    "#86d09a",
+    "#b9f0c2",
+    "#e2fbe0",
+    "#f6fff2",
+    "#ffffff"
   ],
-  "glow_note": "Real bright swatches from shipped effects/spells, frequency order. Reference only: the character lock never changes effects, spells, rings or bubbles.",
-  "regions": "palette-regions/manifest.json",
-  "source_map": {
-    "outline": {
-      "#010506": "#010506",
-      "#131716": "#1c221c",
-      "#1c221c": "#1c221c"
-    },
-    "leaves": {
-      "#465226": "#465226",
-      "#5b5f27": "#666b2a",
-      "#666b2a": "#666b2a",
-      "#86712b": "#666b2a",
-      "#968433": "#968433"
-    },
-    "wood and leather": {
-      "#222e20": "#2a1f14",
-      "#273221": "#2a1f14",
-      "#2b3722": "#4f3620",
-      "#2d2f2f": "#4f3620",
-      "#352c20": "#2a1f14",
-      "#403122": "#4f3620",
-      "#414422": "#4f3620",
-      "#473922": "#4f3620",
-      "#4a4641": "#4f3620",
-      "#563d25": "#4f3620",
-      "#604126": "#4f3620",
-      "#615226": "#7d552e",
-      "#615e56": "#7d552e",
-      "#6a4528": "#7d552e",
-      "#765429": "#7d552e",
-      "#7b7a79": "#7d552e",
-      "#7d7975": "#7d552e",
-      "#84592b": "#7d552e",
-      "#8d5e2e": "#7d552e"
-    },
-    "antlers and trim": {
-      "#9f7336": "#9f7336",
-      "#bf8b47": "#ca9f50",
-      "#ca9f50": "#ca9f50",
-      "#e6b86e": "#e6b86e",
-      "#e7a13d": "#ca9f50",
-      "#fed679": "#e6b86e"
-    },
-    "stag fur": {
-      "#888483": "#8f8885",
-      "#8f8b86": "#8f8885",
-      "#918c8a": "#8f8885",
-      "#a09694": "#8f8885",
-      "#b3a59d": "#cbb8c0",
-      "#c0adb9": "#cbb8c0",
-      "#cab7bf": "#cbb8c0",
-      "#cbb3b7": "#cbb8c0",
-      "#cbb8c0": "#cbb8c0",
-      "#d9c9c7": "#cbb8c0",
-      "#ebe1dd": "#f5eadd",
-      "#f0cf9f": "#cbb8c0",
-      "#f0e3d3": "#f5eadd",
-      "#f0e3d5": "#f5eadd",
-      "#f0e4d7": "#f5eadd",
-      "#f1e5d6": "#f5eadd",
-      "#f5eadd": "#f5eadd",
-      "#fefef8": "#f5eadd"
-    },
-    "bird": {
-      "#1e2228": "#31405b",
-      "#31405b": "#31405b",
-      "#4d6c93": "#31405b",
-      "#7a9ec4": "#7a9ec4",
-      "#c88a3c": "#7a9ec4",
-      "#d6e8f8": "#f3ead0",
-      "#e0a040": "#7a9ec4",
-      "#f3ead0": "#f3ead0"
-    },
-    "skin": {
-      "#273221": "#7a4c35",
-      "#473922": "#7a4c35",
-      "#563d25": "#7a4c35",
-      "#604126": "#7a4c35",
-      "#615226": "#7a4c35",
-      "#666b2a": "#7a4c35",
-      "#6a4528": "#7a4c35",
-      "#765429": "#7a4c35",
-      "#84592b": "#7a4c35",
-      "#968433": "#b07a55",
-      "#9f7336": "#b07a55",
-      "#bf8b47": "#b07a55",
-      "#ca9f50": "#e0a882",
-      "#e6b86e": "#e0a882"
-    }
-  }
+  "glow_note": "The seven colours of the pose effects, dark to light (pale pastel green to white, used by the leaves, motes, rings and the petals); the fireflies add a yellow-green ramp (#5d6e22, #aebf45, #dcef6c, #f6ffa6) and the fidget bird and the stag-free spells a few more. The stag's fur and hooves are body materials. Redone 2026-11-13 from the new base (Druid/redo-2026-11-13/base/palette.json and stag/palette.json)."
 }
