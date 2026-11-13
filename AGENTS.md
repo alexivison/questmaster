@@ -207,7 +207,7 @@ Invariants that aren't obvious from the code:
   `accepted` (a native socket took the frame), `submitted` (tmux `send-keys` typed
   it), or empty (the alert was held). `received` is reserved for a harness-observed
   receipt that names the message; no code path produces it. Do not label a tmux
-  send as received. `README.md` documents the CLI output.
+  send as received.
 
 ## The Go↔Swift contract
 
@@ -301,10 +301,6 @@ Core.
 - **Do not drive the GUI via AppleScript/`osascript`/synthetic keystrokes** — it
   trips endpoint security here. Verify app changes via `swift build` + the logic
   tests; leave interactive GUI verification to the human.
-
-## Where to look
-
-- `README.md` — install, backend quick start, native-app overview, env vars.
 
 ## Interaction states
 
