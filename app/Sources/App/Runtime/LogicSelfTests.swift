@@ -4447,7 +4447,7 @@ enum LogicSelfTests {
         try expect(offsetFromTop(hoveredScroll) == 0, "a cursor the pointer moved should not scroll the section, got \(offsetFromTop(hoveredScroll))")
     }
 
-    /// The spacing the source scan can't see (AGENTS.md, "Spacing"), measured on 1x renders: stacked paddings and row
+    /// The spacing the source scan can't see (.agents/skills/app-ui/references/spacing.md), measured on 1x renders: stacked paddings and row
     /// internals. The artifact rows' tiles sit on a 45pt pitch (a 40pt row and 5) and are 30 high; a form's first field
     /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
     /// in one pixel column.
@@ -4537,7 +4537,7 @@ enum LogicSelfTests {
         try expect(titleRows.contains(nextTop) && !titleRows.contains(nextTop - 1), "the next field should start 20 under the disc, got rows \(titleRows)")
     }
 
-    /// The elevation shadows (AGENTS.md, "Interaction states") reach past the clip that shapes their panel: a modal's
+    /// The elevation shadows (.agents/skills/app-ui/references/shadows-and-components.md) reach past the clip that shapes their panel: a modal's
     /// (`modal`) from `scoopedPanel`, the dock's (`raised`, 1.5 down) from `ScoopedLayerChrome`. A pixel 2pt under each
     /// panel's bottom edge, on the window fill, must be darker than the same fill far from it, and only a shadow dropped
     /// downward is that dark there. Every layer that draws the raised shadow in its own bounds leaves room for its whole

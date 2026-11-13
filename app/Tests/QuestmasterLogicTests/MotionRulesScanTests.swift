@@ -1,6 +1,6 @@
 import Foundation
 
-/// Keeps the app on the motion rules (AGENTS.md, "Motion") by scanning app/Sources/App, beside the spacing scan. A
+/// Keeps the app on the motion rules (.agents/skills/app-ui/references/motion.md) by scanning app/Sources/App, beside the spacing scan. A
 /// one-shot transition takes a `Motion` step; a view never states a duration or a curve. Three rules:
 ///
 /// - raw-duration: no number literal as an animation's duration or delay (`duration: 0.2`, `.duration = 0.18`,
@@ -124,7 +124,7 @@ struct MotionRulesScanTests {
                 failures.append("\(rule) \(file): line(s) \(lines.map(String.init).joined(separator: ", "))")
             }
         }
-        expect(failures.isEmpty, "motion rules (AGENTS.md): a one-shot transition takes a Motion step, never a literal duration or curve; a continuous animation names its period:\n" + failures.joined(separator: "\n"))
+        expect(failures.isEmpty, "motion rules (.agents/skills/app-ui/references/motion.md): a one-shot transition takes a Motion step, never a literal duration or curve; a continuous animation names its period:\n" + failures.joined(separator: "\n"))
     }
 
     /// Rule name to the line numbers that break it. Comment lines don't count.

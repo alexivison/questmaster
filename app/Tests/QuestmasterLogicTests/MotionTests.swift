@@ -1,7 +1,7 @@
 import Foundation
 import QuestmasterCore
 
-/// The motion tokens (AGENTS.md, "Motion"): two steps, one easing, and Reduce Motion skipping a transition.
+/// The motion tokens (.agents/skills/app-ui/references/motion.md): two steps, one easing, and Reduce Motion skipping a transition.
 struct MotionTests {
     static func run() {
         stepsAreShortAndFastIsFaster()

@@ -39,7 +39,7 @@ enum Token {
     }
 }
 
-/// The spacing scale (AGENTS.md, "Spacing"): every gap, margin, padding and inset in the app is one of these
+/// The spacing scale (.agents/skills/app-ui/references/spacing.md): every gap, margin, padding and inset in the app is one of these
 /// four steps, or a sum of them.
 enum Space {
     /// Between rows of one list control; a field and its dropdown; collapsed circles; the cast row.
@@ -52,7 +52,7 @@ enum Space {
     static let group: CGFloat = 40
 }
 
-/// The control heights, one family on the 5pt rhythm (AGENTS.md, "Spacing").
+/// The control heights, one family on the 5pt rhythm (.agents/skills/app-ui/references/spacing.md).
 enum ControlHeight {
     /// Filter chips.
     static let chip: CGFloat = 15
@@ -68,7 +68,7 @@ enum ControlHeight {
     static let row: CGFloat = 50
 }
 
-/// The motion tokens (AGENTS.md, "Motion"): every one-shot transition takes a `MotionStep` from here, so the app has two
+/// The motion tokens (.agents/skills/app-ui/references/motion.md): every one-shot transition takes a `MotionStep` from here, so the app has two
 /// paces, one easing, and one place that reads Reduce Motion. A view never states a duration or a curve. Continuous
 /// animations (spinners, the cast bar, status glows) keep their own periods.
 @MainActor

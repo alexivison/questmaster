@@ -1,7 +1,7 @@
 import Foundation
 
 /// The colours the interaction states are drawn in, as sRGB hex. AppPalette builds its matching colours from these,
-/// so a state look and the palette can't drift apart. The rules they serve are in AGENTS.md, "Interaction states".
+/// so a state look and the palette can't drift apart. The rules they serve are in .agents/skills/app-ui/references/interaction-states.md.
 public enum StateColor: UInt32, CaseIterable, Sendable {
     /// Panel and dock frames at rest.
     case lineSoftSubtle = 0x3a414a

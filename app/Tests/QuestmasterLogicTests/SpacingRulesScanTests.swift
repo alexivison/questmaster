@@ -1,6 +1,6 @@
 import Foundation
 
-/// Keeps the app on the spacing rules (AGENTS.md, "Spacing") by scanning app/Sources/App, beside the
+/// Keeps the app on the spacing rules (.agents/skills/app-ui/references/spacing.md) by scanning app/Sources/App, beside the
 /// interaction-state scan. Three rules:
 ///
 /// - raw-spacing: a view states no layout number. `.padding`, a stack's, grid's or NSStackView's `spacing`, `.frame`
@@ -124,7 +124,7 @@ struct SpacingRulesScanTests {
                 failures.append("\(rule) \(file): line(s) \(lines.map(String.init).joined(separator: ", "))")
             }
         }
-        expect(failures.isEmpty, "spacing rules (AGENTS.md):\n" + failures.joined(separator: "\n"))
+        expect(failures.isEmpty, "spacing rules (.agents/skills/app-ui/references/spacing.md):\n" + failures.joined(separator: "\n"))
     }
 
     /// Rule name to the line numbers that break it. Comment lines don't count.
