@@ -1,0 +1,48 @@
+GIMP Palette
+Name: Bard — palette lock
+Columns: 3
+#
+  1   1   6	outline 1
+ 31  17  24	outline 2
+ 82  38  50	cloak 1
+124  52  65	cloak 2
+125  53  65	cloak 3
+ 34  56  57	tunic 1
+ 46  61  61	tunic 2
+ 70  97  89	tunic 3
+ 68  33  44	leather 1
+ 96  66  51	leather 2
+128  78  65	leather 3
+182 126  85	instrument and trim 1
+212 153  91	instrument and trim 2
+248 199 143	instrument and trim 3
+ 60  43  37	hair 1
+ 81  57  45	hair 2
+107  71  56	hair 3
+182 126  85	skin 1
+218 163 102	skin 2
+248 199 143	skin 3
+255 210 122	glow 1
+255 243 201	glow 2
+182 126  85	glow 3
+255 217 189	glow 4
+248 199 143	glow 5
+218 163 102	glow 6
+212 153  91	glow 7
+185 120  47	glow 8
+201 138  61	glow 9
+198 149  94	glow 10
+251 184  54	glow 11
+254 242 164	glow 12
+253 214 169	glow 13
+255 169 138	glow 14
+252 191  32	glow 15
+254 231 152	glow 16
+253 209  70	glow 17
+250 182  50	glow 18
+249 177  46	glow 19
+251 184  53	glow 20
+255 209  63	glow 21
+254 249 200	glow 22
+253 208  66	glow 23
+254 237 145	glow 24

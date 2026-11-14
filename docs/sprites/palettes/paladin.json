@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "outline": [
+    "#050406",
+    "#110d0f",
+    "#1a161a"
+  ],
+  "materials": {
+    "steel": [
+      "#211f22",
+      "#262429",
+      "#2b2a30",
+      "#333439",
+      "#3d3d42",
+      "#424248",
+      "#515256",
+      "#6b6b6b"
+    ],
+    "brown": [
+      "#3b201c",
+      "#472c24",
+      "#613829",
+      "#77492c"
+    ],
+    "gold": [
+      "#996534",
+      "#c5883c",
+      "#f3ca6e"
+    ]
+  },
+  "neutral": [],
+  "glow": [
+    "#7a3408",
+    "#bc5c0a",
+    "#e89418",
+    "#fcc438",
+    "#ffe882",
+    "#fffce1"
+  ],
+  "glow_note": "The six colours of the effects (bolt, hammer, orb and the poses' front and behind layers), dark to light. Everything else is a body material."
+}

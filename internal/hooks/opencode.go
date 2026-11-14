@@ -128,7 +128,7 @@ type openCodeManagedFile struct {
 
 func openCodeManagedFiles(configDir string) []openCodeManagedFile {
 	provider := qmagent.NewOpenCode(qmagent.AgentConfig{})
-	return []openCodeManagedFile{
+	files := []openCodeManagedFile{
 		{
 			Path: filepath.Join(configDir, "plugins", openCodePluginFileName),
 			Body: openCodePluginSource,
@@ -148,6 +148,17 @@ func openCodeManagedFiles(configDir string) []openCodeManagedFile {
 			Kind: "agent",
 		},
 	}
+	for _, class := range qmagent.VoiceClasses() {
+		files = append(files, openCodeManagedFile{
+			Path: filepath.Join(configDir, "agents", qmagent.OpenCodeMasterClassAgentName(class)+".md"),
+			Body: openCodeAgentMarkdown(
+				"Questmaster master orchestrator session ("+class+")",
+				provider.MasterPrompt()+"\n\n"+qmagent.ClassVoice(class),
+			),
+			Kind: "agent",
+		})
+	}
+	return files
 }
 
 func openCodeAgentMarkdown(description, prompt string) string {

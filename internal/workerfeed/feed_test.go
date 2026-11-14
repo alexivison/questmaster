@@ -531,6 +531,47 @@ func TestReadHistoryOrdersAndPagesLateTimestampEntry(t *testing.T) {
 	}
 }
 
+func TestRecordChatEntryAtTracksLastExchange(t *testing.T) {
+	t.Parallel()
+	const sessionID = "qm-exchange-feed"
+	exchangeAt := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	laterAt := exchangeAt.Add(time.Minute)
+	tests := []struct {
+		name     string
+		kind     string
+		wantKind string
+		wantAt   time.Time
+	}{
+		{name: "instructions advance the exchange", kind: "instructions", wantKind: "instructions", wantAt: laterAt},
+		{name: "report advances the exchange", kind: "report", wantKind: "report", wantAt: laterAt},
+		{name: "status leaves the exchange", kind: "status", wantKind: "instructions", wantAt: exchangeAt},
+		{name: "action leaves the exchange", kind: "action", wantKind: "instructions", wantAt: exchangeAt},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			if err := RecordChatEntryAt(root, sessionID, "instructions", "earlier", exchangeAt); err != nil {
+				t.Fatalf("record earlier instructions: %v", err)
+			}
+			if err := RecordChatEntryAt(root, sessionID, tc.kind, "latest", laterAt); err != nil {
+				t.Fatalf("record %s: %v", tc.kind, err)
+			}
+			ss, err := state.LoadSessionStateAt(root, sessionID)
+			if err != nil || ss == nil {
+				t.Fatalf("load state = %v, %v", ss, err)
+			}
+			pane := ss.Panes["agent"]
+			if !pane.LastChatAt.Equal(laterAt) {
+				t.Fatalf("LastChatAt = %s, want %s", pane.LastChatAt, laterAt)
+			}
+			if pane.LastExchangeKind != tc.wantKind || !pane.LastExchangeAt.Equal(tc.wantAt) {
+				t.Fatalf("exchange = %q at %s, want %q at %s", pane.LastExchangeKind, pane.LastExchangeAt, tc.wantKind, tc.wantAt)
+			}
+		})
+	}
+}
+
 func TestReadSinceDeliversBackdatedSayOnLaterPull(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

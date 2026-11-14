@@ -43,3 +43,8 @@ Commands run for or by a dev session must use `$QUESTMASTER_BIN` (or the dev shi
 `PATH`), never the installed `questmaster`/`qm`: an installed build that predates routing looks only on the
 default server and reports a dev session's master as not running. A shell that carries the real
 install's `QUESTMASTER_BIN` passes it to the panes it creates, so unset it before running a dev `qm` by hand.
+A dev `qm` run by hand builds its agents' `PATH` from `QUESTMASTER_PATH_PREFIX`: with it unset, a session it starts
+puts `~/.local/bin` first, so its agent's `questmaster` is the installed one (an installed build without a branch's
+backend change, such as `last_exchange`, also drops that state from the sessions it writes). When starting sessions by
+hand, set `QUESTMASTER_PATH_PREFIX` to the dev daemon's `shim_directory` (`<state root>/daemon/bin/<dev identity>`) and
+`QUESTMASTER_BIN` to its `qm`, or start them from the dev app.

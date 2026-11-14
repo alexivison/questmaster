@@ -14,11 +14,13 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
 // ---------------------------------------------------------------------------
@@ -187,6 +189,14 @@ func (m *mockRunner) defaultHandler(ctx context.Context, args ...string) (string
 	case "display-message":
 		if len(args) > 0 && args[len(args)-1] == "#{pane_in_mode}" {
 			return "0", nil
+		}
+		if len(args) > 0 && args[len(args)-1] == "#{pane_id}\t#{pane_dead}" {
+			target := m.targetKey(flagVal(args, "-t"))
+			for pane, key := range m.paneIDs {
+				if key == target {
+					return pane + "\t0", nil
+				}
+			}
 		}
 		return "", nil
 
@@ -1972,6 +1982,56 @@ func TestSpawn_FromMasterPassesPromptAsFirstTurn(t *testing.T) {
 	}
 }
 
+// A spawn prompt stays in the worker feed as instructions but does not set the
+// exchange; only the master's later message does.
+func TestSpawn_PromptLeavesExchangeUntilMasterRelays(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	counter := int64(5200)
+	svc.Now = func() int64 { counter++; return counter }
+	masterID := "qm-master"
+	createTestManifest(t, svc.Store, masterID, "orch", t.TempDir(), "master")
+
+	prompt := "inspect the worker startup flow"
+	result, err := svc.Spawn(t.Context(), masterID, SpawnOpts{Title: "worker-1", Prompt: prompt})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	requireExchange := func(stage, wantKind string) {
+		t.Helper()
+		ss, err := state.LoadSessionStateAt(svc.Store.Root(), result.SessionID)
+		if err != nil || ss == nil {
+			t.Fatalf("%s: load worker state = %v, %v", stage, ss, err)
+		}
+		pane := ss.Panes["agent"]
+		if pane.LastExchangeKind != wantKind {
+			t.Fatalf("%s: exchange kind = %q, want %q", stage, pane.LastExchangeKind, wantKind)
+		}
+		if wantKind != "" && pane.LastExchangeAt.IsZero() {
+			t.Fatalf("%s: exchange time is unset for %q", stage, wantKind)
+		}
+		if wantKind == "" && !pane.LastExchangeAt.IsZero() {
+			t.Fatalf("%s: exchange time = %s, want unset", stage, pane.LastExchangeAt)
+		}
+	}
+	requireExchange("after spawn", "")
+
+	page, err := workerfeed.ReadSince(svc.Store.Root(), masterID, nil)
+	if err != nil {
+		t.Fatalf("read feed after spawn: %v", err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Kind != "instructions" || page.Entries[0].Text != prompt {
+		t.Fatalf("feed after spawn = %#v, want one instructions entry for the prompt", page.Entries)
+	}
+
+	svc.Router = tmuxroute.New(svc.Store, map[string]*tmux.Client{"questmaster": svc.Client}, func() string { return "questmaster" }, nil)
+	relay := message.NewServiceWithRouter(svc.Store, svc.Router)
+	if _, err := relay.RelayFrom(t.Context(), masterID, result.SessionID, "follow up"); err != nil {
+		t.Fatalf("relay from master: %v", err)
+	}
+	requireExchange("after master relay", "instructions")
+}
+
 // Spawn threads a persisted role default model (and any --model override) all
 // the way through SpawnOpts → StartOpts → CmdOpts → the launched claude
 // command. There is no hardcoded fallback anymore, so the "default" case
@@ -2530,6 +2590,7 @@ func TestStart_OpenCodeAgentPersistsResumeMetadata(t *testing.T) {
 	for _, file := range []string{
 		filepath.Join(wantConfigDir, "plugins", "questmaster-opencode.js"),
 		filepath.Join(wantConfigDir, "agents", agent.OpenCodeMasterAgentName+".md"),
+		filepath.Join(wantConfigDir, "agents", agent.OpenCodeMasterClassAgentName(m.DisplayClass())+".md"),
 	} {
 		if _, err := os.Stat(file); err != nil {
 			t.Fatalf("OpenCode launch did not install %s: %v", file, err)
@@ -2539,7 +2600,7 @@ func TestStart_OpenCodeAgentPersistsResumeMetadata(t *testing.T) {
 	launch := findLaunchArgContaining(runner, opencodeCLI)
 	for _, want := range []string{
 		" --model 'provider/model'",
-		" --agent 'questmaster-master'",
+		" --agent '" + agent.OpenCodeMasterClassAgentName(m.DisplayClass()) + "'",
 		" --session '" + resumeID + "'",
 		" --prompt 'inspect state'",
 	} {
@@ -2612,11 +2673,15 @@ func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start(OpenCode, reasoning effort): %v", err)
 	}
+	manifest, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
 	launch := findLaunchArgContaining(runner, opencodeCLI)
 	for _, want := range []string{
 		"run --interactive",
 		" --model 'openai/gpt-5.6-terra'",
-		" --agent 'questmaster-master'",
+		" --agent '" + agent.OpenCodeMasterClassAgentName(manifest.DisplayClass()) + "'",
 		" --variant 'high'",
 		" 'inspect state'",
 	} {
@@ -2628,7 +2693,7 @@ func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	if got := runner.envVars[result.SessionID+":"+openCodeConfigDirEnv]; got != configDir {
 		t.Fatalf("OPENCODE_CONFIG_DIR: got %q, want %q", got, configDir)
 	}
-	data, err := os.ReadFile(filepath.Join(configDir, "agents", agent.OpenCodeMasterAgentName+".md"))
+	data, err := os.ReadFile(filepath.Join(configDir, "agents", agent.OpenCodeMasterClassAgentName(manifest.DisplayClass())+".md"))
 	if err != nil {
 		t.Fatalf("read role agent: %v", err)
 	}

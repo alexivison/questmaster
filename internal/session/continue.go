@@ -315,6 +315,7 @@ func (s *Service) continueLaunchFor(m state.Manifest) (continueLaunch, error) {
 			ResumeID:        resumeID,
 			Title:           m.Title,
 			Role:            agentRole,
+			Class:           m.DisplayClass(),
 			SystemBrief:     brief,
 			Continuing:      true,
 			Model:           agentState.Model,

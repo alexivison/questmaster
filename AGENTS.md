@@ -11,6 +11,12 @@ Detail lives in project skills: read the file the "Skills index" row names first
   and CLI behavior. Delegation thresholds, reviewer cadence, model preferences,
   and general writing or repository practices belong to the user or applicable
   project instructions, not the injected session prompt.
+- Master launches include the class voice from `internal/agent/prompts/class_voice.md`
+  and the matching `class_voice/<class>.md`; workers do not receive it. Claude
+  and Pi use their appended system prompt, Codex uses `developer_instructions`,
+  and OpenCode selects a managed per-class master agent file. The voice is fixed
+  at launch; reclassing takes effect on the next launch, including continuing a
+  stopped session or restarting it.
 - Branch from a freshly fetched `origin/main` (`git fetch origin`, then
   `git worktree add <path> -b <branch> origin/main`), never from a local `main`:
   it can be stale or still on a history `main` has since rewritten, and a PR
@@ -111,6 +117,16 @@ Building, installing and branch-running the app bundle: `app-bundle` skill.
   ```sh
   go test -buildvcs=false ./internal/serve -update
   ```
+
+  The tracker session row carries an optional `last_exchange` object, `{"kind": "instructions" | "report", "at": RFC3339}`.
+  It is set only when a master messages a worker or a worker reports to its master, and spawn prompts leave it empty. The
+  class avatar diffs it between payloads to play its message and report cues (`TrackerAvatarEventDetector`), so status and
+  action chat entries don't change it. Old decoders ignore the key, so it needed no `ServeProtocolVersion` bump.
+
+  The row also carries `active_subagents`, the count of sub-agents the session has running. Only Claude reports them: the
+  hooks add an id on `SubagentStart` and remove it on `SubagentStop` (a stop with no matching start is ignored, and so is a
+  start with no agent type or an `internal` one), and both `starting` and `stopped` clear the set. A finished turn keeps its
+  sub-agents until they stop. The key is omitted at zero, and it needed no `ServeProtocolVersion` bump either.
 - **No model or reasoning-effort list is hardcoded.** Each harness declares its
   catalog sources and effort source once in `agent.Spec`; model ids are passed
   through verbatim. When adding a harness, declare its sources; never add values to a list.
@@ -179,9 +195,4 @@ tool whenever its row applies**.
 | Editing the tracker, Worker Log, Watcher, dock column, action bar header or Quest Log | `.agents/skills/app-surfaces/SKILL.md` |
 | Changing tmux routing, server inventory, manifests, runtime dirs, or close/delete/prune/audit | `.agents/skills/tmux-lifecycle/SKILL.md` |
 | Building, installing, rolling back or running `Questmaster.app`, or touching `app/Scripts/` | `.agents/skills/app-bundle/SKILL.md` |
-
-<!-- Pending: a class-avatar skill (file format, sprites, portraits) is planned once the
-class avatar PR lands. Add its row here, create .agents/skills/<name>/ with the .claude
-symlink, then delete this comment:
-| Adding or changing class avatars or sprites | `.agents/skills/<name>/SKILL.md` |
--->
+| Changing the class avatar, its sprites, `animation.json`, its cues or the session banner | `.agents/skills/class-avatar/SKILL.md` |

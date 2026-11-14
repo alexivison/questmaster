@@ -1,0 +1,37 @@
+GIMP Palette
+Name: Rogue — palette lock
+Columns: 6
+#
+ 22  16  18	outline 1
+150  90  70	skin 1
+199 119  80	skin 2
+243 168 118	skin 3
+ 94 114 141	steel 1
+127 151 182	steel 2
+197 216 233	steel 3
+ 33  88 114	teal 1
+ 36 102 128	teal 2
+ 41 111 138	teal 3
+ 22  34  57	navy 1
+ 37  61  93	navy 2
+ 74  87 114	navy 3
+ 12  21  35	mask 1
+ 22  31  57	mask 2
+ 27  61  73	mask 3
+ 33  34  51	leather 1
+ 82  50  54	leather 2
+117  66  59	leather 3
+184 147  95	paper 1
+233 197 133	paper 2
+253 238 165	paper 3
+ 36  26  58	shadow form 1
+ 61  42  99	shadow form 2
+ 90  64 144	shadow form 3
+207 216 228	silver glint 1
+ 43  29  82	glow 1
+ 68  48 127	glow 2
+ 95  69 168	glow 3
+125  95 208	glow 4
+162 133 236	glow 5
+200 182 250	glow 6
+238 230 255	glow 7

@@ -226,7 +226,6 @@ struct TrackerRootView: View {
     private let keyboardBridge: TrackerKeyboardBridge?
     @ObservedObject private var newSessionPresenter: NewSessionSheetPresenter
     @ObservedObject private var destructiveConfirmationPresenter: DestructiveConfirmationPresenter
-    @ObservedObject private var headerAlignment: TrackerHeaderAlignmentModel
 
     @State private var commandState = TrackerCommandState()
     @State private var listKeys = ListKeyResolver()
@@ -236,6 +235,7 @@ struct TrackerRootView: View {
     @State private var snapshot: RuntimeSnapshot
     @State private var currentTerminalSessionID: String?
     @State private var runtimeObservation: RuntimeStoreObservation?
+    @State private var avatarStage = TrackerAvatarStage()
 
     init(
         store: RuntimeStore,
@@ -243,7 +243,6 @@ struct TrackerRootView: View {
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
         destructiveConfirmationPresenter: DestructiveConfirmationPresenter,
-        headerAlignment: TrackerHeaderAlignmentModel = TrackerHeaderAlignmentModel(),
         onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
@@ -252,7 +251,6 @@ struct TrackerRootView: View {
         self.onEffect = onEffect
         _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
         _destructiveConfirmationPresenter = ObservedObject(wrappedValue: destructiveConfirmationPresenter)
-        _headerAlignment = ObservedObject(wrappedValue: headerAlignment)
         _snapshot = State(initialValue: store.snapshot)
         _currentTerminalSessionID = State(initialValue: store.currentTerminalSessionID)
     }
@@ -308,15 +306,14 @@ struct TrackerRootView: View {
         let areaFocused = navigation.hasKeys(.tracker)
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
         let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
-
-        let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
         let connection = snapshot.connection
+        let tagContent = connection.awaitsFirstTracker ? nil : SelectedSessionTagContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
         let showsShells = !tracker.shells.isEmpty && !connection.awaitsFirstTracker
         // The plates' list scrolls only to a plate: a cursor on a shell is not its row.
         let plateCursorID = TrackerShellSection.plateCursorID(selectedID, in: rows)
         let list = Group {
             if connection.awaitsFirstTracker {
-                TrackerSkeletonPlaceholder()
+                TrackerSkeletonPlaceholder(topInset: TrackerListMetrics.firstSectionTopInset)
             } else {
                 if rows.isEmpty {
                     // A backend that doesn't fit says so; otherwise there is just nothing to list.
@@ -331,6 +328,7 @@ struct TrackerRootView: View {
                         EmptyState()
                     }
                 } else {
+                    // The plates scroll independently of the avatar, banner and pinned shell section.
                     SectionedList(selectedID: plateCursorID) {
                         ForEach(Array(repos.enumerated()), id: \.offset) { index, repo in
                             TrackerRepoSection(
@@ -347,22 +345,24 @@ struct TrackerRootView: View {
                                 onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
-                            .padding(.top, index == 0 ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.spacing)
-                            .padding(.bottom, index == repos.count - 1 && !showsShells ? TrackerListMetrics.verticalPadding : 0)
+                            .padding(.top, index == 0 ? TrackerListMetrics.firstSectionTopInset : TrackerListMetrics.spacing)
                         }
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The plates scroll in the space above the shell section, which ends `shellClearance` above it.
-        .padding(.bottom, showsShells ? TrackerListMetrics.shellClearance : 0)
+        // An attached plate reserves the avatar; otherwise the list fills its room, clear of the pinned shells.
+        .padding(.bottom, connection.awaitsFirstTracker ? 0 : tagContent != nil ? TrackerListMetrics.avatarClearance : Space.section)
         return VStack(alignment: .leading, spacing: 0) {
-            SelectedSessionPanel(content: panelContent, onCopyID: copySessionID)
-                .padding(.leading, TrackerListMetrics.sidePadding)
-                .padding(.top, TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: headerAlignment.cellHeight))
             list
-            // The shell section is pinned to the column's bottom, at the tracker's bottom margin, whatever the plates do.
+            if let tagContent {
+                avatarBlock()
+                SelectedSessionTag(content: tagContent, onCopyID: copySessionID)
+                    .padding(.leading, TrackerListMetrics.sidePadding)
+                    .padding(.bottom, showsShells ? Space.section : TrackerListMetrics.verticalPadding)
+                    .zIndex(2)
+            }
             if showsShells {
                 TrackerShellRows(
                     shells: tracker.shells,
@@ -382,6 +382,22 @@ struct TrackerRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // The last tracker from a dropped connection stays, dimmed, until a fresh one arrives.
         .opacity(connection.showsLastTracker ? Token.Opacity.dimmed : 1)
+    }
+
+    /// The avatar's sole stands `avatarBannerGap` above the banner below its fixed slot, above the pinned shell section.
+    private func avatarBlock() -> some View {
+        TrackerAvatarSlot(
+            pose: avatarStage.pose,
+            sprites: avatarStage.sprites,
+            fidget: avatarStage.fidgetFrame,
+            beat: avatarStage.beat,
+            finish: avatarStage.finish,
+            enter: avatarStage.enter
+        )
+        .padding(.leading, TrackerListMetrics.sidePadding)
+        .padding(.bottom, TrackerListMetrics.avatarBannerGap)
+        // Tall poses reach over the scrolling plates; the banner above this layer covers art below the sole.
+        .zIndex(1)
     }
 
     private func copySessionID(_ sessionID: String) {
@@ -423,9 +439,18 @@ struct TrackerRootView: View {
             .contains(where: { $0.parentID == sessionID })
     }
 
+    /// Feeds the class avatar the tracker's sessions and the attached session's id.
+    private func feedAvatar() {
+        avatarStage.observe(
+            sessions: TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot)),
+            attachedID: TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID)
+        )
+    }
+
     private func installRuntimeObservation() {
         snapshot = store.snapshot
         currentTerminalSessionID = store.currentTerminalSessionID
+        feedAvatar()
         guard runtimeObservation == nil else {
             return
         }
@@ -434,6 +459,7 @@ struct TrackerRootView: View {
             let previousRows = selectableRows(in: TrackerRenderer.tracker(snapshot))
             snapshot = store.snapshot
             currentTerminalSessionID = store.currentTerminalSessionID
+            feedAvatar()
             let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
             commandState.recoverStaleSelection(previousRows: previousRows, rows: rows, currentTerminalSessionID: store.currentTerminalSessionID)
 
@@ -698,7 +724,7 @@ private struct TrackerRepoSection: View {
         }
     }
 
-    /// A master's or worker's plate. A row with no plate (a shell) draws nothing: the shell section has it.
+    /// A master's or worker's plate. A row with no plate (a shell) draws nothing: the shell rows have it.
     @ViewBuilder
     private func plateRow(
         _ rendered: TrackerRenderedSession,
@@ -829,7 +855,7 @@ enum TrackerNameplateRole: Equatable {
     case master
     case worker
 
-    /// Nil for a row with no plate: the shell section's rows are `TrackerShellRow`s.
+    /// Nil for a row with no plate: the shell rows are `TrackerShellRow`s.
     init?(_ session: TrackerSession) {
         switch TrackerPlateVariant(role: SessionRoleKind(role: session.role)) {
         case .topLevel:
@@ -1693,10 +1719,11 @@ private enum TrackerSkeletonMetrics {
 }
 
 /// The tracker while the service starts, as ghosts of its own plates: a master with two workers, each plate drawn from the
-/// real artwork with no text, status or portrait, and a shell row at the column's bottom, where the shell section is pinned. All of
+/// real artwork with no text, status or portrait, and a shell row under them. All of
 /// it breathes together (`SkeletonPulse`).
 private struct TrackerSkeletonPlaceholder: View {
     private typealias Metrics = TrackerSkeletonMetrics
+    let topInset: CGFloat
 
     var body: some View {
         SkeletonPulse(from: Metrics.pulseFrom, to: Metrics.pulseTo) {
@@ -1706,12 +1733,12 @@ private struct TrackerSkeletonPlaceholder: View {
                     plate(role: .worker)
                     plate(role: .worker)
                 }
-                Spacer(minLength: TrackerListMetrics.shellClearance)
+                Spacer(minLength: TrackerListMetrics.avatarClearance)
                 shellRow
             }
-            // Where the real list will put its first plate and its shell section.
+            // Where the real list will put its first plate and its pinned shell section.
             .padding(.leading, TrackerListMetrics.sidePadding)
-            .padding(.top, TrackerListMetrics.selectedPanelGap)
+            .padding(.top, topInset)
             .padding(.bottom, TrackerListMetrics.verticalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }

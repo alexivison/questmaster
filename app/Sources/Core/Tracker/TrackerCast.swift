@@ -40,16 +40,16 @@ public struct TrackerCast: Decodable, Equatable {
         WorkerChatLineBuilder.callLabel(name: tool)
     }
 
-    /// The SF Symbol for the tool, by the names Claude, Codex, OpenCode and Pi give their tools.
+    /// The SF Symbol for the tool.
     public var symbol: String {
-        switch tool.lowercased() {
-        case "bash", "shell", "exec_command", "local_shell": "terminal"
-        case "edit", "write", "multiedit", "notebookedit", "apply_patch", "patch": "pencil"
-        case "read", "grep", "glob", "ls", "list", "find": "doc.text.magnifyingglass"
-        case "webfetch", "websearch", "web_search": "globe"
-        case "task", "agent": "person.2"
-        case "todowrite", "todoread", "update_plan": "checklist"
-        default: "puzzlepiece.extension"
+        switch TrackerToolKind(tool: tool) {
+        case .shell: "terminal"
+        case .edit: "pencil"
+        case .search: "doc.text.magnifyingglass"
+        case .web: "globe"
+        case .agent: "person.2"
+        case .plan: "checklist"
+        case .other: "puzzlepiece.extension"
         }
     }
 
@@ -57,6 +57,31 @@ public struct TrackerCast: Decodable, Equatable {
     /// for the call only re-targets its fill.
     public func isSameCall(as other: TrackerCast?) -> Bool {
         tool == other?.tool && startedAt == other?.startedAt
+    }
+}
+
+/// What a tool does, by the names Claude, Codex, OpenCode and Pi give their tools. The cast's symbol and the class
+/// avatar's pose both read it, so every agent's tools map the same way.
+public enum TrackerToolKind: Equatable {
+    case shell
+    case edit
+    /// Reading files and searching them.
+    case search
+    case web
+    case agent
+    case plan
+    case other
+
+    public init(tool: String) {
+        switch tool.lowercased() {
+        case "bash", "shell", "exec_command", "local_shell": self = .shell
+        case "edit", "write", "multiedit", "notebookedit", "apply_patch", "patch": self = .edit
+        case "read", "grep", "glob", "ls", "list", "find": self = .search
+        case "webfetch", "websearch", "web_search": self = .web
+        case "task", "agent": self = .agent
+        case "todowrite", "todoread", "update_plan": self = .plan
+        default: self = .other
+        }
     }
 }
 

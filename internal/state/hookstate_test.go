@@ -100,6 +100,49 @@ func TestLoadSessionState_MigratesLegacyAgentPane(t *testing.T) {
 	}
 }
 
+func TestLoadSessionStateExchangeFields(t *testing.T) {
+	exchangeAt := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		json     string
+		wantKind string
+		wantAt   time.Time
+	}{
+		{
+			name:     "state written before exchange fields",
+			json:     `{"session_id":"qm-exchange-state","version":1,"panes":{"agent":{"role":"agent","state":"done","last_chat_at":"2026-10-29T08:59:00Z"}}}`,
+			wantKind: "",
+		},
+		{
+			name:     "state with exchange fields",
+			json:     `{"session_id":"qm-exchange-state","version":1,"panes":{"agent":{"role":"agent","state":"done","last_exchange_kind":"report","last_exchange_at":"2026-10-29T09:00:00Z"}}}`,
+			wantKind: "report",
+			wantAt:   exchangeAt,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := setStateRoot(t)
+			const id = "qm-exchange-state"
+			path := SessionStatePath(root, id)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tc.json), 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			got, err := LoadSessionStateAt(root, id)
+			if err != nil || got == nil {
+				t.Fatalf("LoadSessionStateAt = %v, %v", got, err)
+			}
+			pane := got.Panes["agent"]
+			if pane.LastExchangeKind != tc.wantKind || !pane.LastExchangeAt.Equal(tc.wantAt) {
+				t.Fatalf("exchange = %q at %s, want %q at %s", pane.LastExchangeKind, pane.LastExchangeAt, tc.wantKind, tc.wantAt)
+			}
+		})
+	}
+}
+
 func TestLoadSessionState_MixedPaneKeysKeepsNewestPane(t *testing.T) {
 	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	tests := []struct {

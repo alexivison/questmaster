@@ -1,0 +1,41 @@
+GIMP Palette
+Name: Barbarian — palette lock
+Columns: 3
+#
+  0   0   6	outline 1
+ 19  11  16	outline 2
+155  92  48	skin 1
+219 137  74	skin 2
+251 167  95	skin 3
+134  78  40	leather 1
+163  98  49	leather 2
+204 121  65	leather 3
+192 159 118	fur 1
+237 195 136	fur 2
+233 205 164	fur 3
+144 114  80	metal 1
+135 122 105	metal 2
+151 121  93	metal 3
+192 143  87	gold 1
+225 166  78	gold 2
+228 176 102	gold 3
+ 43  33  24	dark leather 1
+ 83  52  32	dark leather 2
+120  72  38	dark leather 3
+102  63  37	hair 1
+123  76  42	hair 2
+163  90  44	hair 3
+123  76  42	beard 1
+192 143  87	beard 2
+225 166  78	beard 3
+230  84  12	glow 1
+255 126  20	glow 2
+216  75  11	glow 3
+255 139  22	glow 4
+255 187  57	glow 5
+225  75  11	glow 6
+180  37   9	glow 7
+255 133  20	glow 8
+193 122  53	glow 9
+194 161 128	glow 10
+255 189  53	glow 11

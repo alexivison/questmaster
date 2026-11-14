@@ -1,0 +1,103 @@
+GIMP Palette
+Name: Necromancer — palette lock
+Columns: 3
+#
+  0   0   0	outline 1
+ 31  23  19	robe 1
+ 61  44  36	robe 2
+106  79  59	robe 3
+ 32  47  58	iron 1
+ 86 105 122	iron 2
+169 184 189	iron 3
+ 23  35  45	mask iron 1
+ 75  92 103	mask iron 2
+153 165 167	mask iron 3
+ 89 107  97	skin 1
+156 171 160	skin 2
+209 217 201	skin 3
+ 58  49  40	wood 1
+122 106  85	wood 2
+176 157 124	wood 3
+ 54  65  73	bone 1
+146 151 141	bone 2
+222 219 199	bone 3
+  0   0   0	glow 1
+  1  12  18	glow 2
+  2   1   3	glow 3
+  2   4   2	glow 4
+  5  10   6	glow 5
+  8  17  10	glow 6
+ 14  47  24	glow 7
+ 16  38  26	glow 8
+ 18  61  30	glow 9
+ 22  18  23	glow 10
+ 23  35  45	glow 11
+ 28  74  44	glow 12
+ 29  16  14	glow 13
+ 29  32  38	glow 14
+ 31  22  22	glow 15
+ 31 138  55	glow 16
+ 32  33  36	glow 17
+ 35   0   0	glow 18
+ 37  48  57	glow 19
+ 38  44  45	glow 20
+ 39  27  22	glow 21
+ 39  28  27	glow 22
+ 42  50  50	glow 23
+ 49  44  42	glow 24
+ 52  40  35	glow 25
+ 54  65  73	glow 26
+ 54 101  95	glow 27
+ 60  74  82	glow 28
+ 63  46  38	glow 29
+ 63 210  90	glow 30
+ 65  45  35	glow 31
+ 66  53  46	glow 32
+ 67  78  76	glow 33
+ 70  85  86	glow 34
+ 72  80  61	glow 35
+ 72 102  81	glow 36
+ 74  65  62	glow 37
+ 75  92 103	glow 38
+ 76  55  44	glow 39
+ 77  94  91	glow 40
+ 79  56  45	glow 41
+ 79  93  87	glow 42
+ 81  83  79	glow 43
+ 81  99 100	glow 44
+ 88  89  80	glow 45
+ 89 107  97	glow 46
+ 91  68  53	glow 47
+ 99 102  91	glow 48
+ 99 114 107	glow 49
+ 99 117 112	glow 50
+109 126 118	glow 51
+110  83  62	glow 52
+114 126 118	glow 53
+115  92  69	glow 54
+115 108  97	glow 55
+124 137 128	glow 56
+130 141 133	glow 57
+136 145 134	glow 58
+138 132 134	glow 59
+139 112  83	glow 60
+146 151 141	glow 61
+153 165 167	glow 62
+155 162 150	glow 63
+156 171 160	glow 64
+157 255 134	glow 65
+167 175 159	glow 66
+175 183 167	glow 67
+182 180 156	glow 68
+183 190 174	glow 69
+192 201 182	glow 70
+209 217 201	glow 71
+218 226 207	glow 72
+222 219 199	glow 73
+226 255 208	glow 74
+229 236 219	glow 75
+234 236 215	glow 76
+239 244 232	glow 77
+243 247 229	glow 78
+244 255 240	glow 79
+252 254 240	glow 80

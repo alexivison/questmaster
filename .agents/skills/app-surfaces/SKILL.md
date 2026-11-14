@@ -9,7 +9,7 @@ These references record decisions the code alone does not explain. Numbers that 
 
 | Editing | Read |
 |---|---|
-| Tracker plates, the shell section, the attached dot, portraits | `references/tracker.md` |
+| Tracker plates, the shell rows, the attached dot, portraits, the avatar slot and session banner | `references/tracker.md` |
 | The Worker Log, its Action filter, its worker tabs | `references/worker-log.md` |
 | The Watcher dock and its pull-request rows | `references/watcher.md` |
 | The dock column, dock titles, the action bar header, startup layout, dock keys | `references/dock-and-action-bar.md` |

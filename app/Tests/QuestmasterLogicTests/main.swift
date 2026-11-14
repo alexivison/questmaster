@@ -15,7 +15,6 @@ timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("ShellSplitLayoutTests") { ShellSplitLayoutTests.run() }
         timed("TerminalCellSnappingTests") { TerminalCellSnappingTests.run() }
         timed("GhosttyGapDerivationTests") { GhosttyGapDerivationTests.run() }
-        timed("TrackerHeaderAlignmentTests") { TrackerHeaderAlignmentTests.run() }
         timed("DockWidthPreferenceTests") { DockWidthPreferenceTests.run() }
         timed("ServeRecoveryPolicyTests") { ServeRecoveryPolicyTests.run() }
         timed("DaemonConnectionTests") { DaemonConnectionTests.run() }
@@ -56,6 +55,15 @@ timed("ProjectOrderTests") { ProjectOrderTests.run() }
         timed("WorkerChatScrollTests") { WorkerChatScrollTests.run() }
         timed("WorkerLogFilterTests") { WorkerLogFilterTests.run() }
         timed("TrackerCastTests") { TrackerCastTests.run() }
+        timed("TrackerAvatarPoseTests") { TrackerAvatarPoseTests.run() }
+        timed("TrackerAvatarDirectorTests") { TrackerAvatarDirectorTests.run() }
+        timed("TrackerAvatarEventsTests") { TrackerAvatarEventsTests.run() }
+        timed("TrackerShellCommandTests") { TrackerShellCommandTests.run() }
+        timed("TrackerAvatarMotionTests") { TrackerAvatarMotionTests.run() }
+        timed("TrackerAvatarFidgetsTests") { TrackerAvatarFidgetsTests.run() }
+        timed("TrackerAvatarAnimationTests") { TrackerAvatarAnimationTests.run() }
+        timed("TrackerAvatarIdleTimelineTests") { TrackerAvatarIdleTimelineTests.run() }
+        timed("TrackerTagLayoutTests") { TrackerTagLayoutTests.run() }
         timed("ModalCommandRoutingTests") { ModalCommandRoutingTests.run() }
         timed("InteractionLookTests") { InteractionLookTests.run() }
         timed("StateRulesScanTests") { StateRulesScanTests.run() }

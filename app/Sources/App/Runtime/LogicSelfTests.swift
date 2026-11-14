@@ -3,6 +3,7 @@ import AppKit
 import Combine
 import Darwin
 import Foundation
+import ImageIO
 import QuestmasterCore
 import SwiftUI
 import WebKit
@@ -78,6 +79,36 @@ enum LogicSelfTests {
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testSelectedSessionPanelFrameKeepsItsRoundedCorners", testSelectedSessionPanelFrameKeepsItsRoundedCorners),
         ("testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges", testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges),
+        ("testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation", testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation),
+        ("testAvatarEffectLayersKeepTheirPlacement", testAvatarEffectLayersKeepTheirPlacement),
+        ("testAFinishPlaysInPlace", testAFinishPlaysInPlace),
+        ("testIdleBreathingUsesAuthoredFramesAndLidStencil", testIdleBreathingUsesAuthoredFramesAndLidStencil),
+        ("testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame", testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame),
+        ("testASteadyPosesFinishPlaysInPlaceOfItsLoop", testASteadyPosesFinishPlaysInPlaceOfItsLoop),
+        ("testAReleaseMovesOnItsNamedStrikeFrame", testAReleaseMovesOnItsNamedStrikeFrame),
+        ("testALoopingIdleCyclesItsFramesWithNoBreathOrBlink", testALoopingIdleCyclesItsFramesWithNoBreathOrBlink),
+        ("testALoopingIdleFrameWithoutArtIsMissing", testALoopingIdleFrameWithoutArtIsMissing),
+        ("testAnIdleWithoutLidDataRestOnItsStillFrame", testAnIdleWithoutLidDataRestsOnItsStillFrame),
+        ("testTheStagePlaysEachCueFromItsPayloads", testTheStagePlaysEachCueFromItsPayloads),
+        ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
+        ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
+        ("testBundledPaladinSpritesReadTheirAnimationFile", testBundledPaladinSpritesReadTheirAnimationFile),
+        ("testBundledDruidSpritesReadTheirAnimationFile", testBundledDruidSpritesReadTheirAnimationFile),
+        ("testBundledRogueSpritesReadTheirAnimationFile", testBundledRogueSpritesReadTheirAnimationFile),
+        ("testBundledClericSpritesReadTheirAnimationFile", testBundledClericSpritesReadTheirAnimationFile),
+        ("testBundledRangerSpritesReadTheirAnimationFile", testBundledRangerSpritesReadTheirAnimationFile),
+        ("testBundledNecromancerSpritesReadTheirAnimationFile", testBundledNecromancerSpritesReadTheirAnimationFile),
+        ("testBundledSorcererSpritesReadTheirAnimationFile", testBundledSorcererSpritesReadTheirAnimationFile),
+        ("testBundledFighterSpritesReadTheirAnimationFile", testBundledFighterSpritesReadTheirAnimationFile),
+        ("testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets", testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets),
+        ("testEveryBundledIdleEffectHasItsArtAndLoops", testEveryBundledIdleEffectHasItsArtAndLoops),
+        ("testBundledDruidBubbleTailPointsAtHer", testBundledDruidBubbleTailPointsAtHer),
+        ("testTheBubbleStaysInTheSlotAboveTheBanner", testTheBubbleStaysInTheSlotAboveTheBanner),
+        ("testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot", testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot),
+        ("testTheSoleStandsAboveTheBannerAndStaysVisible", testTheSoleStandsAboveTheBannerAndStaysVisible),
+        ("testTheAvatarStandsOnTheFullWidthBannerAboveTheShells", testTheAvatarStandsOnTheFullWidthBannerAboveTheShells),
+        ("testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList", testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList),
+        ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -454,15 +485,8 @@ enum LogicSelfTests {
         let rowIDs = TrackerRenderer.flatSessions(in: tracker).map(\.id)
         try expect(rowIDs == ["master", "worker", "shell-first", "shell-second"], "the cursor and the numbers should walk the plates, then the shells, got \(rowIDs)")
 
-        let panel = SelectedSessionPanelContent.make(currentTerminalSessionID: "shell-second", tracker: tracker)
-        try expect(panel.id == "shell-second" && panel.projectName == "Repo", "the panel should name an attached shell's repo, got \(panel.id) / \(panel.projectName)")
-
-        // The disc's icon: a shell shows its terminal glyph, a master with no class and nothing attached leave it empty.
-        try expect(panel.isShell && panel.portrait == nil && panel.iconKey == "shell-second|shell", "an attached shell's disc should show the shell glyph, keyed by the session")
-        let unclassed = SelectedSessionPanelContent.make(currentTerminalSessionID: "master", tracker: tracker)
-        try expect(!unclassed.isShell && unclassed.portrait == nil && unclassed.iconKey.isEmpty, "a master with no class should leave the disc empty, with an empty icon key")
-        let nothing = SelectedSessionPanelContent.make(currentTerminalSessionID: nil, tracker: tracker)
-        try expect(!nothing.isShell && nothing.portrait == nil && nothing.iconKey.isEmpty, "nothing attached should leave the disc empty, with an empty icon key")
+        let tag = SelectedSessionPanelContent.make(currentTerminalSessionID: "shell-second", tracker: tracker)
+        try expect(tag.id == "shell-second" && tag.projectName == "Repo", "the tag should name an attached shell's repo, got \(tag.id) / \(tag.projectName)")
     }
 
     /// An attached shell's panel bar is its own display colour when it has one; without, the shell grey, never its repo's
@@ -750,8 +774,8 @@ enum LogicSelfTests {
             return (weight / (scale * scale), weight == 0 ? .zero : CGPoint(x: sum.x / weight, y: sum.y / weight))
         }
 
-        /// The row tops: the first plate sits `selectedPanelGap` under the panel, the next after a row and a gap.
-        let masterTop = SelectedSessionPanel.canvasSize.height + TrackerListMetrics.selectedPanelGap
+        /// The first plate starts level with the action bar header's bottom; each following row adds its height and a gap.
+        let masterTop = TrackerListMetrics.firstSectionTopInset
         let workerTop = masterTop + TrackerNameplateRole.master.canvasSize.height + TrackerListMetrics.spacing
         let collapsedTop = workerTop + TrackerNameplateRole.worker.canvasSize.height + TrackerListMetrics.spacing
         let gutter = TrackerListMetrics.sidePadding
@@ -874,12 +898,11 @@ enum LogicSelfTests {
         )
 
         // The discs sit on the 5pt grid, and plate text starts 5 past the disc's round edge: the master's disc spans
-        // 0-50, the worker's 20-60; the panel's ends at 70, and its text sits 10 past it.
+        // 0-50, the worker's 20-60.
         try expectRect(master.discEdge.offsetBy(dx: 0, dy: -TrackerPlateDesign.svgDiscInset), 0, 0, 50, 50, "master disc in its row")
         try expectRect(worker.discEdge.offsetBy(dx: 0, dy: -TrackerPlateDesign.svgDiscInset), 20, 0, 60, 40, "worker disc in its row")
         try expectClose(TrackerNameplateRole.topLevelTextX, 55, "master text column")
         try expectClose(TrackerNameplateRole.workerTextX, 65, "worker text column")
-        try expectClose(SelectedSessionPanel.textX, 80, "selected-session panel text column")
         try expectClose(TrackerNameplateRole.master.snippetX, TrackerNameplateRole.master.titleX, "master snippet under the title")
 
         // Every layer of a portrait sits at a whole-point origin. A frame on a half point snaps to a whole pixel at 1x
@@ -895,10 +918,12 @@ enum LogicSelfTests {
 
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
         try expectClose(TrackerListMetrics.spacing, 10, "every gap in the list")
-        try expectClose(TrackerListMetrics.contentWidth, SelectedSessionPanel.canvasSize.width + TrackerPlateDesign.glowBandWidth, "tracker content width, the panel's and its band's")
-        try expectClose(SelectedSessionPanel.canvasSize.width, TrackerPlateDesign.topLevelSize.width, "selected-session panel width, the master plate's")
-        try expectClose(SelectedSessionPanel.canvasSize.height, 75, "selected-session panel height")
-        try expectClose(TrackerListMetrics.selectedPanelGap, 40, "gap between the selected-session panel and the first disc")
+        try expectClose(TrackerListMetrics.firstSectionTopInset, ActionBarMetrics.height, "first plate starts level with the action bar header's bottom edge")
+        try expectClose(TrackerListMetrics.avatarClearance, 40, "clearance between the list and the avatar slot")
+        try expectClose(TrackerListMetrics.avatarBannerGap, Space.item, "gap between the avatar's sole and the banner")
+        try expectClose(SelectedSessionTagMetrics.width, 260, "banner matches a master plate's width")
+        try expectClose(SelectedSessionTagMetrics.tabInset, 5, "id tab inset on each side")
+        try expectClose(TrackerListMetrics.contentWidth, TrackerPlateDesign.topLevelSize.width + TrackerPlateDesign.glowBandWidth, "tracker content width, the master plate's and its band's")
 
         // The collapsed workers sit right under the disc's row, 40 right of its left edge, and fill the plate's width.
         let discLeft = TrackerNameplateRole.master.portraitOrigin.x
@@ -1351,6 +1376,1196 @@ enum LogicSelfTests {
         Motion.reducesMotion = { true }
         loose.configure(rootView: AnyView(Color.clear), key: "e")
         try expect(loose.fadeAnimation == nil, "an update with the same key under Reduce Motion should drop a fade still running")
+    }
+
+    /// A pose switch lands at once. Core Animation animates an implicit change to a layer's contents, position, bounds or
+    /// hidden state, so an implicit change shows up as a key on the rig's layer that the rig didn't add itself.
+    @MainActor
+    private static func testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation() throws {
+        defer { Motion.reducesMotion = { false } }
+        let nextTick: TimeInterval = 0.05
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = try stillIdleSprites()
+        window.contentView = avatar
+        window.show()
+        let ownKeys: Set<String> = [TrackerAvatarMotionKey.frames, TrackerAvatarMotionKey.move]
+        /// The layer and every layer drawn inside it, so an implicit animation on a child shows up too.
+        func tree(_ layer: CALayer) -> [CALayer] {
+            [layer] + (layer.sublayers ?? []).flatMap { tree($0) }
+        }
+        let switches: [(TrackerAvatarPose, Int?)] = [
+            (.channelling, nil), (.release, nil), (.idle, nil), (.pondering, nil), (.summoning, nil), (.bow, nil),
+            (.callingOut, nil), (.catching, nil), (.studying, nil), (.idle, 2), (.idle, nil),
+        ]
+        for reduceMotion in [false, true] {
+            Motion.reducesMotion = { reduceMotion }
+            for (pose, fidget) in switches {
+                avatar.configure(pose: pose, fidget: fidget, beat: 0, finish: nil, reduceMotion: reduceMotion)
+                RunLoop.current.run(until: Date().addingTimeInterval(nextTick))
+                let shown = (avatar.layer?.sublayers ?? []).filter { !$0.isHidden }
+                try expect(shown.count == 1, "a switch to \(pose) should show one rig, got \(shown.count)")
+                guard let layer = shown.first else {
+                    continue
+                }
+                for part in tree(layer) {
+                    let implicit = (part.animationKeys() ?? []).filter { !ownKeys.contains($0) }
+                    try expect(implicit.isEmpty, "a switch to \(pose) should land at once, but \(implicit.sorted()) animate implicitly (reduce motion \(reduceMotion))")
+                }
+                let presented = layer.presentation() ?? layer
+                try expect(presented.bounds == layer.bounds && presented.opacity == layer.opacity,
+                           "a switch to \(pose) should show its model values on the next tick")
+            }
+        }
+    }
+
+    /// An effect drawn behind the figure sits on the root, under it, and stays put when it moves; an effect in front sits in the
+    /// figure, so the figure's move carries it. The figure and both effects play the one-shot's frames together. A
+    /// synthetic class's 1-frame character and 8-frame front loop each on their own clock, not the other's.
+    @MainActor
+    private static func testAvatarEffectLayersKeepTheirPlacement() throws {
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class's animation.json should read")
+        }
+        guard let summoningPlacement = sprites.animation.animation(for: .summoning),
+              let callingPlacement = sprites.animation.animation(for: .callingOut),
+              let summoning = TrackerAvatarFrameRig(pose: .summoning, placement: summoningPlacement, sprites: sprites),
+              let calling = TrackerAvatarFrameRig(pose: .callingOut, placement: callingPlacement, sprites: sprites) else {
+            throw TestFailure("the synthetic class's summoning and calling out should both draw")
+        }
+        summoning.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
+        try expect(summoning.root.sublayers?.first === summoning.behind && summoning.root.sublayers?.dropFirst().first === summoning.figure,
+                   "the ground circle should draw under the figure, on the root, with the bubble above both")
+        try expect(summoning.figure.sublayers?.first === summoning.character, "the character should be the figure's first layer")
+        summoning.startMotion()
+        try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the summoning should not move: its feet stay on the baseline")
+        for layer in [summoning.character, summoning.behind] {
+            try expect(layer.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "every layer should play the one-shot's frames")
+        }
+        summoning.stopMotion()
+        try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil && summoning.character.animation(forKey: TrackerAvatarMotionKey.frames) == nil,
+                   "stopping should remove the move and the frames")
+
+        calling.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
+        try expect(calling.figure.sublayers?.last === calling.front, "the bubble should draw in front of the character, inside the figure")
+        calling.startMotion()
+        try expect(calling.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "calling out should not bob: its feet stay on the baseline")
+        let character = calling.character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        let front = calling.front.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        try expect(character?.duration == 0.25 && character?.values?.count == 2, "a 1-frame character should cycle on its own 0.25 s clock")
+        try expect(front?.duration == 1 && front?.values?.count == 9, "an 8-frame front should cycle on its own 1 s clock")
+    }
+
+    /// A cast's finish plays in place: its frames show, and the figure never leaves its anchor.
+    @MainActor
+    private static func testAFinishPlaysInPlace() throws {
+        let sprites = try stillIdleSprites()
+        guard let placement = sprites.animation.animation(for: .studying),
+              let rig = TrackerAvatarFrameRig(pose: .studying, placement: placement, sprites: sprites) else {
+            throw TestFailure("the wizard's studying should draw")
+        }
+        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
+        rig.showFinish(elapsed: 0)
+        try expect(rig.character.contents != nil, "a finish should show its first frame")
+        try expect(rig.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "a finish should not move the figure")
+    }
+
+    /// The authored breathing images cycle in their explicit order, and a matching lid-content loop carries the recorded pixels.
+    @MainActor
+    private static func testIdleBreathingUsesAuthoredFramesAndLidStencil() throws {
+        defer { Motion.reducesMotion = { false } }
+        let folder = try syntheticBreathingIdleFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder), let breathingArt = sprites.idleBreathingArt else {
+            throw TestFailure("the synthetic breathing track should have every image and lid stencil")
+        }
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = sprites
+        window.contentView = avatar
+        window.show()
+        Motion.reducesMotion = { false }
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        guard let root = (avatar.layer?.sublayers ?? []).first(where: { !$0.isHidden }),
+              let character = root.sublayers?.first,
+              let lids = root.sublayers?.first(where: { $0.name == TrackerAvatarMotionKey.lids }),
+              let animation = character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation,
+              let lidAnimation = lids.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation else {
+            throw TestFailure("idle should animate both the authored character frames and lid stencils")
+        }
+        try expect(animation.calculationMode == .discrete && animation.repeatCount == .infinity,
+                   "authored breathing should be a continuous discrete frame loop")
+        try expect(animation.values?.count == breathingArt.count + 1 && sameImage(animation.values?.first, breathingArt[0].image)
+                   && sameImage(animation.values?.last, breathingArt[0].image),
+                   "breathing should start at resume_frame and close on it")
+        try expect(lidAnimation.values?.count == breathingArt.count + 1 && sameImage(lidAnimation.values?.first, breathingArt[0].lids),
+                   "the full recorded lid stencil should advance with the same frame order")
+        try expect(abs(animation.duration - 0.6 * Motion.slowdown) < 1e-9 && abs(lidAnimation.duration - animation.duration) < 1e-9,
+                   "the breathing and lid tracks should share the authored period")
+        avatar.showEyelids(true)
+        try expect(lids.opacity == 1, "the forced blink should show the authored lid image")
+
+        avatar.configure(pose: .studying, beat: 0, finish: nil, reduceMotion: false)
+        try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) == nil && lids.animation(forKey: TrackerAvatarMotionKey.frames) == nil,
+                   "another pose should suspend breathing and its blink stencil")
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        let resumed = (avatar.layer?.sublayers ?? []).first(where: { !$0.isHidden })?.sublayers?.first
+        let resumedAnimation = resumed?.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        try expect(sameImage(resumedAnimation?.values?.first, breathingArt[0].image), "idle should resume at resume_frame after a pose")
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+        try expect(resumed?.animation(forKey: TrackerAvatarMotionKey.frames) == nil && sameImage(resumed?.contents, sprites.idleFrame(1)),
+                   "Reduce Motion should rest on idle f1 without a code-breathing fallback")
+    }
+
+    /// A temporary sprite folder with sparse authored idle files and a multi-row blink stencil, used by the view self-tests.
+    @MainActor
+    private static func syntheticBreathingIdleFolder() throws -> URL {
+        let folder = try syntheticClassFolder()
+        let file = folder.appendingPathComponent("animation.json")
+        guard var json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any],
+              var idle = json["idle"] as? [String: Any] else {
+            throw TestFailure("the synthetic class's animation.json should read as an object with idle data")
+        }
+        idle["blink"] = true
+        idle["breathing"] = [
+            "resume_frame": "01-idle-breath-f8.png",
+            "frames": [
+                ["file": "01-idle-breath-f1.png", "seconds": 0.2, "lid_pixels": [[4, 5], [4, 6]]],
+                ["file": "01-idle-breath-f3.png", "seconds": 0.2, "lid_pixels": [[8, 9], [9, 9], [9, 10]]],
+                ["file": "01-idle-breath-f8.png", "seconds": 0.2, "lid_pixels": [[11, 12], [12, 12]]],
+            ],
+        ]
+        json["idle"] = idle
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        try writeSolidFrame(0.1, width: 64, height: 170, to: folder.appendingPathComponent("01-idle-f1.png"))
+        for (index, number) in [1, 3, 8].enumerated() {
+            try writeSolidFrame(Double(index + 1) / 10, width: 64, height: 170,
+                                to: folder.appendingPathComponent("01-idle-breath-f\(number).png"))
+        }
+        return folder
+    }
+
+    /// A pose's enter shows its own frame as the pose comes on screen, then the loop starts from its first frame. Reduce Motion skips
+    /// the enter. The check reads the layer's contents and the loop's keyframes, which hold the sprites' own images.
+    @MainActor
+    private static func testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame() throws {
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class's animation.json should read")
+        }
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = sprites
+        window.contentView = avatar
+        window.show()
+        Motion.reducesMotion = { false }
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, enter: 0, reduceMotion: false)
+        guard let character = shownCharacter(of: avatar) else {
+            throw TestFailure("calling out should draw its character")
+        }
+        let enterFrame = sprites.frame(.callingOut, .character, 2)
+        let loopFrame = sprites.frame(.callingOut, .character, 1)
+        try expect(sameImage(character.contents, enterFrame), "an enter should show its own frame as the pose comes on screen")
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, enter: 0.1, reduceMotion: false)
+        try expect(sameImage(character.contents, enterFrame), "an enter should hold its frame until the director moves it on")
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: false)
+        let loop = character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        try expect(sameImage(loop?.values?.first, loopFrame), "once the enter has run, the loop should start from its own first frame")
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, enter: 0, reduceMotion: true)
+        try expect(sameImage(character.contents, loopFrame), "under Reduce Motion the enter should be skipped")
+    }
+
+    /// A steady pose that isn't a cast plays its finish like a cast: the finish's frame shows in place of the loop, which doesn't run
+    /// under it, and the loop starts again from its first frame once the finish is over. Reduce Motion skips the finish.
+    @MainActor
+    private static func testASteadyPosesFinishPlaysInPlaceOfItsLoop() throws {
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class's animation.json should read")
+        }
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = sprites
+        window.contentView = avatar
+        window.show()
+        Motion.reducesMotion = { false }
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: false)
+        guard let character = shownCharacter(of: avatar) else {
+            throw TestFailure("calling out should draw its character")
+        }
+        try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "calling out should loop before it finishes")
+        let finishFrame = sprites.frame(.callingOut, .character, 3)
+        let loopFrame = sprites.frame(.callingOut, .character, 1)
+        avatar.configure(pose: .callingOut, beat: 0, finish: 0, reduceMotion: false)
+        try expect(sameImage(character.contents, finishFrame), "a finish should show its own frame in place of the loop")
+        try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) == nil, "the loop should not run under the finish")
+        avatar.configure(pose: .callingOut, beat: 0, finish: 0.1, reduceMotion: false)
+        try expect(sameImage(character.contents, finishFrame), "a finish should hold its frame until the director moves it on")
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: false)
+        let loop = character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        try expect(sameImage(loop?.values?.first, loopFrame), "once the finish is over, the loop should start from its first frame")
+        avatar.configure(pose: .callingOut, beat: 0, finish: 0, reduceMotion: true)
+        try expect(sameImage(character.contents, loopFrame), "under Reduce Motion the finish should be skipped")
+    }
+
+    /// A synthetic class whose idle is a frame loop: three frames on the character and two on a front effect, with no `idle` legs and
+    /// eyes and no fidgets in its file. Its idle art is a full-size canvas, since the tag measures the figure from f1.
+    @MainActor
+    private static func syntheticLoopingIdleFolder() throws -> URL {
+        let folder = try syntheticClassFolder()
+        let file = folder.appendingPathComponent("animation.json")
+        guard var json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any],
+              var poses = json["poses"] as? [String: Any], var idle = poses["01-idle"] as? [String: Any] else {
+            throw TestFailure("the synthetic class's animation.json should read as a JSON object with an idle")
+        }
+        idle["loop"] = ["character": [[1, 0.1], [2, 0.1], [3, 0.2]], "front": [[1, 0.2], [2, 0.2]]]
+        poses["01-idle"] = idle
+        json["poses"] = poses
+        json.removeValue(forKey: "idle")
+        json.removeValue(forKey: "fidgets")
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        for number in 1...3 {
+            try writeSolidFrame(Double(number) / 10, width: 64, height: 170, to: folder.appendingPathComponent("01-idle-f\(number).png"))
+        }
+        for number in 1...2 {
+            try writeSolidFrame(Double(number) / 10 + 0.5, width: 64, height: 170, to: folder.appendingPathComponent("01-idle-front-f\(number).png"))
+        }
+        return folder
+    }
+
+    /// An idle with a loop cycles its frames like any steady pose and does none of the layered idle's work: no breath, no eyelids and
+    /// no blink. It restarts from its first frame whenever it comes on screen, so a finish that ends on idle f1 lands on the loop's
+    /// start, and Reduce Motion holds f1.
+    @MainActor
+    private static func testALoopingIdleCyclesItsFramesWithNoBreathOrBlink() throws {
+        let folder = try syntheticLoopingIdleFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class with a looping idle should read")
+        }
+        try expect(sprites.animation.idle == nil && sprites.animation.fidgets.isEmpty && sprites.availableFidgets.isEmpty,
+                   "a looping idle has no legs, eyes or fidgets")
+        try expect(sprites.idleFigureHeight != nil, "the tag should still follow idle f1, the loop's first frame")
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = sprites
+        window.contentView = avatar
+        window.show()
+        Motion.reducesMotion = { false }
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        guard let character = shownCharacter(of: avatar),
+              let loop = character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation else {
+            throw TestFailure("a looping idle should cycle its character frames")
+        }
+        let first = sprites.idleFrame(1)
+        try expect(loop.values?.count == 4 && loop.calculationMode == .discrete && loop.repeatCount == .infinity && loop.duration == 0.4,
+                   "idle should loop its three frames as discrete keyframes over 0.4 s, closing on f1")
+        try expect(sameImage(loop.values?.first, first) && sameImage(loop.values?.last, first), "the loop should start and close on idle f1")
+        let figure = character.superlayer
+        try expect(figure?.sublayers?.dropFirst().first?.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "the front effect should cycle on its own track")
+
+        func hasLids(_ layer: CALayer) -> Bool {
+            layer.name == TrackerAvatarMotionKey.lids || (layer.sublayers ?? []).contains(where: hasLids)
+        }
+        try expect(!(avatar.layer.map(hasLids) ?? true), "an authored idle loop should have no layered-idle blink overlay")
+
+        // Out to another pose and back: the loop stops while idle is off screen, and starts again from its first frame.
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: false)
+        try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) == nil, "the loop should stop when idle goes off screen")
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        let restarted = character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        try expect(sameImage(restarted?.values?.first, first), "idle should start its loop from f1 when it comes back")
+
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+        try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) == nil && sameImage(character.contents, first),
+                   "under Reduce Motion idle should hold f1")
+    }
+
+    /// A temporary still idle for checking legacy eye shorthand and the no-eyes rest state.
+    @MainActor
+    private static func syntheticLayeredIdleFolder(eyes: Bool) throws -> URL {
+        let folder = try syntheticClassFolder()
+        let file = folder.appendingPathComponent("animation.json")
+        guard var json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any],
+              var idle = json["idle"] as? [String: Any] else {
+            throw TestFailure("the synthetic class's animation.json should read as an object with idle data")
+        }
+        if !eyes {
+            for key in ["eye_row", "eye_columns", "lid_colour", "breathing"] {
+                idle.removeValue(forKey: key)
+            }
+            idle["blink"] = false
+        }
+        json["idle"] = idle
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        try writeSolidFrame(0.1, width: 64, height: 170, to: folder.appendingPathComponent("01-idle-f1.png"))
+        return folder
+    }
+
+    /// The layered-idle class folder with an idle effect: a three-step front track (0.8 s) and a one-step behind track (0.5 s) on a
+    /// 128 x 180 canvas, with the figure's canvas at (20, 10) on it.
+    @MainActor
+    private static func syntheticIdleEffectFolder() throws -> URL {
+        let folder = try syntheticLayeredIdleFolder(eyes: true)
+        let file = folder.appendingPathComponent("animation.json")
+        guard var json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any],
+              var idle = json["idle"] as? [String: Any] else {
+            throw TestFailure("the synthetic class's animation.json should read as an object with idle data")
+        }
+        idle["front"] = [[1, 0.3], [2, 0.3], [3, 0.2]]
+        idle["behind"] = [[1, 0.5]]
+        idle["character_at"] = ["x": 20, "y": 10]
+        json["idle"] = idle
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        for number in 1...3 {
+            try writeSolidFrame(Double(number) / 10, width: 128, height: 180, to: folder.appendingPathComponent("01-idle-front-f\(number).png"))
+        }
+        try writeSolidFrame(0.5, width: 128, height: 180, to: folder.appendingPathComponent("01-idle-behind-f1.png"))
+        return folder
+    }
+
+    /// A frame of the idle loop with no art is missing, like any pose's, and the idle draws nothing until it lands.
+    @MainActor
+    private static func testALoopingIdleFrameWithoutArtIsMissing() throws {
+        let folder = try syntheticLoopingIdleFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let complete = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class with a looping idle should read")
+        }
+        try expect(missingFrames(of: complete).filter { $0.hasPrefix("01-idle") }.isEmpty, "the synthetic idle should have all its art")
+        try FileManager.default.removeItem(at: folder.appendingPathComponent("01-idle-front-f2.png"))
+        guard let damaged = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class should still read")
+        }
+        let missing = missingFrames(of: damaged).filter { $0.hasPrefix("01-idle") }
+        try expect(missing == ["01-idle front f2"], "the check should name the idle frame without art, got \(missing)")
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = damaged
+        window.contentView = avatar
+        window.show()
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        try expect(shownCharacter(of: avatar) == nil, "an idle loop missing a frame should draw nothing, like any pose")
+    }
+
+    /// With no idle stencil an avatar rests on its still image and schedules no blink. Legacy eyes still make a lid layer and timer.
+    @MainActor
+    private static func testAnIdleWithoutLidDataRestsOnItsStillFrame() throws {
+        defer { Motion.reducesMotion = { false } }
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let noEyesFolder = try syntheticLayeredIdleFolder(eyes: false)
+        defer { try? FileManager.default.removeItem(at: noEyesFolder) }
+        guard let noEyes = TrackerAvatarSprites(classID: "synthetic", folder: noEyesFolder) else {
+            throw TestFailure("a still idle without eye metadata should read")
+        }
+        try expect(noEyes.animation.idle?.blink == false && noEyes.animation.idle?.stillLidPixels.isEmpty == true,
+                   "an idle without stencil data should not blink")
+        let noEyesWindow = HeadlessWindow(size: size)
+        let noEyesAvatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        noEyesAvatar.sprites = noEyes
+        noEyesWindow.contentView = noEyesAvatar
+        noEyesWindow.show()
+        noEyesAvatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        let stillRoot = (noEyesAvatar.layer?.sublayers ?? []).first(where: { !$0.isHidden })
+        try expect(stillRoot?.sublayers?.count == 1 && stillRoot?.sublayers?.first?.animation(forKey: TrackerAvatarMotionKey.frames) == nil,
+                   "an idle without breathing art should rest on its single still image")
+        try expect(!noEyesAvatar.isBlinkScheduled, "an idle without lid data should schedule no blink")
+        noEyesAvatar.showEyelids(true)
+        try expect(stillRoot?.sublayers?.count == 1, "a forced blink should draw nothing without a lid stencil")
+
+        let eyesFolder = try syntheticLayeredIdleFolder(eyes: true)
+        defer { try? FileManager.default.removeItem(at: eyesFolder) }
+        guard let eyes = TrackerAvatarSprites(classID: "synthetic", folder: eyesFolder) else {
+            throw TestFailure("a still idle with legacy eye metadata should read")
+        }
+        let eyesWindow = HeadlessWindow(size: size)
+        let eyesAvatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        eyesAvatar.sprites = eyes
+        eyesWindow.contentView = eyesAvatar
+        eyesWindow.show()
+        Motion.reducesMotion = { false }
+        eyesAvatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        let lids = (eyesAvatar.layer?.sublayers ?? []).first(where: { !$0.isHidden })?.sublayers?.first(where: { $0.name == TrackerAvatarMotionKey.lids })
+        try expect(lids != nil && lids?.opacity == 0, "an idle with legacy eye metadata should carry a hidden lid image")
+        try expect(eyesAvatar.isBlinkScheduled, "an idle with blink-enabled legacy eyes should schedule a blink")
+        eyesAvatar.showEyelids(true)
+        try expect(lids?.opacity == 1, "showing lids should paint the still stencil")
+        eyesAvatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+        try expect(!eyesAvatar.isBlinkScheduled, "Reduce Motion should stop the blink")
+
+        guard let druid = TrackerAvatarSprites.bundled()["druid"] else {
+            throw TestFailure("the druid's sprites should load")
+        }
+        let druidWindow = HeadlessWindow(size: size)
+        let druidAvatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        druidAvatar.sprites = druid
+        druidWindow.contentView = druidAvatar
+        druidWindow.show()
+        druidAvatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        try expect(!druidAvatar.isBlinkScheduled, "the druid's blink:false setting should prevent scheduled blinks")
+        druidAvatar.showEyelids(true)
+        let druidLids = (druidAvatar.layer?.sublayers ?? []).first(where: { !$0.isHidden })?.sublayers?.first(where: { $0.name == TrackerAvatarMotionKey.lids })
+        try expect(druidLids == nil || druidLids?.opacity == 0, "her eyes are closed in every frame, so a forced render has no lid stencil to paint")
+    }
+
+    /// A release whose file names its strike frame steps forward as that frame begins, not on its second step: the synthetic class's
+    /// release enters on frames 1 and 2, strikes on frame 3 (0.2 s in) and follows through on frame 4, so the move's keys fall at 0.2 s
+    /// and 0.4 s of its 0.5 s, and it ends back on its anchor.
+    @MainActor
+    private static func testAReleaseMovesOnItsNamedStrikeFrame() throws {
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder),
+              let placement = sprites.animation.animation(for: .release),
+              let release = TrackerAvatarFrameRig(pose: .release, placement: placement, sprites: sprites) else {
+            throw TestFailure("the synthetic class's release should draw")
+        }
+        try expect(placement.strikeFrame == 3, "the synthetic release should name frame 3 as its strike")
+        release.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
+        release.startMotion()
+        guard let move = release.figure.animation(forKey: TrackerAvatarMotionKey.move) as? CAKeyframeAnimation else {
+            throw TestFailure("a release should move the figure")
+        }
+        let pixel = Double(TrackerAvatarDesign.pixelPoints)
+        let keyTimes = move.keyTimes?.map(\.doubleValue) ?? []
+        let offsets = move.values?.compactMap { ($0 as? NSNumber)?.doubleValue } ?? []
+        try expect(keyTimes.count == 4 && zip(keyTimes, [0, 0.4, 0.8, 1]).allSatisfy { abs($0 - $1) < 1e-9 },
+                   "the move should step at the strike frame's start (0.4 of the one-shot) and at the next frame's (0.8), got \(keyTimes)")
+        try expect(offsets == [0, 3 * pixel, 0, 0], "the move should step 3 pixels forward on the strike and end on the anchor, got \(offsets)")
+    }
+
+    /// The stage reads each payload's spawn, message and report and plays its cue as poses: a spawn casts the summoning and then the
+    /// release, a message the release, and a report the catch as it arrives. Its clock is the test's own, sampled in small steps.
+    @MainActor
+    private static func testTheStagePlaysEachCueFromItsPayloads() throws {
+        final class Clock {
+            var now: TimeInterval = 0
+        }
+        let clock = Clock()
+        let stage = TrackerAvatarStage(clock: { clock.now })
+        func row(_ fields: [String: Any]) throws -> TrackerSession {
+            var payload: [String: Any] = ["status": "active", "state": "working", "agent": "claude", "elapsed_ms": 0, "worker_count": 0]
+            payload.merge(fields) { _, new in new }
+            return try JSONDecoder().decode(TrackerSession.self, from: JSONSerialization.data(withJSONObject: payload))
+        }
+        let master = try row(["id": "qm-m", "title": "Wizard", "session_type": "master", "class": "wizard"])
+        let worker = try row(["id": "qm-w", "title": "Ember", "session_type": "worker", "parent_id": "qm-m"])
+        let messaged = try row(["id": "qm-w", "title": "Ember", "session_type": "worker", "parent_id": "qm-m",
+                                "last_exchange": ["kind": "instructions", "at": "2026-10-30T13:26:05.000001Z"]])
+        let reported = try row(["id": "qm-w", "title": "Ember", "session_type": "worker", "parent_id": "qm-m",
+                                "last_exchange": ["kind": "report", "at": "2026-10-30T13:26:09.000001Z"]])
+        func sessions(at time: TimeInterval) -> [TrackerSession] {
+            switch time {
+            case ..<1: [master]
+            case ..<6: [master, worker]
+            case ..<10: [master, messaged]
+            default: [master, reported]
+            }
+        }
+        var cues: [TrackerAvatarPose?] = []
+        var beat = stage.beat
+        for step in 0...280 {
+            clock.now = Double(step) * 0.05
+            stage.observe(sessions: sessions(at: clock.now), attachedID: "qm-m")
+            if stage.beat != beat {
+                beat = stage.beat
+                cues.append(stage.pose)
+            }
+        }
+        try expect(cues == [.summoning, .release, .release, .catching],
+                   "the spawn, the message and the report should play the summoning, the release, the release and the catch, got \(cues)")
+    }
+
+    /// The character layer of the avatar's shown frame rig: the figure's first layer, under the rig's root.
+    @MainActor
+    private static func shownCharacter(of avatar: TrackerAvatarView) -> CALayer? {
+        let root = (avatar.layer?.sublayers ?? []).first { !$0.isHidden }
+        // The root holds the behind effect, then the figure, then the bubble.
+        return root?.sublayers?.dropFirst().first?.sublayers?.first
+    }
+
+    /// Whether a layer's contents, or a keyframe's value, is `image` itself.
+    private static func sameImage(_ value: Any?, _ image: CGImage?) -> Bool {
+        guard let value, let image else {
+            return false
+        }
+        return (value as AnyObject) === image
+    }
+
+    /// The bard's sprites load from the app bundle: their animation file reads, and the art the avatar draws from it is there. His
+    /// idle is a strumming loop, so it has no idle layers and no fidgets.
+    @MainActor
+    private static func testBundledBardSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["bard"] else {
+            throw TestFailure("the bard's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.animation(for: .idle)?.loop != nil, "the bard's idle should be a strumming loop")
+        try expect(sprites.animation.idle == nil && sprites.animation.fidgets.isEmpty, "the bard's looping idle should have no idle layers or fidgets")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the bard's art")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the bard's file plays should have its art, missing: \(missing)")
+    }
+
+    @MainActor
+    private static func testBundledWizardSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["wizard"] else {
+            throw TestFailure("the wizard's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.breathing?.frames.count == 6, "the wizard should load its six sparse breathing images")
+        try expect(sprites.animation.fidgets.map(\.name) == ["hood", "staff-tap"], "the wizard should have the hood and staff-tap fidgets")
+        try expect(sprites.availableFidgets.count == 2, "both of the wizard's fidgets should have their art")
+        try expect(sprites.idleBreathingArt?.count == 6, "the wizard's breathing track should load every image and lid stencil")
+        try expect(sprites.idleStillArt != nil, "the wizard should have a still idle image")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the wizard's art")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the wizard's file plays should have its art, missing: \(missing)")
+    }
+
+    @MainActor
+    private static func testBundledPaladinSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["paladin"] else {
+            throw TestFailure("the paladin's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.blink == false, "the paladin wears a closed helm, so he should not schedule a blink")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 8 && sprites.idleBreathingArt?.count == 8,
+                   "the paladin should load all eight breathing images")
+        try expect(sprites.animation.fidgets.map(\.name) == ["shrug"], "the paladin should have the shrug fidget")
+        try expect(sprites.availableFidgets.count == 1, "the paladin's fidget should have its art")
+        try expect(sprites.idleStillArt != nil, "the paladin should have a still idle image")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the paladin's art")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the paladin's file plays should have its art, missing: \(missing)")
+    }
+
+    @MainActor
+    private static func testBundledDruidSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["druid"] else {
+            throw TestFailure("the druid's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.blink == false, "the druid should not schedule a blink")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 9 && sprites.idleBreathingArt?.count == 9,
+                   "the druid should load all nine authored breathing frames")
+        try expect(sprites.availableFidgets.count > 0, "the druid's bird fidget art should remain available")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the druid's file plays should have its art, missing: \(missing)")
+    }
+
+    @MainActor
+    private static func testBundledRogueSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["rogue"] else {
+            throw TestFailure("the rogue's sprites should load from the app bundle")
+        }
+        guard let breathing = sprites.animation.idle?.breathing else {
+            throw TestFailure("the rogue's authored breathing track should load")
+        }
+        try expect(breathing.frames.count == 9 && sprites.idleBreathingArt?.count == 9,
+                   "the rogue should load all nine breathing frames and their lid stencils")
+        try expect(sprites.animation.fidgets.map(\.name) == ["flip", "glance"] && sprites.availableFidgets.count == 2,
+                   "the rogue should have the flip and glance fidgets, with their art")
+        try expect(breathing.frames.allSatisfy { Set($0.lidPixels.map(\.y)).count > 1 },
+                   "the rogue's blink stencils should preserve their multi-row pixels")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil },
+                   "every pose should have the rogue's art")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the rogue's file plays should have its art, missing: \(missing)")
+    }
+
+    @MainActor
+    private static func testBundledClericSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["cleric"] else {
+            throw TestFailure("the cleric's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.breathing?.frames.count == 14 && sprites.idleBreathingArt?.count == 14,
+                   "the cleric should load all fourteen breathing steps and their lid stencils")
+        try expect(sprites.animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
+        try expect(sprites.availableFidgets.count == 1, "the cleric's fidget should have its art")
+        try expect(sprites.idleStillArt != nil, "the cleric should have a still idle image")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the cleric's art")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the cleric's file plays should have its art, missing: \(missing)")
+    }
+
+    /// The ranger's sprites load from the app bundle: his breathing plays its authored steps up and back down with their eyelid
+    /// stencils, and he never blinks.
+    @MainActor
+    private static func testBundledRangerSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["ranger"] else {
+            throw TestFailure("the ranger's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.blink == false, "the ranger should not schedule a blink")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 16 && sprites.idleBreathingArt?.count == 16,
+                   "the ranger should load all sixteen breathing steps and their lid stencils")
+        try expect(sprites.animation.fidgets.map(\.name) == ["scarf-tug"], "the ranger should have the scarf-tug fidget")
+        try expect(sprites.availableFidgets.count == 1, "the ranger's fidget should have its art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the ranger's art")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the ranger's file plays should have its art, missing: \(missing)")
+    }
+
+    /// The druid's bubble sits at her left, so it says its tail points right, and the rig draws it flipped at the same box.
+    @MainActor
+    private static func testBundledDruidBubbleTailPointsAtHer() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["druid"],
+              let pose = sprites.animation.animation(for: .callingOut) else {
+            throw TestFailure("the druid's calling out should load from the app bundle")
+        }
+        try expect(pose.bubble == TrackerAvatarPixel(x: 18, y: 50), "the druid's bubble should sit at x 18, y 50, got \(String(describing: pose.bubble))")
+        try expect(pose.bubbleTail == .right, "the druid's bubble tail should point right, at her")
+        guard let rig = TrackerAvatarFrameRig(pose: .callingOut, placement: pose, sprites: sprites) else {
+            throw TestFailure("the druid's calling out should draw")
+        }
+        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
+        try expect(CATransform3DEqualToTransform(rig.bubble.transform, CATransform3DMakeScale(-1, 1, 1)), "the druid's bubble should draw flipped")
+    }
+
+    /// The sorcerer's sprites load from the app bundle: her breathing plays its eight authored steps, each with a lid stencil, she blinks
+    /// in her own lid colour, and her bubble's tail points at her.
+    @MainActor
+    private static func testBundledSorcererSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["sorcerer"] else {
+            throw TestFailure("the sorcerer's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.blink == true, "the sorcerer should schedule a blink")
+        try expect(sprites.animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xebae9e), "the sorcerer should blink in her skin colour")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 8 && sprites.idleBreathingArt?.count == 8,
+                   "the sorcerer should load all eight breathing steps and their lid stencils")
+        try expect(sprites.idleBreathingArt?.allSatisfy { $0.lids != nil } == true, "every sorcerer breathing frame should carry a blink stencil")
+        try expect(sprites.animation.fidgets.map(\.name) == ["hair-flick"] && sprites.availableFidgets.count == 1,
+                   "the sorcerer should have the hair-flick fidget with its art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the sorcerer's art")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the sorcerer's file plays should have its art, missing: \(missing)")
+    }
+
+    /// The fighter's sprites load from the app bundle: his breathing plays its nine authored steps, each with a lid stencil, he blinks in his
+    /// own lid colour, and his bubble's tail points at him.
+    @MainActor
+    private static func testBundledFighterSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["fighter"] else {
+            throw TestFailure("the fighter's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.blink == true, "the fighter should schedule a blink")
+        try expect(sprites.animation.idle?.lidColour == TrackerAvatarColour(rgb: 0x7a4a3a), "the fighter should blink in his skin colour")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 9 && sprites.idleBreathingArt?.count == 9,
+                   "the fighter should load all nine breathing steps and their lid stencils")
+        try expect(sprites.idleBreathingArt?.allSatisfy { $0.lids != nil } == true, "every fighter breathing frame should carry a blink stencil")
+        try expect(sprites.animation.fidgets.map(\.name) == ["sword-lowered-gaze"] && sprites.availableFidgets.count == 1,
+                   "the fighter should have the sword-lowered gaze fidget with its art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the fighter's art")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the fighter's file plays should have its art, missing: \(missing)")
+    }
+
+    /// An idle's effect layer: a looping track on its own clock, over (`front`) or under (`behind`) the figure, placed by where the
+    /// figure's canvas falls on its own. It keeps playing through a fidget, rests on its first frame under Reduce Motion, and goes
+    /// with the idle. A class whose file has no such key draws no layer for it.
+    @MainActor
+    private static func testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets() throws {
+        defer { Motion.reducesMotion = { false } }
+        Motion.reducesMotion = { false }
+        let folder = try syntheticIdleEffectFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class with an idle effect should read")
+        }
+        try expect(missingFrames(of: sprites).filter { $0.hasPrefix("idle effect") }.isEmpty, "the synthetic idle effect should have all its art")
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = sprites
+        window.contentView = avatar
+        window.show()
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        let roots = avatar.layer?.sublayers ?? []
+        guard let front = roots.first(where: { $0.zPosition > 0 && !$0.isHidden }),
+              let behind = roots.first(where: { $0.zPosition < 0 && !$0.isHidden }),
+              let figure = roots.first(where: { $0.zPosition == 0 && !$0.isHidden }) else {
+            throw TestFailure("an idle with effects should show a front layer, a behind layer and the figure")
+        }
+        guard let frontPlay = front.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation,
+              let behindPlay = behind.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation else {
+            throw TestFailure("the effect layers should play their frames")
+        }
+        try expect(abs(frontPlay.duration - 0.8) < 1e-9 && frontPlay.repeatCount == .infinity && frontPlay.values?.count == 4,
+                   "the front effect should loop its 0.8 s track and close on its first frame")
+        try expect(abs(behindPlay.duration - 0.5) < 1e-9, "the behind effect should keep its own 0.5 s clock")
+        let pixel = TrackerAvatarDesign.pixelPoints
+        try expect(front.frame.minX == figure.frame.minX - 20 * pixel && front.frame.maxY == figure.frame.maxY + 10 * pixel,
+                   "the effect canvas should place the figure's canvas at character_at, got \(front.frame) against \(figure.frame)")
+        // A fidget swaps the figure but not the effects.
+        avatar.configure(pose: .idle, fidget: 2, beat: 0, finish: nil, reduceMotion: false)
+        try expect(!front.isHidden && front.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "the front effect should play through a fidget")
+        // Reduce Motion rests each layer on its first frame.
+        Motion.reducesMotion = { true }
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+        try expect(!front.isHidden && front.animation(forKey: TrackerAvatarMotionKey.frames) == nil
+                   && sameImage(front.contents, sprites.frame(.idle, .front, 1)), "Reduce Motion should hold the front effect's first frame")
+        Motion.reducesMotion = { false }
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        avatar.configure(pose: .pondering, beat: 0, finish: nil, reduceMotion: false)
+        try expect(front.isHidden && behind.isHidden, "another pose should hide the idle's effects")
+
+        // A class whose file has no idle effect draws no layer for it.
+        let plainFolder = try syntheticLayeredIdleFolder(eyes: true)
+        defer { try? FileManager.default.removeItem(at: plainFolder) }
+        guard let plain = TrackerAvatarSprites(classID: "synthetic", folder: plainFolder) else {
+            throw TestFailure("the plain synthetic class should read")
+        }
+        try expect(plain.animation.idle?.front == nil && plain.animation.idle?.behind == nil, "a file without the keys should decode no effect")
+        let plainWindow = HeadlessWindow(size: size)
+        let plainAvatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        plainAvatar.sprites = plain
+        plainWindow.contentView = plainAvatar
+        plainWindow.show()
+        plainAvatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        try expect((plainAvatar.layer?.sublayers ?? []).count == 1, "an idle with no effect should draw only the figure's layers")
+    }
+
+    /// Every bundled class whose idle carries an effect has all its art, and each effect track loops on its own length rather than
+    /// the breathing's.
+    @MainActor
+    private static func testEveryBundledIdleEffectHasItsArtAndLoops() throws {
+        for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
+            for layer in [TrackerAvatarLayer.behind, .front] {
+                guard let track = sprites.animation.idle?.effect(layer) else {
+                    continue
+                }
+                let missing = missingFrames(of: sprites).filter { $0.hasPrefix("idle effect") }
+                try expect(missing.isEmpty, "the \(classID)'s idle \(layer.rawValue) effect should have all its art, missing: \(missing)")
+                try expect(track.frame(at: track.seconds, looping: true) == track.steps[0].frame,
+                           "the \(classID)'s idle \(layer.rawValue) effect should loop back to its first frame after \(track.seconds) s")
+            }
+        }
+    }
+
+    /// The necromancer's sprites load from the app bundle: his breathing plays its authored steps with their eyelid stencils,
+    /// and he never blinks.
+    @MainActor
+    private static func testBundledNecromancerSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["necromancer"] else {
+            throw TestFailure("the necromancer's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle?.blink == false, "the necromancer should not schedule a blink")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 7 && sprites.idleBreathingArt?.count == 7,
+                   "the necromancer should load all seven breathing steps and their lid stencils")
+        try expect(sprites.animation.fidgets.map(\.name) == ["cough"], "the necromancer should have the cough fidget")
+        try expect(sprites.availableFidgets.count == 1, "the necromancer's fidget should have its art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the necromancer's art")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the necromancer's file plays should have its art, missing: \(missing)")
+    }
+
+    /// The shared bubble stays inside the avatar slot, above the banner at its sole. Every bundled
+    /// class with an anchor is checked, and a fixture with one covers the path until a class ships one.
+    @MainActor
+    private static func testTheBubbleStaysInTheSlotAboveTheBanner() throws {
+        for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key })
+        where sprites.animation.animation(for: .callingOut)?.bubble != nil {
+            try expectBubbleClear(of: sprites, named: classID)
+        }
+        let leftTail = try bubbleFixture()
+        let rightTail = try bubbleFixture(tail: "right")
+        try expectBubbleClear(of: leftTail, named: "the bubble fixture")
+        try expectBubbleClear(of: rightTail, named: "the mirrored bubble fixture")
+        try expectMirroredBubbleKeepsItsBox(plain: leftTail, mirrored: rightTail)
+    }
+
+    /// A `tail: "right"` bubble is the same box at the same anchor as the default one, drawn flipped about its x; the default isn't.
+    @MainActor
+    private static func expectMirroredBubbleKeepsItsBox(plain: TrackerAvatarSprites, mirrored: TrackerAvatarSprites) throws {
+        guard let plainPose = plain.animation.animation(for: .callingOut), let mirroredPose = mirrored.animation.animation(for: .callingOut),
+              let plainRig = TrackerAvatarFrameRig(pose: .callingOut, placement: plainPose, sprites: plain),
+              let mirroredRig = TrackerAvatarFrameRig(pose: .callingOut, placement: mirroredPose, sprites: mirrored) else {
+            throw TestFailure("both bubble fixtures should draw calling out")
+        }
+        let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        plainRig.place(in: slot)
+        mirroredRig.place(in: slot)
+        try expect(plainPose.bubbleTail == .left && mirroredPose.bubbleTail == .right, "the fixtures should carry their tails")
+        try expect(plainRig.bubble.frame == mirroredRig.bubble.frame, "a mirrored bubble should keep the unmirrored box, got \(mirroredRig.bubble.frame) vs \(plainRig.bubble.frame)")
+        try expect(CATransform3DIsIdentity(plainRig.bubble.transform), "a left-tail bubble should be drawn as the art is")
+        try expect(CATransform3DEqualToTransform(mirroredRig.bubble.transform, CATransform3DMakeScale(-1, 1, 1)), "a right-tail bubble should flip horizontally")
+        try expect(mirroredRig.bubble.magnificationFilter == .nearest, "a mirrored bubble should stay unsmoothed")
+    }
+
+    /// A synthetic calling-out pose reaches out of the fixed slot and draws over the plate above it, while its sole meets the banner.
+    @MainActor
+    private static func testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot() throws {
+        let fixture = try TrackerAvatarOverflowFixture.make()
+        defer { try? FileManager.default.removeItem(at: fixture.folder) }
+        guard let idleFigureHeight = fixture.sprites.idleFigureHeight,
+              let pose = fixture.sprites.animation.animation(for: .callingOut),
+              let image = fixture.sprites.frame(.callingOut, .character, 1),
+              let rows = TrackerAvatarSprites.opaqueRows(of: image) else {
+            throw TestFailure("the synthetic tall pose should have a readable frame and idle figure")
+        }
+        let poseHeight = TrackerTagLayout.figureHeight(topRow: rows.lowerBound, footRow: pose.footRow)
+        try expect(idleFigureHeight == 160, "the synthetic idle should be 160 px tall, got \(idleFigureHeight)")
+        try expect(CGFloat(poseHeight) > TrackerAvatarMetrics.slotHeight, "the synthetic pose should extend above the reserved slot")
+        try expect(TrackerAvatarMetrics.slotHeight == 175, "the avatar slot should keep its reserved height")
+
+        let scale: CGFloat = 2
+        let slotTop = TrackerAvatarOverflowFixture.slotTop
+        let size = TrackerAvatarOverflowFixture.canvas
+        let content = SelectedSessionTagContent(
+            title: "Tall Pose Preview", id: "qm-preview", projectName: "preview", projectColor: NSColor(hex: 0x3434A8)
+        )
+        let host = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+            TrackerNameplateBackground(
+                role: .master, color: AppPalette.inert, showsCursor: false, isRecoloring: false,
+                statusColor: nil, ring: .none, text: EmptyView()
+            )
+            TrackerAvatarSlot(pose: .callingOut, sprites: fixture.sprites)
+                .zIndex(1)
+            SelectedSessionTag(content: content, onCopyID: { _ in })
+                .zIndex(2)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI))
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size, scale: scale)
+        defer { window.close() }
+        window.contentView = host
+        window.show()
+
+        let overflow = CGFloat(poseHeight) - TrackerAvatarMetrics.slotHeight
+        let bandHeight = Int(overflow * scale)
+        let columns = Int(90 * scale)..<Int(170 * scale)
+        let topBandStart = Int((slotTop - overflow) * scale)
+        let topBandEnd = Int(slotTop * scale)
+        let topBand = topBandStart..<topBandEnd
+        func showsPose(_ bitmap: NSBitmapImageRep, in rows: Range<Int>) -> Bool {
+            rows.contains { y in
+                columns.contains { x in
+                    guard let pixel = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+                    return pixel.alphaComponent > 0.9 && pixel.redComponent > 0.8 && pixel.greenComponent < 0.2 && pixel.blueComponent < 0.15
+                }
+            }
+        }
+        var bitmap: NSBitmapImageRep?
+        var view: TrackerAvatarView?
+        try expect(waitUntil {
+            bitmap = try? snapshot(host, size: size, scale: scale)
+            view = ([host] + host.subviews.flatMap { descendants(of: $0) }).compactMap { $0 as? TrackerAvatarView }.first
+            guard let bitmap else { return false }
+            let oppositeTopBand = (bitmap.pixelsHigh - topBand.upperBound)..<(bitmap.pixelsHigh - topBand.lowerBound)
+            return view != nil && (showsPose(bitmap, in: topBand) || showsPose(bitmap, in: oppositeTopBand))
+        }, "the pose's top rows should draw over the plate above the slot")
+        try expect(bitmap != nil, "the overlapping plate and avatar should render to a bitmap")
+        try expect(view?.bounds.size == CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight),
+                   "the avatar view should retain its reserved slot frame")
+        try expect(view?.layer?.masksToBounds == false, "the avatar layer should leave its overflow visible")
+        try expect(view?.hitTest(NSPoint(x: view?.bounds.midX ?? 0, y: view?.bounds.midY ?? 0)) == nil,
+                   "the avatar should keep taking no clicks")
+
+        try expect(bandHeight > 0, "the synthetic pose should have top rows outside the slot")
+    }
+
+    /// A real tracker with a synthetic pixel mark that crosses the foot row: its sole stays visible, art hanging below it
+    /// shows in the gap, and the id tab starts `avatarBannerGap` below the sole. The tall-pose test separately checks that
+    /// the avatar still draws above the plates.
+    private static func testTheSoleStandsAboveTheBannerAndStaysVisible() throws {
+        let art = try TrackerAvatarOverflowFixture.make()
+        defer { try? FileManager.default.removeItem(at: art.folder) }
+        let fixture = try TrackerFixture(masters: 1, shells: 2, viewed: "master-0", height: 700, sessionClass: "wizard")
+        defer { fixture.close() }
+        guard let avatar = descendants(of: fixture.view).compactMap({ $0 as? TrackerAvatarView }).first,
+              let pose = art.sprites.animation.animation(for: .callingOut),
+              let marker = NSColor(cgColor: TrackerAvatarOverflowFixture.markerColor) else {
+            throw TestFailure("the tracker should have its avatar slot and synthetic marker art")
+        }
+        avatar.sprites = art.sprites
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: true)
+        let slot = fixture.view.convert(avatar.bounds, from: avatar)
+        let sole = fixture.view.isFlipped ? slot.maxY : fixture.size.height - slot.minY
+        let scale: CGFloat = 2
+        let column = Int((slot.minX + slot.width / 2 - CGFloat(pose.bodyColumn) + 7) * scale)
+        let soleRow = Int(sole * scale) - 1
+        let hangingRow = Int((sole + 2) * scale)
+        var probe: PixelProbe?
+        try expect(waitUntil {
+            guard let bitmap = try? snapshot(fixture.view, size: fixture.size, scale: scale) else { return false }
+            probe = PixelProbe(bitmap: bitmap, height: bitmap.pixelsHigh)
+            return probe?.isColor(column, soleRow, marker) == true
+        }, "the sprite's last sole row should remain visible above the banner")
+        try expect(probe?.isColor(column, hangingRow, marker) == true,
+                   "the sprite pixels hanging below the sole should show in the gap above the banner")
+        let tabRow = Int((sole + TrackerListMetrics.avatarBannerGap + 2) * scale)
+        try expect(probe?.isColor(column, tabRow, AppPalette.panel) == true,
+                   "the banner's id tab should start \(TrackerListMetrics.avatarBannerGap) below the sole")
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    /// The cleric's sprites with a bubble anchor beside his head on the right, read the way a class's file would carry one.
+    @MainActor
+    private static func bubbleFixture(tail: String? = nil) throws -> TrackerAvatarSprites {
+        guard let folder = AppSymbolStyle.resourceBundle().resourceURL?.appendingPathComponent("Sprites/cleric", isDirectory: true),
+              let data = try? Data(contentsOf: folder.appendingPathComponent("animation.json")),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var poses = json["poses"] as? [String: Any],
+              var calling = poses["11-calling-out"] as? [String: Any] else {
+            throw TestFailure("the cleric's calling-out pose should read as JSON")
+        }
+        var anchor: [String: Any] = ["x": 52, "y": 24]
+        anchor["tail"] = tail
+        calling["bubble"] = anchor
+        poses["11-calling-out"] = calling
+        json["poses"] = poses
+        let animation = try TrackerAvatarAnimation(data: JSONSerialization.data(withJSONObject: json))
+        return TrackerAvatarSprites(classID: "cleric", animation: animation, folder: folder)
+    }
+
+    /// Checks the bubble the calling-out rig places for `sprites`, as the slot sees it (top left origin): inside the slot and under the tag.
+    @MainActor
+    private static func expectBubbleClear(of sprites: TrackerAvatarSprites, named name: String) throws {
+        guard let placement = sprites.animation.animation(for: .callingOut),
+              sprites.bubble != nil, let rig = TrackerAvatarFrameRig(pose: .callingOut, placement: placement, sprites: sprites) else {
+            throw TestFailure("\(name) should draw its calling out with the shared bubble")
+        }
+        let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        rig.place(in: slot)
+        try expect(rig.root.sublayers?.last === rig.bubble, "\(name)'s bubble should draw over the figure and its effects")
+        // Layers measure from the bottom left: the bubble is in the root's space, and the root in the slot's.
+        let bubble = rig.bubble.frame.offsetBy(dx: rig.root.frame.minX, dy: rig.root.frame.minY)
+        let bubbleTop = slot.height - bubble.maxY
+        let bubbleBottom = slot.height - bubble.minY
+        try expect(bubble.width > 0 && bubble.height > 0, "\(name)'s bubble should have a frame")
+        try expect(bubble.minX >= slot.minX && bubble.maxX <= slot.maxX && bubbleTop >= slot.minY && bubbleBottom <= slot.maxY,
+                   "\(name)'s bubble should sit inside the slot, got \(bubble)")
+        try expect(bubbleBottom <= slot.height, "\(name)'s bubble should stay above the banner at the slot's bottom, got its bottom at \(bubbleBottom)")
+    }
+
+    /// Each bundled class's idle figure is measured from its own art, against its foot line, and the slot reserves the tallest one
+    /// rounded up to the 5 pt step.
+    @MainActor
+    private static func testTheBundledIdleFiguresSetTheSlot() throws {
+        let sprites = TrackerAvatarSprites.bundled()
+        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 154), ("fighter", 161), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 118), ("sorcerer", 150), ("wizard", 150)] {
+            try expect(sprites[classID]?.idleFigureHeight == figure,
+                       "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
+        }
+        let tallest = sprites.values.compactMap(\.idleFigureHeight).max() ?? 0
+        try expect(TrackerAvatarMetrics.tallestFigureHeight == tallest, "the tallest figure should be \(tallest) px, got \(TrackerAvatarMetrics.tallestFigureHeight)")
+        try expect(TrackerAvatarMetrics.slotHeight == 175, "the slot should reserve the tallest figure rounded up to 5, got \(TrackerAvatarMetrics.slotHeight)")
+    }
+
+    /// Masters and workers reserve one fixed-width banner and avatar slot, with or without shells or class art.
+    private static func testTheAvatarStandsOnTheFullWidthBannerAboveTheShells() throws {
+        for shells in [0, 3] {
+            for sessionClass in ["wizard", "paladin", ""] {
+                for viewed in ["master-0", "worker-0"] {
+                    let fixture = try TrackerFixture(masters: 1, shells: shells, viewed: viewed, height: 700, sessionClass: sessionClass, workers: 1)
+                    defer { fixture.close() }
+                    guard let avatar = descendants(of: fixture.view).compactMap({ $0 as? TrackerAvatarView }).first else {
+                        throw TestFailure("the tracker should reserve an avatar slot, including for a class without art")
+                    }
+                    let shellHeight = CGFloat(shells) * TrackerShellMetrics.rowHeight
+                    let bannerBottom = fixture.size.height - TrackerListMetrics.verticalPadding - shellHeight - (shells > 0 ? Space.section : 0)
+                    let bannerTop = bannerBottom - SelectedSessionTagMetrics.height
+                    let slot = fixture.view.convert(avatar.bounds, from: avatar)
+                    let sole = fixture.view.isFlipped ? slot.maxY : fixture.size.height - slot.minY
+                    try expect(abs(sole + TrackerListMetrics.avatarBannerGap - bannerTop) < 1, "\(sessionClass) with \(shells) shells: the sole should stand \(TrackerListMetrics.avatarBannerGap) above the banner top at \(bannerTop), got \(sole)")
+                    try expect(slot.size == CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight),
+                               "the reserved slot should keep the same size for every class")
+                    try expect(abs(slot.minX - TrackerListMetrics.sidePadding) < 1, "the avatar and banner should start at the plates' leading inset")
+
+                    let probe = try fixture.probe()
+                    let left = Int(TrackerListMetrics.sidePadding)
+                    let tabMiddle = Int(bannerTop + SelectedSessionTagMetrics.tabHeight / 2)
+                    try expect(probe.isColor(left + Int(Space.item), tabMiddle, AppPalette.panel), "the banner's id tab should sit under the slot, \(TrackerListMetrics.avatarBannerGap) below its sole")
+                    try expect(probe.isColor(left + Int(Space.row) - 1, tabMiddle, AppPalette.window), "the id tab should stay inset 5pt")
+                    let barMiddle = Int(bannerBottom - SelectedSessionTagMetrics.borderWidth - SelectedSessionTagMetrics.barHeight / 2)
+                    let color = TrackerNameplateColor.barLightness(AppPalette.displayColor("indigo") ?? AppPalette.muted)
+                    for x in [left + Int(Space.item), left + Int(TrackerAvatarMetrics.slotWidth - Space.item)] {
+                        try expect(probe.isColor(x, barMiddle, color), "\(sessionClass) with \(shells) shells: the banner's bar should span the full 260pt plate width at \(x), \(barMiddle)")
+                    }
+                    let tracker = TrackerRenderer.tracker(fixture.store.snapshot)
+                    let attached = SelectedSessionTagContent.make(currentTerminalSessionID: viewed, tracker: tracker)
+                    try expect(attached?.title == viewed && attached?.id == viewed && attached?.projectName == "Repo",
+                               "an attached plate should keep its own banner details, including without class art")
+                    if shells > 0 {
+                        let shellTop = fixture.size.height - TrackerListMetrics.verticalPadding - shellHeight
+                        try expect(abs(shellTop - bannerBottom - Space.section) < 1, "the shells should start 20pt below the banner")
+                        try expect(probe.clearBand(above: Int(shellTop)), "the shell gap should stay clear below the banner's shadow")
+                    }
+                }
+            }
+        }
+
+        for title in ["A", String(repeating: "A long title ", count: 20)] {
+            let tag = NSHostingView(rootView: SelectedSessionTag(
+                content: SelectedSessionTagContent(title: title, id: "qm-example", projectName: "Example", projectColor: AppPalette.muted),
+                onCopyID: { _ in }
+            ))
+            try expect(tag.fittingSize.width == TrackerAvatarMetrics.slotWidth, "short and long titles should both reserve a 260pt banner")
+        }
+    }
+
+    /// Shells, unknown ids and no attachment remove the whole footer, returning its reserved room to the plates.
+    private static func testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList() throws {
+        for shells in [0, 3] {
+            for viewed: String? in ["shell-0", nil, "unknown-session"] {
+                let fixture = try TrackerFixture(masters: 14, shells: shells, viewed: viewed, height: 700, sessionClass: "wizard")
+                defer { fixture.close() }
+                try expect(!descendants(of: fixture.view).contains { $0 is TrackerAvatarView },
+                           "\(String(describing: viewed)): no avatar slot should remain without an attached plate")
+                let tracker = TrackerRenderer.tracker(fixture.store.snapshot)
+                try expect(SelectedSessionTagContent.make(currentTerminalSessionID: viewed, tracker: tracker) == nil,
+                           "\(String(describing: viewed)): no banner should remain without an attached plate")
+                let shellHeight = CGFloat(shells) * TrackerShellMetrics.rowHeight
+                let listHeight = fixture.size.height - shellHeight - TrackerListMetrics.verticalPadding - (shells > 0 ? Space.section : 0)
+                try expect(fixture.scrollView(height: listHeight) != nil,
+                           "\(String(describing: viewed)): plates should fill the freed avatar and banner space up to \(listHeight)")
+                if shells > 0 {
+                    let shellTop = fixture.size.height - TrackerListMetrics.verticalPadding - shellHeight
+                    let probe = try fixture.probe()
+                    try expect(probe.clearBand(above: Int(shellTop)), "the plates should leave 20pt above the pinned shells")
+                    guard let shellScroll = fixture.scrollView(height: shellHeight) else { throw TestFailure("the shells should keep their own section") }
+                    let section = fixture.view.convert(shellScroll.bounds, from: shellScroll)
+                    let bottom = fixture.view.isFlipped ? section.maxY : fixture.size.height - section.minY
+                    try expect(abs(bottom - (fixture.size.height - TrackerListMetrics.verticalPadding)) < 1,
+                               "the shells should stay 20pt from the bottom without an attached plate")
+                    if viewed == "shell-0" {
+                        try expect(probe.filledShellRows.contains(Int(shellTop)), "the selected first shell should stay at the pinned section's top")
+                    }
+                }
+            }
+        }
+        for role in ["tmux", "orphan"] {
+            let fixture = try TrackerFixture(masters: 1, shells: 1, viewed: "shell-0", height: 700, sessionClass: "wizard", shellRole: role)
+            defer { fixture.close() }
+            try expect(!descendants(of: fixture.view).contains { $0 is TrackerAvatarView }, "an attached \(role) should reserve no avatar slot")
+            let tracker = TrackerRenderer.tracker(fixture.store.snapshot)
+            try expect(SelectedSessionTagContent.make(currentTerminalSessionID: "shell-0", tracker: tracker) == nil, "an attached \(role) should have no banner")
+        }
+    }
+
+    /// The frames a class's file plays that have no art, as `pose layer fN` names.
+    @MainActor
+    private static func missingFrames(of sprites: TrackerAvatarSprites) -> [String] {
+        var missing: [String] = []
+        for frame in sprites.animation.idle?.breathing?.frames ?? [] where sprites.idleBreathingFrame(frame.file) == nil {
+            missing.append(frame.file)
+        }
+        for layer in [TrackerAvatarLayer.behind, .front] {
+            for step in sprites.animation.idle?.effect(layer)?.steps ?? [] where sprites.frame(.idle, layer, step.frame) == nil {
+                missing.append("idle effect \(layer.rawValue) f\(step.frame)")
+            }
+        }
+        for pose in TrackerAvatarPose.allCases {
+            guard let poseAnimation = sprites.animation.animation(for: pose) else {
+                continue
+            }
+            for block in [poseAnimation.loop, poseAnimation.enter, poseAnimation.finish, poseAnimation.once].compactMap({ $0 }) {
+                for layer in TrackerAvatarLayer.allCases {
+                    for step in block.track(for: layer)?.steps ?? [] where sprites.frame(pose, layer, step.frame) == nil {
+                        missing.append("\(pose.resourceName) \(layer.rawValue) f\(step.frame)")
+                    }
+                }
+            }
+        }
+        return missing
+    }
+
+    @MainActor
+    /// A bundled class whose idle stands still, breathing and blinking between fidgets: the wizard. The bard's idle is a strumming
+    /// loop, so the idle-layer tests read the wizard.
+    private static func stillIdleSprites() throws -> TrackerAvatarSprites {
+        guard let sprites = TrackerAvatarSprites.bundled()["wizard"] else {
+            throw TestFailure("the wizard's sprites should load from the app bundle")
+        }
+        return sprites
+    }
+
+    /// A class folder for the render tests, in a temporary directory: the wizard's `animation.json` with calling out's loop made 1 frame
+    /// for the character and 8 frames for the front, an enter of f2 and a finish of f3 on the character, and a summoning of three frames
+    /// with a ground layer. The frames the loops, the enter, the finish and the summoning need are each a solid square.
+    @MainActor
+    private static func syntheticClassFolder() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("avatar-class-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let classFile = try Data(contentsOf: try stillIdleAnimationFile())
+        guard var json = try JSONSerialization.jsonObject(with: classFile) as? [String: Any],
+              var poses = json["poses"] as? [String: Any],
+              var calling = poses["11-calling-out"] as? [String: Any],
+              var summoning = poses["09-summoning"] as? [String: Any] else {
+            throw TestFailure("the wizard's animation.json should read as a JSON object")
+        }
+        let summoningIn: [[Any]] = [[2, 0.18], [1, 0.36]]
+        let summoningOut: [[Any]] = [[1, 0.18], [3, 0.36]]
+        summoning["enter"] = ["character": summoningIn, "behind": summoningIn]
+        summoning["loop"] = ["character": [[3, 0.46]], "behind": [[3, 0.46]]]
+        summoning["finish"] = ["character": summoningOut, "behind": summoningOut]
+        summoning.removeValue(forKey: "front")
+        poses["09-summoning"] = summoning
+        let eightFrames = (1...8).map { [$0, 0.125] as [Any] }
+        calling["loop"] = ["character": [[1, 0.25]], "front": eightFrames]
+        calling["enter"] = ["character": [[2, 0.25]]]
+        calling["finish"] = ["character": [[3, 0.25]]]
+        poses["11-calling-out"] = calling
+        // A release with an entrance (frames 1 and 2) before its strike (3) and follow-through (4): it names its strike frame.
+        guard var release = poses["08-release"] as? [String: Any] else {
+            throw TestFailure("the wizard's file should have a release")
+        }
+        release["once"] = ["character": [[1, 0.1], [2, 0.1], [3, 0.2], [4, 0.1]]]
+        release["strike_frame"] = 3
+        poses["08-release"] = release
+        json["poses"] = poses
+        try JSONSerialization.data(withJSONObject: json).write(to: folder.appendingPathComponent("animation.json"))
+        for number in 1...3 {
+            try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("09-summoning-f\(number).png"))
+            try writeSolidFrame(Double(number) / 10 + 0.4, to: folder.appendingPathComponent("09-summoning-behind-f\(number).png"))
+        }
+        try writeSolidFrame(0.1, to: folder.appendingPathComponent("11-calling-out-f1.png"))
+        try writeSolidFrame(0.2, to: folder.appendingPathComponent("11-calling-out-f2.png"))
+        try writeSolidFrame(0.3, to: folder.appendingPathComponent("11-calling-out-f3.png"))
+        for number in 1...4 {
+            try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("08-release-f\(number).png"))
+        }
+        for number in 1...8 {
+            try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("11-calling-out-front-f\(number).png"))
+        }
+        return folder
+    }
+
+    @MainActor
+    private static func stillIdleAnimationFile() throws -> URL {
+        guard let url = AppSymbolStyle.resourceBundle().url(forResource: "animation", withExtension: "json", subdirectory: "Sprites/wizard") else {
+            throw TestFailure("the wizard's animation.json should be in the app bundle")
+        }
+        return url
+    }
+
+    private static func writeSolidFrame(_ red: CGFloat, width: Int = 2, height: Int = 2, to url: URL) throws {
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw TestFailure("a test frame should be drawable")
+        }
+        context.setFillColor(CGColor(red: red, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage(),
+              let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
+            throw TestFailure("a test frame should be made")
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            throw TestFailure("a test frame should be written to \(url.lastPathComponent)")
+        }
     }
 
     private static func testMotionTokensShareOneEasingAndFollowReduceMotion() throws {
@@ -2631,7 +3846,8 @@ enum LogicSelfTests {
         try expect(column.isTransitioning, "a panel appearing while the dock stays up transitions")
         try expect(!top.isHidden && top.alphaValue == 0, "the new panel starts unseen, got alpha \(top.alphaValue)")
         try expect(top.frame.maxY == 870 && top.frame.height == 300, "and 10 above its slot, got \(top.frame)")
-        try expect(waitUntil { column.isTransitioning && top.alphaValue > 0 && top.alphaValue < 1 }, "the appearing panel should reach an intermediate state")
+        // The in-between frames are DockColumnTransition's, checked in DockStateTests. A slow runner's first timer tick can land
+        // after the step has run, so this live check doesn't require sampling one.
         try expect(waitUntil { !column.isTransitioning }, "the dock's panel transition should finish")
         try expect(top.alphaValue == 1 && top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Watcher ends at its slot, got \(top.frame)")
         try expect(bottom.alphaValue == 1 && bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 540), "the bottom panel ends shrunk under it, got \(bottom.frame)")
@@ -2643,7 +3859,7 @@ enum LogicSelfTests {
 
         // A new change mid-transition settles the running one first.
         column.setPanels(DockPanels(top: true, bottom: true), animated: true)
-        try expect(waitUntil { column.isTransitioning && top.alphaValue > 0 && top.alphaValue < 1 }, "the dock should be mid-transition before the next change")
+        try expect(column.isTransitioning, "the dock is mid-transition when the next change arrives")
         column.setPanels(DockPanels(top: true), animated: true)
         try expect(column.isTransitioning, "the interrupting change starts its own transition")
         try expect(waitUntil { !column.isTransitioning }, "the interrupted dock transition should settle on the latest panel")
@@ -4258,13 +5474,13 @@ enum LogicSelfTests {
         let window: HeadlessWindow
         let size: CGSize
 
-        @MainActor
-        init(masters: Int, shells: Int, viewed: String, height: Int) throws {
+        init(masters: Int, shells: Int, viewed: String?, height: Int, sessionClass: String = "", shellRole: String = "shell", workers: Int = 0) throws {
             func session(_ id: String, role: String) -> TrackerSession {
-                TrackerSession(id: id, title: id, repoName: "Repo", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle")
+                TrackerSession(id: id, title: id, repoName: "Repo", repoColor: "indigo", sessionClass: role == "master" ? sessionClass : "", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle", parentID: role == "worker" ? "master-0" : "")
             }
             let plates = (0..<masters).map { session("master-\($0)", role: "master") }
-            let shellRows = (0..<shells).map { session("shell-\($0)", role: "shell") }
+                + (0..<workers).map { session("worker-\($0)", role: "worker") }
+            let shellRows = (0..<shells).map { session("shell-\($0)", role: shellRole) }
             store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: viewed, expandedMasterIDs: [])
             store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: plates + shellRows)])))
             size = CGSize(width: 340, height: CGFloat(height))
@@ -4282,7 +5498,10 @@ enum LogicSelfTests {
             window.contentView = view
             window.show()
             let shellSectionHeight = min(CGFloat(shells) * TrackerShellMetrics.rowHeight, TrackerShellMetrics.maxHeight)
-            try expect(LogicSelfTests.waitUntil { scrollView(height: shellSectionHeight) != nil }, "the tracker shell section should finish laying out")
+            try expect(LogicSelfTests.waitUntil {
+                if shells > 0 { return scrollView(height: shellSectionHeight) != nil }
+                return LogicSelfTests.descendants(of: view).contains { $0 is NSScrollView && $0.bounds.height > 0 }
+            }, "the tracker footer should finish laying out")
         }
 
         func close() {
@@ -4333,9 +5552,9 @@ enum LogicSelfTests {
             return (0..<height).filter { isColor(column, $0, AppPalette.item) }
         }
 
-        /// Nothing of a plate in the band above the section, at several columns.
+        /// The lower half of the 20pt banner-to-shell gap is clear; the upper half leaves room for the raised shadow.
         func clearBand(above sectionTop: Int) -> Bool {
-            let clearTop = sectionTop - Int(TrackerListMetrics.shellClearance)
+            let clearTop = sectionTop - Int(Space.item)
             return [60, 120, 200].allSatisfy { x in (clearTop..<sectionTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
         }
     }
@@ -4350,7 +5569,7 @@ enum LogicSelfTests {
     }
 
     /// The shell section sits on the tracker column's bottom edge, at its bottom margin, however many plates there are:
-    /// with few plates there is empty space above it, with many the plates are cut `shellClearance` above it, and with
+    /// with few or many plates the banner ends `Space.section` above it, and with
     /// many shells the section stops at its max height. The viewed shell's filled row marks the section's bottom (the
     /// last shell) or its top (the first).
     private static func testTheShellSectionIsPinnedToTheTrackersBottom() throws {

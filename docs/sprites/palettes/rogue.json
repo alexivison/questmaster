@@ -1,0 +1,62 @@
+{
+  "version": 2,
+  "outline": [
+    "#161012"
+  ],
+  "materials": {
+    "skin": [
+      "#965a46",
+      "#c77750",
+      "#f3a876"
+    ],
+    "steel": [
+      "#5e728d",
+      "#7f97b6",
+      "#c5d8e9"
+    ],
+    "teal": [
+      "#215872",
+      "#246680",
+      "#296f8a"
+    ],
+    "navy": [
+      "#162239",
+      "#253d5d",
+      "#4a5772"
+    ],
+    "mask": [
+      "#0c1523",
+      "#161f39",
+      "#1b3d49"
+    ],
+    "leather": [
+      "#212233",
+      "#523236",
+      "#75423b"
+    ],
+    "paper": [
+      "#b8935f",
+      "#e9c585",
+      "#fdeea5"
+    ],
+    "shadow form": [
+      "#241a3a",
+      "#3d2a63",
+      "#5a4090"
+    ],
+    "silver glint": [
+      "#cfd8e4"
+    ]
+  },
+  "neutral": [],
+  "glow": [
+    "#2b1d52",
+    "#44307f",
+    "#5f45a8",
+    "#7d5fd0",
+    "#a285ec",
+    "#c8b6fa",
+    "#eee6ff"
+  ],
+  "glow_note": "The seven colours of the pose effects, dark to light (shadow-violet smoke, near-black violet to pale lilac, used by the smoke, pool, swooshes and spells); the silver glints add #7f8da4, #aebbd0, #d6dfec, #f2f6fb and #ffffff, and the spells' paper is #e9e2cf. The shadow form (the signature's silhouette) and its silver glint are body materials. Redone 2026-11-13 from the new base (Rogue/redo-2026-11-13/base/palette.json)."
+}

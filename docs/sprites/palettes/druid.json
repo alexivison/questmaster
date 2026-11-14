@@ -1,0 +1,59 @@
+{
+  "version": 2,
+  "outline": [
+    "#1e1416"
+  ],
+  "materials": {
+    "skin": [
+      "#aa8269",
+      "#d19e83",
+      "#eeb399"
+    ],
+    "hair": [
+      "#42322c",
+      "#614b40",
+      "#886757"
+    ],
+    "antler": [
+      "#8c7965",
+      "#a48e79",
+      "#b8a18a"
+    ],
+    "belt": [
+      "#523a2f",
+      "#684738",
+      "#947a60"
+    ],
+    "dress": [
+      "#959075",
+      "#aba385",
+      "#c4bca2"
+    ],
+    "under": [
+      "#626046",
+      "#737053",
+      "#807d5d"
+    ],
+    "fur": [
+      "#b99982",
+      "#dabea6",
+      "#f1ddc6"
+    ],
+    "hoof": [
+      "#876d5b",
+      "#8c7360",
+      "#a08670"
+    ]
+  },
+  "neutral": [],
+  "glow": [
+    "#2f5f42",
+    "#4f9468",
+    "#86d09a",
+    "#b9f0c2",
+    "#e2fbe0",
+    "#f6fff2",
+    "#ffffff"
+  ],
+  "glow_note": "The seven colours of the pose effects, dark to light (pale pastel green to white, used by the leaves, motes, rings and the petals); the fireflies add a yellow-green ramp (#5d6e22, #aebf45, #dcef6c, #f6ffa6) and the fidget bird and the stag-free spells a few more. The stag's fur and hooves are body materials. Redone 2026-11-13 from the new base (Druid/redo-2026-11-13/base/palette.json and stag/palette.json)."
+}

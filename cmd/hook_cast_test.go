@@ -475,6 +475,29 @@ func TestHookCastSkipsAskUserToolDurationsInHarnessOrder(t *testing.T) {
 	}
 }
 
+func TestActivityForCodexToolNamesShellCommands(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		tool  string
+		input map[string]interface{}
+		want  string
+	}{
+		{name: "exec_command cmd", tool: "exec_command", input: map[string]interface{}{"cmd": "go test ./..."}, want: "Bash: go test ./..."},
+		{name: "exec_command command", tool: "exec_command", input: map[string]interface{}{"command": "git status"}, want: "Bash: git status"},
+		{name: "Bash", tool: "Bash", input: map[string]interface{}{"command": "ls"}, want: "Bash: ls"},
+		{name: "unmapped tool keeps its name", tool: "custom_tool", input: map[string]interface{}{"cmd": "ls"}, want: "custom_tool"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := activityForCodexTool(codexPayload{ToolName: tc.tool, ToolInput: tc.input})
+			if got != tc.want {
+				t.Fatalf("activityForCodexTool(%q) = %q, want %q", tc.tool, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestToolCommandKeyExtractionByHarness(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

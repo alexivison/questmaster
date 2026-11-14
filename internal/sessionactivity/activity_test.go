@@ -302,3 +302,18 @@ func TestEvaluateNormalizesLegacyStartingActivity(t *testing.T) {
 		t.Fatalf("activity = %q, want %q (legacy \"starting…\" must be normalized)", got.Activity, "started")
 	}
 }
+
+func TestFromStateCountsRunningSubagents(t *testing.T) {
+	t.Parallel()
+	ss := &state.SessionState{Panes: map[string]state.PaneState{"agent": {
+		State:           "done",
+		ActiveSubagents: map[string]string{"task-1": "general-purpose", "task-2": "Explore"},
+	}}}
+	if got := FromState(ss).ActiveSubagents; got != 2 {
+		t.Fatalf("ActiveSubagents = %d, want 2 while two sub-agents run after the turn ends", got)
+	}
+	ss.Panes["agent"] = state.PaneState{State: "done"}
+	if got := FromState(ss).ActiveSubagents; got != 0 {
+		t.Fatalf("ActiveSubagents = %d, want 0 with none running", got)
+	}
+}

@@ -80,7 +80,7 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 		return StartResult{}, err
 	}
 	if opts.Prompt != "" {
-		_ = workerfeed.RecordChatEntryAt(s.Store.Root(), result.SessionID, "instructions", opts.Prompt, time.Now().UTC())
+		_ = workerfeed.RecordSpawnPromptAt(s.Store.Root(), result.SessionID, opts.Prompt, time.Now().UTC())
 	}
 	return result, nil
 }

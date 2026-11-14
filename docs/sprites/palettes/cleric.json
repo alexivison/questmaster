@@ -1,0 +1,116 @@
+{
+  "version": 2,
+  "outline": [
+    "#000000",
+    "#361e30"
+  ],
+  "materials": {
+    "skin": [
+      "#8d5242",
+      "#e3a372",
+      "#fac08b"
+    ],
+    "brows": [
+      "#d2b8a9",
+      "#e9d0bf",
+      "#f7e5d2"
+    ],
+    "warm white robe": [
+      "#ada69d",
+      "#e1dbce",
+      "#fbf5e8"
+    ],
+    "deep crimson vestments": [
+      "#361e30",
+      "#692737",
+      "#a23b47"
+    ],
+    "warm bronze trim": [
+      "#845849",
+      "#b47e57",
+      "#d9ad79"
+    ],
+    "mace gold": [
+      "#b48948",
+      "#d4af4e",
+      "#ede4c7"
+    ],
+    "wood and leather": [
+      "#4b3e32",
+      "#897456",
+      "#ad9977"
+    ],
+    "parchment": [
+      "#a88e62",
+      "#c9b085",
+      "#e0cc9c"
+    ]
+  },
+  "neutral": [],
+  "glow": [
+    "#f5d69d",
+    "#fff6dc"
+  ],
+  "glow_note": "Actual dawnlight workbench flight, impact and sigil swatches.",
+  "regions": "palette-regions/manifest.json",
+  "source_map": {
+    "outline": {
+      "#000000": "#000000"
+    },
+    "skin": {
+      "#845849": "#8d5242",
+      "#8d5242": "#8d5242",
+      "#b47e57": "#e3a372",
+      "#d2b8a9": "#fac08b",
+      "#d9ad79": "#e3a372",
+      "#e3a372": "#e3a372",
+      "#e9d0bf": "#fac08b",
+      "#fac08b": "#fac08b"
+    },
+    "brows": {
+      "#d2b8a9": "#d2b8a9",
+      "#e9d0bf": "#e9d0bf"
+    },
+    "warm white robe": {
+      "#ada69d": "#ada69d",
+      "#d2b8a9": "#ada69d",
+      "#e1dbce": "#e1dbce",
+      "#e9d0bf": "#e1dbce"
+    },
+    "deep crimson vestments": {
+      "#361e30": "#361e30",
+      "#692737": "#692737",
+      "#a23b47": "#a23b47",
+      "#d2b8a9": "#a23b47",
+      "#e9d0bf": "#a23b47"
+    },
+    "warm bronze trim": {
+      "#845849": "#845849",
+      "#b47e57": "#b47e57",
+      "#d2b8a9": "#d9ad79",
+      "#d9ad79": "#d9ad79",
+      "#e9d0bf": "#d9ad79"
+    },
+    "mace gold": {
+      "#8d5242": "#b48948",
+      "#ada69d": "#b48948",
+      "#b48948": "#b48948",
+      "#d4af4e": "#d4af4e",
+      "#e1dbce": "#ede4c7",
+      "#e9d0bf": "#ede4c7",
+      "#ede4c7": "#ede4c7",
+      "#fac08b": "#ede4c7"
+    },
+    "wood and leather": {
+      "#4b3e32": "#4b3e32",
+      "#897456": "#897456",
+      "#ad9977": "#ad9977",
+      "#e9d0bf": "#ad9977"
+    },
+    "parchment": {
+      "#d2b8a9": "#c9b085",
+      "#e1dbce": "#e0cc9c",
+      "#e9d0bf": "#e0cc9c"
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "version": 2,
+  "outline": [
+    "#000000",
+    "#21191b"
+  ],
+  "materials": {
+    "skin": [
+      "#9c5b46",
+      "#f0ac76",
+      "#fec695"
+    ],
+    "hair": [
+      "#372324",
+      "#563632",
+      "#905845"
+    ],
+    "cloak": [
+      "#071b1b",
+      "#173f33",
+      "#30674a"
+    ],
+    "jerkin": [
+      "#553432",
+      "#874641",
+      "#b16646"
+    ],
+    "metal": [
+      "#866360",
+      "#a48276",
+      "#d5b09e"
+    ],
+    "leather": [
+      "#432b29",
+      "#6a4e4c",
+      "#905845"
+    ],
+    "bow and quiver": [
+      "#553432",
+      "#905845",
+      "#c39b88"
+    ],
+    "fletching": [
+      "#5f4c2b",
+      "#927036",
+      "#c6993d"
+    ]
+  },
+  "neutral": [],
+  "glow": [
+    "#2c4a1a",
+    "#4f7d22",
+    "#8fc23a",
+    "#d6ef6a",
+    "#f5ffc0"
+  ],
+  "glow_note": "Yellow-green magic, dark to pale: the Ranger guide says greenish, yellowish. Used by the summoning ring, the scrying eye glow, the signature rune, the channelling leaves, the spell flights and the flashes.",
+  "regions": "palette-regions/manifest.json",
+  "source_map": {
+    "outline": {
+      "#000000": "#000000",
+      "#21191b": "#21191b"
+    },
+    "skin": {
+      "#9c5b46": "#9c5b46",
+      "#f0ac76": "#f0ac76",
+      "#fec695": "#fec695"
+    },
+    "hair": {
+      "#372324": "#372324",
+      "#563632": "#563632",
+      "#905845": "#905845"
+    },
+    "cloak": {
+      "#071b1b": "#071b1b",
+      "#173f33": "#173f33",
+      "#30674a": "#30674a"
+    },
+    "jerkin": {
+      "#553432": "#553432",
+      "#874641": "#874641",
+      "#b16646": "#b16646"
+    },
+    "metal": {
+      "#866360": "#866360",
+      "#a48276": "#a48276",
+      "#d5b09e": "#d5b09e"
+    },
+    "leather": {
+      "#432b29": "#432b29",
+      "#6a4e4c": "#6a4e4c",
+      "#905845": "#905845"
+    },
+    "bow and quiver": {
+      "#553432": "#553432",
+      "#905845": "#905845",
+      "#c39b88": "#c39b88"
+    },
+    "fletching": {
+      "#5f4c2b": "#5f4c2b",
+      "#927036": "#927036",
+      "#c6993d": "#c6993d"
+    }
+  }
+}

@@ -309,3 +309,8 @@ extension NSColor {
         self.init(hex: hex)
     }
 }
+
+extension TrackerAvatarColour {
+    /// A class's lid colour, read from its `animation.json`, as Core Animation takes it.
+    var cgColor: CGColor { NSColor(hex: rgb).cgColor }
+}

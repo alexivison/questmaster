@@ -3561,6 +3561,144 @@ func TestHookCodexRequestUserInputToolEndClearsQuestion(t *testing.T) {
 	}
 }
 
+func TestHookCodexAsyncQuestionStaysBlockedUntilTheNextPrompt(t *testing.T) {
+	r, rec := newTestRunner(t)
+	asked := map[string]interface{}{
+		"tool_name": "request_user_input_async",
+		"tool_input": map[string]interface{}{
+			"questions": []interface{}{
+				map[string]interface{}{"title": "Did you see every pose?", "options": []interface{}{"Yes", "No"}},
+			},
+		},
+	}
+	steps := []struct {
+		action    string
+		payload   map[string]interface{}
+		wantState string
+		wantAct   string
+	}{
+		{"working", map[string]interface{}{"prompt": "demo"}, "working", ""},
+		{"tool_start", asked, "blocked", "Question: Did you see every pose?"},
+		{"tool_end", map[string]interface{}{"tool_name": "request_user_input_async"}, "blocked", "Question: Did you see every pose?"},
+		{"done", map[string]interface{}{"last_assistant_message": "Summary of the run."}, "blocked", "Question: Did you see every pose?"},
+		{"working", map[string]interface{}{"prompt": "Yes"}, "working", "Question: Did you see every pose?"},
+	}
+	for _, step := range steps {
+		runHookWithStdin(r, "codex", step.action, "qm-abc", step.payload)
+		pane := rec.lastState.Panes["agent"]
+		if pane.State != step.wantState {
+			t.Fatalf("after %s: state = %q, want %q", step.action, pane.State, step.wantState)
+		}
+		if step.wantAct != "" && pane.Activity != step.wantAct {
+			t.Fatalf("after %s: activity = %q, want %q", step.action, pane.Activity, step.wantAct)
+		}
+		if ev := rec.events[len(rec.events)-1]; ev.State != step.wantState {
+			t.Fatalf("after %s: logged state = %q, want %q", step.action, ev.State, step.wantState)
+		}
+	}
+	var messages []string
+	for _, ev := range rec.events {
+		for _, entry := range chatEntries(ev) {
+			if entry["chat_kind"] == "message" {
+				messages = append(messages, entry["chat_text"].(string))
+			}
+		}
+	}
+	if len(messages) != 1 || messages[0] != "Summary of the run." {
+		t.Fatalf("the turn's final message should still reach the chat, got %q", messages)
+	}
+}
+
+func TestHookCodexQuestionEndsWhenTheTurnMovesOn(t *testing.T) {
+	asked := map[string]interface{}{
+		"tool_name":  "request_user_input_async",
+		"tool_input": map[string]interface{}{"questions": []interface{}{map[string]interface{}{"title": "Continue?"}}},
+	}
+	tests := []struct {
+		name  string
+		steps []struct {
+			action  string
+			payload map[string]interface{}
+		}
+		want string
+	}{
+		{
+			// A blocking question that the user answers ends with its tool.
+			name: "blocking question answered",
+			steps: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{"tool_start", map[string]interface{}{"tool_name": "request_user_input", "tool_input": map[string]interface{}{"questions": []interface{}{map[string]interface{}{"question": "Continue?"}}}}},
+				{"tool_end", map[string]interface{}{"tool_name": "request_user_input"}},
+			},
+			want: "working",
+		},
+		{
+			name: "work after an async question",
+			steps: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{"tool_start", asked},
+				{"tool_end", map[string]interface{}{"tool_name": "request_user_input_async"}},
+				{"tool_start", map[string]interface{}{"tool_name": "Bash", "tool_input": map[string]interface{}{"command": "ls"}}},
+				{"tool_end", map[string]interface{}{"tool_name": "Bash"}},
+				{"done", map[string]interface{}{}},
+			},
+			want: "done",
+		},
+		{
+			// A call that never returned (a malformed one) leaves nothing open.
+			name: "async question that never returned",
+			steps: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{"tool_start", asked},
+				{"done", map[string]interface{}{}},
+			},
+			want: "done",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			runHookWithStdin(r, "codex", "working", "qm-abc", map[string]interface{}{"prompt": "go"})
+			for _, step := range tt.steps {
+				runHookWithStdin(r, "codex", step.action, "qm-abc", step.payload)
+			}
+			if got := rec.lastState.Panes["agent"].State; got != tt.want {
+				t.Fatalf("state = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// A prompt that arrives while the session works (a worker's report typed in mid-turn) continues the
+// same working stretch, so the class avatar's bow counts the whole turn.
+func TestHookPromptWhileWorkingKeepsTheWorkingStretch(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			since := r.Now().Add(-80 * time.Second)
+			rec.lastState = &state.SessionState{
+				SessionID: "qm-abc",
+				Version:   state.SchemaVersion,
+				Panes: map[string]state.PaneState{
+					"agent": {Role: "agent", Agent: agent, State: "working", Activity: "Bash: sleep 5", Tool: "Bash",
+						LastKind: "PostToolUse", LastEvent: since.Add(70 * time.Second), WorkingSince: since},
+				},
+			}
+			runHookWithStdin(r, agent, "working", "qm-abc", map[string]interface{}{"prompt": "[WORKER:qm-1] Report: done."})
+			pane := rec.lastState.Panes["agent"]
+			if pane.State != "working" || !pane.WorkingSince.Equal(since) {
+				t.Fatalf("state %q working_since %v, want working since %v", pane.State, pane.WorkingSince, since)
+			}
+		})
+	}
+}
+
 func TestPiToolActivityUsesClaudeVocabulary(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -4582,5 +4720,75 @@ func TestHookWorkingSinceOnlyBackfillWritesState(t *testing.T) {
 				t.Fatalf("WorkingSince = %v, want %v", pane.WorkingSince, fixedNow)
 			}
 		})
+	}
+}
+
+func TestHookClaudeSubagentsCountRunningChildrenUntilTheyStop(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"agent": {Role: "agent", Agent: "claude", State: "working"},
+		},
+	}
+	start := func(agentID, agentType string) {
+		runHookWithStdin(r, "claude", "subagent_start", "qm-abc", map[string]interface{}{"agent_id": agentID, "agent_type": agentType})
+	}
+	stop := func(agentID string) {
+		runHookWithStdin(r, "claude", "subagent_stop", "qm-abc", map[string]interface{}{"agent_id": agentID, "agent_type": "general-purpose"})
+	}
+	running := func() int { return len(rec.lastState.Panes["agent"].ActiveSubagents) }
+	expectRunning := func(want int, step string) {
+		t.Helper()
+		if got := running(); got != want {
+			t.Fatalf("%s: running sub-agents = %d, want %d", step, got, want)
+		}
+	}
+	start("task-1", "general-purpose")
+	start("task-2", "general-purpose")
+	expectRunning(2, "two starts")
+	stop("helper-9")
+	expectRunning(2, "a stop with no matching start")
+	start("helper-10", "internal")
+	expectRunning(2, "an internal helper start")
+	stop("task-1")
+	expectRunning(1, "one stop")
+	stop("task-2")
+	expectRunning(0, "the last stop")
+}
+
+func TestHookClaudeSessionStartAndStopClearRunningSubagents(t *testing.T) {
+	r, rec := newTestRunner(t)
+	running := func() int { return len(rec.lastState.Panes["agent"].ActiveSubagents) }
+	seed := func(phase string) {
+		rec.lastState = &state.SessionState{
+			SessionID: "qm-abc",
+			Version:   state.SchemaVersion,
+			Panes: map[string]state.PaneState{
+				"agent": {
+					Role:                    "agent",
+					Agent:                   "claude",
+					State:                   phase,
+					ActiveSubagents:         map[string]string{"task-1": "general-purpose"},
+					ActiveSubagentStartedAt: map[string]time.Time{"task-1": time.Now()},
+				},
+			},
+		}
+	}
+	seed("done")
+	runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{})
+	if got := running(); got != 1 {
+		t.Fatalf("a finished turn cleared the running sub-agents: %d left, want 1", got)
+	}
+	seed("working")
+	runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{})
+	if got := running(); got != 0 {
+		t.Fatalf("session start left %d running sub-agents, want 0", got)
+	}
+	seed("working")
+	runHookWithStdin(r, "claude", "stopped", "qm-abc", map[string]interface{}{})
+	if got := running(); got != 0 {
+		t.Fatalf("session stop left %d running sub-agents, want 0", got)
 	}
 }

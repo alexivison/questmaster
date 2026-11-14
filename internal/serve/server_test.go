@@ -2722,6 +2722,55 @@ func TestSnapshotterTrackerSessionChangeIncludesLastChatAt(t *testing.T) {
 	}
 }
 
+func TestSnapshotterTrackerLastExchangeOnlyWhenSet(t *testing.T) {
+	exchangeAt := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		kind string
+		at   time.Time
+		want *ExchangeRow
+	}{
+		{name: "unset", want: nil},
+		{name: "kind without time", kind: "report", want: nil},
+		{name: "time without kind", at: exchangeAt, want: nil},
+		{name: "report", kind: "report", at: exchangeAt, want: &ExchangeRow{Kind: "report", At: exchangeAt}},
+		{name: "instructions", kind: "instructions", at: exchangeAt, want: &ExchangeRow{Kind: "instructions", At: exchangeAt}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := seedServeFixture(t)
+			snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+			if _, err := snap.TrackerForChange(Change{}); err != nil {
+				t.Fatalf("initial Tracker: %v", err)
+			}
+			if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+				pane := ss.Panes["agent"]
+				pane.LastExchangeKind = tc.kind
+				pane.LastExchangeAt = tc.at
+				ss.Panes["agent"] = pane
+				return true
+			}); err != nil {
+				t.Fatalf("update exchange: %v", err)
+			}
+			got, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+			if err != nil {
+				t.Fatalf("tracker change: %v", err)
+			}
+			row := got.Sessions[0]
+			if !sameExchange(row.LastExchange, tc.want) {
+				t.Fatalf("last_exchange = %+v, want %+v", row.LastExchange, tc.want)
+			}
+			data, err := json.Marshal(row)
+			if err != nil {
+				t.Fatalf("marshal row: %v", err)
+			}
+			if hasKey := strings.Contains(string(data), `"last_exchange"`); hasKey != (tc.want != nil) {
+				t.Fatalf("row JSON has last_exchange = %t, want %t: %s", hasKey, tc.want != nil, data)
+			}
+		})
+	}
+}
+
 func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T) {
 	env := seedServeFixture(t)
 	startedAt := env.now.Add(-time.Second)
@@ -2765,6 +2814,8 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 		pane.LastEvent = env.now.Add(-time.Minute)
 		pane.WorkingSince = env.now.Add(-time.Minute)
 		pane.LastChatAt = lastChatAt
+		pane.LastExchangeKind = "report"
+		pane.LastExchangeAt = lastChatAt
 		pane.Narration = "latest narration"
 		pane.RunningTools = []state.RunningTool{{Tool: "Bash", StartedAt: env.now.Add(-time.Minute)}}
 		ss.Panes["agent"] = pane
@@ -2777,7 +2828,7 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 		if row.Status != "stopped" || row.State != "stopped" || row.Narration != "latest narration" {
 			t.Fatalf("%s stopped row state/narration = %#v", path, row)
 		}
-		if row.ElapsedMS != 0 || row.ElapsedSince != nil || row.LatestActivity != "" || row.LastKind != "" || row.LastChatAt != nil || row.Cast != nil {
+		if row.ElapsedMS != 0 || row.ElapsedSince != nil || row.LatestActivity != "" || row.LastKind != "" || row.LastChatAt != nil || row.LastExchange != nil || row.Cast != nil {
 			t.Fatalf("%s stopped row retained live state: %#v", path, row)
 		}
 	}
@@ -3141,4 +3192,49 @@ func assertNoEvent(t *testing.T, conn net.Conn, dec *json.Decoder, timeout time.
 func envelopeContains(env Envelope, needle string) bool {
 	raw, _ := json.Marshal(env.Data)
 	return strings.Contains(string(raw), needle)
+}
+
+func TestSnapshotterTrackerActiveSubagentsCountsRunningChildren(t *testing.T) {
+	tests := []struct {
+		name  string
+		count int
+		want  int
+	}{
+		{name: "none", count: 0, want: 0},
+		{name: "two running", count: 2, want: 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := seedServeFixture(t)
+			snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+			if _, err := snap.TrackerForChange(Change{}); err != nil {
+				t.Fatalf("initial Tracker: %v", err)
+			}
+			if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+				pane := ss.Panes["agent"]
+				pane.ActiveSubagents = make(map[string]string, tc.count)
+				for i := 0; i < tc.count; i++ {
+					pane.ActiveSubagents[fmt.Sprintf("task-%d", i)] = "general-purpose"
+				}
+				ss.Panes["agent"] = pane
+				return true
+			}); err != nil {
+				t.Fatalf("update sub-agents: %v", err)
+			}
+			got, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+			if err != nil {
+				t.Fatalf("tracker change: %v", err)
+			}
+			if row := got.Sessions[0]; row.ActiveSubagents != tc.want {
+				t.Fatalf("active_subagents = %d, want %d", row.ActiveSubagents, tc.want)
+			}
+			data, err := json.Marshal(got.Sessions[0])
+			if err != nil {
+				t.Fatalf("marshal row: %v", err)
+			}
+			if hasKey := strings.Contains(string(data), `"active_subagents"`); hasKey != (tc.want > 0) {
+				t.Fatalf("row JSON has active_subagents = %t, want %t: %s", hasKey, tc.want > 0, data)
+			}
+		})
+	}
 }

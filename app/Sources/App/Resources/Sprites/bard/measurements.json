@@ -1,0 +1,204 @@
+{
+  "poses": {
+    "01-idle": {
+      "frames": [
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9"
+      ],
+      "foot_row": 162,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    },
+    "02-pondering": {
+      "frames": [
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13"
+      ],
+      "foot_row": 179,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    },
+    "03-studying": {
+      "frames": [
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13",
+        "f14",
+        "f15",
+        "f16",
+        "f17"
+      ],
+      "foot_row": 162,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    },
+    "04-inscribing": {
+      "frames": [
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13",
+        "f14",
+        "f15",
+        "f16",
+        "f17"
+      ],
+      "foot_row": 162,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    },
+    "05-channelling": {
+      "frames": [
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13"
+      ],
+      "foot_row": 187,
+      "body_column": 81,
+      "body_column_measured": 81,
+      "body_column_overridden": true
+    },
+    "06-scrying": {
+      "frames": [
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12"
+      ],
+      "foot_row": 170,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    },
+    "07-spellsong": {
+      "frames": [
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13",
+        "f14",
+        "f15",
+        "f16",
+        "f17"
+      ],
+      "foot_row": 166,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    },
+    "08-release": {
+      "frames": [
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f6"
+      ],
+      "foot_row": 162,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    },
+    "09-summoning": {
+      "frames": [
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9"
+      ],
+      "foot_row": 162,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    },
+    "10-catching": {
+      "frames": [
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5"
+      ],
+      "foot_row": 162,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    },
+    "11-calling-out": {
+      "frames": [
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13",
+        "f14"
+      ],
+      "foot_row": 162,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    },
+    "12-bow": {
+      "frames": [
+        "f1",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f8"
+      ],
+      "foot_row": 162,
+      "body_column": 56,
+      "body_column_measured": 56,
+      "body_column_overridden": true
+    }
+  },
+  "sprite_height": 136,
+  "by_hand": {
+    "note": "Idle values read by eye on ship/01-idle-f1 (128x168 canvas, body column 56, foot row 162) at 8x, 2026-11-05: the near eye (a wink) is the dark run at row 27, columns 73 to 75; the lid is the lit skin beside it; legs from the tunic's hem, about 58 rows above the soles. The app's idle is a loop, which draws no blink or breath, so these only satisfy the contract.",
+    "idle": {
+      "leg_rows": 58,
+      "eye_row": 27,
+      "eye_columns": [
+        73,
+        75
+      ],
+      "lid_colour": "#f8c78f"
+    }
+  }
+}

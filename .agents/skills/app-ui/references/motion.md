@@ -35,8 +35,8 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   animations (`SpinnerRing`/`WorkingSpinner`, the cast bar's and status ring's fill, pulse and shimmer, the skeleton
   pulses) keep their own periods, named as a `period` or a duration learned at runtime, and are outside the steps. An
   animation that ends, even one of those views' (a flash, an exit, a crossfade), takes a step.
-- **A new transition** picks `fast` or `standard`; a step is added to `MotionStep` only for a new pace the app doesn't
-  have yet, never a one-off number.
+- **A new transition** picks `fast` or `standard`; a step is added to `MotionStep` only for a new pace the app doesn't have
+  yet, never a one-off number.
 - **Selected-session panel:** the disc's icon is the class portrait; a shell, tmux or orphan session shows the shell
   row's terminal glyph (`ShellTerminalGlyph`, scaled with the disc, `textMeta`); no class, or nothing attached, leaves the
   disc empty. The icon fades in once when the attached session or its portrait changes, over `standard`; the old icon goes

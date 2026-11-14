@@ -135,7 +135,8 @@ struct TrackerShellRow: View {
     }
 }
 
-/// The shell section, pinned to the bottom of the tracker column under the plates' scrolling list: one row per shell,
+/// The shell section, pinned to the bottom of the tracker column, `Space.section` below the attached plate's banner or the
+/// scrolling plates when there is no banner: one row per shell,
 /// stacked with no gap. The section is as tall as its rows up to `TrackerShellMetrics.maxHeight`, and the plates' list
 /// shrinks to make room; past that it scrolls inside itself, apart from the plates' list.
 ///

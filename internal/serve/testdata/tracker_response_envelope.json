@@ -20,6 +20,11 @@
         "elapsed_ms": 120000,
         "elapsed_since": "2026-06-19T04:18:00Z",
         "last_chat_at": "2026-06-19T04:19:00Z",
+        "last_exchange": {
+          "kind": "report",
+          "at": "2026-06-19T04:18:30Z"
+        },
+        "active_subagents": 2,
         "narration": "It seems that something is still ...",
         "cast": {
           "tool": "Bash",

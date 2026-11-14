@@ -1,0 +1,36 @@
+GIMP Palette
+Name: Druid — palette lock
+Columns: 6
+#
+ 30  20  22	outline 1
+170 130 105	skin 1
+209 158 131	skin 2
+238 179 153	skin 3
+ 66  50  44	hair 1
+ 97  75  64	hair 2
+136 103  87	hair 3
+140 121 101	antler 1
+164 142 121	antler 2
+184 161 138	antler 3
+ 82  58  47	belt 1
+104  71  56	belt 2
+148 122  96	belt 3
+149 144 117	dress 1
+171 163 133	dress 2
+196 188 162	dress 3
+ 98  96  70	under 1
+115 112  83	under 2
+128 125  93	under 3
+185 153 130	fur 1
+218 190 166	fur 2
+241 221 198	fur 3
+135 109  91	hoof 1
+140 115  96	hoof 2
+160 134 112	hoof 3
+ 47  95  66	glow 1
+ 79 148 104	glow 2
+134 208 154	glow 3
+185 240 194	glow 4
+226 251 224	glow 5
+246 255 242	glow 6
+255 255 255	glow 7

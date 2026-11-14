@@ -1,0 +1,32 @@
+GIMP Palette
+Name: ClericRedo — palette lock
+Columns: 3
+#
+  0   0   0	outline 1
+ 54  30  48	outline 2
+141  82  66	skin 1
+227 163 114	skin 2
+250 192 139	skin 3
+210 184 169	brows 1
+233 208 191	brows 2
+247 229 210	brows 3
+173 166 157	warm white robe 1
+225 219 206	warm white robe 2
+251 245 232	warm white robe 3
+ 54  30  48	deep crimson vestments 1
+105  39  55	deep crimson vestments 2
+162  59  71	deep crimson vestments 3
+132  88  73	warm bronze trim 1
+180 126  87	warm bronze trim 2
+217 173 121	warm bronze trim 3
+180 137  72	mace gold 1
+212 175  78	mace gold 2
+237 228 199	mace gold 3
+ 75  62  50	wood and leather 1
+137 116  86	wood and leather 2
+173 153 119	wood and leather 3
+168 142  98	parchment 1
+201 176 133	parchment 2
+224 204 156	parchment 3
+245 214 157	glow 1
+255 246 220	glow 2

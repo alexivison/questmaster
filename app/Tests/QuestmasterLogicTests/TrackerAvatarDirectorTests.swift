@@ -1,0 +1,956 @@
+import Foundation
+import QuestmasterCore
+
+struct TrackerAvatarDirectorTests {
+    static func run() {
+        holdsASteadyPoseBeforeAChangeShows()
+        collapsesToTheLatestPose()
+        callingOutSkipsTheHoldOnALoopWithNoFinish()
+        bowsOnceWhenATurnEndsAfterAMinuteOfWork()
+        aShortTurnGoesStraightToIdle()
+        theMinuteIsInclusive()
+        bowWaitsForTheCurrentPoseHold()
+        bowIsHeldUntilSubagentsStop()
+        resumedWorkCancelsAHeldBow()
+        attachingMidStretchUsesThePayloadsWorkingStart()
+        attachingWithoutAStartTimesFromFirstSeen()
+        doesNotBowOnAttachOrSwitch()
+        spawnSummonsThenReleases()
+        messageReleases()
+        reportPlaysTheCatchAsItArrives()
+        queueDropsTheNewestPastItsCapacity()
+        reduceMotionPlaysTheCuesPoses()
+        switchingSessionClearsTheQueue()
+        twoQueuedReleasesEachStartANewBeat()
+        steadyChangesStartNoBeat()
+        finishPlaysBeforeLeavingACastPose()
+        inscribingHoldsItsOneFrameForTheWholeFinish()
+        finishWakesOnlyAheadOfNow()
+        finishCountsTowardTheHold()
+        noFinishWithoutFinishArt()
+        noFinishForTheSamePoseAndCallingOutWaitsForOne()
+        noFinishUnderReduceMotion()
+        callingOutWaitsForAFinish()
+        aSteadyPoseWithoutAFinishStillSnaps()
+        aSteadyPosePlaysItsFinishOnLeaving()
+        aFinishLeadsIntoTheNextPosesEnter()
+        aChangeDuringAnEnterWaitsForTheHoldThenFinishes()
+        aChangeWaitsForALongEnterToEnd()
+        aChangeDuringAFinishShowsTheNewestPoseWhenItEnds()
+        thePoseWantedBackDuringItsFinishEntersAgain()
+        callingOutFinishesTheLoopItLeavesAndSkipsTheHold()
+        callingOutWaitsForAnEnterOnScreen()
+        callingOutJumpsAheadOfQueuedCues()
+        callingOutShowsAtOnceUnderReduceMotion()
+        aCueWaitsForAFinishToEnd()
+        aCueWaitsForAnEnterToEnd()
+        aCueWaitsForABowToEnd()
+        aCueLeavesALoopThroughItsFinish()
+        aCueSnapsALoopWithNoFinish()
+        aLoopDoesNotComeBackForItsFinishAfterTheCues()
+        aPoseWithAFinishEntersAgainAfterACue()
+        aCueLeavesCallingOutThroughItsFinishAndItReturnsOnItsEnter()
+        aReportWaitsForAFinishBeforeTheCatch()
+        intermediatePosesAreDroppedAcrossAFinish()
+        aBowWaitsForASteadyPosesFinish()
+        noSteadyFinishUnderReduceMotion()
+        bowPlaysAfterACastFinishes()
+        anEnterPlaysAsThePoseComesOnScreen()
+        aPoseComingOnScreenAfterAnotherPlaysItsEnter()
+        aChangeInsideAnEnterWaitsForTheEnterToEnd()
+        aCastLeftDuringItsEnterFinishesWhenTheEnterEnds()
+        callingOutOpensOnItsOwnEnter()
+        aPoseThatContinuesDoesNotReplayItsEnter()
+        noEnterUnderReduceMotion()
+        aSummoningCastPlaysItsPhasesOnTheCue()
+        aSpawnWaitsForTheSummoningOnScreen()
+        aReleaseWithAnEntranceKeepsItsBeat()
+        aCatchWithAnEntrancePlaysAsTheReportArrives()
+        aLatePollStillPlaysEachBeatInOrder()
+        print("TrackerAvatarDirectorTests: all tests passed")
+    }
+
+    /// The bard's art, with its casts' finishes.
+    private static let catalog = AvatarAnimationFixture.catalog()
+    private static let noFinishCatalog = AvatarAnimationFixture.catalogWithoutFinishes()
+
+    /// The bard's timings, as his file gives them: a finish's f4 and f5, and a bow's whole showing.
+    private static let finishFourSeconds: TimeInterval = 0.25
+    private static let finishSeconds: TimeInterval = 0.75
+    private static let bowSeconds: TimeInterval = 2
+    /// The bard's summoning cast, as his file times it: an enter of 0.54 s, one loop cycle of 0.46 s and a finish of 0.54 s.
+    private static let summoningCastSeconds: TimeInterval = 1.54
+
+    private static func bard(
+        state: String = "working",
+        tool: String? = nil,
+        id: String = "qm-1",
+        elapsedSince: String? = nil,
+        subagents: Int = 0,
+        activity: String? = nil
+    ) -> TrackerSession {
+        AvatarSessionFixture.session(
+            id: id, state: state, tool: tool, elapsedSince: elapsedSince, activeSubagents: subagents, activity: activity
+        )
+    }
+
+    /// The payload's working start of 1970-01-01T00:00:00Z, which is time 0 on the director's wall clock.
+    private static let epochStart = "1970-01-01T00:00:00Z"
+
+    private static func holdsASteadyPoseBeforeAChangeShows() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        expect(director.frame(at: 0).pose == .studying, "an attached reader should study at once")
+        director.observe(bard(tool: "Bash"), at: 0.5)
+        let early = director.frame(at: 0.5)
+        expect(early.pose == .studying, "a new pose should wait out the hold, got \(String(describing: early.pose))")
+        expect(early.nextChange == TrackerAvatarTiming.holdSeconds, "the hold should end at \(TrackerAvatarTiming.holdSeconds), got \(String(describing: early.nextChange))")
+        expect(director.frame(at: TrackerAvatarTiming.holdSeconds).pose == .channelling, "the new pose should show once the hold has run out")
+        expect(director.frame(at: 3).nextChange == nil, "a settled pose should ask for no further change")
+    }
+
+    private static func collapsesToTheLatestPose() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        director.observe(bard(tool: "Bash"), at: 0.2)
+        director.observe(bard(tool: "Edit"), at: 0.4)
+        expect(director.frame(at: 0.6).pose == .studying, "changes during the hold should not show before it ends")
+        expect(director.frame(at: TrackerAvatarTiming.holdSeconds).pose == .inscribing, "the latest pose should show, not the ones it replaced")
+    }
+
+    private static func callingOutSkipsTheHoldOnALoopWithNoFinish() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        director.observe(bard(state: "blocked"), at: 0.2)
+        expect(director.frame(at: 0.2).pose == .callingOut, "a blocked bard should call out without waiting out the hold, a loop with no finish snapping")
+    }
+
+    private static func bowsOnceWhenATurnEndsAfterAMinuteOfWork() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(state: "done"), at: 61)
+        expect(director.frame(at: 61).pose == .bow, "a turn ending after a minute of work should bow")
+        expect(director.frame(at: 61 + bowSeconds - 0.1).pose == .bow, "the bow should hold until its time is up")
+        let afterBow = director.frame(at: 61 + bowSeconds)
+        expect(afterBow.pose == .idle, "the bow should give way to idle, got \(String(describing: afterBow.pose))")
+        director.observe(bard(state: "done"), at: 65)
+        expect(director.frame(at: 65).pose == .idle, "a session that stays done should not bow again")
+    }
+
+    private static func aShortTurnGoesStraightToIdle() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(state: "done"), at: 59.9)
+        let frame = director.frame(at: 59.9)
+        expect(frame.pose == .idle, "a turn under a minute should go straight to idle, got \(String(describing: frame.pose))")
+        expect(director.frame(at: 60).nextChange == nil, "a short turn should queue no bow")
+    }
+
+    private static func theMinuteIsInclusive() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(state: "done"), at: TrackerAvatarTiming.minimumBowWorkSeconds)
+        expect(director.frame(at: TrackerAvatarTiming.minimumBowWorkSeconds).pose == .bow, "a working stretch of exactly the minimum should bow")
+    }
+
+    private static func bowWaitsForTheCurrentPoseHold() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Edit"), at: 59.5)
+        expect(director.frame(at: 59.5).pose == .inscribing, "an edit should show at once after the hold")
+        director.observe(bard(state: "done"), at: 60.2)
+        let waiting = director.frame(at: 60.2)
+        expect(waiting.pose == .inscribing, "the bow should wait for the inscribing pose's hold, got \(String(describing: waiting.pose))")
+        expect(waiting.nextChange == 59.5 + TrackerAvatarTiming.holdSeconds, "the bow should be due when the hold ends")
+        expect(director.frame(at: 59.5 + TrackerAvatarTiming.holdSeconds).pose == .bow, "the bow should show once the hold has run out")
+    }
+
+    private static func bowIsHeldUntilSubagentsStop() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(subagents: 1), at: 0)
+        expect(director.frame(at: 0).pose == .spellsong, "a sub-agent running should strum")
+        director.observe(bard(state: "done", subagents: 1), at: 70)
+        expect(director.frame(at: 70).pose == .spellsong, "a turn that ends with sub-agents running should not bow yet")
+        expect(director.frame(at: 75).pose == .spellsong, "the strum should hold while the sub-agents run")
+        director.observe(bard(state: "done", subagents: 0), at: 80)
+        expect(director.frame(at: 80).pose == .bow, "the bow should play once the last sub-agent stops")
+        expect(director.frame(at: 80 + bowSeconds).pose == .idle, "the bow should end after its time")
+    }
+
+    private static func resumedWorkCancelsAHeldBow() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(subagents: 1), at: 0)
+        director.observe(bard(state: "done", subagents: 1), at: 70)
+        director.observe(bard(subagents: 0), at: 75)
+        let later = director.frame(at: 80)
+        expect(later.pose == .pondering, "work resumed before the sub-agents stopped should not bow, got \(String(describing: later.pose))")
+        expect(later.nextChange == nil, "a cancelled bow should queue nothing")
+    }
+
+    private static func attachingMidStretchUsesThePayloadsWorkingStart() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(elapsedSince: epochStart), at: 100)
+        director.observe(bard(state: "done"), at: 100 + TrackerAvatarTiming.holdSeconds / 2)
+        expect(director.frame(at: 100 + TrackerAvatarTiming.holdSeconds / 2).pose == .pondering, "the bow should wait for the pondering pose's hold from the attach")
+        expect(director.frame(at: 101 + TrackerAvatarTiming.holdSeconds).pose == .bow, "a turn that ran a minute before the attach should still bow")
+    }
+
+    private static func attachingWithoutAStartTimesFromFirstSeen() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(), at: 100)
+        director.observe(bard(state: "done"), at: 101)
+        expect(director.frame(at: 101 + TrackerAvatarTiming.holdSeconds).pose == .idle, "without the payload's start, a turn seen for a second should not bow")
+        expect(director.frame(at: 101 + TrackerAvatarTiming.holdSeconds).nextChange == nil, "a short turn should queue no bow")
+    }
+
+    private static func doesNotBowOnAttachOrSwitch() {
+        var attached = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        attached.observe(bard(state: "done"), at: 0)
+        expect(attached.frame(at: 0).pose == .idle && attached.frame(at: 0).beat == 0, "attaching to a done session should show idle and play no cue")
+
+        var switched = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        switched.observe(bard(), at: 0)
+        switched.observe(bard(state: "done", id: "qm-2"), at: 3)
+        expect(switched.frame(at: 3).pose == .idle, "switching to a done session should show idle with no bow")
+        expect(switched.frame(at: 3.5).nextChange == nil, "switching to a done session should queue no bow")
+    }
+
+    private static func spawnSummonsThenReleases() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.answer(.spawned(worker: "qm-2"), at: 10)
+        expect(director.frame(at: 10).pose == .summoning, "a spawn should start with the summoning")
+        expect(director.frame(at: 10 + summoningCastSeconds - 0.01).pose == .summoning, "the summoning should hold for its whole cast")
+        expect(director.frame(at: 10 + summoningCastSeconds + 0.01).pose == .release, "the summoning cast should give way to the release")
+        let releaseEnd = 10 + summoningCastSeconds + AvatarAnimationFixture.bard().onceSeconds(for: .release)
+        expect(director.frame(at: releaseEnd + 0.01).pose == .pondering, "the release should give way to the steady pose")
+    }
+
+    /// A spawn's summoning cast plays its enter, one loop cycle and its finish on its own beat, and only then the release.
+    private static func aSummoningCastPlaysItsPhasesOnTheCue() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.answer(.spawned(worker: "qm-2"), at: 10)
+        expect(near(director.frame(at: 10).enterElapsed, 0), "the cast should open on its enter")
+        expect(near(director.frame(at: 10.3).enterElapsed, 0.3), "the enter should run on from the spawn")
+        let loop = director.frame(at: 10.6)
+        expect(loop.pose == .summoning && loop.enterElapsed == nil && loop.finishElapsed == nil, "the loop should cycle with neither an enter nor a finish, got \(loop)")
+        expect(near(director.frame(at: 11.2).finishElapsed, 0.2), "the finish should begin after the loop's one cycle")
+        expect(director.frame(at: 11.6).pose == .release, "the release should follow the finish")
+    }
+
+    /// A spawn while the summoning is on screen doesn't cut it: the release plays once the summoning's finish has played.
+    private static func aSpawnWaitsForTheSummoningOnScreen() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(tool: "Bash", activity: "Bash: questmaster spawn --title x"), at: 0)
+        expect(director.frame(at: 0).pose == .summoning, "a spawn command should show the summoning at once")
+        director.answer(.spawned(worker: "qm-2"), at: 1)
+        let running = director.frame(at: 2)
+        expect(running.pose == .summoning && running.beat == 0, "a spawn should not cut the running summoning, got \(running)")
+        director.observe(bard(), at: 3)
+        let finishing = director.frame(at: 3.3)
+        expect(finishing.pose == .summoning && near(finishing.finishElapsed, 0.3), "the summoning should finish first, got \(finishing)")
+        let released = director.frame(at: 3.6)
+        expect(released.pose == .release && released.beat == 1, "the release should play once the finish has played, got \(released)")
+    }
+
+    private static func messageReleases() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 4)
+        let frame = director.frame(at: 4)
+        expect(frame.pose == .release && frame.beat == 1, "a message should release at once, got \(frame)")
+        expect(director.frame(at: 5).pose == .pondering, "the release should end after its cast time")
+    }
+
+    /// A report plays the catch as it arrives: nothing flies first.
+    private static func reportPlaysTheCatchAsItArrives() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(), at: 0)
+        director.answer(.reported(worker: "qm-2"), at: 3)
+        let frame = director.frame(at: 3)
+        expect(frame.pose == .catching && frame.beat == 1, "a report should play the catch at once, got \(frame)")
+        let catchEnd = 3 + AvatarAnimationFixture.bard().onceSeconds(for: .catching)
+        expect(director.frame(at: catchEnd - 0.01).pose == .catching, "the catch should play to its end")
+        expect(director.frame(at: catchEnd + 0.01).pose == .pondering, "the catch should give way to the steady pose")
+    }
+
+    private static func queueDropsTheNewestPastItsCapacity() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(), at: 0)
+        for _ in 0..<(TrackerAvatarDirector.queueCapacity + 3) {
+            director.answer(.messaged(worker: "qm-2"), at: 0)
+        }
+        let played = director.frame(at: 60).beat
+        expect(played == TrackerAvatarDirector.queueCapacity + 1, "one message plays and \(TrackerAvatarDirector.queueCapacity) wait; the rest drop, got \(played) releases")
+    }
+
+    private static func reduceMotionPlaysTheCuesPoses() {
+        var director = TrackerAvatarDirector(reducesMotion: true, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.answer(.spawned(worker: "qm-2"), at: 10)
+        expect(director.frame(at: 10).pose == .summoning && director.frame(at: 10).enterElapsed == nil, "under Reduce Motion the summoning should still play, with no enter")
+        expect(director.frame(at: 10 + summoningCastSeconds + 0.01).pose == .release, "under Reduce Motion the release should still play")
+        director.answer(.reported(worker: "qm-2"), at: 20)
+        expect(director.frame(at: 20).pose == .catching, "under Reduce Motion the catch should still play")
+    }
+
+    private static func switchingSessionClearsTheQueue() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(id: "qm-1"), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 0)
+        director.answer(.spawned(worker: "qm-3"), at: 0)
+        _ = director.frame(at: 0)
+        director.observe(bard(id: "qm-9"), at: 0.5)
+        for step in 1...10 {
+            let frame = director.frame(at: 0.5 + TimeInterval(step) * 0.5)
+            expect(frame.pose != .summoning && frame.pose != .release, "a switch should not leave the old session's cues playing")
+        }
+        expect(director.frame(at: 0.5).nextChange == nil, "a switch should leave nothing due")
+    }
+
+    /// Two messages to two workers: the second release queues behind the first on the same pose, so the pose never changes
+    /// between them. Each release starts its own beat, which is what makes the view replay its lead-in.
+    private static func twoQueuedReleasesEachStartANewBeat() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 4)
+        director.answer(.messaged(worker: "qm-3"), at: 4.2)
+        let first = director.frame(at: 4)
+        expect(first.pose == .release, "the first message should release")
+        let during = director.frame(at: 4.5)
+        expect(during.beat == first.beat, "a beat should keep its count while it plays")
+        let second = director.frame(at: 5)
+        expect(second.pose == .release, "the second message should release straight after the first, got \(String(describing: second.pose))")
+        expect(second.beat != first.beat, "the second release should start a new beat, so the view replays its lead-in")
+        expect(director.frame(at: 6).pose == .pondering, "the release should end and the steady pose resume")
+    }
+
+    /// A steady pose change is not a cue: it starts no beat, so nothing replays.
+    private static func steadyChangesStartNoBeat() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        let before = director.frame(at: 0).beat
+        director.observe(bard(tool: "Bash"), at: 2)
+        expect(director.frame(at: 3).beat == before, "a steady pose change should not start a beat")
+    }
+
+    /// Leaving a cast for another pose: the cast's finish plays f4 (0.25 s) then f5 (0.5 s), then the new pose snaps in.
+    private static func finishPlaysBeforeLeavingACastPose() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        director.observe(bard(tool: "Edit"), at: 2)
+        let four = director.frame(at: 2)
+        expect(four.pose == .studying && four.finishElapsed == 0, "the cast should start its finish at its first frame, got \(four)")
+        let five = director.frame(at: 2 + finishFourSeconds)
+        expect(five.finishElapsed == finishFourSeconds, "the finish should move to f5 when f4 has shown, got \(String(describing: five.finishElapsed))")
+        let before = director.frame(at: 2 + finishSeconds - 0.01)
+        expect(before.pose == .studying && before.finishElapsed != nil, "the finish should hold f5 until both frames have shown")
+        let after = director.frame(at: 2 + finishSeconds)
+        expect(after.pose == .inscribing && after.finishElapsed == nil, "the new pose should snap in when the finish ends, got \(String(describing: after.pose))")
+    }
+
+    /// The finish counts toward the hold: it starts when the hold has run out, and the new pose doesn't wait a second hold.
+    private static func finishCountsTowardTheHold() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        director.observe(bard(tool: "Edit"), at: 0.5)
+        let held = director.frame(at: 0.5)
+        expect(held.pose == .studying && held.finishElapsed == nil, "a change inside the hold should wait")
+        let start = director.frame(at: TrackerAvatarTiming.holdSeconds)
+        expect(start.pose == .studying && start.finishElapsed == 0, "the finish should start when the hold runs out")
+        let end = TrackerAvatarTiming.holdSeconds + finishSeconds
+        expect(director.frame(at: end).pose == .inscribing, "the new pose should show at the finish's end, with no second hold")
+    }
+
+    private static func noFinishWithoutFinishArt() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        director.observe(bard(tool: "Edit"), at: 2)
+        let frame = director.frame(at: 2)
+        expect(frame.pose == .inscribing && frame.finishElapsed == nil, "a cast without finish frames should skip the finish and snap")
+    }
+
+    private static func noFinishForTheSamePoseAndCallingOutWaitsForOne() {
+        var calling = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        calling.observe(bard(tool: "Read"), at: 0)
+        calling.observe(bard(state: "blocked"), at: 2)
+        expect(calling.frame(at: 2).pose == .studying && calling.frame(at: 2).finishElapsed == 0, "calling out should wait for the loop's finish")
+        expect(calling.frame(at: 2 + finishSeconds).pose == .callingOut, "calling out should show when the finish ends")
+
+        var same = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        same.observe(bard(tool: "Read"), at: 0)
+        same.observe(bard(tool: "Grep"), at: 2)
+        expect(same.frame(at: 2).pose == .studying && same.frame(at: 2).finishElapsed == nil, "a switch to the same cast pose should play no finish")
+    }
+
+    private static func noFinishUnderReduceMotion() {
+        var director = TrackerAvatarDirector(reducesMotion: true, catalog: catalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        director.observe(bard(tool: "Edit"), at: 2)
+        let frame = director.frame(at: 2)
+        expect(frame.pose == .inscribing && frame.finishElapsed == nil, "under Reduce Motion the switch should snap with no finish")
+    }
+
+    /// Calling out doesn't cut a finish in progress: it shows when the finish ends.
+    private static func callingOutWaitsForAFinish() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        director.observe(bard(tool: "Edit"), at: 2)
+        director.observe(bard(state: "blocked"), at: 2.1)
+        let during = director.frame(at: 2.1)
+        expect(during.pose == .studying && near(during.finishElapsed, 0.1), "calling out should wait for the finish, got \(during)")
+        let after = director.frame(at: 2 + finishSeconds)
+        expect(after.pose == .callingOut && after.finishElapsed == nil, "calling out should show when the finish ends, got \(after)")
+    }
+
+    /// A steady pose whose file gives it no finish (the bard's pondering) still snaps, as it did before every loop pose could have one.
+    private static func aSteadyPoseWithoutAFinishStillSnaps() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 2)
+        let frame = director.frame(at: 2)
+        expect(frame.pose == .studying && frame.finishElapsed == nil, "a pose with no finish block should snap, got \(frame)")
+    }
+
+    /// The bard's art, with each named pose given the blocks in `blocks`: `enter` and `finish` are each one character frame held for
+    /// the seconds given.
+    private static func catalogWith(_ blocks: [String: [String: TimeInterval]]) -> TrackerAvatarCatalog {
+        let edits = blocks.mapValues { seconds in
+            { (pose: inout [String: Any]) in
+                for (block, length) in seconds {
+                    pose[block] = ["character": [[4, length]]]
+                }
+            }
+        }
+        guard let animation = try? AvatarAnimationFixture.bard(editing: edits) else {
+            fail("the bard's file with \(blocks) should decode")
+        }
+        return AvatarAnimationFixture.catalog(animation)
+    }
+
+    /// Pondering is a steady pose with no cast about it. With a finish of its own it plays that finish when it leaves, and the new pose
+    /// shows when the finish ends. The finish counts toward the hold, like a cast's.
+    private static func aSteadyPosePlaysItsFinishOnLeaving() {
+        let withFinish = catalogWith(["02-pondering": ["finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: withFinish)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 0.5)
+        let held = director.frame(at: 0.5)
+        expect(held.pose == .pondering && held.finishElapsed == nil, "a change inside the hold should wait, got \(held)")
+        let hold = TrackerAvatarTiming.holdSeconds
+        let start = director.frame(at: hold)
+        expect(start.pose == .pondering && start.finishElapsed == 0, "the finish should start when the hold runs out, got \(start)")
+        let during = director.frame(at: hold + 0.25)
+        expect(during.pose == .pondering && near(during.finishElapsed, 0.25), "the finish should run on in place, got \(during)")
+        expect(near(during.nextChange, hold + 0.5), "the next change should be the finish's end, got \(String(describing: during.nextChange))")
+        expect(director.frame(at: hold + 0.5 - 0.01).pose == .pondering, "the pose should stay until the finish has played")
+        let after = director.frame(at: hold + 0.5)
+        expect(after.pose == .studying && after.finishElapsed == nil && after.enterElapsed == nil,
+               "the new pose should show when the finish ends, with no second hold, got \(after)")
+        expect(after.nextChange == nil, "the new pose should settle with nothing left to wait for, got \(String(describing: after.nextChange))")
+    }
+
+    /// A finish leads into the next pose's enter: the new pose opens on its own enter from the finish's end, and the enter does not
+    /// start under the finish.
+    private static func aFinishLeadsIntoTheNextPosesEnter() {
+        let catalog = catalogWith(["02-pondering": ["finish": 0.5], "03-studying": ["enter": 1]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 0.1)
+        let hold = TrackerAvatarTiming.holdSeconds
+        expect(director.frame(at: hold).finishElapsed == 0, "the finish should start when the hold runs out")
+        let during = director.frame(at: hold + 0.25)
+        expect(during.pose == .pondering && near(during.finishElapsed, 0.25) && during.enterElapsed == nil,
+               "the next pose's enter should wait for the finish, got \(during)")
+        let end = hold + 0.5
+        let arrival = director.frame(at: end)
+        expect(arrival.pose == .studying && arrival.finishElapsed == nil && arrival.enterElapsed == 0,
+               "the new pose should open on its enter as the finish ends, got \(arrival)")
+        expect(near(director.frame(at: end + 0.25).enterElapsed, 0.25), "the enter should run on from the finish's end")
+        expect(director.frame(at: end + 0.25).nextChange == end + 1, "the loop should be due when the enter ends")
+        let settled = director.frame(at: end + 1)
+        expect(settled.pose == .studying && settled.enterElapsed == nil, "the enter should end at its length, and the pose should stay")
+    }
+
+    /// A pose that has both blocks plays enter, loop and finish in turn. A change that arrives during the enter waits out the hold
+    /// (the enter counts toward it), and the finish starts once it has run.
+    private static func aChangeDuringAnEnterWaitsForTheHoldThenFinishes() {
+        let catalog = catalogWith(["02-pondering": ["enter": 0.5, "finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 0.2)
+        expect(near(director.frame(at: 0.2).enterElapsed, 0.2), "the enter should be playing when the change arrives")
+        let loop = director.frame(at: 0.5)
+        expect(loop.pose == .pondering && loop.enterElapsed == nil && loop.finishElapsed == nil, "the enter should end, and the loop play out the hold, got \(loop)")
+        let hold = TrackerAvatarTiming.holdSeconds
+        expect(director.frame(at: hold).finishElapsed == 0, "the finish should start when the hold runs out")
+        expect(director.frame(at: hold + 0.5).pose == .studying, "the new pose should show when the finish ends")
+    }
+
+    /// An enter longer than the hold isn't cut short: the finish starts when the enter has ended, and plays from its first frame.
+    private static func aChangeWaitsForALongEnterToEnd() {
+        let catalog = catalogWith(["02-pondering": ["enter": 2, "finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 0.5)
+        let hold = TrackerAvatarTiming.holdSeconds
+        let held = director.frame(at: hold)
+        expect(near(held.enterElapsed, hold) && held.finishElapsed == nil, "the enter should play on past the hold, got \(held)")
+        expect(near(held.nextChange, 2), "the next change should be the enter's end, got \(String(describing: held.nextChange))")
+        let end = director.frame(at: 2)
+        expect(end.pose == .pondering && end.finishElapsed == 0 && end.enterElapsed == nil, "the finish should start when the enter ends, got \(end)")
+        let after = director.frame(at: 2.5)
+        expect(after.pose == .studying && after.finishElapsed == nil && after.enterElapsed == nil, "the new pose should show when the finish ends, got \(after)")
+    }
+
+    /// A change that arrives during a finish doesn't restart it. The finish plays through, and the pose wanted when it ends shows,
+    /// so the newest change wins over the one the finish started for.
+    private static func aChangeDuringAFinishShowsTheNewestPoseWhenItEnds() {
+        let catalog = catalogWith(["02-pondering": ["finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 2)
+        director.observe(bard(tool: "Edit"), at: 2.2)
+        let during = director.frame(at: 2.4)
+        expect(during.pose == .pondering && near(during.finishElapsed, 0.4), "the finish should play on through the change, got \(during)")
+        let after = director.frame(at: 2.5)
+        expect(after.pose == .inscribing && after.finishElapsed == nil, "the newest pose should show when the finish ends, got \(after)")
+    }
+
+    /// If the pose that is finishing is wanted again before the finish ends, it still finishes (the figure is halfway back to rest),
+    /// and then opens on its enter again from rest instead of restarting its loop with no lead-in.
+    private static func thePoseWantedBackDuringItsFinishEntersAgain() {
+        let catalog = catalogWith(["02-pondering": ["enter": 1, "finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 2)
+        expect(director.frame(at: 2).finishElapsed == 0, "the finish should start for the change")
+        director.observe(bard(), at: 2.2)
+        expect(near(director.frame(at: 2.4).finishElapsed, 0.4), "the finish should play through when the pose is wanted back")
+        let again = director.frame(at: 2.5)
+        expect(again.pose == .pondering && again.finishElapsed == nil && again.enterElapsed == 0,
+               "the pose should open on its enter again when the finish ends, got \(again)")
+        expect(director.frame(at: 3.5).enterElapsed == nil && director.frame(at: 3.5).pose == .pondering, "the enter should end and the pose stay")
+    }
+
+    /// Calling out skips the hold but not the finish of the loop it leaves, and its own finish plays when it leaves, like any steady
+    /// pose's.
+    private static func callingOutFinishesTheLoopItLeavesAndSkipsTheHold() {
+        let catalog = catalogWith(["02-pondering": ["finish": 0.5], "11-calling-out": ["finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(state: "blocked"), at: 0.2)
+        let start = director.frame(at: 0.2)
+        expect(start.pose == .pondering && start.finishElapsed == 0, "calling out should not wait out the hold, but the loop should finish, got \(start)")
+        let shown = director.frame(at: 0.7)
+        expect(shown.pose == .callingOut && shown.finishElapsed == nil, "calling out should show when the finish ends, got \(shown)")
+        director.observe(bard(), at: 1)
+        let waiting = director.frame(at: 1)
+        expect(waiting.pose == .callingOut && waiting.finishElapsed == nil, "the change should wait out calling out's hold, got \(waiting)")
+        let hold = 0.7 + TrackerAvatarTiming.holdSeconds
+        let leave = director.frame(at: hold)
+        expect(leave.pose == .callingOut && leave.finishElapsed == 0, "calling out's finish should play when it leaves, got \(leave)")
+        expect(director.frame(at: hold + 0.5).pose == .pondering, "the new pose should show when calling out's finish ends")
+    }
+
+    /// Calling out waits for an enter on screen, but not for the hold: it shows the moment the enter ends.
+    private static func callingOutWaitsForAnEnterOnScreen() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("02-pondering", seconds: 0.5))
+        director.observe(bard(), at: 0)
+        director.observe(bard(state: "blocked"), at: 0.2)
+        let during = director.frame(at: 0.3)
+        expect(during.pose == .pondering && near(during.enterElapsed, 0.3), "calling out should not cut the enter, got \(during)")
+        let after = director.frame(at: 0.5)
+        expect(after.pose == .callingOut && after.enterElapsed == nil, "calling out should show when the enter ends, before the hold, got \(after)")
+    }
+
+    /// Calling out waits only for the beat on screen: it shows before the cues queued behind it, and they play after its enter.
+    private static func callingOutJumpsAheadOfQueuedCues() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("11-calling-out", seconds: 0.5))
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 0)
+        director.answer(.messaged(worker: "qm-3"), at: 0)
+        director.answer(.messaged(worker: "qm-4"), at: 0)
+        let release = AvatarAnimationFixture.bard().onceSeconds(for: .release)
+        director.observe(bard(state: "blocked"), at: 0.3)
+        expect(director.frame(at: 0.3).pose == .release, "calling out should not cut the release on screen")
+        expect(director.frame(at: release - 0.01).pose == .release, "the release should play to its end")
+        let calling = director.frame(at: release)
+        expect(calling.pose == .callingOut && near(calling.enterElapsed, 0) && calling.beat == 1,
+               "calling out should come before the queued cues, got \(calling)")
+        expect(director.frame(at: release + 0.49).pose == .callingOut, "the cues should wait for calling out's enter")
+        let next = director.frame(at: release + 0.5)
+        expect(next.pose == .release && next.beat == 2, "the next cue should play when the enter ends, got \(next)")
+    }
+
+    /// Under Reduce Motion nothing finishes or enters, so calling out shows at once.
+    private static func callingOutShowsAtOnceUnderReduceMotion() {
+        let catalog = catalogWith(["02-pondering": ["enter": 1, "finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: true, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(state: "blocked"), at: 0.2)
+        let frame = director.frame(at: 0.2)
+        expect(frame.pose == .callingOut && frame.finishElapsed == nil && frame.enterElapsed == nil, "under Reduce Motion calling out should show at once, got \(frame)")
+    }
+
+    /// A cue doesn't cut a finish: it waits for it, then leaves the pose the finish led to through that pose's own finish.
+    private static func aCueWaitsForAFinishToEnd() {
+        let catalog = catalogWith(["02-pondering": ["finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 2)
+        director.answer(.messaged(worker: "qm-2"), at: 2.2)
+        let during = director.frame(at: 2.4)
+        expect(during.pose == .pondering && near(during.finishElapsed, 0.4) && during.beat == 0, "the cue should wait for the finish, got \(during)")
+        let next = director.frame(at: 2.5)
+        expect(next.pose == .studying && next.finishElapsed == 0 && next.beat == 0, "the pose the finish led to should finish before the cue, got \(next)")
+        let release = AvatarAnimationFixture.bard().onceSeconds(for: .release)
+        let cue = director.frame(at: 2.5 + finishSeconds)
+        expect(cue.pose == .release && cue.finishElapsed == nil && cue.beat == 1, "the cue should play when that finish ends, got \(cue)")
+        expect(director.frame(at: 2.5 + finishSeconds + release).pose == .studying, "the pose wanted should show when the cue ends")
+    }
+
+    /// A cue waits for an enter on screen, whatever the hold.
+    private static func aCueWaitsForAnEnterToEnd() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("02-pondering", seconds: 1.5))
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 0.3)
+        let during = director.frame(at: 1.4)
+        expect(during.pose == .pondering && near(during.enterElapsed, 1.4) && during.beat == 0, "the cue should wait for the enter, got \(during)")
+        expect(near(director.frame(at: 1.4).nextChange, 1.5), "the next change should be the enter's end")
+        let cue = director.frame(at: 1.5)
+        expect(cue.pose == .release && cue.beat == 1, "the cue should play when the enter ends, got \(cue)")
+    }
+
+    /// The bow is a one-shot, so a cue waits for it too.
+    private static func aCueWaitsForABowToEnd() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(state: "done"), at: 61)
+        director.answer(.messaged(worker: "qm-2"), at: 61.5)
+        let during = director.frame(at: 61 + bowSeconds - 0.1)
+        expect(during.pose == .bow && during.beat == 0, "the cue should wait for the bow, got \(during)")
+        let cue = director.frame(at: 61 + bowSeconds)
+        expect(cue.pose == .release && cue.beat == 1, "the cue should play when the bow ends, got \(cue)")
+    }
+
+    /// A cue that leaves a loop plays that loop's finish first, and its beat starts when the finish ends.
+    private static func aCueLeavesALoopThroughItsFinish() {
+        let catalog = catalogWith(["02-pondering": ["finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 3)
+        let finish = director.frame(at: 3)
+        expect(finish.pose == .pondering && finish.finishElapsed == 0 && finish.beat == 0, "the loop should finish before the cue, got \(finish)")
+        expect(near(director.frame(at: 3.3).finishElapsed, 0.3), "the finish should run on")
+        let beat = director.frame(at: 3.5)
+        expect(beat.pose == .release && beat.finishElapsed == nil && beat.beat == 1,
+               "the beat should start when the finish ends, got \(beat)")
+    }
+
+    /// A loop whose file gives it no finish is left at once, as before.
+    private static func aCueSnapsALoopWithNoFinish() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 3)
+        let cue = director.frame(at: 3)
+        expect(cue.pose == .release && cue.finishElapsed == nil, "a loop with no finish should be cut at once, got \(cue)")
+    }
+
+    /// The loop a cue left has finished, so a pose wanted during the cues shows when they run out, with no finish of the loop first.
+    private static func aLoopDoesNotComeBackForItsFinishAfterTheCues() {
+        let catalog = catalogWith(["02-pondering": ["finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 2)
+        director.answer(.messaged(worker: "qm-3"), at: 2)
+        director.observe(bard(tool: "Read"), at: 2.2)
+        let release = AvatarAnimationFixture.bard().onceSeconds(for: .release)
+        expect(director.frame(at: 2.5).pose == .release, "the first cue should follow the finish")
+        let second = director.frame(at: 2.5 + release)
+        expect(second.pose == .release && second.finishElapsed == nil, "the second cue should follow the first with no finish between, got \(second)")
+        let after = director.frame(at: 2.5 + 2 * release)
+        expect(after.pose == .studying && after.finishElapsed == nil && after.nextChange == nil,
+               "the wanted pose should show straight after the cues, got \(after)")
+    }
+
+    /// The same pose wanted after the cues opens on its enter again: the loop it left had finished.
+    private static func aPoseWithAFinishEntersAgainAfterACue() {
+        let catalog = catalogWith(["02-pondering": ["enter": 0.3, "finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 3)
+        let release = AvatarAnimationFixture.bard().onceSeconds(for: .release)
+        let after = director.frame(at: 3.5 + release)
+        expect(after.pose == .pondering && after.finishElapsed == nil && near(after.enterElapsed, 0), "the pose should open on its enter after the cue, got \(after)")
+        expect(director.frame(at: 3.5 + release + 0.31).enterElapsed == nil, "the enter should end at its length")
+    }
+
+    /// A cue that comes while the master is blocked leaves calling out through its finish, and calling out returns on its enter.
+    private static func aCueLeavesCallingOutThroughItsFinishAndItReturnsOnItsEnter() {
+        let catalog = catalogWith(["11-calling-out": ["enter": 0.3, "finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(state: "blocked"), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 3)
+        let finish = director.frame(at: 3)
+        expect(finish.pose == .callingOut && finish.finishElapsed == 0 && finish.beat == 0, "calling out should finish before the cue, got \(finish)")
+        let beat = director.frame(at: 3.5)
+        expect(beat.pose == .release && beat.beat == 1, "the cue should play when the finish ends, got \(beat)")
+        let release = AvatarAnimationFixture.bard().onceSeconds(for: .release)
+        let back = director.frame(at: 3.5 + release)
+        expect(back.pose == .callingOut && near(back.enterElapsed, 0) && back.finishElapsed == nil, "calling out should return on its enter, got \(back)")
+    }
+
+    /// A report leaves the loop through its finish too: the catch plays when the finish ends, and the pose enters again after it.
+    private static func aReportWaitsForAFinishBeforeTheCatch() {
+        let catalog = catalogWith(["02-pondering": ["enter": 0.3, "finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.answer(.reported(worker: "qm-2"), at: 2)
+        let finishing = director.frame(at: 2.4)
+        expect(finishing.pose == .pondering && near(finishing.finishElapsed, 0.4) && finishing.beat == 0, "the catch should wait for the finish, got \(finishing)")
+        let catching = director.frame(at: 2.5)
+        expect(catching.pose == .catching && catching.beat == 1, "the catch should play when the finish ends, got \(catching)")
+        let catchEnd = 2.5 + AvatarAnimationFixture.bard().onceSeconds(for: .catching)
+        let after = director.frame(at: catchEnd)
+        expect(after.pose == .pondering && near(after.enterElapsed, 0), "the pose should enter again after the catch, got \(after)")
+    }
+
+    /// Poses wanted while a finish plays are dropped: only the newest shows when it ends.
+    private static func intermediatePosesAreDroppedAcrossAFinish() {
+        let catalog = catalogWith(["02-pondering": ["finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 1)
+        director.observe(bard(tool: "Bash"), at: 1.1)
+        director.observe(bard(tool: "Edit"), at: 1.2)
+        director.observe(bard(tool: "WebSearch"), at: 1.3)
+        let after = director.frame(at: 1.5)
+        expect(after.pose == .scrying && after.finishElapsed == nil, "only the newest pose should show, got \(after)")
+        expect(director.frame(at: 1.5).nextChange == nil, "no dropped pose should follow, got \(String(describing: director.frame(at: 1.5).nextChange))")
+    }
+
+    /// A bow is a steady change, so it waits for a steady pose's finish too.
+    private static func aBowWaitsForASteadyPosesFinish() {
+        let catalog = catalogWith(["02-pondering": ["finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(state: "done"), at: 61)
+        let first = director.frame(at: 61)
+        expect(first.pose == .pondering && first.finishElapsed == 0, "the bow should wait while the pose's finish plays, got \(first)")
+        let bow = director.frame(at: 61.5)
+        expect(bow.pose == .bow && bow.finishElapsed == nil, "the bow should show when the finish ends, got \(bow)")
+    }
+
+    private static func noSteadyFinishUnderReduceMotion() {
+        let catalog = catalogWith(["02-pondering": ["finish": 0.5]])
+        var director = TrackerAvatarDirector(reducesMotion: true, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 2)
+        let frame = director.frame(at: 2)
+        expect(frame.pose == .studying && frame.finishElapsed == nil, "under Reduce Motion a steady pose should snap with no finish, got \(frame)")
+    }
+
+    private static func bowPlaysAfterACastFinishes() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(tool: "Bash"), at: 0)
+        director.observe(bard(state: "done"), at: 61)
+        let first = director.frame(at: 61)
+        expect(first.pose == .channelling && first.finishElapsed == 0, "a bow should wait while the cast's finish plays its first frame")
+        expect(near(director.frame(at: 61 + finishFourSeconds + 0.01).finishElapsed, finishFourSeconds + 0.01), "the cast's finish should run on past its first frame")
+        let bowStart = director.frame(at: 61 + finishSeconds + 0.01)
+        expect(bowStart.pose == .bow && bowStart.finishElapsed == nil, "the bow should show once the cast's finish ends, got \(String(describing: bowStart.pose))")
+        expect(director.frame(at: 61 + finishSeconds + bowSeconds - 0.1).pose == .bow, "the bow should hold for its time")
+        expect(director.frame(at: 61 + finishSeconds + bowSeconds + 0.1).pose == .idle, "the bow should give way to idle after its time")
+    }
+
+    /// The bard's art, with `name` given an enter of `seconds` on one frame.
+    private static func catalogWithAnEnter(_ name: String, seconds: TimeInterval) -> TrackerAvatarCatalog {
+        guard let animation = try? AvatarAnimationFixture.bard(editing: name, { pose in
+            pose["enter"] = ["character": [[4, seconds]]]
+        }) else {
+            fail("the bard's file with an enter on \(name) should decode")
+        }
+        return AvatarAnimationFixture.catalog(animation)
+    }
+
+    /// A pose's enter plays from the moment the pose comes on screen, and the loop takes over when the enter has run.
+    private static func anEnterPlaysAsThePoseComesOnScreen() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("02-pondering", seconds: 1))
+        director.observe(bard(), at: 0)
+        let start = director.frame(at: 0)
+        expect(start.pose == .pondering && start.enterElapsed == 0, "a pose should open on its enter, got \(start)")
+        expect(near(director.frame(at: 0.25).enterElapsed, 0.25), "the enter should run on from its start")
+        expect(director.frame(at: 0.25).nextChange == 1, "the loop should be due when the enter ends, got \(String(describing: director.frame(at: 0.25).nextChange))")
+        expect(director.frame(at: 1).enterElapsed == nil && director.frame(at: 1).pose == .pondering, "the enter should end at its length, and the pose should stay")
+    }
+
+    /// A change to a pose with an enter opens on that enter, from the moment the change shows.
+    private static func aPoseComingOnScreenAfterAnotherPlaysItsEnter() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("02-pondering", seconds: 1))
+        director.observe(bard(state: "blocked"), at: 0)
+        director.observe(bard(), at: 2)
+        let arrival = director.frame(at: 2)
+        expect(arrival.pose == .pondering && arrival.enterElapsed == 0, "a change should open on the new pose's enter, got \(arrival)")
+        expect(near(director.frame(at: 2.5).enterElapsed, 0.5), "the enter should run on from the change")
+    }
+
+    /// The enter counts toward the hold, but the hold doesn't cut it: a change inside a longer enter waits for its end.
+    private static func aChangeInsideAnEnterWaitsForTheEnterToEnd() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("02-pondering", seconds: 2))
+        director.observe(bard(), at: 0)
+        director.observe(bard(tool: "Read"), at: 0.5)
+        let past = TrackerAvatarTiming.holdSeconds + 0.5
+        expect(near(director.frame(at: past).enterElapsed, past) && director.frame(at: past).pose == .pondering, "a change should wait for the enter to end")
+        let changed = director.frame(at: 2)
+        expect(changed.pose == .studying && changed.enterElapsed == nil, "the new pose should show when the enter ends, got \(changed)")
+    }
+
+    /// A cast that changes during its enter plays its finish when the enter has ended.
+    private static func aCastLeftDuringItsEnterFinishesWhenTheEnterEnds() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("03-studying", seconds: 2))
+        director.observe(bard(tool: "Read"), at: 0)
+        director.observe(bard(tool: "Edit"), at: 0.5)
+        let waiting = 1.9
+        let during = director.frame(at: waiting)
+        expect(during.pose == .studying && near(during.enterElapsed, waiting) && during.finishElapsed == nil, "the cast should still be in its enter, got \(during)")
+        let finish = director.frame(at: 2)
+        expect(finish.pose == .studying && finish.finishElapsed == 0 && finish.enterElapsed == nil, "the cast's finish should play when the enter ends, got \(finish)")
+        let next = director.frame(at: 2 + finishSeconds)
+        expect(next.pose == .inscribing && next.finishElapsed == nil && next.enterElapsed == nil, "the new pose should show when the finish ends, got \(next)")
+    }
+
+    /// Calling out on a loop with no finish opens on its own enter at once, and that enter ends at its length.
+    private static func callingOutOpensOnItsOwnEnter() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("11-calling-out", seconds: 0.5))
+        director.observe(bard(), at: 0)
+        director.observe(bard(state: "blocked"), at: 0.25)
+        let cut = director.frame(at: 0.25)
+        expect(cut.pose == .callingOut && cut.enterElapsed == 0, "calling out should open on its own enter, got \(cut)")
+        expect(director.frame(at: 0.25 + 0.5).enterElapsed == nil, "calling out's enter should end at its length")
+    }
+
+    /// A turn that carries on the same pose, or a cue that comes and goes, doesn't replay the pose's enter.
+    private static func aPoseThatContinuesDoesNotReplayItsEnter() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithAnEnter("02-pondering", seconds: 1))
+        director.observe(bard(), at: 0)
+        director.observe(bard(), at: 3)
+        expect(director.frame(at: 3).enterElapsed == nil, "a turn that continues the same pose should not replay its enter")
+        director.answer(.messaged(worker: "qm-2"), at: 5)
+        let release = director.frame(at: 5)
+        expect(release.pose == .release && release.enterElapsed == nil, "a cue should take the frame, got \(release)")
+        let after = 5 + AvatarAnimationFixture.bard().onceSeconds(for: .release)
+        expect(director.frame(at: after).pose == .pondering && director.frame(at: after).enterElapsed == nil,
+               "the pose should come back without replaying its enter")
+    }
+
+    private static func noEnterUnderReduceMotion() {
+        var director = TrackerAvatarDirector(reducesMotion: true, catalog: catalogWithAnEnter("02-pondering", seconds: 1))
+        director.observe(bard(), at: 0)
+        let frame = director.frame(at: 0)
+        expect(frame.pose == .pondering && frame.enterElapsed == nil, "under Reduce Motion the pose should show with no enter, got \(frame)")
+    }
+
+    /// The finish's steps are wake-ups in the future only. A step already past is not offered again, so the stage doesn't wake
+    /// over and over while the second frame shows.
+    private static func finishWakesOnlyAheadOfNow() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        director.observe(bard(tool: "Edit"), at: 2)
+        let during = director.frame(at: 2 + finishFourSeconds + 0.1)
+        expect(during.finishElapsed != nil, "the finish should be playing its second frame")
+        expect(during.nextChange == 2 + finishSeconds, "the next change should be the finish's end, got \(String(describing: during.nextChange))")
+    }
+
+    /// Inscribing has one finish frame, which holds for the whole finish (0.75 s). The new pose snaps in when the finish ends.
+    private static func inscribingHoldsItsOneFrameForTheWholeFinish() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(tool: "Edit"), at: 0)
+        director.observe(bard(tool: "Read"), at: 2)
+        for offset in [0, finishFourSeconds + 0.01, finishSeconds - 0.01] {
+            let frame = director.frame(at: 2 + offset)
+            expect(frame.pose == .inscribing && near(frame.finishElapsed, offset), "inscribing should play its finish through, got \(frame)")
+        }
+        let after = director.frame(at: 2 + finishSeconds)
+        expect(after.pose == .studying && after.finishElapsed == nil, "the new pose should snap in when the finish ends, got \(after)")
+    }
+
+    /// Times measured from a payload's clock carry rounding, so they compare within a nanosecond.
+    /// The cleric's shape: a release and a catch that enter before they strike. The release (0.9 s) strikes on frame 4; the catch
+    /// (0.8 s) strikes on frame 5.
+    private static let entranceRelease: [[Any]] = [[1, 0.1], [2, 0.1], [3, 0.1], [4, 0.5], [3, 0.1]]
+    private static let entranceCatch: [[Any]] = [[1, 0.1], [2, 0.1], [3, 0.1], [4, 0.1], [5, 0.3], [4, 0.1]]
+    private static let releaseSeconds: TimeInterval = 0.9
+    private static let catchSeconds: TimeInterval = 0.8
+
+    /// The bard with a release and a catch that enter before they strike, naming their strike frames (nil names none).
+    private static func catalogWithEntrances(releaseStrike: Int?, catchStrike: Int?) -> TrackerAvatarCatalog {
+        func edit(_ track: [[Any]], _ strike: Int?) -> (inout [String: Any]) -> Void {
+            { pose in
+                pose["once"] = ["character": track]
+                pose["strike_frame"] = strike
+            }
+        }
+        guard let animation = try? AvatarAnimationFixture.bard(editing: [
+            "08-release": edit(entranceRelease, releaseStrike),
+            "10-catching": edit(entranceCatch, catchStrike),
+        ]) else {
+            fail("the bard with entrances before his strikes should decode")
+        }
+        return AvatarAnimationFixture.catalog(animation)
+    }
+
+    /// A release that names its strike frame plays its entrance inside its beat, which keeps its length: nothing else is due before
+    /// the beat ends.
+    private static func aReleaseWithAnEntranceKeepsItsBeat() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithEntrances(releaseStrike: 4, catchStrike: 5))
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 10)
+        let start = director.frame(at: 10)
+        expect(start.pose == .release && start.beat == 1, "the release should start at once, got \(start)")
+        expect(near(start.nextChange, 10 + releaseSeconds), "only the beat's end should be due, got \(String(describing: start.nextChange))")
+        expect(director.frame(at: 10 + releaseSeconds - 0.05).pose == .release, "the beat should keep its length")
+        expect(director.frame(at: 10 + releaseSeconds + 0.05).pose == .pondering, "the release should end at its length")
+    }
+
+    /// A catch that names its strike frame plays as the report arrives, its entrance inside its own beat.
+    private static func aCatchWithAnEntrancePlaysAsTheReportArrives() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithEntrances(releaseStrike: 4, catchStrike: 5))
+        director.observe(bard(), at: 0)
+        director.answer(.reported(worker: "qm-2"), at: 10)
+        let catching = director.frame(at: 10)
+        expect(catching.pose == .catching && catching.beat == 1, "the catch should start as the report arrives, got \(catching)")
+        expect(near(catching.nextChange, 10 + catchSeconds), "only the beat's end should be due, got \(String(describing: catching.nextChange))")
+        expect(director.frame(at: 10 + catchSeconds - 0.05).pose == .catching, "the catch should keep its length")
+        expect(director.frame(at: 10 + catchSeconds + 0.05).pose == .pondering, "the catch should end at its length")
+    }
+
+    /// A frame asked for long after the beats ended still plays them all, in order.
+    private static func aLatePollStillPlaysEachBeatInOrder() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithEntrances(releaseStrike: 4, catchStrike: 5))
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 10)
+        director.answer(.messaged(worker: "qm-3"), at: 10)
+        let late = director.frame(at: 20)
+        expect(late.pose == .pondering && late.beat == 2, "both releases should have played, got \(late)")
+    }
+
+    private static func near(_ value: TimeInterval?, _ expected: TimeInterval) -> Bool {
+        guard let value else {
+            return false
+        }
+        return abs(value - expected) < 1e-9
+    }
+
+    private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+        if !condition() {
+            fail(message)
+        }
+    }
+
+    private static func fail(_ message: String) -> Never {
+        fputs("TrackerAvatarDirectorTests failed: \(message)\n", stderr)
+        exit(1)
+    }
+}

@@ -58,6 +58,37 @@ func TestContinueAgentlessManifestLaunchesShell(t *testing.T) {
 	}
 }
 
+func TestContinueLaunchUsesCurrentMasterClassVoice(t *testing.T) {
+	t.Parallel()
+
+	svc, runner := setupService(t)
+	sessionID := "qm-class-continue"
+	if err := svc.Store.Create(state.Manifest{TmuxServer: "questmaster",
+		SessionID:   sessionID,
+		Cwd:         t.TempDir(),
+		SessionType: "master",
+		Display:     &state.DisplayMetadata{Class: "barbarian"},
+		Agents:      []state.AgentManifest{{Name: "claude", Role: "agent", CLI: "/bin/sh", Window: 0, ResumeID: "class-continue-resume"}},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+	if err := svc.Store.SetSessionClass(sessionID, "wizard"); err != nil {
+		t.Fatalf("reclass session: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(state.NewRuntimeDir(svc.Store.Root(), sessionID)) })
+
+	if _, err := svc.Continue(t.Context(), sessionID); err != nil {
+		t.Fatalf("Continue: %v", err)
+	}
+	launch := findLaunchArgContaining(runner, "exec '/bin/sh'")
+	if !strings.Contains(launch, "Your session class is the Wizard. Let its temperament") {
+		t.Fatalf("continued launch missing current class voice: %q", launch)
+	}
+	if strings.Contains(launch, "Your session class is the Barbarian") {
+		t.Fatalf("continued launch kept stale class voice: %q", launch)
+	}
+}
+
 func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
 	t.Setenv("CLAUDE_BIN", "")

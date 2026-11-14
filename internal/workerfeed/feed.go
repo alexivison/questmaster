@@ -110,7 +110,19 @@ func CapText(text string) string {
 }
 
 // RecordChatEntryAt appends a feed entry and advances the agent pane's chat timestamp.
+// A master-to-worker instruction or a worker report also advances the pane's exchange.
 func RecordChatEntryAt(root, sessionID, kind, text string, at time.Time) error {
+	isExchange := kind == "instructions" || kind == "report"
+	return recordChatEntryAt(root, sessionID, kind, text, at, isExchange)
+}
+
+// RecordSpawnPromptAt appends a spawn prompt as an instructions entry without
+// advancing the exchange: the prompt is the worker's first turn, not a master message.
+func RecordSpawnPromptAt(root, sessionID, text string, at time.Time) error {
+	return recordChatEntryAt(root, sessionID, "instructions", text, at, false)
+}
+
+func recordChatEntryAt(root, sessionID, kind, text string, at time.Time, isExchange bool) error {
 	if !validChatKind(kind) {
 		return fmt.Errorf("invalid chat kind %q", kind)
 	}
@@ -131,6 +143,10 @@ func RecordChatEntryAt(root, sessionID, kind, text string, at time.Time) error {
 			pane = state.PaneState{Role: "agent"}
 		}
 		pane.LastChatAt = event.Ts
+		if isExchange {
+			pane.LastExchangeKind = kind
+			pane.LastExchangeAt = event.Ts
+		}
 		ss.Panes["agent"] = pane
 		ss.SeenAt = event.Ts
 		return true

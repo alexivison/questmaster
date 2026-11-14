@@ -1,8 +1,8 @@
 import Foundation
 
 /// The app's one-shot motion steps (.agents/skills/app-ui/references/motion.md). A small change (a toggle, a fade-out, a page swap) takes
-/// `fast`; a panel, a modal or a layout move takes `standard`. Every one-shot transition names one, so the app moves
-/// at two paces and no view states its own duration.
+/// `fast`; a panel, a modal or a layout move takes `standard`. Every one-shot transition names one, so no view states its own
+/// duration.
 public enum MotionStep: Equatable, Sendable {
     case fast
     case standard

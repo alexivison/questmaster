@@ -106,7 +106,7 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 	if opts.Model != "" {
 		cmd += " --model " + config.ShellQuote(opts.Model)
 	}
-	cmd += " --agent " + config.ShellQuote(o.agentName(opts.Role))
+	cmd += " --agent " + config.ShellQuote(o.agentName(opts.Role, opts.Class))
 	if opts.ReasoningEffort != "" {
 		variant := opts.ReasoningEffort
 		if variant == "off" {
@@ -127,7 +127,9 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 	return cmd
 }
 
-func (o *OpenCode) agentName(role SessionRole) string {
+// agentName picks the installed role agent. A master with a class voice gets
+// its per-class agent file; a configured override agent wins over all of them.
+func (o *OpenCode) agentName(role SessionRole, class string) string {
 	if o.openCodeAgent != "" {
 		return o.openCodeAgent
 	}
@@ -135,6 +137,18 @@ func (o *OpenCode) agentName(role SessionRole) string {
 	case RoleWorker:
 		return OpenCodeWorkerAgentName
 	default:
+		if ClassVoice(class) != "" {
+			return OpenCodeMasterClassAgentName(class)
+		}
 		return OpenCodeMasterAgentName
 	}
 }
+
+// OpenCodeMasterClassAgentName is the master agent installed for a class. Its
+// prompt is the master prompt plus that class's voice.
+func OpenCodeMasterClassAgentName(class string) string {
+	return OpenCodeMasterAgentName + "-" + class
+}
+
+// VoiceClasses lists the classes that have a class voice.
+func VoiceClasses() []string { return classVoiceClasses() }
