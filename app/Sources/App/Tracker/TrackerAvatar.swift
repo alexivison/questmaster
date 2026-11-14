@@ -10,11 +10,6 @@ enum TrackerAvatarMetrics {
     @MainActor static let tallestFigureHeight = TrackerAvatarSprites.bundled().values.compactMap(\.idleFigureHeight).max() ?? 0
     /// The slot's reserved height: the tallest figure rounded up to the 5 pt step, one point a sprite pixel. It is the same for every class.
     @MainActor static let slotHeight = CGFloat(TrackerTagLayout.reservedHeight(tallestFigure: tallestFigureHeight, step: Int(Space.row)))
-    /// The render previews' column: a master plate, two worker plates and the slot, in the tracker's spacing.
-    @MainActor static var previewColumnHeight: CGFloat {
-        TrackerNameplateRole.master.canvasSize.height + 2 * TrackerNameplateRole.worker.canvasSize.height
-            + 3 * TrackerListMetrics.spacing + slotHeight
-    }
 }
 
 /// The avatar's drawing settings. Each sprite is drawn at one point a sprite pixel (two device pixels on Retina), nearest-neighbour.
@@ -24,43 +19,6 @@ enum TrackerAvatarDesign {
     /// How long the lids stay down. A blink snaps shut and open, so no motion step applies.
     static let blinkClosedSeconds: TimeInterval = 0.15
     static let blinkIntervalSeconds: ClosedRange<TimeInterval> = 3...6
-    /// How high a spell's path arcs between its two ends.
-    static let flightArcHeight: CGFloat = 40
-}
-
-/// The two parts of a spell's art: what flies, and what bursts where it lands.
-enum TrackerSpellPart: String, CaseIterable {
-    case flight
-    case impact
-}
-
-/// A spell's art for one part of its flight, ready to draw: the frames, and how they play. A spell the file gives no frames keeps
-/// its one still, which has no track.
-struct TrackerSpellArt {
-    /// The art, a frame per step of `track`, or the lone still.
-    let frames: [CGImage]
-    /// How the frames play, from the class's file; nil for a still.
-    let track: TrackerAvatarTrack?
-    /// The point of the art, in sprite pixels from its top left, that rides the path: the middle of the file's anchor pixel (so a
-    /// mirror leaves that pixel where it is), else the frame's centre.
-    let anchor: CGPoint
-
-    /// Which way the art is drawn: the file's `faces`, else right for frames. Nil for a still that doesn't say, which is drawn as it is.
-    let drawnFacing: TrackerAvatarFacing?
-    /// The art's width in sprite pixels. Every frame shares it.
-    let width: CGFloat
-
-    /// Whether a flight that heads left (`headsLeft`) or right shows the art mirrored, so its head leads. Never for a still that
-    /// doesn't say which way it faces.
-    func isMirrored(headsLeft: Bool) -> Bool {
-        drawnFacing?.isMirrored(headsLeft: headsLeft) ?? false
-    }
-
-    /// How far the art reaches behind its anchor on a flight that heads right, in sprite pixels: its left side when it faces right,
-    /// and its right side, mirrored, when it faces left. A still that doesn't say reaches its half.
-    var trailPixels: CGFloat {
-        drawnFacing == .left ? width - anchor.x : anchor.x
-    }
 }
 
 /// A track's frames as one discrete animation of a layer's contents.
@@ -322,58 +280,6 @@ final class TrackerAvatarSprites {
         animation.fidgets.filter { fidget in fidget.frames.allSatisfy { idleFrame($0) != nil } }
     }
 
-    /// The size of a pose's canvas in sprite pixels. Every frame of a pose shares its canvas, so f1 stands for all of them.
-    func canvasSize(for pose: TrackerAvatarPose) -> CGSize? {
-        frame(pose, .character, 1).map { CGSize(width: $0.width, height: $0.height) }
-    }
-
-    /// Where a spell leaves the avatar's hand, in `slot`'s own coordinates (top-left origin), on the release pose. The release pose
-    /// sits on its body column, so the hand is where it is on the slot, not where the canvas's middle would put it.
-    func handPoint(in slot: CGRect) -> CGPoint? {
-        guard let release = animation.animation(for: .release), let canvas = canvasSize(for: .release) else {
-            return nil
-        }
-        let pixel = TrackerAvatarDesign.pixelPoints
-        let hang = (canvas.height - 1 - CGFloat(release.footRow)) * pixel
-        let spriteTop = slot.maxY + hang - canvas.height * pixel
-        let hand = animation.releaseHand
-        return CGPoint(
-            x: slot.midX - CGFloat(release.bodyColumn) * pixel + CGFloat(hand.x) * pixel,
-            y: spriteTop + CGFloat(hand.y) * pixel
-        )
-    }
-
-    /// A spell's flight art and its impact art. A class's spells are its own art: the frames its file names for the part
-    /// (`S6-returning-wisp-flight-f<n>.png`), or the one still (`S6-returning-wisp-flight.png`). Nil while any of it is missing.
-    func flight(for spell: TrackerSpellFlight.Spell) -> TrackerSpellArt? {
-        let animation = animation.spell(spell)
-        let facing = animation?.faces ?? (animation?.flight == nil ? nil : .right)
-        return spellArt(spell, .flight, track: animation?.flight, anchor: animation?.anchor, facing: facing)
-    }
-
-    func impact(for spell: TrackerSpellFlight.Spell) -> TrackerSpellArt? {
-        spellArt(spell, .impact, track: animation.spell(spell)?.impact, anchor: nil, facing: nil)
-    }
-
-    /// One frame of a spell's part (`S6-returning-wisp-flight-f3`), or its still (`S6-returning-wisp-flight`) when `number` is nil.
-    /// Nil while its art is missing.
-    func spellFrame(_ spell: TrackerSpellFlight.Spell, _ part: TrackerSpellPart, _ number: Int? = nil) -> CGImage? {
-        let stem = "\(spell.resourceName)-\(part.rawValue)"
-        return image(named: number.map { "\(stem)-f\($0)" } ?? stem)
-    }
-
-    private func spellArt(
-        _ spell: TrackerSpellFlight.Spell, _ part: TrackerSpellPart, track: TrackerAvatarTrack?, anchor: TrackerAvatarPixel?, facing: TrackerAvatarFacing?
-    ) -> TrackerSpellArt? {
-        let frames = track.map { track in track.steps.compactMap { spellFrame(spell, part, $0.frame) } } ?? spellFrame(spell, part).map { [$0] }
-        guard let frames, let first = frames.first, frames.count == (track?.steps.count ?? 1) else {
-            return nil
-        }
-        let centre = CGPoint(x: CGFloat(first.width) / 2, y: CGFloat(first.height) / 2)
-        let pixelMiddle = anchor.map { CGPoint(x: CGFloat($0.x) + 0.5, y: CGFloat($0.y) + 0.5) }
-        return TrackerSpellArt(frames: frames, track: track, anchor: pixelMiddle ?? centre, drawnFacing: facing, width: CGFloat(first.width))
-    }
-
     /// The PNG `name` in `directory` (this class's folder by default), decoded once; nil when it is missing.
     private func image(named name: String, in directory: URL? = nil) -> CGImage? {
         if let cached = images[name] {
@@ -393,7 +299,6 @@ final class TrackerAvatarSprites {
 /// The class avatar in the tracker column, in its slot. `beat` is the director's beat count: it rises whenever a pose's cue
 /// starts, so a one-shot that repeats on the same pose plays again. `finish` is how far into the pose's finish the avatar is, while it
 /// finishes, and `enter` how far into the pose's enter, while it enters. `fidget` is the idle fidget's art frame, while he fidgets.
-/// `handle` lets the flight overlay measure the view, where the spells leave from.
 struct TrackerAvatarSlot: View {
     let pose: TrackerAvatarPose?
     var sprites: TrackerAvatarSprites?
@@ -401,10 +306,9 @@ struct TrackerAvatarSlot: View {
     var beat = 0
     var finish: TimeInterval?
     var enter: TimeInterval?
-    var handle: TrackerAvatarHandle?
 
     var body: some View {
-        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish, enter: enter, handle: handle)
+        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish, enter: enter)
             .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
     }
 }
@@ -417,12 +321,9 @@ struct TrackerAvatar: NSViewRepresentable {
     var beat = 0
     var finish: TimeInterval?
     var enter: TimeInterval?
-    var handle: TrackerAvatarHandle?
 
     func makeNSView(context: Context) -> TrackerAvatarView {
-        let view = TrackerAvatarView()
-        handle?.view = view
-        return view
+        TrackerAvatarView()
     }
 
     func updateNSView(_ view: TrackerAvatarView, context: Context) {

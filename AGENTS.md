@@ -120,8 +120,8 @@ Building, installing and branch-running the app bundle: `app-bundle` skill.
 
   The tracker session row carries an optional `last_exchange` object, `{"kind": "instructions" | "report", "at": RFC3339}`.
   It is set only when a master messages a worker or a worker reports to its master, and spawn prompts leave it empty. The
-  class avatar diffs it between payloads to fly its spells (`TrackerAvatarEventDetector`), so status and action chat
-  entries don't change it. Old decoders ignore the key, so it needed no `ServeProtocolVersion` bump.
+  class avatar diffs it between payloads to play its message and report cues (`TrackerAvatarEventDetector`), so status and
+  action chat entries don't change it. Old decoders ignore the key, so it needed no `ServeProtocolVersion` bump.
 
   The row also carries `active_subagents`, the count of sub-agents the session has running. Only Claude reports them: the
   hooks add an id on `SubagentStart` and remove it on `SubagentStop` (a stop with no matching start is ignored, and so is a
@@ -195,4 +195,4 @@ tool whenever its row applies**.
 | Editing the tracker, Worker Log, Watcher, dock column, action bar header or Quest Log | `.agents/skills/app-surfaces/SKILL.md` |
 | Changing tmux routing, server inventory, manifests, runtime dirs, or close/delete/prune/audit | `.agents/skills/tmux-lifecycle/SKILL.md` |
 | Building, installing, rolling back or running `Questmaster.app`, or touching `app/Scripts/` | `.agents/skills/app-bundle/SKILL.md` |
-| Changing the class avatar, its sprites, `animation.json`, spell flights or the session banner | `.agents/skills/class-avatar/SKILL.md` |
+| Changing the class avatar, its sprites, `animation.json`, its cues or the session banner | `.agents/skills/class-avatar/SKILL.md` |

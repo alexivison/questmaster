@@ -58,7 +58,6 @@ timed("ProjectOrderTests") { ProjectOrderTests.run() }
         timed("TrackerAvatarPoseTests") { TrackerAvatarPoseTests.run() }
         timed("TrackerAvatarDirectorTests") { TrackerAvatarDirectorTests.run() }
         timed("TrackerAvatarEventsTests") { TrackerAvatarEventsTests.run() }
-        timed("TrackerSpellPathTests") { TrackerSpellPathTests.run() }
         timed("TrackerShellCommandTests") { TrackerShellCommandTests.run() }
         timed("TrackerAvatarMotionTests") { TrackerAvatarMotionTests.run() }
         timed("TrackerAvatarFidgetsTests") { TrackerAvatarFidgetsTests.run() }

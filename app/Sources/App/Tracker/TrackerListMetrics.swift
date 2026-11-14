@@ -15,7 +15,7 @@ enum TrackerListMetrics {
     /// followed by `Space.section` and the shells, or just the bottom `verticalPadding` when there are no shells.
     static let avatarClearance = Space.group
     /// The avatar stands this far above the session banner: the gap from the slot's bottom (the sole line, which every
-    /// pose and the spells' hand point are measured from) to the banner's top. The slot keeps its size and the plate
+    /// pose is measured from) to the banner's top. The slot keeps its size and the plate
     /// list above gives up the room. Review switch (2026-11-13, 0, 5 or 10 pt): the debug render preview sets the
     /// override; a release build is always `Space.item`.
     #if DEBUG

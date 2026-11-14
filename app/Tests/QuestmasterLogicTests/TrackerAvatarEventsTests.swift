@@ -8,7 +8,7 @@ struct TrackerAvatarEventsTests {
         attachAndSwitchAreBaselines()
         otherMastersAndNonBardsFireNothing()
         exchangesFireOnlyWhenTheyChange()
-        eventsLaunchTheirSpells()
+        eventsPlayTheirCues()
         print("TrackerAvatarEventsTests: all tests passed")
     }
 
@@ -74,21 +74,27 @@ struct TrackerAvatarEventsTests {
         expect(report == [.reported(worker: "qm-w1")], "a new report should be a report, got \(report)")
     }
 
-    /// Payloads through the detector and the director launch each spell: an orb for a spawn once summoning has shown, a messenger
-    /// for a message, and a wisp for a report.
-    private static func eventsLaunchTheirSpells() {
+    /// Payloads through the detector and the director play each cue: the summoning and then the release for a spawn, the release for
+    /// a message, and the catch for a report.
+    private static func eventsPlayTheirCues() {
         let catalog = AvatarAnimationFixture.catalog()
         var detector = TrackerAvatarEventDetector(catalog: catalog)
         var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
-        var spells: [TrackerSpellFlight.Spell] = []
+        var poses: [TrackerAvatarPose?] = []
+        var beat = 0
         func drain(at now: TimeInterval) {
-            spells += director.frame(at: now).launches.map(\.spell)
+            let frame = director.frame(at: now)
+            if frame.beat != beat {
+                beat = frame.beat
+                poses.append(frame.pose)
+            }
         }
         _ = detector.observe(rows(), attachedID: master)
         director.observe(AvatarSessionFixture.session(id: master, sessionClass: "bard"), at: 0)
 
         let spawned = detector.observe(rows(workers: [worker("qm-w1")]), attachedID: master)
         for event in spawned { director.answer(event, at: 1) }
+        drain(at: 1)
         let summoning = AvatarAnimationFixture.bard().animation(for: .summoning)
         let cast = (summoning?.enter?.seconds ?? 0) + (summoning?.loop?.seconds ?? 0) + (summoning?.finish?.seconds ?? 0)
         drain(at: 1 + cast + 0.01)
@@ -100,7 +106,7 @@ struct TrackerAvatarEventsTests {
         let reported = detector.observe(rows(workers: [worker("qm-w1", exchange: ("report", "2026-10-28T09:00:09Z"))]), attachedID: master)
         for event in reported { director.answer(event, at: 9) }
         drain(at: 9)
-        expect(spells == [.orb, .messenger, .wisp], "each exchange should launch its spell once, got \(spells)")
+        expect(poses == [.summoning, .release, .release, .catching], "each exchange should play its cue once, got \(poses)")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

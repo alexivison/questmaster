@@ -13,7 +13,7 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
     case callingOut
     /// A master summoning: a steady cast while a `questmaster spawn` runs, and the cue that casts it before a spawn's release.
     case summoning
-    /// The one-shots: a messenger's release, a catch, and a bow.
+    /// The one-shots: a release, a catch, and a bow.
     case release
     case catching
     case bow

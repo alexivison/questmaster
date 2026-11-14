@@ -140,15 +140,6 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
         }
         return once.character.steps.firstIndex { $0.frame == strikeFrame }
     }
-
-    /// How long into the one-shot its strike begins, when the pose names its strike frame: the entrance before the peak. Zero when it
-    /// names none, so a file that doesn't name one has no lead-in and its timings are as they were.
-    public var strikeLeadIn: TimeInterval {
-        guard let step = namedStrikeStep, let once else {
-            return 0
-        }
-        return once.character.starts[step]
-    }
 }
 
 /// Which way the shared bubble's tail points, as `bubble.png` is drawn: `left` (down-left, the default) or `right`, which the app
@@ -156,44 +147,6 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
 public enum TrackerAvatarBubbleTail: String, Decodable, Sendable {
     case left
     case right
-}
-
-/// The way a spell's flight art is drawn: which way its head points. The overlay mirrors it on a flight that heads the other way, so
-/// the head leads on every path.
-public enum TrackerAvatarFacing: String, Decodable, Sendable {
-    case left
-    case right
-
-    /// Whether art drawn facing this way is mirrored on a flight that heads left (`headsLeft`) or right.
-    public func isMirrored(headsLeft: Bool) -> Bool {
-        (self == .right) == headsLeft
-    }
-}
-
-/// A spell's art beyond one still: the frames it flies with and bursts with. Each part is optional, and a part without a track keeps
-/// its single still (`S6-returning-wisp-flight.png`), so a spell the file doesn't mention is drawn as it always was.
-public struct TrackerAvatarSpellAnimation: Equatable, Sendable {
-    /// The frames the spell flies with (`S6-returning-wisp-flight-f<n>.png`), cycled while it flies. The art is drawn flying right,
-    /// its trail to the left, and the overlay mirrors it on a flight that heads left, so its head leads on every path.
-    public let flight: TrackerAvatarTrack?
-    /// The frames the impact plays once where the flight lands (`S6-returning-wisp-impact-f<n>.png`), after which it goes.
-    public let impact: TrackerAvatarTrack?
-    /// The pixel of the flight art (column `x`, row `y`, counted from its top left) that rides the path and lands on the target: the
-    /// head of a comet, so it lands on the hand with its trail behind it. A mirror leaves that pixel where it is. Nil is the frame's
-    /// centre. Only a spell with a `flight` track has one.
-    public let anchor: TrackerAvatarPixel?
-    /// Which way the flight art is drawn, still or frames. Nil is facing right for frames, and for a still, drawn as it is: never
-    /// mirrored, so a still that doesn't say flies the way it always did.
-    public let faces: TrackerAvatarFacing?
-
-    public init(
-        flight: TrackerAvatarTrack? = nil, impact: TrackerAvatarTrack? = nil, anchor: TrackerAvatarPixel? = nil, faces: TrackerAvatarFacing? = nil
-    ) {
-        self.flight = flight
-        self.impact = impact
-        self.anchor = anchor
-        self.faces = faces
-    }
 }
 
 /// An sRGB colour, read from `#rrggbb`.
@@ -373,9 +326,7 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case missingLidStencil(String)
     /// A pose has a bubble anchor but isn't calling out, the only pose that draws the shared bubble.
     case misplacedBubble(String)
-    /// A `spells` key that names no spell: the orb (`S1-summoning-orb`), the messenger (`S2-messenger`) or the wisp (`S6-returning-wisp`).
-    case unknownSpell(String)
-    /// A spell has an anchor but no flight track to anchor, or an anchor with a negative coordinate.
+    /// The idle's `character_at` has a negative coordinate.
     case invalidAnchor(String)
     /// A pose has a strike frame but doesn't strike: only a release and a catch move.
     case misplacedStrike(String)
@@ -398,12 +349,9 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
 
     /// Idle's authored breathing and blink data. Nil when `01-idle` is an authored pose loop.
     public let idle: TrackerAvatarIdleAnimation?
-    /// The point a release's spell leaves the caster's hand from, on the release pose's canvas.
-    public let releaseHand: TrackerAvatarPixel
     /// The fidgets an idle figure may play, by name. None when `01-idle` has a loop, which plays no fidgets.
     public let fidgets: [TrackerAvatarIdleFidget]
     private let poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation]
-    private let spells: [TrackerSpellFlight.Spell: TrackerAvatarSpellAnimation]
 
     /// Reads and checks a class's `animation.json`.
     public init(data: Data) throws {
@@ -411,7 +359,6 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         guard file.version == Self.supportedVersion else {
             throw TrackerAvatarAnimationError.unsupportedVersion(file.version)
         }
-        releaseHand = TrackerAvatarPixel(x: file.releaseHand.x, y: file.releaseHand.y)
         var poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation] = [:]
         for (name, pose) in file.poses {
             guard let kind = TrackerAvatarPose.allCases.first(where: { $0.resourceName == name }) else {
@@ -423,7 +370,6 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             throw TrackerAvatarAnimationError.missingPose(pose.resourceName)
         }
         self.poses = poses
-        spells = try Self.spellAnimations(file.spells ?? [:])
         // Bard and Barbarian's authored idle loops keep their existing frame-loop behavior and do not read layered-idle metadata.
         if poses[.idle]?.loop != nil {
             idle = nil
@@ -442,11 +388,6 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The pose's art and timings. A file that decodes names every pose.
     public func animation(for pose: TrackerAvatarPose) -> TrackerAvatarPoseAnimation? {
         poses[pose]
-    }
-
-    /// The spell's frames, when the file gives it some. Nil draws its stills.
-    public func spell(_ spell: TrackerSpellFlight.Spell) -> TrackerAvatarSpellAnimation? {
-        spells[spell]
     }
 
     /// How long a one-shot plays: its `once` block's length. Zero for a pose that doesn't play once.
@@ -609,24 +550,6 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         )
     }
 
-    private static func spellAnimations(_ file: [String: File.Spell]) throws -> [TrackerSpellFlight.Spell: TrackerAvatarSpellAnimation] {
-        var spells: [TrackerSpellFlight.Spell: TrackerAvatarSpellAnimation] = [:]
-        for (name, spell) in file {
-            guard let kind = TrackerSpellFlight.Spell.allCases.first(where: { $0.resourceName == name }) else {
-                throw TrackerAvatarAnimationError.unknownSpell(name)
-            }
-            let flight = try track(spell.flight, named: "\(name) flight")
-            let impact = try track(spell.impact, named: "\(name) impact")
-            if let anchor = spell.anchor, flight == nil || anchor.x < 0 || anchor.y < 0 {
-                throw TrackerAvatarAnimationError.invalidAnchor(name)
-            }
-            spells[kind] = TrackerAvatarSpellAnimation(
-                flight: flight, impact: impact, anchor: spell.anchor.map { TrackerAvatarPixel(x: $0.x, y: $0.y) }, faces: spell.faces
-            )
-        }
-        return spells
-    }
-
     /// A track from its steps; nil when the file gives none. A track that is there must be a good one.
     private static func track(_ steps: [TrackerAvatarStep]?, named name: String) throws -> TrackerAvatarTrack? {
         guard let steps else {
@@ -662,15 +585,8 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     private struct File: Decodable {
         let version: Int
         let idle: Idle?
-        let releaseHand: Pixel
         let fidgets: [String: [TrackerAvatarStep]]?
         let poses: [String: Pose]
-        let spells: [String: Spell]?
-
-        enum CodingKeys: String, CodingKey {
-            case version, idle, fidgets, poses, spells
-            case releaseHand = "release_hand"
-        }
 
         struct Idle: Decodable {
             let eyeRow: Int?
@@ -728,13 +644,6 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             let x: Int
             let y: Int
             let tail: TrackerAvatarBubbleTail?
-        }
-
-        struct Spell: Decodable {
-            let flight: [TrackerAvatarStep]?
-            let impact: [TrackerAvatarStep]?
-            let anchor: Pixel?
-            let faces: TrackerAvatarFacing?
         }
 
         struct Pose: Decodable {

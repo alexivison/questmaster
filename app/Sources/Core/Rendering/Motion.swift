@@ -1,18 +1,16 @@
 import Foundation
 
 /// The app's one-shot motion steps (.agents/skills/app-ui/references/motion.md). A small change (a toggle, a fade-out, a page swap) takes
-/// `fast`; a panel, a modal or a layout move takes `standard`; a thing travelling across the window (a spell) takes
-/// `flight`. Every one-shot transition names one, so no view states its own duration.
+/// `fast`; a panel, a modal or a layout move takes `standard`. Every one-shot transition names one, so no view states its own
+/// duration.
 public enum MotionStep: Equatable, Sendable {
     case fast
     case standard
-    case flight
 
     public var seconds: TimeInterval {
         switch self {
         case .fast: 0.12
         case .standard: 0.18
-        case .flight: 1.0
         }
     }
 

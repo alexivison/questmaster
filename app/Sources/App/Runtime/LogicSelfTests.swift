@@ -89,12 +89,7 @@ enum LogicSelfTests {
         ("testALoopingIdleCyclesItsFramesWithNoBreathOrBlink", testALoopingIdleCyclesItsFramesWithNoBreathOrBlink),
         ("testALoopingIdleFrameWithoutArtIsMissing", testALoopingIdleFrameWithoutArtIsMissing),
         ("testAnIdleWithoutLidDataRestOnItsStillFrame", testAnIdleWithoutLidDataRestsOnItsStillFrame),
-        ("testTheStageLaunchesEachSpellFromItsPayloads", testTheStageLaunchesEachSpellFromItsPayloads),
-        ("testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge", testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge),
-        ("testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce", testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce),
-        ("testASpellFrameWithoutArtIsMissing", testASpellFrameWithoutArtIsMissing),
-        ("testAStillThatSaysWhichWayItFacesLeadsWithItsHead", testAStillThatSaysWhichWayItFacesLeadsWithItsHead),
-        ("testEveryBundledStillLeadsWithItsHeadOnItsPath", testEveryBundledStillLeadsWithItsHeadOnItsPath),
+        ("testTheStagePlaysEachCueFromItsPayloads", testTheStagePlaysEachCueFromItsPayloads),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testBundledPaladinSpritesReadTheirAnimationFile", testBundledPaladinSpritesReadTheirAnimationFile),
@@ -107,8 +102,6 @@ enum LogicSelfTests {
         ("testBundledFighterSpritesReadTheirAnimationFile", testBundledFighterSpritesReadTheirAnimationFile),
         ("testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets", testAnIdleEffectLayerPlaysOnItsOwnClockThroughFidgets),
         ("testEveryBundledIdleEffectHasItsArtAndLoops", testEveryBundledIdleEffectHasItsArtAndLoops),
-        ("testBundledBardSpellsPlayFramesFacingRight", testBundledBardSpellsPlayFramesFacingRight),
-        ("testBundledBarbarianAndWizardWispsPlayFramesFacingRight", testBundledBarbarianAndWizardWispsPlayFramesFacingRight),
         ("testBundledDruidBubbleTailPointsAtHer", testBundledDruidBubbleTailPointsAtHer),
         ("testTheBubbleStaysInTheSlotAboveTheBanner", testTheBubbleStaysInTheSlotAboveTheBanner),
         ("testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot", testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot),
@@ -1851,262 +1844,10 @@ enum LogicSelfTests {
         try expect(offsets == [0, 3 * pixel, 0, 0], "the move should step 3 pixels forward on the strike and end on the anchor, got \(offsets)")
     }
 
-    /// The flight overlay sits above the terminal and the dock, takes no clicks or keys, and flies a spell from the avatar's hand to the
-    /// Worker Log's left edge, level with the hand. Under Reduce Motion nothing flies.
+    /// The stage reads each payload's spawn, message and report and plays its cue as poses: a spawn casts the summoning and then the
+    /// release, a message the release, and a report the catch as it arrives. Its clock is the test's own, sampled in small steps.
     @MainActor
-    private static func testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge() throws {
-        let sprites = try stillIdleSprites()
-        let size = CGSize(width: 800, height: 500)
-        let root = NSView(frame: NSRect(origin: .zero, size: size))
-        let terminal = NSView(frame: root.bounds)
-        terminal.autoresizingMask = [.width, .height]
-        root.addSubview(terminal)
-        let avatarView = TrackerAvatarView(frame: NSRect(x: 40, y: 40, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
-        root.addSubview(avatarView)
-        let handle = TrackerAvatarHandle()
-        handle.view = avatarView
-        let panel = NSRect(x: 560, y: 0, width: 240, height: size.height)
-        let overlay = TrackerFlightOverlay(avatar: handle, sprites: { sprites }, workerLogFrame: { panel })
-        overlay.frame = root.bounds
-        overlay.autoresizingMask = [.width, .height]
-        root.addSubview(overlay)
-        let window = HeadlessWindow(size: size)
-        window.contentView = root
-        window.show()
-        Motion.reducesMotion = { false }
-
-        try expect(root.subviews.last === overlay, "the flight overlay should sit above the terminal, the dock and the tracker")
-        try expect(!overlay.acceptsFirstResponder, "the flight overlay should never take the keys")
-        try expect(overlay.hitTest(NSPoint(x: 700, y: 300)) == nil, "the flight overlay should take no clicks")
-        try expect(root.hitTest(NSPoint(x: 700, y: 300)) === terminal, "a click over the terminal should still reach the terminal")
-
-        overlay.fly(TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker("qm-2")))
-        let flights = (overlay.layer?.sublayers ?? []).compactMap { $0.animation(forKey: "spell-flight") as? CAKeyframeAnimation }
-        guard let flight = flights.first, let start = flight.values?.first as? NSValue, let end = flight.values?.last as? NSValue else {
-            throw TestFailure("a spell should fly from the avatar's hand to the Worker Log's edge")
-        }
-        // The hand in the layer's own bottom-left coordinates, from the sprites' hand point in the slot's top-left ones.
-        let slot = CGRect(x: 40, y: size.height - 40 - TrackerAvatarMetrics.slotHeight, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
-        guard let hand = sprites.handPoint(in: slot) else {
-            throw TestFailure("the wizard should have a hand point")
-        }
-        let handLayer = CGPoint(x: hand.x, y: size.height - hand.y)
-        try expect(abs(start.pointValue.x - handLayer.x) < 0.5 && abs(start.pointValue.y - handLayer.y) < 0.5,
-                   "a flight should start at the avatar's hand, got \(start.pointValue)")
-        let landing = end.pointValue
-        try expect(abs(landing.x - panel.minX) < 0.5 && abs(landing.y - handLayer.y) < 0.5,
-                   "a flight should land on the Worker Log's left edge at the hand's height, got \(landing)")
-
-        let spellCount = overlay.layer?.sublayers?.count ?? 0
-        Motion.reducesMotion = { true }
-        overlay.fly(TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker("qm-2")))
-        try expect((overlay.layer?.sublayers?.count ?? 0) == spellCount, "under Reduce Motion nothing should fly")
-        Motion.reducesMotion = { false }
-    }
-
-    /// The synthetic class's spells: the wisp has a 3-frame flight with its head anchored at the right and a 2-frame impact, the
-    /// messenger has a 2-frame flight with no anchor and a still impact, and the orb keeps both stills.
-    @MainActor
-    private static func syntheticSpellSprites(in folder: URL) throws -> TrackerAvatarSprites {
-        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
-            throw TestFailure("the synthetic class's animation.json should read")
-        }
-        return sprites
-    }
-
-    /// A flight overlay over a window, with the avatar's view at its left and a Worker Log panel at its right edge for the spells to
-    /// land on. The window stays up as long as the stage does.
-    private struct FlightStage {
-        let size: CGSize
-        let root: NSView
-        let handle: TrackerAvatarHandle
-        let panel: NSRect
-        let overlay: TrackerFlightOverlay
-        let window: HeadlessWindow
-    }
-
-    @MainActor
-    private static func flightStage(for sprites: TrackerAvatarSprites) -> FlightStage {
-        let size = CGSize(width: 800, height: 500)
-        let root = NSView(frame: NSRect(origin: .zero, size: size))
-        let avatarView = TrackerAvatarView(frame: NSRect(x: 40, y: 40, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
-        root.addSubview(avatarView)
-        let handle = TrackerAvatarHandle()
-        handle.view = avatarView
-        let panel = NSRect(x: 560, y: 0, width: 240, height: size.height)
-        let overlay = TrackerFlightOverlay(avatar: handle, sprites: { sprites }, workerLogFrame: { panel })
-        overlay.frame = root.bounds
-        overlay.autoresizingMask = [.width, .height]
-        root.addSubview(overlay)
-        let window = HeadlessWindow(size: size)
-        window.contentView = root
-        window.show()
-        return FlightStage(size: size, root: root, handle: handle, panel: panel, overlay: overlay, window: window)
-    }
-
-    /// The layer `overlay` adds when `flight` flies.
-    @MainActor
-    private static func flownSpell(_ flight: TrackerSpellFlight, by overlay: TrackerFlightOverlay) throws -> CALayer {
-        let before = overlay.layer?.sublayers?.count ?? 0
-        overlay.fly(flight)
-        guard let layers = overlay.layer?.sublayers, layers.count == before + 1, let spell = layers.last else {
-            throw TestFailure("\(flight.spell) should fly")
-        }
-        return spell
-    }
-
-    /// A spell with frames cycles its flight while it flies, drawn facing right with its anchor on the path: it is mirrored about that
-    /// anchor on a flight that heads left (the returning wisp), so the head leads on every path, and not on one that heads right. The
-    /// frames run for the flight and no longer. The impact plays its frames once where the flight lands, and goes. A spell with
-    /// stills is drawn as it was: centred, never mirrored, with no frames. Under Reduce Motion nothing flies.
-    @MainActor
-    private static func testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce() throws {
-        let folder = try syntheticClassFolder()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let sprites = try syntheticSpellSprites(in: folder)
-        guard let wispFlight = sprites.flight(for: .wisp), let wispImpact = sprites.impact(for: .wisp),
-              let messengerFlight = sprites.flight(for: .messenger), let orbFlight = sprites.flight(for: .orb) else {
-            throw TestFailure("the synthetic spells should have their art")
-        }
-        try expect(wispFlight.frames.count == 3 && wispFlight.track?.seconds == 0.4 && wispFlight.anchor == CGPoint(x: 7.5, y: 2.5),
-                   "the wisp should fly three frames on its anchor's pixel, got \(wispFlight.frames.count) frames at \(wispFlight.anchor)")
-        try expect(wispImpact.frames.count == 2 && wispImpact.anchor == CGPoint(x: 3, y: 3), "the wisp's impact should play two frames, centred")
-        try expect(messengerFlight.frames.count == 2 && messengerFlight.anchor == CGPoint(x: 3, y: 2), "an unanchored flight should be anchored at its centre")
-        try expect(wispFlight.drawnFacing == .right && messengerFlight.drawnFacing == .right, "frames should face right unless the file says")
-        try expect(orbFlight.track == nil && orbFlight.drawnFacing == nil && orbFlight.anchor == CGPoint(x: 2, y: 2),
-                   "a still that doesn't say should have no frames and no facing")
-
-        let stage = flightStage(for: sprites)
-        let (overlay, root, handle, panel) = (stage.overlay, stage.root, stage.handle, stage.panel)
-        let pixel = TrackerAvatarDesign.pixelPoints
-        Motion.reducesMotion = { false }
-        let wisp = try flownSpell(TrackerSpellFlight(spell: .wisp, from: .worker("qm-2"), to: .avatar), by: overlay)
-        guard let move = wisp.animation(forKey: "spell-flight") as? CAKeyframeAnimation,
-              let cycle = wisp.animation(forKey: "spell-frames") as? CAKeyframeAnimation else {
-            throw TestFailure("the wisp should move along its path and cycle its frames")
-        }
-        try expect(wisp.transform.m11 == -1, "the wisp heads left, so it should be mirrored, got m11 \(wisp.transform.m11)")
-        try expect(abs(wisp.anchorPoint.x - 7.5 / 8) < 1e-9 && abs(wisp.anchorPoint.y - (1 - 2.5 / 4)) < 1e-9,
-                   "the wisp's anchor should ride the path: the middle of its head pixel (column 7, row 2), got \(wisp.anchorPoint)")
-        // Mirrored about its anchor: the head pixel stays on the path point and the trail, drawn to the left, streams out to the right.
-        try expect(abs(wisp.frame.minX - (wisp.position.x - 0.5 * pixel)) < 1e-9 && abs(wisp.frame.maxX - (wisp.position.x + 7.5 * pixel)) < 1e-9,
-                   "a wisp heading left should trail to the right of its head, got \(wisp.frame) at \(wisp.position)")
-        try expect(cycle.calculationMode == .discrete && cycle.values?.count == 4 && cycle.duration == 0.4,
-                   "the wisp should cycle its three frames with a closing key, as discrete keyframes over its track")
-        try expect(cycle.repeatCount == 0 && abs(cycle.repeatDuration - move.duration) < 1e-9,
-                   "the frames should repeat for the flight and no longer, not forever: \(cycle.repeatCount), \(cycle.repeatDuration)")
-        let messenger = try flownSpell(TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker("qm-2")), by: overlay)
-        try expect(messenger.transform.m11 == 1 && messenger.animation(forKey: "spell-frames") != nil,
-                   "a flight that heads right should cycle its frames unmirrored")
-        try expect(abs(messenger.frame.minX - (messenger.position.x - 3 * pixel)) < 1e-9,
-                   "a flight that heads right should keep its trail to the left, got \(messenger.frame) at \(messenger.position)")
-        try expect(abs(messenger.anchorPoint.x - 0.5) < 1e-9 && abs(messenger.anchorPoint.y - 0.5) < 1e-9, "an unanchored flight should ride on its centre")
-        let orb = try flownSpell(TrackerSpellFlight(spell: .orb, from: .worker("qm-2"), to: .avatar), by: overlay)
-        try expect(orb.transform.m11 == 1 && orb.animation(forKey: "spell-frames") == nil && orb.anchorPoint == CGPoint(x: 0.5, y: 0.5),
-                   "a still should be drawn as it was even on a flight that heads left: no frames, no mirror, centred")
-
-        let count = overlay.layer?.sublayers?.count ?? 0
-        Motion.reducesMotion = { true }
-        overlay.fly(TrackerSpellFlight(spell: .wisp, from: .worker("qm-2"), to: .avatar))
-        Motion.reducesMotion = { false }
-        try expect((overlay.layer?.sublayers?.count ?? 0) == count, "under Reduce Motion nothing should fly")
-
-        // Land the wisp alone: its flight layer goes, its impact plays its two frames once, and then nothing is left.
-        let lone = TrackerFlightOverlay(avatar: handle, sprites: { sprites }, workerLogFrame: { panel })
-        lone.frame = root.bounds
-        root.addSubview(lone)
-        lone.fly(TrackerSpellFlight(spell: .wisp, from: .worker("qm-2"), to: .avatar))
-        // Poll for the landing instead of sleeping a fixed time: a slow runner's run loop can be late, which put a fixed check
-        // either before the impact arrived or after it had gone.
-        let landedBy = Date().addingTimeInterval(Motion.duration(.flight) + 2)
-        while Date() < landedBy, lone.layer?.sublayers?.first?.animation(forKey: "spell-impact") == nil {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        }
-        guard let impact = lone.layer?.sublayers?.first, lone.layer?.sublayers?.count == 1,
-              let burst = impact.animation(forKey: "spell-impact") as? CAKeyframeAnimation else {
-            throw TestFailure("a wisp that has landed should leave only its impact, playing, got \(lone.layer?.sublayers?.count ?? -1) layers")
-        }
-        try expect(burst.values?.count == 3 && burst.calculationMode == .discrete && burst.repeatCount == 0 && burst.repeatDuration == 0 && burst.duration == 0.2,
-                   "the impact should play its two frames once, over its track's 0.2 s, with the last key holding the final frame")
-        try expect(impact.transform.m11 == 1, "the impact is a burst, not mirrored")
-        let goneBy = Date().addingTimeInterval(2)
-        while Date() < goneBy, !(lone.layer?.sublayers ?? []).isEmpty {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        }
-        try expect((lone.layer?.sublayers ?? []).isEmpty, "the impact should go when its frames have played, so nothing keeps running after a spell lands")
-    }
-
-    /// A still whose file says which way it faces is mirrored on a flight that heads the other way, so its head leads, and isn't on one
-    /// that heads the same way. It rides its centre and trails behind it. A still that doesn't say is never mirrored.
-    @MainActor
-    private static func testAStillThatSaysWhichWayItFacesLeadsWithItsHead() throws {
-        let folder = try syntheticClassFolder()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let file = folder.appendingPathComponent("animation.json")
-        guard var object = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any],
-              var spells = object["spells"] as? [String: Any] else {
-            throw TestFailure("the synthetic class's animation.json should read as a JSON object with spells")
-        }
-        spells["S1-summoning-orb"] = ["faces": "left"]
-        object["spells"] = spells
-        let animation = try TrackerAvatarAnimation(data: JSONSerialization.data(withJSONObject: object))
-        let sprites = TrackerAvatarSprites(classID: "synthetic", animation: animation, folder: folder)
-        guard let orb = sprites.flight(for: .orb) else {
-            throw TestFailure("the synthetic orb should have its still")
-        }
-        try expect(orb.track == nil && orb.drawnFacing == .left && orb.anchor == CGPoint(x: 2, y: 2), "the orb should be a still that faces left, centred")
-        try expect(orb.trailPixels == 2, "a still facing left trails on its right side, got \(orb.trailPixels)")
-        let stage = flightStage(for: sprites)
-        Motion.reducesMotion = { false }
-        let heading = try flownSpell(TrackerSpellFlight(spell: .orb, from: .avatar, to: .worker("qm-2")), by: stage.overlay)
-        try expect(heading.transform.m11 == -1, "an orb facing left that heads right should be mirrored, got m11 \(heading.transform.m11)")
-        let returning = try flownSpell(TrackerSpellFlight(spell: .orb, from: .worker("qm-2"), to: .avatar), by: stage.overlay)
-        try expect(returning.transform.m11 == 1, "an orb facing left that heads left should be drawn as it is, got m11 \(returning.transform.m11)")
-    }
-
-    /// Every bundled class's still flights lead with their heads on their paths. Only the returning wisp flies left; the orb and the
-    /// messenger fly right. How each still is drawn is read from the art: the necromancer's, the sorcerer's and the fighter's wisps face left already, and every
-    /// other still faces right, so a wisp that faces right needs its file to say so (`faces`) to be mirrored on its way back.
-    @MainActor
-    private static func testEveryBundledStillLeadsWithItsHeadOnItsPath() throws {
-        let drawnLeft: Set<String> = ["necromancer S6-returning-wisp", "sorcerer S6-returning-wisp", "fighter S6-returning-wisp"]
-        for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
-            for spell in TrackerSpellFlight.Spell.allCases {
-                guard let art = sprites.flight(for: spell) else {
-                    throw TestFailure("the \(classID)'s \(spell.resourceName) should have its flight art")
-                }
-                let drawn: TrackerAvatarFacing = drawnLeft.contains("\(classID) \(spell.resourceName)") ? .left : .right
-                let path: TrackerAvatarFacing = spell == .wisp ? .left : .right
-                let mirrored = art.isMirrored(headsLeft: path == .left)
-                let shown: TrackerAvatarFacing = mirrored ? (drawn == .left ? .right : .left) : drawn
-                try expect(shown == path, "the \(classID)'s \(spell.resourceName) is drawn facing \(drawn) and flies \(path), so it should lead with its head, but it shows facing \(shown)")
-            }
-        }
-    }
-
-    /// A frame a spell's file plays that has no art is missing, as a pose's is: the spell can't be drawn, and the check names it.
-    @MainActor
-    private static func testASpellFrameWithoutArtIsMissing() throws {
-        let folder = try syntheticClassFolder()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let complete = try syntheticSpellSprites(in: folder)
-        try expect(complete.animation.spell(.wisp)?.flight?.steps.count == 3, "the synthetic wisp should fly three frames")
-        let spellMissing = missingFrames(of: complete).filter { $0.hasPrefix("S") }
-        try expect(spellMissing.isEmpty, "the synthetic spells should have all their art, missing: \(spellMissing)")
-        try FileManager.default.removeItem(at: folder.appendingPathComponent("S6-returning-wisp-flight-f2.png"))
-        try FileManager.default.removeItem(at: folder.appendingPathComponent("S1-summoning-orb-impact.png"))
-        let damaged = try syntheticSpellSprites(in: folder)
-        try expect(damaged.flight(for: .wisp) == nil, "a wisp missing a flight frame should have no flight art")
-        try expect(damaged.impact(for: .orb) == nil, "an orb missing its impact still should have no impact art")
-        let missing = missingFrames(of: damaged).filter { $0.hasPrefix("S") }
-        try expect(missing == ["S1-summoning-orb impact still", "S6-returning-wisp flight f2"],
-                   "the check should name each spell frame without art, got \(missing)")
-    }
-
-    /// The stage reads each payload's spawn, message and report, and launches the spell each one flies, in order. Its clock is the
-    /// test's own, so the spawn's summoning has time to show before the orb leaves.
-    @MainActor
-    private static func testTheStageLaunchesEachSpellFromItsPayloads() throws {
+    private static func testTheStagePlaysEachCueFromItsPayloads() throws {
         final class Clock {
             var now: TimeInterval = 0
         }
@@ -2123,26 +1864,26 @@ enum LogicSelfTests {
                                 "last_exchange": ["kind": "instructions", "at": "2026-10-30T13:26:05.000001Z"]])
         let reported = try row(["id": "qm-w", "title": "Ember", "session_type": "worker", "parent_id": "qm-m",
                                 "last_exchange": ["kind": "report", "at": "2026-10-30T13:26:09.000001Z"]])
-        guard let wizardSummoning = TrackerAvatarSprites.bundled()["wizard"]?.animation.animation(for: .summoning) else {
-            throw TestFailure("the wizard's sprites should load from the app bundle")
+        func sessions(at time: TimeInterval) -> [TrackerSession] {
+            switch time {
+            case ..<1: [master]
+            case ..<6: [master, worker]
+            case ..<10: [master, messaged]
+            default: [master, reported]
+            }
         }
-        let summoning = (wizardSummoning.enter?.seconds ?? 0) + (wizardSummoning.loop?.seconds ?? 0) + (wizardSummoning.finish?.seconds ?? 0)
-
-        var launched: [TrackerSpellFlight] = []
-        stage.onLaunch = { launched.append($0) }
-        stage.observe(sessions: [master], attachedID: "qm-m")
-        clock.now = 1
-        stage.observe(sessions: [master, worker], attachedID: "qm-m")
-        clock.now = 1 + summoning + 0.01
-        stage.observe(sessions: [master, worker], attachedID: "qm-m")
-        clock.now = 5
-        stage.observe(sessions: [master, messaged], attachedID: "qm-m")
-        clock.now = 9
-        stage.observe(sessions: [master, reported], attachedID: "qm-m")
-        clock.now = 10
-        stage.observe(sessions: [master, reported], attachedID: "qm-m")
-        let spells = launched.map(\.spell)
-        try expect(spells == [.orb, .messenger, .wisp], "each payload should launch its spell once, got \(spells)")
+        var cues: [TrackerAvatarPose?] = []
+        var beat = stage.beat
+        for step in 0...280 {
+            clock.now = Double(step) * 0.05
+            stage.observe(sessions: sessions(at: clock.now), attachedID: "qm-m")
+            if stage.beat != beat {
+                beat = stage.beat
+                cues.append(stage.pose)
+            }
+        }
+        try expect(cues == [.summoning, .release, .release, .catching],
+                   "the spawn, the message and the report should play the summoning, the release, the release and the catch, got \(cues)")
     }
 
     /// The character layer of the avatar's shown frame rig: the figure's first layer, under the rig's root.
@@ -2170,11 +1911,7 @@ enum LogicSelfTests {
         }
         try expect(sprites.animation.animation(for: .idle)?.loop != nil, "the bard's idle should be a strumming loop")
         try expect(sprites.animation.idle == nil && sprites.animation.fidgets.isEmpty, "the bard's looping idle should have no idle layers or fidgets")
-        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
-                   "the bard's release should have a hand")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the bard's art")
-        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
-                   "the bard should have the art of all three spells")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the bard's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the bard's file plays should have its art, missing: \(missing)")
     }
@@ -2189,9 +1926,7 @@ enum LogicSelfTests {
         try expect(sprites.availableFidgets.count == 2, "both of the wizard's fidgets should have their art")
         try expect(sprites.idleBreathingArt?.count == 6, "the wizard's breathing track should load every image and lid stencil")
         try expect(sprites.idleStillArt != nil, "the wizard should have a still idle image")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the wizard's art")
-        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
-                   "the wizard should have the art of all three spells")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the wizard's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the wizard's file plays should have its art, missing: \(missing)")
     }
@@ -2207,11 +1942,7 @@ enum LogicSelfTests {
         try expect(sprites.animation.fidgets.map(\.name) == ["shrug"], "the paladin should have the shrug fidget")
         try expect(sprites.availableFidgets.count == 1, "the paladin's fidget should have its art")
         try expect(sprites.idleStillArt != nil, "the paladin should have a still idle image")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the paladin's art")
-        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
-                   "the paladin should have the art of all three spells")
-        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
-                   "the paladin's release should have a hand")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the paladin's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the paladin's file plays should have its art, missing: \(missing)")
     }
@@ -2243,9 +1974,7 @@ enum LogicSelfTests {
                    "the rogue should have the flip and glance fidgets, with their art")
         try expect(breathing.frames.allSatisfy { Set($0.lidPixels.map(\.y)).count > 1 },
                    "the rogue's blink stencils should preserve their multi-row pixels")
-        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0)?.drawnFacing == .right },
-                   "the rogue's three authored spells should face right before their paths mirror them")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil },
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil },
                    "every pose should have the rogue's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the rogue's file plays should have its art, missing: \(missing)")
@@ -2261,17 +1990,13 @@ enum LogicSelfTests {
         try expect(sprites.animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
         try expect(sprites.availableFidgets.count == 1, "the cleric's fidget should have its art")
         try expect(sprites.idleStillArt != nil, "the cleric should have a still idle image")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the cleric's art")
-        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
-                   "the cleric should have the art of all three spells")
-        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
-                   "the cleric's release should have a hand")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the cleric's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the cleric's file plays should have its art, missing: \(missing)")
     }
 
     /// The ranger's sprites load from the app bundle: his breathing plays its authored steps up and back down with their eyelid
-    /// stencils, he never blinks, and all three spells have their frame art.
+    /// stencils, and he never blinks.
     @MainActor
     private static func testBundledRangerSpritesReadTheirAnimationFile() throws {
         guard let sprites = TrackerAvatarSprites.bundled()["ranger"] else {
@@ -2282,69 +2007,9 @@ enum LogicSelfTests {
                    "the ranger should load all sixteen breathing steps and their lid stencils")
         try expect(sprites.animation.fidgets.map(\.name) == ["scarf-tug"], "the ranger should have the scarf-tug fidget")
         try expect(sprites.availableFidgets.count == 1, "the ranger's fidget should have its art")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the ranger's art")
-        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
-                   "the ranger should have the frame art of all three spells")
-        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
-                   "the ranger's release should have a hand")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the ranger's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the ranger's file plays should have its art, missing: \(missing)")
-    }
-
-    /// The bard's three spells are frame tracks drawn facing right: each has flight and impact art, no still is left, and the wisp is
-    /// mirrored on its way back because its file says which way it faces.
-    @MainActor
-    private static func testBundledBardSpellsPlayFramesFacingRight() throws {
-        guard let sprites = TrackerAvatarSprites.bundled()["bard"] else {
-            throw TestFailure("the bard's sprites should load from the app bundle")
-        }
-        for spell in TrackerSpellFlight.Spell.allCases {
-            let track = sprites.animation.spell(spell)
-            try expect(track?.flight != nil && track?.impact != nil,
-                       "the bard's \(spell.resourceName) should play flight and impact frames")
-            try expect(track?.faces == .right, "the bard's \(spell.resourceName) should say it is drawn facing right")
-            try expect(sprites.flight(for: spell) != nil && sprites.impact(for: spell) != nil,
-                       "the bard's \(spell.resourceName) should have its flight and impact art")
-            let folder = AppSymbolStyle.resourceBundle().resourceURL?.appendingPathComponent("Sprites/bard", isDirectory: true)
-            let stills = ["flight", "impact"].map { folder?.appendingPathComponent("\(spell.resourceName)-\($0).png").path ?? "" }
-            try expect(stills.allSatisfy { !FileManager.default.fileExists(atPath: $0) }, "the bard's \(spell.resourceName) should have no still left")
-        }
-        guard let wisp = sprites.flight(for: .wisp) else {
-            throw TestFailure("the bard's wisp should have its flight art")
-        }
-        try expect(wisp.isMirrored(headsLeft: true) && !wisp.isMirrored(headsLeft: false), "the bard's wisp should be mirrored only on its way back")
-        let missing = missingFrames(of: sprites)
-        try expect(missing.isEmpty, "every frame the bard's file plays should have its art, missing: \(missing)")
-    }
-
-    /// The barbarian's axe and the wizard's rune star are frame tracks drawn facing right: the wisp has flight and impact art and no still
-    /// left, and is mirrored only on its way back. Their orb and messenger keep their stills.
-    @MainActor
-    private static func testBundledBarbarianAndWizardWispsPlayFramesFacingRight() throws {
-        for classID in ["barbarian", "wizard"] {
-            guard let sprites = TrackerAvatarSprites.bundled()[classID] else {
-                throw TestFailure("the \(classID)'s sprites should load from the app bundle")
-            }
-            let track = sprites.animation.spell(.wisp)
-            try expect(track?.flight != nil && track?.impact != nil, "the \(classID)'s wisp should play flight and impact frames")
-            try expect(track?.faces == .right, "the \(classID)'s wisp should say it is drawn facing right")
-            let folder = AppSymbolStyle.resourceBundle().resourceURL?.appendingPathComponent("Sprites/\(classID)", isDirectory: true)
-            let stills = ["flight", "impact"].map { folder?.appendingPathComponent("S6-returning-wisp-\($0).png").path ?? "" }
-            try expect(stills.allSatisfy { !FileManager.default.fileExists(atPath: $0) }, "the \(classID)'s wisp should have no still left")
-            for spell in [TrackerSpellFlight.Spell.orb, .messenger] {
-                let frames = sprites.animation.spell(spell)
-                try expect(frames?.flight != nil && frames?.impact != nil, "the \(classID)'s \(spell.resourceName) should play flight and impact frames")
-                try expect(frames?.faces == nil, "the \(classID)'s \(spell.resourceName) frames should face right by default and say nothing")
-                let spellStills = ["flight", "impact"].map { folder?.appendingPathComponent("\(spell.resourceName)-\($0).png").path ?? "" }
-                try expect(spellStills.allSatisfy { !FileManager.default.fileExists(atPath: $0) }, "the \(classID)'s \(spell.resourceName) should have no still left")
-            }
-            guard let wisp = sprites.flight(for: .wisp), sprites.impact(for: .wisp) != nil else {
-                throw TestFailure("the \(classID)'s wisp should have its flight and impact art")
-            }
-            try expect(wisp.isMirrored(headsLeft: true) && !wisp.isMirrored(headsLeft: false), "the \(classID)'s wisp should be mirrored only on its way back")
-            let missing = missingFrames(of: sprites)
-            try expect(missing.isEmpty, "every frame the \(classID)'s file plays should have its art, missing: \(missing)")
-        }
     }
 
     /// The druid's bubble sits at her left, so it says its tail points right, and the rig draws it flipped at the same box.
@@ -2364,7 +2029,7 @@ enum LogicSelfTests {
     }
 
     /// The sorcerer's sprites load from the app bundle: her breathing plays its eight authored steps, each with a lid stencil, she blinks
-    /// in her own lid colour, her bubble's tail points at her, and her spells have frame art.
+    /// in her own lid colour, and her bubble's tail points at her.
     @MainActor
     private static func testBundledSorcererSpritesReadTheirAnimationFile() throws {
         guard let sprites = TrackerAvatarSprites.bundled()["sorcerer"] else {
@@ -2377,17 +2042,13 @@ enum LogicSelfTests {
         try expect(sprites.idleBreathingArt?.allSatisfy { $0.lids != nil } == true, "every sorcerer breathing frame should carry a blink stencil")
         try expect(sprites.animation.fidgets.map(\.name) == ["hair-flick"] && sprites.availableFidgets.count == 1,
                    "the sorcerer should have the hair-flick fidget with its art")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the sorcerer's art")
-        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
-                   "the sorcerer should have the frame art of all three spells")
-        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
-                   "the sorcerer's release should have a hand")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the sorcerer's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the sorcerer's file plays should have its art, missing: \(missing)")
     }
 
     /// The fighter's sprites load from the app bundle: his breathing plays its nine authored steps, each with a lid stencil, he blinks in his
-    /// own lid colour, his bubble's tail points at him, and his three spells have frame art.
+    /// own lid colour, and his bubble's tail points at him.
     @MainActor
     private static func testBundledFighterSpritesReadTheirAnimationFile() throws {
         guard let sprites = TrackerAvatarSprites.bundled()["fighter"] else {
@@ -2400,11 +2061,7 @@ enum LogicSelfTests {
         try expect(sprites.idleBreathingArt?.allSatisfy { $0.lids != nil } == true, "every fighter breathing frame should carry a blink stencil")
         try expect(sprites.animation.fidgets.map(\.name) == ["sword-lowered-gaze"] && sprites.availableFidgets.count == 1,
                    "the fighter should have the sword-lowered gaze fidget with its art")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the fighter's art")
-        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
-                   "the fighter should have the frame art of all three spells")
-        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
-                   "the fighter's release should have a hand")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the fighter's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the fighter's file plays should have its art, missing: \(missing)")
     }
@@ -2492,7 +2149,7 @@ enum LogicSelfTests {
     }
 
     /// The necromancer's sprites load from the app bundle: his breathing plays its authored steps with their eyelid stencils,
-    /// he never blinks, and all three spells have their frame art.
+    /// and he never blinks.
     @MainActor
     private static func testBundledNecromancerSpritesReadTheirAnimationFile() throws {
         guard let sprites = TrackerAvatarSprites.bundled()["necromancer"] else {
@@ -2503,11 +2160,7 @@ enum LogicSelfTests {
                    "the necromancer should load all seven breathing steps and their lid stencils")
         try expect(sprites.animation.fidgets.map(\.name) == ["cough"], "the necromancer should have the cough fidget")
         try expect(sprites.availableFidgets.count == 1, "the necromancer's fidget should have its art")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the necromancer's art")
-        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
-                   "the necromancer should have the frame art of all three spells")
-        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
-                   "the necromancer's release should have a hand")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the necromancer's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the necromancer's file plays should have its art, missing: \(missing)")
     }
@@ -2800,7 +2453,7 @@ enum LogicSelfTests {
         }
     }
 
-    /// The frames a class's file plays that have no art, as `pose layer fN` names, and the spells' frames and stills.
+    /// The frames a class's file plays that have no art, as `pose layer fN` names.
     @MainActor
     private static func missingFrames(of sprites: TrackerAvatarSprites) -> [String] {
         var missing: [String] = []
@@ -2821,16 +2474,6 @@ enum LogicSelfTests {
                     for step in block.track(for: layer)?.steps ?? [] where sprites.frame(pose, layer, step.frame) == nil {
                         missing.append("\(pose.resourceName) \(layer.rawValue) f\(step.frame)")
                     }
-                }
-            }
-        }
-        for spell in TrackerSpellFlight.Spell.allCases {
-            let animation = sprites.animation.spell(spell)
-            for part in TrackerSpellPart.allCases {
-                let track = part == .flight ? animation?.flight : animation?.impact
-                // A part with a track plays one frame per step; one without keeps its still.
-                for number in track?.steps.map(\.frame) ?? [nil] where sprites.spellFrame(spell, part, number) == nil {
-                    missing.append("\(spell.resourceName) \(part.rawValue) \(number.map { "f\($0)" } ?? "still")")
                 }
             }
         }
@@ -2881,14 +2524,6 @@ enum LogicSelfTests {
         release["strike_frame"] = 3
         poses["08-release"] = release
         json["poses"] = poses
-        json["spells"] = [
-            "S6-returning-wisp": [
-                "flight": [[1, 0.1], [2, 0.1], [3, 0.2]],
-                "impact": [[1, 0.1], [2, 0.1]],
-                "anchor": ["x": 7, "y": 2],
-            ],
-            "S2-messenger": ["flight": [[1, 0.1], [2, 0.1]]],
-        ]
         try JSONSerialization.data(withJSONObject: json).write(to: folder.appendingPathComponent("animation.json"))
         for number in 1...3 {
             try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("09-summoning-f\(number).png"))
@@ -2899,18 +2534,6 @@ enum LogicSelfTests {
         try writeSolidFrame(0.3, to: folder.appendingPathComponent("11-calling-out-f3.png"))
         for number in 1...4 {
             try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("08-release-f\(number).png"))
-        }
-        // The spells' art, each canvas its own size: the wisp's flight 8 by 4 and its impact 6 by 6, the messenger's flight 6 by 4, and
-        // the stills 4 by 4.
-        for number in 1...3 {
-            try writeSolidFrame(Double(number) / 10, width: 8, height: 4, to: folder.appendingPathComponent("S6-returning-wisp-flight-f\(number).png"))
-        }
-        for number in 1...2 {
-            try writeSolidFrame(Double(number) / 10, width: 6, height: 6, to: folder.appendingPathComponent("S6-returning-wisp-impact-f\(number).png"))
-            try writeSolidFrame(Double(number) / 10, width: 6, height: 4, to: folder.appendingPathComponent("S2-messenger-flight-f\(number).png"))
-        }
-        for still in ["S2-messenger-impact", "S1-summoning-orb-flight", "S1-summoning-orb-impact"] {
-            try writeSolidFrame(0.5, width: 4, height: 4, to: folder.appendingPathComponent("\(still).png"))
         }
         for number in 1...8 {
             try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("11-calling-out-front-f\(number).png"))

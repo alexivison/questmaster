@@ -10,48 +10,10 @@ public enum TrackerAvatarTiming {
     public static let minimumBowWorkSeconds: TimeInterval = 60
 }
 
-/// A spell's path across the tracker column. The spell's art is in its class's folder, `Resources/Sprites/<class>/`.
-public struct TrackerSpellFlight: Equatable {
-    public enum Spell: Hashable, CaseIterable, Sendable {
-        /// The summoning orb (`S1`), from the avatar to a new worker's plate.
-        case orb
-        /// The messenger (`S2`), from the avatar to a worker's plate.
-        case messenger
-        /// The returning wisp (`S6`), from a worker's plate to the avatar.
-        case wisp
-
-        /// The art's file stem in a class's folder, and the spell's key in `animation.json`: `S6-returning-wisp-flight.png`.
-        public var resourceName: String {
-            switch self {
-            case .orb: "S1-summoning-orb"
-            case .messenger: "S2-messenger"
-            case .wisp: "S6-returning-wisp"
-            }
-        }
-    }
-
-    public enum End: Equatable {
-        case avatar
-        case worker(String)
-    }
-
-    public let spell: Spell
-    public let from: End
-    public let to: End
-
-    public init(spell: Spell, from: End, to: End) {
-        self.spell = spell
-        self.from = from
-        self.to = to
-    }
-}
-
-/// What the avatar shows at one instant, and the spells that started since the last frame.
+/// What the avatar shows at one instant.
 public struct TrackerAvatarFrame: Equatable {
     /// The pose on screen; nil when the attached session shows no avatar.
     public let pose: TrackerAvatarPose?
-    /// The spell flights that began since the last frame, in order.
-    public let launches: [TrackerSpellFlight]
     /// When the frame changes on its own, so the view knows when to ask again; nil when it won't.
     public let nextChange: TimeInterval?
     /// How many pose beats have started so far. A beat on the same pose as the one before still starts afresh, so the view
@@ -65,7 +27,7 @@ public struct TrackerAvatarFrame: Equatable {
     public let enterElapsed: TimeInterval?
 }
 
-/// Decides the class avatar's pose and its spell flights. It is pure: the view feeds it the attached session and the
+/// Decides the class avatar's pose. It is pure: the view feeds it the attached session and the
 /// events, and asks for a frame at a clock time. Times are seconds from one clock, the same one each call uses, and that
 /// clock is the wall clock, so a session's own working start (its `elapsedSince`) can be compared with it.
 ///
@@ -87,36 +49,21 @@ public struct TrackerAvatarFrame: Equatable {
 ///   its enter, and Reduce Motion skips it.
 /// - A steady pose with a `finish` plays it when it leaves for another pose, once the hold has run, and the new pose shows (on its
 ///   own enter, if it has one) when the finish ends. A pose without a finish snaps, and Reduce Motion skips it.
-/// - Events play as cues, one after another: a cue is a few beats, each holding a pose and maybe starting a spell. A cue waits
+/// - Events play as cues, one after another: a cue is one or two beats, each holding a pose. A cue waits
 ///   for an enter, a finish or a bow on screen to end, then leaves a loop through the loop's finish before its first beat. The loop
 ///   doesn't come back after the cues: the pose wanted then shows on its enter. At most `queueCapacity` cues wait behind the one playing; a
 ///   burst past that drops the newest.
-/// - A spawn casts the summoning first: its enter, one loop cycle and its finish, on one beat, then the release with the orb. When
-///   the summoning is on screen already (its command is still running), the release waits for that summoning to finish instead.
-/// - A pose whose file names its strike frame has an entrance before the strike, and the spell keeps to the strike. A release
-///   launches its spell (orb or messenger) as the strike begins, not as the beat does, and the beat keeps its length. A report's
-///   catch starts early, as the wisp is still flying, so its strike begins as the wisp lands: the wisp's beat is the flight less the
-///   catch's lead-in, and a flight shorter than the lead-in starts both together and lands on time all the same. A file that names no
-///   strike frame has no lead-in, and the spell leaves with the beat and the catch follows the landing.
-/// - Under Reduce Motion the poses still play, but no spell flies.
+/// - A spawn casts the summoning first: its enter, one loop cycle and its finish, on one beat, then the release. When the summoning
+///   is on screen already (its command is still running), the release waits for that summoning to finish instead. A message plays
+///   the release, and a worker's report plays the catch as it arrives.
 public struct TrackerAvatarDirector {
     public static let queueCapacity = 4
 
-    /// One step of a cue: a pose held for `seconds` (nil keeps the steady pose), and a spell that starts with it. A cast's beat
-    /// plays its enter, one loop cycle and its finish, in that order.
+    /// One step of a cue: a pose held for `seconds`. A cast's beat plays its enter, one loop cycle and its finish, in that order.
     private struct Beat: Equatable {
-        let pose: TrackerAvatarPose?
+        let pose: TrackerAvatarPose
         let seconds: TimeInterval
-        let flight: TrackerSpellFlight?
-        /// How long into the beat the spell leaves: the pose's entrance, when its file names a strike frame. Less than `seconds`.
-        var launchAfter: TimeInterval = 0
         var cast: CastCue?
-    }
-
-    /// A spell that waits for its time within the beat on screen.
-    private struct DelayedLaunch: Equatable {
-        let flight: TrackerSpellFlight
-        let at: TimeInterval
     }
 
     /// The phases of a cast on its beat, in seconds: its enter, one loop cycle, then its finish.
@@ -156,9 +103,6 @@ public struct TrackerAvatarDirector {
     private var slotFreeAt: TimeInterval = 0
     private var beatPose: TrackerAvatarPose?
     private var beatEnd: TimeInterval?
-    private var launches: [TrackerSpellFlight] = []
-    /// The beat's spell, while the beat's pose is still entering. It launches at its time, and no later than the beat's end.
-    private var delayedLaunch: DelayedLaunch?
     private var beatCount = 0
     /// A steady pose's finish in progress: its tracks play from `startedAt`, and the pose wanted then shows when they end.
     private var finishing: Finish?
@@ -206,21 +150,18 @@ public struct TrackerAvatarDirector {
         guard let animation, queued.count + waitingForSummoning.count < Self.queueCapacity else {
             return
         }
-        if case .spawned(let worker) = event, steadyShown == .summoning {
-            waitingForSummoning.append([release(.orb, to: worker, animation)])
+        if case .spawned = event, steadyShown == .summoning {
+            waitingForSummoning.append([release(animation)])
             return
         }
         enqueue(cue(for: event, animation: animation), at: now)
     }
 
-    /// The frame at `now`. Each spell that began since the last frame comes out once.
+    /// The frame at `now`.
     public mutating func frame(at now: TimeInterval) -> TrackerAvatarFrame {
         advance(to: now)
-        let started = launches
-        launches = []
         return TrackerAvatarFrame(
             pose: beatPose ?? steadyShown,
-            launches: started,
             nextChange: nextChange(after: now),
             beat: beatCount,
             finishElapsed: finishElapsed(at: now),
@@ -237,7 +178,6 @@ public struct TrackerAvatarDirector {
         beatPose = nil
         beatEnd = nil
         beatCast = nil
-        delayedLaunch = nil
         finishing = nil
         rest = nil
         bowPending = false
@@ -280,19 +220,12 @@ public struct TrackerAvatarDirector {
 
     private func cue(for event: TrackerAvatarEvent, animation: TrackerAvatarAnimation) -> [Beat] {
         switch event {
-        case .spawned(let worker):
-            return [summoningCast(animation), release(.orb, to: worker, animation)]
-        case .messaged(let worker):
-            return [release(.messenger, to: worker, animation)]
-        case .reported(let worker):
-            let catchLeadIn = animation.animation(for: .catching)?.strikeLeadIn ?? 0
-            let wisp = TrackerSpellFlight(spell: .wisp, from: .worker(worker), to: .avatar)
-            return [
-                // The flight lasts `MotionStep.flight` however early the catch starts, so a lead-in longer than it only starts the catch
-                // with the wisp: the wisp's beat can't be shorter than nothing.
-                Beat(pose: nil, seconds: max(0, MotionStep.flight.seconds - catchLeadIn), flight: wisp),
-                Beat(pose: .catching, seconds: animation.onceSeconds(for: .catching), flight: nil),
-            ]
+        case .spawned:
+            return [summoningCast(animation), release(animation)]
+        case .messaged:
+            return [release(animation)]
+        case .reported:
+            return [Beat(pose: .catching, seconds: animation.onceSeconds(for: .catching))]
         }
     }
 
@@ -304,43 +237,23 @@ public struct TrackerAvatarDirector {
             loop: summoning?.loop?.seconds ?? 0,
             finish: summoning?.finish?.seconds ?? 0
         )
-        return Beat(pose: .summoning, seconds: cast.enter + cast.loop + cast.finish, flight: nil, cast: cast)
+        return Beat(pose: .summoning, seconds: cast.enter + cast.loop + cast.finish, cast: cast)
     }
 
-    /// A release that launches `spell` from the avatar to a worker's plate, as the strike begins.
-    private func release(_ spell: TrackerSpellFlight.Spell, to worker: String, _ animation: TrackerAvatarAnimation) -> Beat {
-        Beat(
-            pose: .release,
-            seconds: animation.onceSeconds(for: .release),
-            flight: TrackerSpellFlight(spell: spell, from: .avatar, to: .worker(worker)),
-            launchAfter: animation.animation(for: .release)?.strikeLeadIn ?? 0
-        )
+    /// The release's beat: its one-shot.
+    private func release(_ animation: TrackerAvatarAnimation) -> Beat {
+        Beat(pose: .release, seconds: animation.onceSeconds(for: .release))
     }
 
     /// Queues a cue. The clock moves to `now` first, so a cue that arrives after an idle gap starts now, not at the end of
     /// the beat before it.
     private mutating func enqueue(_ cue: [Beat], at now: TimeInterval) {
         advance(to: now)
-        let beats = cue.compactMap(withMotion)
-        guard !beats.isEmpty else {
-            return
-        }
         if beatEnd == nil, !hasBeats {
             slotFreeAt = now
         }
-        queued.append(beats)
+        queued.append(cue)
         advance(to: now)
-    }
-
-    /// Under Reduce Motion a spell doesn't fly: its flight goes, and a beat that was only a flight goes with it.
-    private func withMotion(_ beat: Beat) -> Beat? {
-        guard reducesMotion else {
-            return beat
-        }
-        guard beat.pose != nil else {
-            return nil
-        }
-        return Beat(pose: beat.pose, seconds: beat.seconds, flight: nil)
     }
 
     /// Ends the beats that are over, starts the next ones, and applies the steady pose once it has held. A finish that has played ends
@@ -351,7 +264,6 @@ public struct TrackerAvatarDirector {
         while let end = beatEnd, now >= end {
             startBeat(at: end)
         }
-        launchDelayedFlight(at: now)
         endFinish(at: now)
         startQueuedBeat(at: now)
         updateBow(at: now)
@@ -397,8 +309,6 @@ public struct TrackerAvatarDirector {
     /// the avatar goes back to the steady pose and the beat waits for that block to end. Calling out may come on screen first: it
     /// doesn't wait behind the cues. With nothing left, the avatar falls back to its steady pose, which may now change.
     private mutating func startBeat(at start: TimeInterval) {
-        // The beat before is over, and its spell left by its end.
-        launchDelayedFlight(at: start)
         beatPose = nil
         beatEnd = nil
         beatCast = nil
@@ -423,25 +333,7 @@ public struct TrackerAvatarDirector {
         beatEnd = start + beat.seconds
         beatCast = beat.cast
         beatStartedAt = start
-        if beat.pose != nil {
-            beatCount += 1
-        }
-        if let flight = beat.flight {
-            if beat.launchAfter > 0 {
-                delayedLaunch = DelayedLaunch(flight: flight, at: start + beat.launchAfter)
-            } else {
-                launches.append(flight)
-            }
-        }
-    }
-
-    /// Launches the beat's waiting spell once its time has come.
-    private mutating func launchDelayedFlight(at now: TimeInterval) {
-        guard let delayedLaunch, now >= delayedLaunch.at else {
-            return
-        }
-        launches.append(delayedLaunch.flight)
-        self.delayedLaunch = nil
+        beatCount += 1
     }
 
     /// The bow's length: its one-shot's. With no attached avatar there is no bow to time.
@@ -529,11 +421,10 @@ public struct TrackerAvatarDirector {
         }
         if steadyShown == .summoning, pose != .summoning {
             // The summoning is over (its finish, if any, has played): the spawns that waited on it release now.
-            let released = waitingForSummoning.map { $0.compactMap(withMotion) }.filter { !$0.isEmpty }
-            if beatEnd == nil, !hasBeats, !released.isEmpty {
+            if beatEnd == nil, !hasBeats, !waitingForSummoning.isEmpty {
                 slotFreeAt = time
             }
-            queued += released
+            queued += waitingForSummoning
             waitingForSummoning = []
         }
         steadyShown = pose
@@ -586,15 +477,12 @@ public struct TrackerAvatarDirector {
         return now >= start ? now - start : nil
     }
 
-    /// When the state next changes on its own, after `now`: a beat ends, a release's spell leaves, a finish moves to its next step or
-    /// ends, the hold runs out, the enter moves to its next step or ends, or the bow's time is up.
+    /// When the state next changes on its own, after `now`: a beat ends, a finish moves to its next step or ends, the hold runs out,
+    /// the enter moves to its next step or ends, or the bow's time is up.
     private func nextChange(after now: TimeInterval) -> TimeInterval? {
         var changes: [TimeInterval] = []
         if let beatEnd {
             changes.append(beatEnd)
-        }
-        if let delayedLaunch {
-            changes.append(delayedLaunch.at)
         }
         if let cast = beatCast {
             changes.append(beatStartedAt + cast.enter)

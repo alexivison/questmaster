@@ -1,6 +1,6 @@
 # Motion
 
-Every one-shot transition takes a step from the motion tokens, so the app moves at three paces on one easing. A view never
+Every one-shot transition takes a step from the motion tokens, so the app moves at two paces on one easing. A view never
 states a duration or a curve. Core holds the numbers (`MotionStep`, `MotionEasing` in `Core/Rendering/Motion.swift`), the
 App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.swift`).
 
@@ -8,7 +8,6 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 |---|---|---|
 | `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade, a modal's scale back on close |
 | `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in and scale-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
-| `MotionStep.flight` | 1.0 | a spell travelling across the window, from the class avatar's hand to the Worker Log's edge (or off the window's right edge) or back (an arc that eases out, along a Core Animation position path); the spell's impact frame then holds for this long and fades over `fast` |
 
 - **One easing:** ease out, quick at first and settling, as the cubic Bézier (0, 0, 0.58, 1), the system's own `.easeOut`.
   `Motion.timingFunction` is its Core Animation and AppKit form, `Motion.animation(_:after:)` its SwiftUI form, and
@@ -36,8 +35,8 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   animations (`SpinnerRing`/`WorkingSpinner`, the cast bar's and status ring's fill, pulse and shimmer, the skeleton
   pulses) keep their own periods, named as a `period` or a duration learned at runtime, and are outside the steps. An
   animation that ends, even one of those views' (a flash, an exit, a crossfade), takes a step.
-- **A new transition** picks `fast`, `standard` or `flight`; a step is added to `MotionStep` only for a new pace the app
-  doesn't have yet, never a one-off number. `flight` is the pace of things that cross the window (the class avatar's spells).
+- **A new transition** picks `fast` or `standard`; a step is added to `MotionStep` only for a new pace the app doesn't have
+  yet, never a one-off number.
 - **Selected-session panel:** the disc's icon is the class portrait; a shell, tmux or orphan session shows the shell
   row's terminal glyph (`ShellTerminalGlyph`, scaled with the disc, `textMeta`); no class, or nothing attached, leaves the
   disc empty. The icon fades in once when the attached session or its portrait changes, over `standard`; the old icon goes

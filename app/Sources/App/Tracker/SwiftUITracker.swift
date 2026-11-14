@@ -235,12 +235,10 @@ struct TrackerRootView: View {
     @State private var snapshot: RuntimeSnapshot
     @State private var currentTerminalSessionID: String?
     @State private var runtimeObservation: RuntimeStoreObservation?
-    /// The class avatar's state, owned by the window so the flight overlay (drawn above the whole window) reads the same launches.
-    let avatarStage: TrackerAvatarStage
+    @State private var avatarStage = TrackerAvatarStage()
 
     init(
         store: RuntimeStore,
-        avatarStage: TrackerAvatarStage? = nil,
         navigation: NavigationStore = NavigationStore(state: AppNavigationState(focusedRegion: .tracker)),
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
@@ -248,7 +246,6 @@ struct TrackerRootView: View {
         onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
-        self.avatarStage = avatarStage ?? TrackerAvatarStage()
         self.navigation = navigation
         self.keyboardBridge = keyboardBridge
         self.onEffect = onEffect
@@ -395,8 +392,7 @@ struct TrackerRootView: View {
             fidget: avatarStage.fidgetFrame,
             beat: avatarStage.beat,
             finish: avatarStage.finish,
-            enter: avatarStage.enter,
-            handle: avatarStage.avatar
+            enter: avatarStage.enter
         )
         .padding(.leading, TrackerListMetrics.sidePadding)
         .padding(.bottom, TrackerListMetrics.avatarBannerGap)

@@ -15,9 +15,9 @@ public struct TrackerAvatarMoveStep: Equatable {
 /// each move is a few discrete steps that return to the anchor exactly. The moves are horizontal, so a figure's feet stay on its
 /// baseline. Core decides the steps and their timing; the view plays them.
 public enum TrackerAvatarMotion {
-    /// A release steps this many pixels forward (right, the way he faces) as the spell leaves his hand.
+    /// A release steps this many pixels forward (right, the way he faces) on its strike.
     public static let releaseStepPixels = 3
-    /// A catch recoils this many pixels back (left) as the wisp lands.
+    /// A catch recoils this many pixels back (left) on its strike.
     public static let catchRecoilPixels = 2
 
     /// How far a pose's strike moves it, in pixels right of its anchor: a release steps forward, a catch recoils back. Nil for a pose

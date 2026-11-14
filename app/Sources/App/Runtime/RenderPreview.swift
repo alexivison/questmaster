@@ -2805,31 +2805,6 @@ enum RenderPreview {
         }
     }
 
-    /// The tracker column's avatar under two placeholder plates and a master's, read from the stage. The spells fly in the window
-    /// (`TrackerFlightOverlay`), so this column draws none: the recorder lays the overlay over it. The slot hands its view to the
-    /// stage's handle, which is where the spells leave from.
-    private struct TrackerAvatarColumnPreview: View {
-        let stage: TrackerAvatarStage
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
-                placeholderPlate(height: TrackerNameplateRole.master.canvasSize.height)
-                placeholderPlate(height: TrackerNameplateRole.worker.canvasSize.height)
-                placeholderPlate(height: TrackerNameplateRole.worker.canvasSize.height)
-                TrackerAvatarSlot(pose: stage.pose, sprites: stage.sprites, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish, enter: stage.enter, handle: stage.avatar)
-            }
-            .frame(width: TrackerAvatarMetrics.slotWidth, alignment: .topLeading)
-            .frame(maxHeight: .infinity, alignment: .top)
-            .background(AppPalette.window.swiftUI)
-        }
-
-        private func placeholderPlate(height: CGFloat) -> some View {
-            Rectangle()
-                .fill(AppPalette.line.swiftUI)
-                .frame(width: TrackerAvatarMetrics.slotWidth, height: height)
-        }
-    }
-
     /// The bard's sprites for the avatar previews, read from the app bundle. Without them a preview draws no avatar.
     @MainActor
     private static func previewBardSprites() -> TrackerAvatarSprites? {
@@ -2845,38 +2820,20 @@ enum RenderPreview {
     private static let firstDrawSeconds: TimeInterval = 0.05
 
     /// One avatar timeline, recorded at real speed from the stage: each step drives the stage at its offset from the start.
-    /// The column is recorded with its plates and its spells, flying over a stand-in for the Worker Log on its right (so a flight lands
-    /// on its left edge with its impact, as in the window), otherwise the slot alone. `AVATAR_CLASS` picks the class. Only runs when
-    /// RENDER_ONLY names it.
+    /// `AVATAR_CLASS` picks the class. Only runs when RENDER_ONLY names it.
     @MainActor
-    private static func recordTrackerAvatarTimeline(_ name: String, seconds: Double, column: Bool, steps: [(Double, (TrackerAvatarStage) -> Void)], to dir: String) {
+    private static func recordTrackerAvatarTimeline(_ name: String, seconds: Double, steps: [(Double, (TrackerAvatarStage) -> Void)], to dir: String) {
         guard ProcessInfo.processInfo.environment["RENDER_ONLY"]?.split(separator: ",").contains(Substring(name)) == true else {
             return
         }
         let stage = TrackerAvatarStage()
         // The capture is the container's own bounds, so the room under the slot keeps a circle that hangs below its feet.
-        let size = column
-            ? CGSize(width: TrackerAvatarMetrics.slotWidth + AvatarPreviewMetrics.flightRoom, height: TrackerAvatarMetrics.previewColumnHeight + AvatarPreviewMetrics.overhangRoom)
-            : CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight + AvatarPreviewMetrics.overhangRoom)
-        let host = column
-            ? NSHostingView(rootView: TrackerAvatarColumnPreview(stage: stage))
-            : NSHostingView(rootView: TrackerAvatarSlotPreview(stage: stage))
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight + AvatarPreviewMetrics.overhangRoom)
+        let host = NSHostingView(rootView: TrackerAvatarSlotPreview(stage: stage))
         let container = NSView(frame: NSRect(origin: .zero, size: size))
         host.frame = NSRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: size.height)
         host.autoresizingMask = [.height]
         container.addSubview(host)
-        if column {
-            container.wantsLayer = true
-            container.layer?.backgroundColor = AppPalette.window.cgColor
-            let panel = NSView(frame: NSRect(x: size.width - AvatarPreviewMetrics.panelWidth, y: 0, width: AvatarPreviewMetrics.panelWidth, height: size.height))
-            panel.wantsLayer = true
-            panel.layer?.backgroundColor = AppPalette.line.cgColor
-            container.addSubview(panel)
-            let overlay = TrackerFlightOverlay(avatar: stage.avatar, sprites: { stage.sprites }, workerLogFrame: { panel.frame })
-            overlay.frame = container.bounds
-            container.addSubview(overlay)
-            stage.onLaunch = { [weak overlay] in overlay?.fly($0) }
-        }
         recordAnimation(name, root: container, size: size, crop: CGRect(origin: .zero, size: size), duration: seconds, capturesLayers: true, to: dir) {
             // The first pose lands before the first frame, and a turn of the run loop lets the tracker draw it, so frame 0 shows
             // the rig and not an empty slot. The later steps run on their timers.
@@ -2906,28 +2863,27 @@ enum RenderPreview {
         func feed(_ sessions: [TrackerSession]) -> (TrackerAvatarStage) -> Void {
             { $0.observe(sessions: sessions, attachedID: "qm-m1") }
         }
-        recordTrackerAvatarTimeline("avatar-channelling-effects", seconds: 6, column: false, steps: [(0, feed([channelling]))], to: dir)
-        recordTrackerAvatarTimeline("avatar-pose-switch", seconds: 2.5, column: false, steps: [(0, feed([studying])), (0.5, feed([channelling]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-channelling-effects", seconds: 6, steps: [(0, feed([channelling]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-pose-switch", seconds: 2.5, steps: [(0, feed([studying])), (0.5, feed([channelling]))], to: dir)
         // The cast loops for its hold, plays its finish once, then pondering snaps in.
-        recordTrackerAvatarTimeline("avatar-cast-finish", seconds: 4, column: false, steps: [(0, feed([channelling])), (2, feed([master]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-cast-finish", seconds: 4, steps: [(0, feed([channelling])), (2, feed([master]))], to: dir)
         // A cast that finishes with the studying art: the loop, its two finish frames, then pondering snaps in.
-        recordTrackerAvatarTimeline("avatar-studying-finish", seconds: 4, column: false, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", tool: "Read")])), (2, feed([master]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-studying-finish", seconds: 4, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", tool: "Read")])), (2, feed([master]))], to: dir)
         // A cast that holds one finish frame: inscribing shows f4 for the whole finish, then pondering snaps in.
-        recordTrackerAvatarTimeline("avatar-inscribing-finish", seconds: 4, column: false, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", tool: "Edit")])), (2, feed([master]))], to: dir)
-        recordTrackerAvatarTimeline("avatar-bow-oneshot", seconds: 4.5, column: false, steps: [(0, feed([longTurn])), (0.5, feed([done]))], to: dir)
-        // A message and a report with the worker's plate in view: the release launches its spell on its strike frame, and the
-        // catch starts early so its strike lands as the wisp arrives.
-        recordTrackerAvatarTimeline("avatar-message-release", seconds: 3, column: true, steps: [(0, feed([master, worker])), (0.5, feed([master, instructed]))], to: dir)
-        recordTrackerAvatarTimeline("avatar-report-catch", seconds: 3.5, column: true, steps: [(0, feed([master, worker])), (0.5, feed([master, reported]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-inscribing-finish", seconds: 4, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", tool: "Edit")])), (2, feed([master]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-bow-oneshot", seconds: 4.5, steps: [(0, feed([longTurn])), (0.5, feed([done]))], to: dir)
+        // A message plays the release, and a report the catch as it arrives.
+        recordTrackerAvatarTimeline("avatar-message-release", seconds: 3, steps: [(0, feed([master, worker])), (0.5, feed([master, instructed]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-report-catch", seconds: 3.5, steps: [(0, feed([master, worker])), (0.5, feed([master, reported]))], to: dir)
         let strumming = avatarPreviewSession(id: "qm-m1", state: "done", subagents: 1)
-        recordTrackerAvatarTimeline("avatar-subagent-strum", seconds: 5, column: false, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", subagents: 1)])), (2, feed([strumming])), (4, feed([avatarPreviewSession(id: "qm-m1", state: "done")]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-subagent-strum", seconds: 5, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", subagents: 1)])), (2, feed([strumming])), (4, feed([avatarPreviewSession(id: "qm-m1", state: "done")]))], to: dir)
         let casting = avatarPreviewSession(id: "qm-m1", tool: "Task")
-        recordTrackerAvatarTimeline("avatar-spellsong-frames", seconds: 2, column: false, steps: [(0, feed([casting]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-spellsong-frames", seconds: 2, steps: [(0, feed([casting]))], to: dir)
         // Two messages in a row, to two workers: the second release queues behind the first and must play its lead-in again.
         let firstMessaged = "2026-10-28T09:00:00Z"
         let secondMessaged = "2026-10-28T09:00:01Z"
         let quietWorker = avatarPreviewSession(id: "qm-w2", parentID: "qm-m1", sessionClass: nil)
-        recordTrackerAvatarTimeline("avatar-double-release", seconds: 3.5, column: false, steps: [
+        recordTrackerAvatarTimeline("avatar-double-release", seconds: 3.5, steps: [
             (0, feed([master, worker, quietWorker])),
             (0.5, feed([master, avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil, exchange: ("instructions", firstMessaged)), quietWorker])),
             (0.9, feed([master, avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil, exchange: ("instructions", firstMessaged)),
@@ -2967,24 +2923,10 @@ enum RenderPreview {
     /// How long each pose is shown in the all-poses recording: long enough for a cast to play out and rest.
     private static let allPosesHoldSeconds: TimeInterval = 2
 
-    /// Still renders for the avatar's art settings: the release pose with its spell origin marked, and idle with its eyelids
-    /// shown over the eyes.
+    /// Still renders for the avatar's art settings: idle with its eyelids shown over the eyes, and with them open.
     @MainActor
     private static func renderTrackerAvatarStills(to dir: String) {
         let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
-        let slot = CGRect(origin: .zero, size: size)
-        let hand = previewBardSprites()?.handPoint(in: slot) ?? .zero
-        let marked = ZStack(alignment: .topLeading) {
-            TrackerAvatarSlot(pose: .release, sprites: previewBardSprites())
-            Rectangle()
-                .fill(Color.red)
-                .frame(width: AvatarPreviewMetrics.markerSide, height: AvatarPreviewMetrics.markerSide)
-                .offset(x: hand.x - AvatarPreviewMetrics.markerSide / 2, y: hand.y - AvatarPreviewMetrics.markerSide / 2)
-        }
-        .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .background(AppPalette.window.swiftUI)
-        render(marked, size: size, to: "\(dir)/tracker-avatar-release-hand.png")
-
         let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
         avatar.sprites = previewBardSprites()
         avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
@@ -3019,10 +2961,6 @@ enum RenderPreview {
     private enum AvatarPreviewMetrics {
         /// Room under the slot in the recordings: the rune circle hangs about 23 pt below the baseline.
         static let overhangRoom: CGFloat = 30
-        /// The room right of the tracker column in a column recording, for the spells to fly across to a stand-in Worker Log panel.
-        static let flightRoom: CGFloat = 400
-        static let panelWidth: CGFloat = 100
-        static let markerSide: CGFloat = 4
         static let shellStandIn: CGFloat = 43
         static let outlineWidth: CGFloat = 1
     }

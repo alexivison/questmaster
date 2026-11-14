@@ -24,7 +24,7 @@ visible top is level with the action bar header's bottom edge (the pane and the 
 below the window's top; no project header is drawn above the plate; the silhouette margin is only in its layers). Under the list,
 `TrackerListMetrics.avatarClearance` (`Space.group`) precedes the fixed avatar slot. Its sole stands
 `TrackerListMetrics.avatarBannerGap` (`Space.item`, 10) above the session banner's id tab: the gap sits below the slot, so
-the slot keeps its size, every pose and the spells' hand point move up with it, and the plate list gives up the room. The slot and banner are 260pt wide and left-aligned with the master plates at
+the slot keeps its size, every pose moves up with it, and the plate list gives up the room. The slot and banner are 260pt wide and left-aligned with the master plates at
 `TrackerListMetrics.sidePadding`; the slot reserves the tallest bundled class's idle figure, rounded up to 5pt (175pt now),
 so changing classes never moves the layout. `Space.section` separates the banner's bottom from the shells. With no
 shells, the banner ends `verticalPadding` above the column's bottom. Only an attached plate (master or worker) reserves

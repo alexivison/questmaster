@@ -4,8 +4,7 @@ import QuestmasterCore
 
 /// The class avatar's state in the running app: Core's event detector, director and fidgets, fed from each tracker payload and the
 /// attached session, with one timer for the next change. The attached session's class decides the sprites the avatar draws from.
-/// The views read `pose`, `fidgetFrame`, `finish`, `enter`, `sprites`; they decide none of them. Each spell that starts goes to `onLaunch`,
-/// the flight overlay, which draws it.
+/// The views read `pose`, `fidgetFrame`, `finish`, `enter`, `sprites`; they decide none of them.
 @MainActor
 @Observable
 final class TrackerAvatarStage {
@@ -19,7 +18,7 @@ final class TrackerAvatarStage {
     private(set) var finish: TimeInterval?
     /// How far into the pose's enter the avatar is, while it enters; nil otherwise.
     private(set) var enter: TimeInterval?
-    /// The attached session's class sprites, while its class has an avatar. The avatar and its spells draw from them.
+    /// The attached session's class sprites, while its class has an avatar. The avatar draws from them.
     private(set) var sprites: TrackerAvatarSprites?
 
     @ObservationIgnored private let classSprites: [String: TrackerAvatarSprites]
@@ -29,10 +28,6 @@ final class TrackerAvatarStage {
     @ObservationIgnored private var detector: TrackerAvatarEventDetector
     @ObservationIgnored private let clock: () -> TimeInterval
     @ObservationIgnored private var wakeTimer: Timer?
-    /// Called once for each spell that starts, in order. The overlay that draws the flight sets it.
-    @ObservationIgnored var onLaunch: ((TrackerSpellFlight) -> Void)?
-    /// The avatar's view, for the overlay to measure where the spells leave from.
-    @ObservationIgnored let avatar = TrackerAvatarHandle()
 
     /// The clock is the wall clock: a session's working start (`elapsedSince`) is a wall-clock time.
     init(clock: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 }) {
@@ -82,9 +77,6 @@ final class TrackerAvatarStage {
         beat = frame.beat
         finish = frame.finishElapsed
         enter = frame.enterElapsed
-        for flight in frame.launches {
-            onLaunch?(flight)
-        }
         scheduleWake(at: [frame.nextChange, fidget.nextChange].compactMap { $0 }.min())
     }
 

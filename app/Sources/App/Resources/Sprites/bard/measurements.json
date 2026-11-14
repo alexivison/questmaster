@@ -189,40 +189,8 @@
     }
   },
   "sprite_height": 136,
-  "spells": {
-    "S1-summoning-orb": {
-      "flight": [
-        64,
-        40
-      ],
-      "impact": [
-        56,
-        56
-      ]
-    },
-    "S2-messenger": {
-      "flight": [
-        64,
-        40
-      ],
-      "impact": [
-        56,
-        56
-      ]
-    },
-    "S6-returning-wisp": {
-      "flight": [
-        64,
-        40
-      ],
-      "impact": [
-        56,
-        56
-      ]
-    }
-  },
   "by_hand": {
-    "note": "Idle values read by eye on ship/01-idle-f1 (128x168 canvas, body column 56, foot row 162) at 8x, 2026-11-05: the near eye (a wink) is the dark run at row 27, columns 73 to 75; the lid is the lit skin beside it; legs from the tunic's hem, about 58 rows above the soles. The app's idle is a loop, which draws no blink or breath, so these only satisfy the contract. release_hand is the flash's centre on the 08 canvas (see its note).",
+    "note": "Idle values read by eye on ship/01-idle-f1 (128x168 canvas, body column 56, foot row 162) at 8x, 2026-11-05: the near eye (a wink) is the dark run at row 27, columns 73 to 75; the lid is the lit skin beside it; legs from the tunic's hem, about 58 rows above the soles. The app's idle is a loop, which draws no blink or breath, so these only satisfy the contract.",
     "idle": {
       "leg_rows": 58,
       "eye_row": 27,
@@ -231,11 +199,6 @@
         75
       ],
       "lid_colour": "#f8c78f"
-    },
-    "release_hand": {
-      "x": 116,
-      "y": 76,
-      "note": "The flash's centre on the 08-release canvas (sprite px): the open hand's rightmost point on the peak frame (frame 5 of runs/08-release-entrance-c) is (113, 76); the flash sits 3 px beyond it. The spell starts here, pointing right."
     }
   }
 }

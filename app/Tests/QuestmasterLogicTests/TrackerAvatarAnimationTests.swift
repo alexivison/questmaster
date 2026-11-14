@@ -32,9 +32,6 @@ struct TrackerAvatarAnimationTests {
         aFinishNeedsALoopAndACharacterTrack()
         aStrikeFrameReadsFromAReleaseOrACatch()
         aStrikeFrameNeedsAStrikingPoseAndAFrameOfItsCharacterTrack()
-        aSpellMayGiveItsFlightAndImpactFrames()
-        aSpellNeedsAKnownNameGoodTracksAndAnAnchorOnAFlight()
-        aSpellSaysWhichWayItsFlightFaces()
         aLoopingIdleIgnoresLayeredIdleData()
         aStillIdleUsesLegacyEyeColumnsWithoutLegRows()
         aStillIdleMayUseAnAuthoredLidStencil()
@@ -61,7 +58,6 @@ struct TrackerAvatarAnimationTests {
             fail("the bard's file should decode")
         }
         expect(animation.idle == nil, "the bard's strumming idle should draw no idle layers")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 116, y: 76), "the release hand should be the bard's hand pixel")
         expect(animation.fidgets.isEmpty, "the bard's strumming idle should leave him no fidgets")
         expect(animation.animation(for: .idle)?.loop?.character.steps.map(\.frame) == Array(1...9), "idle should strum through f1 to f9")
         let pondering = animation.animation(for: .pondering)
@@ -307,9 +303,6 @@ struct TrackerAvatarAnimationTests {
         expect(edited.animation(for: .release)?.strikeFrame == 3, "a release should carry its strike frame")
         expect(edited.animation(for: .catching)?.strikeFrame == 4, "a catch should carry its strike frame")
         expect(edited.animation(for: .bow)?.strikeFrame == nil, "a pose without the key should name no strike frame")
-        expect(abs((edited.animation(for: .release)?.strikeLeadIn ?? -1) - 0.2) < 1e-9, "a release's lead-in should be the time before its strike step")
-        expect(abs((edited.animation(for: .catching)?.strikeLeadIn ?? -1) - 0.4) < 1e-9, "a catch's lead-in should be the time before its strike step")
-        expect(edited.animation(for: .bow)?.strikeLeadIn == 0, "a pose without the key should have no lead-in")
         guard let fixture = try? decode(bardJSON()) else {
             fail("the director's fixture should decode")
         }
@@ -368,40 +361,6 @@ struct TrackerAvatarAnimationTests {
                 pose["strike_frame"] = 0
             }
         }
-    }
-
-    private static func withSpells(_ spells: [String: Any]) throws -> TrackerAvatarAnimation {
-        var json = bardJSON()
-        json["spells"] = spells
-        return try decode(json)
-    }
-
-    /// A spell's flight and impact each take a track in the poses' own `[frame, seconds]` form, and an anchor beside the flight. Each
-    /// part is optional: a part with no track keeps its still, and a file with no `spells` key (the bard's) names none.
-    private static func aSpellMayGiveItsFlightAndImpactFrames() {
-        guard let animation = try? withSpells([
-            "S6-returning-wisp": [
-                "flight": [[1, 0.1], [2, 0.1], [3, 0.2]],
-                "impact": [[1, 0.1], [2, 0.1]],
-                "anchor": ["x": 30, "y": 7],
-            ],
-            "S2-messenger": ["impact": [[1, 0.25]]],
-        ]) else {
-            fail("a file with animated spells should decode")
-        }
-        let wisp = animation.spell(.wisp)
-        expect(wisp?.flight?.steps == [TrackerAvatarStep(frame: 1, seconds: 0.1), TrackerAvatarStep(frame: 2, seconds: 0.1), TrackerAvatarStep(frame: 3, seconds: 0.2)],
-               "the wisp's flight should cycle its three frames")
-        expect(wisp?.impact?.steps.map(\.frame) == [1, 2], "the wisp's impact should play its two frames")
-        expect(wisp?.anchor == TrackerAvatarPixel(x: 30, y: 7), "the wisp should carry its anchor")
-        let messenger = animation.spell(.messenger)
-        expect(messenger?.flight == nil && messenger?.anchor == nil && messenger?.impact?.seconds == 0.25,
-               "a spell may name only its impact, keeping its flight still")
-        expect(animation.spell(.orb) == nil, "a spell the file doesn't name should keep its stills")
-        expect(TrackerSpellFlight.Spell.allCases.map(\.resourceName) == ["S1-summoning-orb", "S2-messenger", "S6-returning-wisp"],
-               "the spells' keys and file stems should be their resource names")
-        expect(TrackerSpellFlight.Spell.allCases.allSatisfy { AvatarAnimationFixture.bard().spell($0) == nil },
-               "the bard's file names no spells, so he draws all three as stills")
     }
 
     /// The bard's file with `01-idle` given a loop (a character and a front track), and with whatever `edit` does to the file.
@@ -584,51 +543,6 @@ struct TrackerAvatarAnimationTests {
         }
     }
 
-    /// A spell's `faces` says which way its flight art is drawn, and the art is mirrored on a flight that heads the other way. It
-    /// stands alone (a still has no flight track), and any other word than `left` or `right` is a bad file.
-    private static func aSpellSaysWhichWayItsFlightFaces() {
-        guard let animation = try? withSpells([
-            "S6-returning-wisp": ["faces": "right"],
-            "S2-messenger": ["faces": "left", "flight": [[1, 0.1], [2, 0.1]]],
-        ]) else {
-            fail("a spell that says which way it faces should decode")
-        }
-        expect(animation.spell(.wisp)?.faces == .right && animation.spell(.wisp)?.flight == nil, "a still may say which way it faces")
-        expect(animation.spell(.messenger)?.faces == .left, "a flight with frames may face left")
-        expect(animation.spell(.orb)?.faces == nil, "a spell that doesn't say has no facing")
-        expect(TrackerAvatarFacing.right.isMirrored(headsLeft: true) && !TrackerAvatarFacing.right.isMirrored(headsLeft: false),
-               "art facing right should be mirrored on a flight that heads left, and only then")
-        expect(TrackerAvatarFacing.left.isMirrored(headsLeft: false) && !TrackerAvatarFacing.left.isMirrored(headsLeft: true),
-               "art facing left should be mirrored on a flight that heads right, and only then")
-        do {
-            _ = try withSpells(["S6-returning-wisp": ["faces": "up"]])
-            fail("a facing other than left or right should throw")
-        } catch {}
-    }
-
-    /// A spell is named as its art is (`S6-returning-wisp`), its tracks are checked like any track, and an anchor belongs to a flight's
-    /// frames and sits on the art's own pixels: no negative coordinate.
-    private static func aSpellNeedsAKnownNameGoodTracksAndAnAnchorOnAFlight() {
-        expectThrows(TrackerAvatarAnimationError.unknownSpell("S9-comet"), "a spell the app doesn't have") {
-            _ = try withSpells(["S9-comet": ["flight": [[1, 0.1]]]])
-        }
-        expectThrows(TrackerAvatarAnimationError.invalidTrack("S6-returning-wisp flight"), "a flight with no steps") {
-            _ = try withSpells(["S6-returning-wisp": ["flight": [Any]()]])
-        }
-        expectThrows(TrackerAvatarAnimationError.invalidTrack("S6-returning-wisp flight"), "a flight step shown for no time") {
-            _ = try withSpells(["S6-returning-wisp": ["flight": [[1, 0]]]])
-        }
-        expectThrows(TrackerAvatarAnimationError.invalidTrack("S2-messenger impact"), "an impact step on frame 0") {
-            _ = try withSpells(["S2-messenger": ["impact": [[0, 0.1]]]])
-        }
-        expectThrows(TrackerAvatarAnimationError.invalidAnchor("S6-returning-wisp"), "an anchor on a spell with no flight frames") {
-            _ = try withSpells(["S6-returning-wisp": ["impact": [[1, 0.1]], "anchor": ["x": 3, "y": 3]]])
-        }
-        expectThrows(TrackerAvatarAnimationError.invalidAnchor("S6-returning-wisp"), "an anchor with a negative coordinate") {
-            _ = try withSpells(["S6-returning-wisp": ["flight": [[1, 0.1]], "anchor": ["x": -1, "y": 3]]])
-        }
-    }
-
     /// Calling out's bubble anchor is read from its pose, and only calling out may carry one: a file that puts one on another pose
     /// doesn't read, since no other pose would draw it.
     private static func aBubbleAnchorBelongsToCallingOut() {
@@ -768,7 +682,6 @@ struct TrackerAvatarAnimationTests {
             "01-idle-breath-f1.png", "01-idle-breath-f2.png", "01-idle-breath-f3.png",
             "01-idle-breath-f6.png", "01-idle-breath-f7.png", "01-idle-breath-f8.png",
         ], "the wizard should keep the sparse authored frame names")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 58, y: 26), "the release hand should be the wizard's hand pixel (its release canvas is padded 12 rows on top)")
         expect(animation.fidgets.map(\.name) == ["hood", "staff-tap"], "fidgets should come in name order")
         expect(animation.fidgets.first?.track.steps.map(\.frame) == Array(2...9), "the hood should play idle frames 2 to 9")
         let pondering = animation.animation(for: .pondering)
@@ -784,7 +697,6 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the paladin should resume at the authored rest frame")
         expect(animation.idle?.breathing?.frames.map(\.file) == (1...8).map { "01-idle-breath-f\($0).png" },
                "the paladin should play his eight breathing images in order")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 126, y: 95), "the release hand should be the paladin's hand pixel")
         expect(animation.fidgets.map(\.name) == ["shrug"], "the paladin should have the shrug fidget")
         let pondering = animation.animation(for: .pondering)
         expect(pondering?.footRow == 199 && pondering?.bodyColumn == 50, "pondering should stand at the paladin's foot row and body column")
@@ -831,7 +743,6 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the cleric should resume at the authored rest frame")
         expect(animation.idle?.breathing?.frames.count == 14, "the cleric's breathing should play its 14 reviewed steps")
         expect(animation.idle?.breathing?.frames.allSatisfy { $0.seconds == 0.3 } == true, "the cleric breathes slowly, 0.3 s a step")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 93, y: 68), "the release hand should be the cleric's hand pixel")
         expect(animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
         expect(animation.fidgets.first?.frames == [2, 3, 4, 5, 4, 3, 2], "the mitre should play idle frames 2 to 5 and back")
         let pondering = animation.animation(for: .pondering)
@@ -849,7 +760,6 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xf0ac76), "the ranger should keep the eyelid colour")
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the ranger should resume at the authored rest frame")
         expect(animation.idle?.breathing?.frames.count == 16, "the ranger's breathing should play its 16 authored steps, up and back down")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 83, y: 47), "the release hand should be the ranger's hand pixel")
         expect(animation.fidgets.map(\.name) == ["scarf-tug"], "the ranger should have the scarf-tug fidget")
         expect(animation.fidgets.first?.frames == [2, 3, 4, 5, 6, 7, 8, 9, 8, 7, 6, 5, 4, 3, 2], "the scarf should tug on idle frames 2 to 9 and back")
         let pondering = animation.animation(for: .pondering)
@@ -867,7 +777,6 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f8.png", "the sorcerer should resume at the authored rest frame")
         expect(animation.idle?.breathing?.frames.count == 8, "the sorcerer's breathing should play its 8 authored steps")
         expect(animation.idle?.breathing?.frames.allSatisfy { !$0.lidPixels.isEmpty } == true, "every breathing frame should carry a blink stencil")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 135, y: 74), "the release hand should be the sorcerer's hand pixel")
         expect(animation.fidgets.map(\.name) == ["hair-flick"], "the sorcerer should have the hair-flick fidget")
         expect(animation.fidgets.first?.frames == Array(2...13), "the hair flick should play idle frames 2 to 13")
         let idle = animation.animation(for: .idle)
@@ -878,7 +787,6 @@ struct TrackerAvatarAnimationTests {
         expect(calling?.bubble == TrackerAvatarPixel(x: 14, y: 20) && calling?.bubbleTail == .right, "the bubble should sit at the sorcerer's anchor, tail toward her")
         expect(animation.animation(for: .release)?.strikeFrame == 4, "the sorcerer's release should strike on f4")
         expect(animation.animation(for: .catching)?.strikeFrame == 5, "the sorcerer's catch should strike on f5")
-        expect(animation.spell(.wisp)?.faces == .left, "the sorcerer's wisp should face left")
     }
 
     private static func decodesTheFightersFile() {
@@ -890,7 +798,6 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the fighter should resume at the idle frame")
         expect(animation.idle?.breathing?.frames.count == 9, "the fighter's breathing should play its 9 authored steps")
         expect(animation.idle?.breathing?.frames.allSatisfy { !$0.lidPixels.isEmpty } == true, "every breathing frame should carry a blink stencil")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 175, y: 65), "the release hand should be the fighter's hand pixel")
         expect(animation.fidgets.map(\.name) == ["sword-lowered-gaze"], "the fighter should have the sword-lowered gaze fidget")
         expect(animation.fidgets.first?.frames.count == 27, "the fidget should play its 27 idle art steps")
         let idle = animation.animation(for: .idle)
@@ -901,7 +808,6 @@ struct TrackerAvatarAnimationTests {
         expect(calling?.bubble == TrackerAvatarPixel(x: 13, y: 29) && calling?.bubbleTail == .right, "the bubble should sit at the fighter's anchor, tail toward him")
         expect(animation.animation(for: .release)?.strikeFrame == 4, "the fighter's release should strike on f4")
         expect(animation.animation(for: .catching)?.strikeFrame == 5, "the fighter's catch should strike on f5")
-        expect(animation.spell(.wisp)?.faces == .left, "the fighter's wisp should face left")
     }
 
     /// An idle may carry `front` and `behind` tracks: each loops on its own clock, and `character_at` says where the figure's canvas sits
@@ -953,7 +859,6 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0x4b5c67), "the necromancer should keep the eyelid colour")
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f7.png", "the necromancer should resume at the authored rest frame")
         expect(animation.idle?.breathing?.frames.count == 7, "the necromancer's breathing should play its 7 authored steps")
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 125, y: 93), "the release hand should be the necromancer's hand pixel")
         expect(animation.fidgets.map(\.name) == ["cough"], "the necromancer should have the cough fidget")
         expect(animation.fidgets.first?.frames == [2, 3, 4, 5, 6, 7, 8, 9], "the cough should play idle frames 2 to 9")
         let pondering = animation.animation(for: .pondering)
