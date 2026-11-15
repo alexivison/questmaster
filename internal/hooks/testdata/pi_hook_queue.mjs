@@ -18,7 +18,8 @@ const { default: extension } = await import(pathToFileURL(extensionPath));
 const handlers = new Map();
 extension({
 	on(event, handler) { handlers.set(event, handler); },
-	sendUserMessage() {},
+	registerMessageRenderer() {},
+	sendMessage() {},
 	getThinkingLevel() { return "high"; },
 });
 const context = {
@@ -43,6 +44,7 @@ try {
 	await handlers.get("tool_execution_end")({ toolCallId: "ask", toolName: "ask_user" }, context);
 	const finalStarted = Date.now();
 	await handlers.get("agent_end")({ messages: [{ role: "assistant", content: [{ type: "text", text: "Finished." }] }] }, context);
+	await handlers.get("agent_settled")({ aborted: false }, context);
 	const finalElapsed = Date.now() - finalStarted;
 	await handlers.get("session_shutdown")();
 	stopped = true;
@@ -51,7 +53,7 @@ try {
 	const actions = hooks.calls.map((entry) => entry.args[2]);
 	const expected = ["session_start", "before_agent_start", "agent_start", "say"];
 	for (let i = 0; i < 100; i++) expected.push("tool_execution_start", "tool_execution_end");
-	expected.push("waiting_for_user", "tool_execution_start", "tool_execution_end", "agent_end", "session_shutdown");
+	expected.push("waiting_for_user", "tool_execution_start", "tool_execution_end", "agent_settled", "session_shutdown");
 	assert.deepEqual(actions, expected);
 	assert.equal(actions.filter((action) => action === "tool_execution_start").length, 101);
 	assert.equal(actions.filter((action) => action === "tool_execution_end").length, 101);

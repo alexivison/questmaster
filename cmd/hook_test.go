@@ -3839,6 +3839,34 @@ func TestHookPiPromptOnlyFallbackDoesNotUpdateActivityOrSay(t *testing.T) {
 	}
 }
 
+// agent_settled is the idle report; agent_end is not, because Pi may still retry.
+// A dialog that closes resumes the run only when the run is still open.
+func TestHookPiAgentSettledIsIdleAndDialogEndResumes(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "agent_start", "qm-abc", map[string]interface{}{})
+	runHookWithStdin(r, "pi", "agent_settled", "qm-abc", map[string]interface{}{
+		"message": map[string]interface{}{"role": "assistant", "content": "Done."},
+		"busy":    false,
+	})
+	pane := rec.lastState.Panes["agent"]
+	if pane.State != "done" || pane.Activity != "Done." {
+		t.Fatalf("settled pane = state %q activity %q, want done with the final text", pane.State, pane.Activity)
+	}
+
+	runHookWithStdin(r, "pi", "waiting_for_user", "qm-abc", map[string]interface{}{"prompt": "Pick a target"})
+	runHookWithStdin(r, "pi", "ui_prompt_end", "qm-abc", map[string]interface{}{"busy": false})
+	if pane = rec.lastState.Panes["agent"]; pane.State != "done" || pane.Activity != "" {
+		t.Fatalf("closed dialog while idle = state %q activity %q, want done with the question cleared", pane.State, pane.Activity)
+	}
+
+	runHookWithStdin(r, "pi", "agent_start", "qm-abc", map[string]interface{}{})
+	runHookWithStdin(r, "pi", "waiting_for_user", "qm-abc", map[string]interface{}{"prompt": "Pick a target"})
+	runHookWithStdin(r, "pi", "ui_prompt_end", "qm-abc", map[string]interface{}{"busy": true})
+	if pane = rec.lastState.Panes["agent"]; pane.State != "working" {
+		t.Fatalf("closed dialog during a run = state %q, want working", pane.State)
+	}
+}
+
 func TestHookPiWaitingForUserBlocksWithQuestion(t *testing.T) {
 	r, rec := newTestRunner(t)
 	runHookWithStdin(r, "pi", "waiting_for_user", "qm-abc", map[string]interface{}{

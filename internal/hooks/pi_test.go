@@ -137,6 +137,28 @@ spawn("questmaster", ["hook", "pi", action], { stdio: ["pipe", "ignore", "ignore
 
 // newTestPiInstaller returns an installer with a Pi home holding agent/extensions
 // and an owned extension dir that does not exist yet.
+// TestPiNativeMessaging runs the routed-message checks against a fake Pi:
+// acknowledgments, compaction holds, cards, idle and dialog state.
+func TestPiNativeMessaging(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node is unavailable")
+	}
+	if err := exec.Command(node, "--experimental-strip-types", "-e", "").Run(); err != nil {
+		t.Skip("Node TypeScript type stripping is unavailable")
+	}
+	extension, err := filepath.Abs(filepath.Join("assets", "questmaster-pi-messaging.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, node, "--experimental-strip-types", filepath.Join("testdata", "pi_native.mjs"), extension).CombinedOutput()
+	if err != nil {
+		t.Fatalf("Pi native messaging check: %v\n%s", err, out)
+	}
+}
+
 func newTestPiInstaller(t *testing.T) *PiInstaller {
 	t.Helper()
 	home := t.TempDir()
