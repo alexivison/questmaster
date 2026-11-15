@@ -130,6 +130,11 @@ await worker.commands.get("workers").handler("", worker.ctx);
 assert.equal(calls.length, callsBeforeWorker, "a worker runs no CLI call for /workers");
 assert.ok(worker.appended.at(-1).data.rows[0].text.includes("lists a master's workers"));
 
+// A session Questmaster did not launch is told so, not that it is a worker.
+await bare.commands.get("workers").handler("", bare.ctx);
+assert.ok(bare.appended.at(-1).data.rows[0].text.includes("not launched by Questmaster"));
+assert.equal(bare.messages.length, 0);
+
 // The worker list is bounded: 25 status calls at most, plus the master's own.
 const many = Array.from({ length: 30 }, (_, index) => `qm-many-${index}`);
 cli.set(`status ${masterID}`, { code: 0, stdout: JSON.stringify({ status: "active", manifest: { workers: many } }) });

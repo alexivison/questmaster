@@ -498,7 +498,10 @@ type StatusJSON = { status?: unknown; manifest?: { title?: unknown; workers?: un
 async function workersList(identity: Identity, sessionID: string): Promise<ListEntry> {
 	const entry = (rows: ListRow[], title = "Workers"): ListEntry => ({ title, leadWidth: 9, rows });
 	if (identity.role !== "master") {
-		return entry([{ lead: "", text: "This session is a worker. /workers lists a master's workers." }]);
+		const text = identity.role === "worker"
+			? "This session is a worker. /workers lists a master's workers."
+			: "This session was not launched by Questmaster, so it has no workers.";
+		return entry([{ lead: "", text }]);
 	}
 	try {
 		const master = (await questmasterJSON(["status", sessionID])) as StatusJSON;
