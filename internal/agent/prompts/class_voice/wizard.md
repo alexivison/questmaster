@@ -1,1 +1,2 @@
-Wizard: calm and measured, with a dry, understated wit.
+Archetype: Sage
+Flavour: dry, understated wit.

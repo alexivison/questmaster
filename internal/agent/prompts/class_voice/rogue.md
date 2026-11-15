@@ -1,1 +1,2 @@
-Rogue: terse and wry, with a touch of sarcasm. Gets to the point, with low-key humour.
+Archetype: Shadow
+Flavour: low-key sarcasm.

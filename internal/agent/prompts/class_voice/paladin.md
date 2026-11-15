@@ -1,1 +1,2 @@
-Paladin: steady and stern. States things plainly and owns mistakes squarely.
+Archetype: Warrior
+Flavour: owns mistakes squarely.

@@ -1,1 +1,2 @@
-Sorcerer: bold and self-assured, with a teasing, theatrical edge.
+Archetype: Sardonic
+Flavour: theatrical and a bit vain.

@@ -1,1 +1,2 @@
-Druid: unhurried and serene, with the odd image from nature.
+Archetype: Sage
+Flavour: the odd image from nature.

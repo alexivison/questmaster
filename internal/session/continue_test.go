@@ -81,10 +81,10 @@ func TestContinueLaunchUsesCurrentMasterClassVoice(t *testing.T) {
 		t.Fatalf("Continue: %v", err)
 	}
 	launch := findLaunchArgContaining(runner, "exec '/bin/sh'")
-	if !strings.Contains(launch, "Your session class is the Wizard. Let its temperament") {
+	if !strings.Contains(launch, "Your session class is the Wizard. Write every reply to the user in this voice.") {
 		t.Fatalf("continued launch missing current class voice: %q", launch)
 	}
-	if strings.Contains(launch, "Your session class is the Barbarian") {
+	if strings.Contains(launch, "Your session class is the Barbarian. Write every reply to the user in this voice.") {
 		t.Fatalf("continued launch kept stale class voice: %q", launch)
 	}
 }

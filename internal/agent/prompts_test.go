@@ -1,9 +1,10 @@
 package agent
 
 import (
-	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 func TestMasterPromptKeepsRoleFramingWithoutHarnessAdvice(t *testing.T) {
@@ -71,31 +72,70 @@ func TestWorkerPromptKeepsOrchestrationWithMaster(t *testing.T) {
 	}
 }
 
-func TestClassVoiceParagraphs(t *testing.T) {
+func TestClassVoiceDefinitions(t *testing.T) {
 	t.Parallel()
 
-	const shared = "Your session class is the %s. Let its temperament lightly colour how you talk to the user: tone and word choice only, never at the cost of clarity, accuracy or brevity. No roleplay or archaic speech. Keep it out of code, commits, PR text, docs, artifacts and messages to other sessions."
-	tests := []struct {
-		class string
-		name  string
-		line  string
-	}{
-		{class: "barbarian", name: "Barbarian", line: "Barbarian: blunt and direct. Short sentences, plain words, a little gruff, no pleasantries."},
-		{class: "paladin", name: "Paladin", line: "Paladin: steady and stern. States things plainly and owns mistakes squarely."},
-		{class: "wizard", name: "Wizard", line: "Wizard: calm and measured, with a dry, understated wit."},
-		{class: "cleric", name: "Cleric", line: "Cleric: patient and reassuring, gentle without being wordy."},
-		{class: "druid", name: "Druid", line: "Druid: unhurried and serene, with the odd image from nature."},
-		{class: "rogue", name: "Rogue", line: "Rogue: terse and wry, with a touch of sarcasm. Gets to the point, with low-key humour."},
-		{class: "bard", name: "Bard", line: "Bard: lively and confident, with a showman's flair and the occasional playful line."},
+	const shared = "Write every reply to the user in this voice. The voice shapes how you talk to the user, never what you say or its correctness. Keep it out of code, commits, PR text, docs, artifacts and messages to other sessions. No roleplay or archaic speech."
+	archetypes := map[string]string{
+		"Warrior":  "Archetype: Warrior — blunt and steady.\nShort sentences. Lead with the verdict, then the reason. No hedging, no pleasantries. Own mistakes plainly.\nExample: \"Tests pass. One flaky case in CI, it's the clock. Fixing it.\"",
+		"Sage":     "Archetype: Sage — calm and measured.\nUnhurried, full sentences. Explain the why before the what. At most one quiet image or dry aside per reply.\nExample: \"The test leans on the clock, and CI's clock runs slower. A small, patient fix will hold.\"",
+		"Showman":  "Archetype: Showman — bold and theatrical.\nConfident and lively. Open with energy. Use one flourish per reply (a vivid verb or a playful line), never more.\nExample: \"Done, and it sings. One stubborn test in CI, and I know exactly where it trips.\"",
+		"Shadow":   "Archetype: Shadow — terse and wry.\nFew words, none wasted. Understated, with a dry or dark edge. Note what others missed.\nExample: \"Passes here, dies in CI. Timing. Quietly fixed.\"",
+		"Sardonic": "Archetype: Sardonic — self-assured and sarcastic.\nConfident verdicts with a teasing, sarcastic edge. One barbed aside per reply, aimed at the problem, the code or the situation, never at the user. Never mean, never at the cost of the facts.\nExample: \"Naturally, the test that 'always passes' picked CI to stop. The clock lied; I've made it stop lying.\"",
 	}
-	for _, tt := range tests {
-		t.Run(tt.class, func(t *testing.T) {
+	classes := map[string]struct {
+		archetype string
+		flavour   string
+	}{
+		"barbarian":   {archetype: "Warrior", flavour: "a little gruff."},
+		"fighter":     {archetype: "Warrior", flavour: "a veteran's calm."},
+		"paladin":     {archetype: "Warrior", flavour: "owns mistakes squarely."},
+		"wizard":      {archetype: "Sage", flavour: "dry, understated wit."},
+		"cleric":      {archetype: "Sage", flavour: "patient and reassuring."},
+		"druid":       {archetype: "Sage", flavour: "the odd image from nature."},
+		"bard":        {archetype: "Showman", flavour: "a showman's flair."},
+		"rogue":       {archetype: "Shadow", flavour: "low-key sarcasm."},
+		"necromancer": {archetype: "Shadow", flavour: "a macabre turn of phrase."},
+		"sorcerer":    {archetype: "Sardonic", flavour: "theatrical and a bit vain."},
+		"ranger":      {archetype: "Sardonic", flavour: "an eye on the trail ahead."},
+	}
+
+	voiceClasses := VoiceClasses()
+	if len(voiceClasses) != len(state.SessionClasses()) {
+		t.Fatalf("voice class count = %d, supported class count = %d; every session class needs a voice mapping", len(voiceClasses), len(state.SessionClasses()))
+	}
+	voiceClassSet := make(map[string]struct{}, len(voiceClasses))
+	for _, class := range voiceClasses {
+		voiceClassSet[class] = struct{}{}
+	}
+	for _, class := range state.SessionClasses() {
+		want, ok := classes[class]
+		if !ok {
+			t.Errorf("supported class %q has no expected voice mapping", class)
+			continue
+		}
+		if _, ok := voiceClassSet[class]; !ok {
+			t.Errorf("supported class %q has no class voice file", class)
+		}
+		t.Run(class, func(t *testing.T) {
 			t.Parallel()
-			want := fmt.Sprintf(shared, tt.name) + "\n\n" + tt.line
-			if got := ClassVoice(tt.class); got != want {
-				t.Fatalf("ClassVoice(%q) = %q, want %q", tt.class, got, want)
+			got := ClassVoice(class)
+			for _, fragment := range []string{
+				"Your session class is the " + strings.ToUpper(class[:1]) + class[1:] + ".",
+				shared,
+				archetypes[want.archetype],
+				"Flavour: " + want.flavour,
+			} {
+				if !strings.Contains(got, fragment) {
+					t.Errorf("ClassVoice(%q) missing %q:\n%s", class, fragment, got)
+				}
 			}
 		})
+	}
+	for class := range classes {
+		if _, ok := voiceClassSet[class]; !ok {
+			t.Errorf("class %q in expected mapping has no class voice file", class)
+		}
 	}
 }
 
@@ -103,7 +143,7 @@ func TestSystemPromptForRoleClassVoice(t *testing.T) {
 	t.Parallel()
 
 	const master, worker = "master prompt", "worker prompt"
-	for _, class := range []string{"barbarian", "paladin", "wizard", "cleric", "druid", "rogue", "bard"} {
+	for _, class := range VoiceClasses() {
 		t.Run(class, func(t *testing.T) {
 			t.Parallel()
 			if got, want := systemPromptForRole(RoleMaster, class, master, worker, ""), master+"\n\n"+ClassVoice(class); got != want {
@@ -113,8 +153,10 @@ func TestSystemPromptForRoleClassVoice(t *testing.T) {
 	}
 	t.Run("worker ignores class", func(t *testing.T) {
 		t.Parallel()
-		if got, want := systemPromptForRole(RoleWorker, "barbarian", master, worker, "worker brief"), worker+"\n\nworker brief"; got != want {
-			t.Fatalf("worker systemPromptForRole() = %q, want %q", got, want)
+		for _, class := range VoiceClasses() {
+			if got, want := systemPromptForRole(RoleWorker, class, master, worker, "worker brief"), worker+"\n\nworker brief"; got != want {
+				t.Fatalf("worker systemPromptForRole(%q) = %q, want %q", class, got, want)
+			}
 		}
 	})
 	t.Run("classless master", func(t *testing.T) {

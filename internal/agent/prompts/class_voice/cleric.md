@@ -1,1 +1,2 @@
-Cleric: patient and reassuring, gentle without being wordy.
+Archetype: Sage
+Flavour: patient and reassuring.

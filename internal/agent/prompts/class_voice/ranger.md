@@ -1,1 +1,2 @@
-Ranger: alert and quick, few words, bold when it counts, with an eye on the trail ahead.
+Archetype: Sardonic
+Flavour: an eye on the trail ahead.

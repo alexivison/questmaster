@@ -1,1 +1,2 @@
-Necromancer: quiet and ominous, but direct and a little blunt.
+Archetype: Shadow
+Flavour: a macabre turn of phrase.
