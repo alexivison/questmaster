@@ -33,8 +33,9 @@ const sessionPattern = /^qm-[A-Za-z0-9_-]+$/;
 const maxHeldMessages = 32;
 // The card shows at most this many characters. The model still gets the whole text.
 const cardCharLimit = 4_000;
-// Lists are transcript entries that never reach the model. A worker row costs one
-// CLI call, so the worker list is bounded more tightly than the quest list.
+// Lists are transcript entries that never reach the model. The worker list comes
+// from one `questmaster workers` call; quests come from one `quest ls` call. Each
+// list shows at most its row limit.
 const listEntryType = "questmaster.list";
 const listRowLimit = 50;
 const workerRowLimit = 25;
@@ -493,7 +494,7 @@ function questmasterJSON(args: string[]): Promise<unknown> {
 	});
 }
 
-type StatusJSON = { status?: unknown; manifest?: { title?: unknown; workers?: unknown } };
+type WorkerRow = { session_id?: unknown; status?: unknown; title?: unknown };
 
 async function workersList(identity: Identity, sessionID: string): Promise<ListEntry> {
 	const entry = (rows: ListRow[], title = "Workers"): ListEntry => ({ title, leadWidth: 9, rows });
@@ -504,22 +505,18 @@ async function workersList(identity: Identity, sessionID: string): Promise<ListE
 		return entry([{ lead: "", text }]);
 	}
 	try {
-		const master = (await questmasterJSON(["status", sessionID])) as StatusJSON;
-		const listed = master.manifest?.workers;
-		const ids = Array.isArray(listed)
-			? listed.filter((id): id is string => typeof id === "string" && sessionPattern.test(id))
-			: [];
-		const shown = ids.slice(0, workerRowLimit);
-		const rows: ListRow[] = [];
-		for (const id of shown) {
-			const worker = (await questmasterJSON(["status", id])) as StatusJSON;
+		// One call returns every worker with its state, however many there are.
+		const listed = (await questmasterJSON(["workers", sessionID])) as { workers?: unknown };
+		const workers = (Array.isArray(listed.workers) ? listed.workers : []) as WorkerRow[];
+		const shown = workers.slice(0, workerRowLimit);
+		const rows: ListRow[] = shown.map((worker) => {
 			const state = typeof worker.status === "string" ? safeLine(worker.status, 9) : "unknown";
-			const title = worker.manifest?.title;
-			const label = typeof title === "string" ? safeLine(printable(title), 80) : "";
-			rows.push({ lead: state, leadRGB: stateRGB[state], text: printable([id, label].filter(Boolean).join("  ")) });
-		}
-		if (ids.length > shown.length) rows.push({ lead: "", text: `${ids.length - shown.length} more not shown` });
-		return entry(rows.length ? rows : [{ lead: "", text: "No workers." }], `Workers (${ids.length})`);
+			const id = typeof worker.session_id === "string" ? worker.session_id : "";
+			const title = typeof worker.title === "string" ? safeLine(printable(worker.title), 80) : "";
+			return { lead: state, leadRGB: stateRGB[state], text: printable([id, title].filter(Boolean).join("  ")) };
+		});
+		if (workers.length > shown.length) rows.push({ lead: "", text: `${workers.length - shown.length} more not shown` });
+		return entry(rows.length ? rows : [{ lead: "", text: "No workers." }], `Workers (${workers.length})`);
 	} catch (error) {
 		return entry([{ lead: "error", text: errorText(error) }]);
 	}

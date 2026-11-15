@@ -109,9 +109,10 @@ assert.equal(headless.statuses.length, 0, "no status is set without a UI");
 
 // /workers on a master lists its workers with their states. Titles are printed
 // without control characters, and no model turn starts.
-cli.set(`status ${masterID}`, { code: 0, stdout: JSON.stringify({ status: "active", manifest: { title: "Ship", workers: ["qm-worker-1", "qm-worker-2"] } }) });
-cli.set("status qm-worker-1", { code: 0, stdout: JSON.stringify({ status: "working", manifest: { title: "Scan\x1b[31m repo" } }) });
-cli.set("status qm-worker-2", { code: 0, stdout: JSON.stringify({ status: "done", manifest: { title: "Build" } }) });
+cli.set(`workers ${masterID}`, { code: 0, stdout: JSON.stringify({ master_id: masterID, workers: [
+	{ session_id: "qm-worker-1", status: "working", title: "Scan\x1b[31m repo" },
+	{ session_id: "qm-worker-2", status: "done", title: "Build" },
+] }) });
 await master.commands.get("workers").handler("", master.ctx);
 const workers = master.appended.at(-1);
 assert.equal(workers.type, "questmaster.list");
@@ -135,15 +136,24 @@ await bare.commands.get("workers").handler("", bare.ctx);
 assert.ok(bare.appended.at(-1).data.rows[0].text.includes("not launched by Questmaster"));
 assert.equal(bare.messages.length, 0);
 
-// The worker list is bounded: 25 status calls at most, plus the master's own.
-const many = Array.from({ length: 30 }, (_, index) => `qm-many-${index}`);
-cli.set(`status ${masterID}`, { code: 0, stdout: JSON.stringify({ status: "active", manifest: { workers: many } }) });
-for (const id of many.slice(0, 25)) cli.set(`status ${id}`, { code: 0, stdout: JSON.stringify({ status: "active", manifest: { title: id } }) });
+// An empty list and a failed call are rows too.
+cli.set(`workers ${masterID}`, { code: 0, stdout: JSON.stringify({ master_id: masterID, workers: [] }) });
+await master.commands.get("workers").handler("", master.ctx);
+assert.equal(master.appended.at(-1).data.rows[0].text, "No workers.");
+cli.set(`workers ${masterID}`, { code: 1, stdout: "", stderr: "store unavailable\n" });
+await master.commands.get("workers").handler("", master.ctx);
+assert.equal(master.appended.at(-1).data.rows[0].lead, "error");
+assert.ok(master.appended.at(-1).data.rows[0].text.includes("store unavailable"));
+
+// One call lists every worker, and only 25 rows are shown.
+const many = Array.from({ length: 30 }, (_, index) => ({ session_id: `qm-many-${index}`, status: "active", title: `Task ${index}` }));
+cli.set(`workers ${masterID}`, { code: 0, stdout: JSON.stringify({ master_id: masterID, workers: many }) });
 const callsBeforeMany = calls.length;
 await master.commands.get("workers").handler("", master.ctx);
 const bounded = master.appended.at(-1).data;
 assert.equal(bounded.title, "Workers (30)");
-assert.equal(calls.length - callsBeforeMany, 26, "one call for the master and one per shown worker");
+assert.equal(calls.length - callsBeforeMany, 1, "one call lists every worker");
+assert.equal(bounded.rows.length, 26, "25 worker rows and one line for the rest");
 assert.ok(bounded.rows.at(-1).text.includes("5 more not shown"));
 
 // /quests lists the project's quests, for the working directory of the command.
