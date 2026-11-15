@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/alexivison/questmaster/internal/config"
 )
@@ -37,14 +38,22 @@ func NewPi(cfg AgentConfig) *Pi {
 	return &Pi{base: newBase(piSpec, cfg)}
 }
 
+// BuildCmd launches Pi with the Questmaster extension (-e), the session identity
+// the extension reads from its environment, and the session name (--name).
 func (p *Pi) BuildCmd(opts CmdOpts) string {
 	binary := opts.Binary
 	if binary == "" {
 		binary = p.Binary()
 	}
 
-	cmd := fmt.Sprintf("export PATH=%s; exec %s",
-		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
+	cmd := fmt.Sprintf("export PATH=%s; %s; exec %s",
+		config.ShellQuote(opts.AgentPath), piIdentityExports(opts), config.ShellQuote(binary))
+	if opts.PiExtension != "" {
+		cmd += " -e " + config.ShellQuote(opts.PiExtension)
+	}
+	if opts.Title != "" {
+		cmd += " --name " + config.ShellQuote(opts.Title)
+	}
 	systemPrompt := systemPromptForRole(opts.Role, opts.Class, p.MasterPrompt(), p.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
@@ -65,4 +74,25 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 		cmd += " " + config.ShellQuote(opts.Prompt)
 	}
 	return cmd
+}
+
+// piIdentityExports returns one export statement with the session identity for
+// the Pi extension. The variable names are the contract the extension reads at
+// startup. QUESTMASTER_ROLE is always set; the others only when known.
+func piIdentityExports(opts CmdOpts) string {
+	role := "master"
+	if opts.Role == RoleWorker {
+		role = "worker"
+	}
+	assignments := []string{"QUESTMASTER_ROLE=" + config.ShellQuote(role)}
+	if opts.Title != "" {
+		assignments = append(assignments, "QUESTMASTER_TITLE="+config.ShellQuote(opts.Title))
+	}
+	if opts.Class != "" {
+		assignments = append(assignments, "QUESTMASTER_CLASS="+config.ShellQuote(opts.Class))
+	}
+	if opts.MasterClass != "" {
+		assignments = append(assignments, "QUESTMASTER_MASTER_CLASS="+config.ShellQuote(opts.MasterClass))
+	}
+	return "export " + strings.Join(assignments, " ")
 }

@@ -191,6 +191,27 @@ func OpenCodeConfigDir(root string) string {
 	return filepath.Join(root, "opencode")
 }
 
+// PiExtensionFileName is the Questmaster-owned Pi extension file in PiExtensionDir.
+const PiExtensionFileName = "questmaster-pi-messaging.ts"
+
+// PiExtensionDir returns Questmaster's private Pi extension dir under root.
+func PiExtensionDir(root string) string {
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, "pi")
+}
+
+// PiExtensionPath returns the Questmaster-owned Pi extension file under root.
+// The launch command loads it with -e, and the launch-time installer writes it.
+func PiExtensionPath(root string) string {
+	dir := PiExtensionDir(root)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, PiExtensionFileName)
+}
+
 // SessionStateDir returns <root>/<id>. Caller must ensure id is valid.
 func SessionStateDir(root, id string) string {
 	return filepath.Join(root, id)

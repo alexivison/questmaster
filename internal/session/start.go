@@ -180,6 +180,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		launchAgents = make(map[agent.Role]agent.Agent, len(bindings))
 		agentResume = make(map[agent.Role]resumeInfo, len(bindings))
 		manifestAgents = make([]state.AgentManifest, 0, len(bindings))
+		masterClass := s.parentMasterClass(opts.MasterID)
 
 		for _, binding := range bindings {
 			provider := binding.Agent
@@ -205,6 +206,8 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 				Title:           opts.Title,
 				Role:            agentRole,
 				Class:           opts.Class,
+				MasterClass:     masterClass,
+				PiExtension:     state.PiExtensionPath(s.Store.Root()),
 				Model:           model,
 				ReasoningEffort: reasoningEffort,
 			})
@@ -354,6 +357,20 @@ func validateWorkerTitle(title string) error {
 		return fmt.Errorf("worker title must be at most 16 Unicode characters (runes); got %d", count)
 	}
 	return nil
+}
+
+// parentMasterClass returns the display class of the master masterID, or "" when
+// there is no master or its manifest is unreadable. The class only names the
+// master in a worker's Pi identity, so it never fails a launch.
+func (s *Service) parentMasterClass(masterID string) string {
+	if masterID == "" {
+		return ""
+	}
+	master, err := s.Store.Read(masterID)
+	if err != nil {
+		return ""
+	}
+	return master.DisplayClass()
 }
 
 func workerParentBrief(parentID, brief string) string {

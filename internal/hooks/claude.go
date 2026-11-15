@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // claudeEvents maps each Claude hook event we install to the action arg
@@ -435,11 +437,27 @@ func dropTaggedEntries(arr []interface{}) []interface{} {
 // atomicWrite writes bytes via a tmp file + rename in the same dir as
 // the target.
 func atomicWrite(path string, data []byte) error {
+	return atomicWriteMode(path, data, 0o644)
+}
+
+// atomicWriteMode is atomicWrite with the file's permission bits set. The temp
+// name is unique to this writer, so concurrent launches never share one file.
+func atomicWriteMode(path string, data []byte, perm fs.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	tmp := fmt.Sprintf("%s.tmp-%d-%d", path, os.Getpid(), time.Now().UnixNano())
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {

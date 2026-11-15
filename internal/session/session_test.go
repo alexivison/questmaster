@@ -2616,6 +2616,73 @@ func TestStart_OpenCodeAgentPersistsResumeMetadata(t *testing.T) {
 	}
 }
 
+func TestStart_PiAgentInstallsExtensionAndIdentity(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	counter := int64(8900)
+	svc.Now = func() int64 { counter++; return counter }
+
+	piCLI := filepath.Join(t.TempDir(), "pi")
+	if err := os.WriteFile(piCLI, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write pi fixture: %v", err)
+	}
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{
+			"pi": {CLI: piCLI},
+		},
+		Roles: agent.RolesConfig{
+			Agent: &agent.RoleConfig{Agent: "pi", Window: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+
+	master, err := svc.Start(t.Context(), StartOpts{
+		Title: "pi-master",
+		Cwd:   t.TempDir(),
+		Class: "paladin",
+	})
+	if err != nil {
+		t.Fatalf("start master: %v", err)
+	}
+	extension := state.PiExtensionPath(svc.Store.Root())
+	if _, err := os.Stat(extension); err != nil {
+		t.Fatalf("Pi launch did not install the extension at %s: %v", extension, err)
+	}
+	launch := findLaunchArgContaining(runner, "QUESTMASTER_TITLE='pi-master'")
+	for _, want := range []string{
+		"export QUESTMASTER_ROLE='master' QUESTMASTER_TITLE='pi-master' QUESTMASTER_CLASS='paladin'",
+		" -e '" + extension + "'",
+		" --name 'pi-master'",
+	} {
+		if !strings.Contains(launch, want) {
+			t.Fatalf("Pi master launch missing %q in %q", want, launch)
+		}
+	}
+
+	if _, err := svc.Start(t.Context(), StartOpts{
+		Title:    "pi-worker",
+		Cwd:      t.TempDir(),
+		MasterID: master.SessionID,
+	}); err != nil {
+		t.Fatalf("start worker: %v", err)
+	}
+	launch = findLaunchArgContaining(runner, "QUESTMASTER_TITLE='pi-worker'")
+	for _, want := range []string{
+		"export QUESTMASTER_ROLE='worker' QUESTMASTER_TITLE='pi-worker' QUESTMASTER_MASTER_CLASS='paladin'",
+		" -e '" + extension + "'",
+	} {
+		if !strings.Contains(launch, want) {
+			t.Fatalf("Pi worker launch missing %q in %q", want, launch)
+		}
+	}
+	if strings.Contains(launch, "QUESTMASTER_CLASS=") {
+		t.Fatalf("Pi worker launch exported its own class: %q", launch)
+	}
+}
+
 // Keep serial: a parallel test fork can inherit the executable's write fd (ETXTBSY on Linux).
 func TestStart_OpenCodeReasoningEffortRejectsOldVersion(t *testing.T) {
 	svc, runner := setupService(t)

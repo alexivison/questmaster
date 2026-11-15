@@ -119,7 +119,9 @@ try {
 	assert.equal(entries.at(-5).payload.subagent_id, "subagent-1");
 	assert.equal(entries.at(-5).payload.agent_type, "Explore");
 	assert.equal(entries.at(-5).payload.description, undefined, "subagent descriptions should not be forwarded");
-	assert.equal(await readFile(join(root, "agent", "extensions", ".questmaster-installed"), "utf8"), "phase2-v3\n");
+	// The extension is loaded with -e from Questmaster's state directory, so it
+	// no longer writes an install marker into Pi's extensions directory.
+	await assert.rejects(readFile(join(root, "agent", "extensions", ".questmaster-installed"), "utf8"), { code: "ENOENT" });
 } finally {
 	if (!stopped) await handlers.get("session_shutdown")?.();
 	await rm(runtimeDir, { recursive: true, force: true });

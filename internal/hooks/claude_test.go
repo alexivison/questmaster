@@ -628,7 +628,7 @@ func TestManagerInstallAllWithTempInstallers(t *testing.T) {
 	// touches real user config.
 	m.Register(&ClaudeInstaller{Home: t.TempDir()})
 	m.Register(&CodexInstaller{Home: t.TempDir()})
-	m.Register(&PiInstaller{Home: t.TempDir()})
+	m.Register(&PiInstaller{Home: t.TempDir(), ExtensionDir: t.TempDir()})
 	if err := m.InstallWithOptions(nil, InstallOptions{}); err != nil {
 		t.Fatalf("install all: %v", err)
 	}

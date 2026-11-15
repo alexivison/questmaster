@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"context"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,8 +23,20 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("QUESTMASTER_STATE_ROOT", root); err != nil {
 		panic(err)
 	}
+	// Pin the Pi locations so no test reads or retires a developer's real Pi config.
+	piRoot, err := os.MkdirTemp("", "qm-hooks-pi-*")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("PI_HOME", filepath.Join(piRoot, "home")); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("PI_CODING_AGENT_DIR", filepath.Join(piRoot, "agent")); err != nil {
+		panic(err)
+	}
 	code := m.Run()
 	_ = os.RemoveAll(root)
+	_ = os.RemoveAll(piRoot)
 	os.Exit(code)
 }
 
@@ -117,62 +130,122 @@ func TestPiActivityHookUsesQuestmasterBinAndWaitsForBoundedHook(t *testing.T) {
 	}
 }
 
+// legacyPiCopy carries the two marks an older installer's copy has.
+const legacyPiCopy = `const sessionID = process.env.QUESTMASTER_SESSION ?? "";
+spawn("questmaster", ["hook", "pi", action], { stdio: ["pipe", "ignore", "ignore"] });
+`
+
+// newTestPiInstaller returns an installer with a Pi home holding agent/extensions
+// and an owned extension dir that does not exist yet.
 func newTestPiInstaller(t *testing.T) *PiInstaller {
 	t.Helper()
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "agent", "extensions"), 0o755); err != nil {
 		t.Fatalf("mkdir pi extensions: %v", err)
 	}
-	return &PiInstaller{Home: home}
+	return &PiInstaller{Home: home, ExtensionDir: filepath.Join(t.TempDir(), "pi")}
 }
 
-func TestPiInstallIsIdempotent(t *testing.T) {
+func writeTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// writeLegacyPiFiles seeds an older installer's copy and marker in dir.
+func writeLegacyPiFiles(t *testing.T, dir string) (extension, marker string) {
+	t.Helper()
+	extension = filepath.Join(dir, "questmaster-messaging.ts")
+	marker = filepath.Join(dir, ".questmaster-installed")
+	writeTestFile(t, extension, legacyPiCopy)
+	writeTestFile(t, marker, "phase2-v3\n")
+	return extension, marker
+}
+
+func assertGone(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Errorf("%s still present (err=%v)", path, err)
+	}
+}
+
+func TestPiInstallWritesOwnedExtension(t *testing.T) {
+	t.Parallel()
 	p := newTestPiInstaller(t)
 	if err := p.Install(); err != nil {
-		t.Fatalf("first install: %v", err)
+		t.Fatalf("install: %v", err)
 	}
-	first, err := os.ReadFile(p.markerPath())
+	data, err := os.ReadFile(p.extensionFile())
+	if err != nil || string(data) != piMessagingExtension {
+		t.Fatalf("owned extension = %q, err = %v", data, err)
+	}
+	fileInfo, err := os.Stat(p.extensionFile())
 	if err != nil {
-		t.Fatalf("read marker after first install: %v", err)
+		t.Fatalf("stat owned extension: %v", err)
 	}
-	if string(first) != QuestmasterSidecarVersion {
-		t.Fatalf("marker version: want %q, got %q", QuestmasterSidecarVersion, first)
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Errorf("owned extension mode = %o, want 600", got)
+	}
+	dirInfo, err := os.Stat(p.ExtensionDir)
+	if err != nil {
+		t.Fatalf("stat owned extension dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Errorf("owned extension dir mode = %o, want 700", got)
 	}
 	if got := p.Status(); got.Status != StatusCurrent {
 		t.Fatalf("post-install status: %+v", got)
 	}
-	extension, err := os.ReadFile(p.extensionPath())
-	if err != nil || !strings.Contains(string(extension), `deliverAs: "steer"`) {
-		t.Fatalf("messaging extension = %q, err = %v", extension, err)
-	}
-
-	if err := p.Install(); err != nil {
-		t.Fatalf("second install: %v", err)
-	}
-	second, err := os.ReadFile(p.markerPath())
-	if err != nil {
-		t.Fatalf("read marker after second install: %v", err)
-	}
-	if string(first) != string(second) {
-		t.Errorf("re-install changed marker: first=%q second=%q", first, second)
+	if err := filepath.WalkDir(p.Home, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && d.Name() == ".questmaster-installed" {
+			t.Errorf("install wrote a marker at %s", path)
+		}
+		return err
+	}); err != nil {
+		t.Fatalf("walk Pi home: %v", err)
 	}
 }
 
-func TestPiInstallReplacesOutdatedExtension(t *testing.T) {
+func TestPiInstallLeavesCurrentExtensionUntouched(t *testing.T) {
+	t.Parallel()
+	p := newTestPiInstaller(t)
+	if err := p.Install(); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+	past := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(p.extensionFile(), past, past); err != nil {
+		t.Fatalf("age owned extension: %v", err)
+	}
+	if err := p.Install(); err != nil {
+		t.Fatalf("second install: %v", err)
+	}
+	info, err := os.Stat(p.extensionFile())
+	if err != nil {
+		t.Fatalf("stat owned extension: %v", err)
+	}
+	if !info.ModTime().Equal(past) {
+		t.Errorf("re-install rewrote the owned extension: mtime = %v", info.ModTime())
+	}
+}
+
+func TestPiInstallRewritesModifiedExtension(t *testing.T) {
+	t.Parallel()
 	p := newTestPiInstaller(t)
 	if err := p.Install(); err != nil {
 		t.Fatalf("initial install: %v", err)
 	}
-	if err := os.WriteFile(p.extensionPath(), []byte("old extension"), 0o644); err != nil {
-		t.Fatalf("replace installed extension: %v", err)
-	}
+	writeTestFile(t, p.extensionFile(), "old extension")
 	if got := p.Status(); got.Status != StatusOutdated {
 		t.Fatalf("status after extension change: %+v", got)
 	}
 	if err := p.Install(); err != nil {
 		t.Fatalf("upgrade install: %v", err)
 	}
-	data, err := os.ReadFile(p.extensionPath())
+	data, err := os.ReadFile(p.extensionFile())
 	if err != nil || string(data) != piMessagingExtension {
 		t.Fatalf("installed extension = %q, err = %v", data, err)
 	}
@@ -181,39 +254,219 @@ func TestPiInstallReplacesOutdatedExtension(t *testing.T) {
 	}
 }
 
-func TestPiMarkerVersionMatchesExtension(t *testing.T) {
+func TestPiStatusTracksOwnedExtension(t *testing.T) {
 	t.Parallel()
-	want := `const sidecarVersion = "` + QuestmasterSidecarVersion + `";`
-	if !strings.Contains(piMessagingExtension, want) {
-		t.Fatalf("Pi extension marker does not match %q", QuestmasterSidecarVersion)
+	tests := []struct {
+		name       string
+		seed       func(t *testing.T, p *PiInstaller)
+		wantStatus Status
+		wantDetail string
+	}{
+		{
+			name:       "missing",
+			seed:       func(t *testing.T, p *PiInstaller) {},
+			wantStatus: StatusNotInstalled,
+			wantDetail: "written at the next Pi launch",
+		},
+		{
+			name:       "modified",
+			seed:       func(t *testing.T, p *PiInstaller) { writeTestFile(t, p.extensionFile(), "old extension") },
+			wantStatus: StatusOutdated,
+			wantDetail: "is out of date",
+		},
+		{
+			name: "current",
+			seed: func(t *testing.T, p *PiInstaller) {
+				if err := p.Install(); err != nil {
+					t.Fatalf("install: %v", err)
+				}
+			},
+			wantStatus: StatusCurrent,
+		},
 	}
-	for _, hook := range []string{
-		`subagentEvents?.on?.("subagents:started", forwardSubagent("subagent_start"));`,
-		`subagentEvents?.on?.("subagents:completed", forwardSubagent("subagent_stop"));`,
-		`subagentEvents?.on?.("subagents:failed", forwardSubagent("subagent_stop"));`,
-	} {
-		if !strings.Contains(piMessagingExtension, hook) {
-			t.Errorf("Pi extension missing sub-agent bridge %q", hook)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := newTestPiInstaller(t)
+			tt.seed(t, p)
+			got := p.Status()
+			if got.Status != tt.wantStatus || !strings.Contains(got.Detail, tt.wantDetail) {
+				t.Fatalf("status = %+v, want %s with detail containing %q", got, tt.wantStatus, tt.wantDetail)
+			}
+		})
+	}
+}
+
+func TestPiInstallerNeedsResolvedDirs(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	noExtensionDir := &PiInstaller{Home: home}
+	if err := noExtensionDir.Install(); err == nil {
+		t.Errorf("install without an extension dir succeeded")
+	}
+	if got := noExtensionDir.Status(); got.Status != StatusNotInstalled {
+		t.Errorf("status without an extension dir: %+v", got)
+	}
+	noHome := &PiInstaller{ExtensionDir: filepath.Join(home, "pi")}
+	if err := noHome.Install(); err == nil {
+		t.Errorf("install without a Pi home succeeded")
+	}
+	if got := noHome.Status(); got.Status != StatusNotInstalled || got.Detail != "home dir not resolved" {
+		t.Errorf("status without a Pi home: %+v", got)
+	}
+}
+
+// TestPiLegacyCopiesRetiredByInstallAndUninstall covers each directory an older
+// installer may have written to. It sets PI_CODING_AGENT_DIR, so it is not
+// parallel.
+func TestPiLegacyCopiesRetiredByInstallAndUninstall(t *testing.T) {
+	tests := []struct {
+		name string
+		dir  func(home, coding string) string
+	}{
+		{"agent extensions", func(home, _ string) string { return filepath.Join(home, "agent", "extensions") }},
+		{"root extensions", func(home, _ string) string { return filepath.Join(home, "extensions") }},
+		{"coding agent dir", func(_, coding string) string { return filepath.Join(coding, "extensions") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			coding := t.TempDir()
+			t.Setenv("PI_CODING_AGENT_DIR", coding)
+			p := newTestPiInstaller(t)
+			extension, marker := writeLegacyPiFiles(t, tt.dir(p.Home, coding))
+
+			if got := p.Status(); got.Status != StatusOutdated || !strings.Contains(got.Detail, "questmaster hooks install pi") {
+				t.Fatalf("status with legacy copy: %+v", got)
+			}
+			if err := p.Install(); err != nil {
+				t.Fatalf("install: %v", err)
+			}
+			assertGone(t, extension)
+			assertGone(t, marker)
+			if got := p.Status(); got.Status != StatusCurrent {
+				t.Fatalf("status after install: %+v", got)
+			}
+
+			extension, marker = writeLegacyPiFiles(t, tt.dir(p.Home, coding))
+			if err := p.Uninstall(); err != nil {
+				t.Fatalf("uninstall: %v", err)
+			}
+			assertGone(t, extension)
+			assertGone(t, marker)
+			assertGone(t, p.extensionFile())
+			if got := p.Status(); got.Status != StatusNotInstalled {
+				t.Fatalf("status after uninstall: %+v", got)
+			}
+		})
+	}
+}
+
+// The first installed copy only read QUESTMASTER_SESSION and never called the
+// hook. It still loads beside the owned extension, so it must be retired too.
+func TestPiLegacyMessagingOnlyCopyIsRetired(t *testing.T) {
+	t.Parallel()
+	p := newTestPiInstaller(t)
+	dir := filepath.Join(p.Home, "agent", "extensions")
+	extension := filepath.Join(dir, "questmaster-messaging.ts")
+	marker := filepath.Join(dir, ".questmaster-installed")
+	writeTestFile(t, extension, "const sessionID = process.env.QUESTMASTER_SESSION ?? \"\";\n")
+	writeTestFile(t, marker, "phase2-v2\n")
+	if got := p.Status(); got.Status != StatusOutdated {
+		t.Fatalf("status with messaging-only copy: %+v", got)
+	}
+	if err := p.Install(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	assertGone(t, extension)
+	assertGone(t, marker)
+	if got := p.Status(); got.Status != StatusCurrent {
+		t.Fatalf("status after retiring messaging-only copy: %+v", got)
+	}
+}
+
+func TestPiLegacyRetirementLeavesUserFilesAlone(t *testing.T) {
+	t.Parallel()
+	p := newTestPiInstaller(t)
+	dir := filepath.Join(p.Home, "agent", "extensions")
+	userExtension := filepath.Join(dir, "questmaster-messaging.ts")
+	userMarker := filepath.Join(dir, ".questmaster-installed")
+	writeTestFile(t, userExtension, "// my own Pi extension\n")
+	writeTestFile(t, userMarker, "keep me\n")
+
+	if err := p.Install(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if got := p.Status(); got.Status != StatusCurrent {
+		t.Fatalf("user files changed status: %+v", got)
+	}
+	if err := p.Uninstall(); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	for _, path := range []string{userExtension, userMarker} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("removed user file %s: %v", path, err)
 		}
 	}
 }
 
-func TestPiStatusOutdatedOnVersionMismatch(t *testing.T) {
+func TestPiLegacySymlinkIsReportedNotRemoved(t *testing.T) {
+	t.Parallel()
 	p := newTestPiInstaller(t)
-	if err := os.WriteFile(p.markerPath(), []byte("older-version"), 0o644); err != nil {
-		t.Fatalf("seed marker: %v", err)
+	target := filepath.Join(t.TempDir(), "questmaster-messaging.ts")
+	writeTestFile(t, target, legacyPiCopy)
+	link := filepath.Join(p.Home, "agent", "extensions", "questmaster-messaging.ts")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink legacy copy: %v", err)
 	}
-	got := p.Status()
-	if got.Status != StatusOutdated {
-		t.Fatalf("status: want %s, got %+v", StatusOutdated, got)
+
+	if got := p.Status(); got.Status != StatusOutdated || !strings.Contains(got.Detail, "left in place") {
+		t.Fatalf("status with legacy symlink: %+v", got)
+	}
+	if err := p.Install(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		t.Fatalf("install changed the legacy symlink: info = %v, err = %v", info, err)
+	}
+	if got := p.Status(); got.Status != StatusOutdated || !strings.Contains(got.Detail, "left in place") {
+		t.Fatalf("status after install with legacy symlink: %+v", got)
+	}
+	if err := p.Uninstall(); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("uninstall removed the legacy symlink: %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("symlink target removed: %v", err)
 	}
 }
 
-func TestPiStatusNotInstalledWhenMarkerAbsent(t *testing.T) {
-	p := &PiInstaller{Home: t.TempDir()}
-	got := p.Status()
-	if got.Status != StatusNotInstalled {
-		t.Fatalf("status: want %s, got %+v", StatusNotInstalled, got)
+func TestPiInstallDryRunTouchesNothing(t *testing.T) {
+	t.Parallel()
+	p := newTestPiInstaller(t)
+	extension, marker := writeLegacyPiFiles(t, filepath.Join(p.Home, "agent", "extensions"))
+
+	var log bytes.Buffer
+	if err := p.InstallWithOptions(InstallOptions{DryRun: true, Log: &log}); err != nil {
+		t.Fatalf("dry-run install: %v", err)
+	}
+	for _, want := range []string{
+		"would remove legacy Pi file " + extension,
+		"would remove legacy Pi file " + marker,
+		"would write Pi extension " + p.extensionFile(),
+	} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("dry-run log missing %q: %q", want, log.String())
+		}
+	}
+	for _, path := range []string{extension, marker} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("dry-run removed %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(p.ExtensionDir); !os.IsNotExist(err) {
+		t.Errorf("dry-run created %s (err=%v)", p.ExtensionDir, err)
 	}
 }
 
@@ -246,23 +499,17 @@ func TestPiLegacySidecarWarnsOnInstallAndStatus(t *testing.T) {
 	}
 }
 
-func TestPiUninstallRemovesMarker(t *testing.T) {
-	p := newTestPiInstaller(t)
-	if err := p.Install(); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	if err := p.Uninstall(); err != nil {
-		t.Fatalf("uninstall: %v", err)
-	}
-	for _, path := range p.markerPaths() {
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Errorf("marker still present at %s (err=%v)", path, err)
+// TestPiMessagingExtensionBridgesSubagents keeps the sub-agent wiring the
+// extension must forward to `questmaster hook`.
+func TestPiMessagingExtensionBridgesSubagents(t *testing.T) {
+	t.Parallel()
+	for _, hook := range []string{
+		`subagentEvents?.on?.("subagents:started", forwardSubagent("subagent_start"));`,
+		`subagentEvents?.on?.("subagents:completed", forwardSubagent("subagent_stop"));`,
+		`subagentEvents?.on?.("subagents:failed", forwardSubagent("subagent_stop"));`,
+	} {
+		if !strings.Contains(piMessagingExtension, hook) {
+			t.Errorf("Pi extension missing sub-agent bridge %q", hook)
 		}
-	}
-	if _, err := os.Stat(p.extensionPath()); !os.IsNotExist(err) {
-		t.Errorf("messaging extension still present: %v", err)
-	}
-	if got := p.Status(); got.Status != StatusNotInstalled {
-		t.Fatalf("post-uninstall status: %+v", got)
 	}
 }

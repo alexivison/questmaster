@@ -237,6 +237,9 @@ func (s *Service) respawnDeadAgent(ctx context.Context, m state.Manifest, pane t
 	if err := s.setResumeEnv(ctx, m.SessionID, launch.agentResume); err != nil {
 		return err
 	}
+	if err := s.installPiExtension(launch.agents); err != nil {
+		return err
+	}
 	if err := s.Client.RespawnPane(ctx, pane.ID, cwd, launch.agentCmds[agent.RoleAgent]); err != nil {
 		return fmt.Errorf("respawn agent in %s: %w", m.SessionID, err)
 	}
@@ -285,6 +288,7 @@ func (s *Service) continueLaunchFor(m state.Manifest) (continueLaunch, error) {
 		return continueLaunch{}, err
 	}
 	l.manifestAgents = make([]state.AgentManifest, 0, len(manifestSpecs))
+	masterClass := s.parentMasterClass(m.ExtraString("parent_session"))
 
 	for _, agentState := range manifestSpecs {
 		role := agent.Role(agentState.Role)
@@ -316,6 +320,8 @@ func (s *Service) continueLaunchFor(m state.Manifest) (continueLaunch, error) {
 			Title:           m.Title,
 			Role:            agentRole,
 			Class:           m.DisplayClass(),
+			MasterClass:     masterClass,
+			PiExtension:     state.PiExtensionPath(s.Store.Root()),
 			SystemBrief:     brief,
 			Continuing:      true,
 			Model:           agentState.Model,
