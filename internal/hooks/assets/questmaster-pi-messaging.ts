@@ -1,6 +1,15 @@
 // Questmaster's Pi messaging extension. Questmaster writes this file into its own
 // state directory on every Pi launch and loads it with `pi -e`; it is never
 // installed into Pi's extensions directory, so it has no install marker.
+//
+// Other extensions read the launch environment, never the styled text drawn here:
+//   QUESTMASTER_SESSION       the session ID (qm-...)
+//   QUESTMASTER_ROLE          "master" or "worker"
+//   QUESTMASTER_TITLE         the session title, when set
+//   QUESTMASTER_CLASS         a master's class id (paladin, wizard, ...), when set
+//   QUESTMASTER_MASTER_CLASS  a worker's master's class id, when set (its familiar)
+// The footer status key is "questmaster". Routed messages are custom messages with
+// the customType names in cardStyles.
 import { chmod, lstat, unlink } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
@@ -24,6 +33,13 @@ const sessionPattern = /^qm-[A-Za-z0-9_-]+$/;
 const maxHeldMessages = 32;
 // The card shows at most this many characters. The model still gets the whole text.
 const cardCharLimit = 4_000;
+// Lists are transcript entries that never reach the model. A worker row costs one
+// CLI call, so the worker list is bounded more tightly than the quest list.
+const listEntryType = "questmaster.list";
+const listRowLimit = 50;
+const workerRowLimit = 25;
+const questmasterTimeoutMs = 5_000;
+const questmasterOutputLimit = 512 * 1024;
 
 type Request = { id: string; message: string };
 type AckStatus = "accepted" | "queued" | "rejected";
@@ -35,6 +51,8 @@ type PiContext = {
 	model?: unknown;
 	sessionManager?: { getSessionId?: () => string | undefined; getSessionFile?: () => string | undefined };
 	getContextUsage?: () => { tokens?: number | null; contextWindow?: number; percent?: number | null } | undefined;
+	hasUI?: boolean;
+	ui?: { setStatus?: (key: string, text: string | undefined) => void };
 };
 type PiMessage = { role?: string; content?: unknown; model?: unknown; provider?: unknown; api?: unknown; usage?: unknown; stopReason?: unknown; errorMessage?: unknown };
 type PiTurn = { index?: number; status?: "running" | "done"; started_at_ms?: number; ended_at_ms?: number; tool_calls?: number; errors?: number };
@@ -335,6 +353,195 @@ function cardComponent(message: { content?: unknown; details?: unknown }) {
 	};
 }
 
+// Class ids and the familiar each one summons. They are kept in step with
+// internal/state/session_class.go and familiarName in
+// app/Sources/Core/Mutations/SessionClassLogic.swift; a Go test checks both.
+const familiars: Record<string, string> = {
+	paladin: "Clockwork Construct",
+	wizard: "Fire Elemental",
+	druid: "Treant",
+	barbarian: "Bear",
+	rogue: "Raven",
+	cleric: "Light Spirit",
+	bard: "Imp",
+	ranger: "Hawk",
+	necromancer: "Skeleton",
+	sorcerer: "Lightning Elemental",
+	fighter: "War Hound",
+};
+
+type Identity = { role: "master" | "worker" | ""; title: string; sessionClass: string; masterClass: string };
+
+function classID(value: string | undefined): string {
+	const id = (value ?? "").trim().toLowerCase();
+	return Object.hasOwn(familiars, id) ? id : "";
+}
+
+function readIdentity(env: NodeJS.ProcessEnv): Identity {
+	const role = env.QUESTMASTER_ROLE;
+	return {
+		role: role === "master" || role === "worker" ? role : "",
+		title: safeLine(printable(env.QUESTMASTER_TITLE ?? ""), 120),
+		sessionClass: classID(env.QUESTMASTER_CLASS),
+		masterClass: classID(env.QUESTMASTER_MASTER_CLASS),
+	};
+}
+
+// Colours are Questmaster's tokens from app/Sources/App/SharedUI/Theme.swift.
+const accentRGB = [215, 177, 61]; // accent
+const dimRGB = [111, 117, 124]; // inert
+const stateRGB: Record<string, number[]> = {
+	working: accentRGB,
+	active: accentRGB,
+	blocked: [229, 83, 75], // trackerBlocked
+	done: [87, 171, 90], // trackerDone
+	stopped: dimRGB,
+};
+
+function paint(rgb: number[], text: string, bold = false): string {
+	return `${bold ? "\x1b[1m" : ""}\x1b[38;2;${rgb.join(";")}m${text}\x1b[39m${bold ? "\x1b[22m" : ""}`;
+}
+
+// identityLine is the footer status: the role's glyph and colour, the title, and
+// the class or, for a worker, its master's familiar. A session Questmaster did
+// not launch gets none.
+function identityLine(identity: Identity): string | undefined {
+	if (identity.role === "master") {
+		const name = safeLine(identity.title || "master", 40);
+		const cls = identity.sessionClass ? identity.sessionClass.charAt(0).toUpperCase() + identity.sessionClass.slice(1) : "";
+		return paint(cardStyles.master.rgb, `◆ ${name}`, true) + (cls ? paint(dimRGB, ` · ${cls}`) : "");
+	}
+	if (identity.role === "worker") {
+		const name = safeLine(identity.title || "worker", 40);
+		const familiar = identity.masterClass ? familiars[identity.masterClass] : "";
+		return paint(cardStyles.worker.rgb, `◇ ${name}`, true) + (familiar ? paint(dimRGB, ` · ${familiar} familiar`) : "");
+	}
+	return undefined;
+}
+
+type ListRow = { lead: string; leadRGB?: number[]; text: string };
+type ListEntry = { title: string; leadWidth: number; rows: ListRow[] };
+
+function fitCells(text: string, cells: number): string {
+	let used = 0;
+	let out = "";
+	for (const char of Array.from(text)) {
+		const size = cellWidth(char);
+		if (used + size > cells) break;
+		out += char;
+		used += size;
+	}
+	return out;
+}
+
+function listComponent(entry: ListEntry) {
+	return {
+		render(width: number): string[] {
+			const cells = Math.max(10, width);
+			const lines = [paint(accentRGB, fitCells(entry.title, cells), true)];
+			for (const row of entry.rows) {
+				const lead = fitCells(row.lead, entry.leadWidth).padEnd(entry.leadWidth);
+				const shown = row.leadRGB ? paint(row.leadRGB, lead) : lead;
+				lines.push(`${shown} ${fitCells(row.text, Math.max(0, cells - entry.leadWidth - 1))}`);
+			}
+			return lines;
+		},
+		invalidate() {},
+	};
+}
+
+function errorText(error: unknown): string {
+	return safeLine(error instanceof Error ? error.message : String(error), 200);
+}
+
+// questmasterJSON runs the Questmaster CLI and parses its JSON. The CLI owns the
+// session and quest state; this extension reads none of it directly.
+function questmasterJSON(args: string[]): Promise<unknown> {
+	return new Promise((resolve, reject) => {
+		let child: ReturnType<typeof spawn>;
+		try {
+			child = spawn(questmasterBin(), args, { stdio: ["ignore", "pipe", "pipe"] });
+		} catch (error) {
+			reject(error);
+			return;
+		}
+		let out = "";
+		let err = "";
+		const timer = setTimeout(() => child.kill("SIGKILL"), questmasterTimeoutMs);
+		child.stdout?.on("data", (chunk: Buffer) => {
+			if (out.length < questmasterOutputLimit) out += chunk.toString("utf8");
+		});
+		child.stderr?.on("data", (chunk: Buffer) => {
+			if (err.length < 4_096) err += chunk.toString("utf8");
+		});
+		child.once("error", (error) => {
+			clearTimeout(timer);
+			reject(error);
+		});
+		child.once("close", (code: number | null) => {
+			clearTimeout(timer);
+			if (code !== 0) {
+				reject(new Error(safeLine(err || `questmaster exited with ${code}`, 200)));
+				return;
+			}
+			try {
+				resolve(JSON.parse(out));
+			} catch {
+				reject(new Error("questmaster printed no JSON"));
+			}
+		});
+	});
+}
+
+type StatusJSON = { status?: unknown; manifest?: { title?: unknown; workers?: unknown } };
+
+async function workersList(identity: Identity, sessionID: string): Promise<ListEntry> {
+	const entry = (rows: ListRow[], title = "Workers"): ListEntry => ({ title, leadWidth: 9, rows });
+	if (identity.role !== "master") {
+		return entry([{ lead: "", text: "This session is a worker. /workers lists a master's workers." }]);
+	}
+	try {
+		const master = (await questmasterJSON(["status", sessionID])) as StatusJSON;
+		const listed = master.manifest?.workers;
+		const ids = Array.isArray(listed)
+			? listed.filter((id): id is string => typeof id === "string" && sessionPattern.test(id))
+			: [];
+		const shown = ids.slice(0, workerRowLimit);
+		const rows: ListRow[] = [];
+		for (const id of shown) {
+			const worker = (await questmasterJSON(["status", id])) as StatusJSON;
+			const state = typeof worker.status === "string" ? safeLine(worker.status, 9) : "unknown";
+			const title = worker.manifest?.title;
+			const label = typeof title === "string" ? safeLine(printable(title), 80) : "";
+			rows.push({ lead: state, leadRGB: stateRGB[state], text: printable([id, label].filter(Boolean).join("  ")) });
+		}
+		if (ids.length > shown.length) rows.push({ lead: "", text: `${ids.length - shown.length} more not shown` });
+		return entry(rows.length ? rows : [{ lead: "", text: "No workers." }], `Workers (${ids.length})`);
+	} catch (error) {
+		return entry([{ lead: "error", text: errorText(error) }]);
+	}
+}
+
+async function questsList(projectDir: string): Promise<ListEntry> {
+	const entry = (rows: ListRow[], title: string): ListEntry => ({ title, leadWidth: 12, rows });
+	try {
+		const body = (await questmasterJSON(["quest", "ls", "--project", projectDir])) as { quests?: unknown };
+		const quests = (Array.isArray(body.quests) ? body.quests : []) as Array<{ id?: unknown; content?: unknown; types?: unknown; size?: unknown }>;
+		const shown = quests.slice(0, listRowLimit);
+		const rows = shown.map((quest): ListRow => {
+			const tags = Array.isArray(quest.types) ? quest.types.filter((tag): tag is string => typeof tag === "string").join(",") : "";
+			const size = typeof quest.size === "string" ? quest.size : "";
+			const first = typeof quest.content === "string" ? nonEmptyLines(quest.content)[0] ?? "" : "";
+			const id = typeof quest.id === "string" ? quest.id : "";
+			return { lead: safeLine(id, 12), text: printable([tags, size, safeLine(first, 160)].filter(Boolean).join("  ")) };
+		});
+		if (quests.length > shown.length) rows.push({ lead: "", text: `${quests.length - shown.length} more not shown` });
+		return entry(rows.length ? rows : [{ lead: "", text: "No quests for this project." }], `Quests (${quests.length})`);
+	} catch (error) {
+		return entry([{ lead: "error", text: errorText(error) }], "Quests");
+	}
+}
+
 export default function (pi: ExtensionAPI) {
 	let server: Server | undefined;
 	const connections = new Set<Socket>();
@@ -369,6 +576,7 @@ export default function (pi: ExtensionAPI) {
 	let compacting = false;
 	let held: Card[] = [];
 	let heldFlush: NodeJS.Timeout | undefined;
+	const identity = readIdentity(process.env);
 
 	function refreshMetadata(ctx?: PiContext): void {
 		if (!ctx) return;
@@ -652,6 +860,19 @@ export default function (pi: ExtensionAPI) {
 	for (const style of Object.values(cardStyles)) {
 		pi.registerMessageRenderer(style.customType, (message) => cardComponent(message));
 	}
+	pi.registerEntryRenderer(listEntryType, (entry) => listComponent(entry.data as ListEntry));
+	pi.registerCommand("workers", {
+		description: "List this master's workers and their states",
+		handler: async () => {
+			pi.appendEntry(listEntryType, await workersList(identity, questmasterSessionID));
+		},
+	});
+	pi.registerCommand("quests", {
+		description: "List this project's quests",
+		handler: async (_args: string, ctx: { cwd?: string }) => {
+			pi.appendEntry(listEntryType, await questsList(ctx.cwd || cwd));
+		},
+	});
 
 	pi.on("session_start", async (_event, rawContext) => {
 		const occurredAtMS = Date.now();
@@ -664,6 +885,8 @@ export default function (pi: ExtensionAPI) {
 		refreshMetadata(ctx);
 		tool = undefined;
 		promptWaiting = false;
+		const line = identityLine(identity);
+		if (line && ctx?.hasUI) ctx.ui?.setStatus?.("questmaster", line);
 		setBusy(false, "idle");
 		await emitHook("session_start", undefined, false, occurredAtMS);
 	});

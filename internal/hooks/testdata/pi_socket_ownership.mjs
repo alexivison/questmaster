@@ -26,6 +26,9 @@ function instance() {
 	extension({
 		on(event, handler) { handlers.set(event, handler); },
 		registerMessageRenderer() {},
+		registerEntryRenderer() {},
+		registerCommand() {},
+		appendEntry() {},
 		sendMessage(message, options) { messages.push({ message, options }); },
 	});
 	return { handlers, messages };

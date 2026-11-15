@@ -21,6 +21,9 @@ extension({
 	on(event, handler) { handlers.set(event, handler); },
 	events: { on(event, handler) { subagentHandlers.set(event, handler); } },
 	registerMessageRenderer() {},
+	registerEntryRenderer() {},
+	registerCommand() {},
+	appendEntry() {},
 	sendMessage() {},
 	getThinkingLevel() { return "high"; },
 });

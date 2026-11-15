@@ -32,6 +32,9 @@ const pi = {
 	sendMessage(message, options) { messages.push({ message, options }); },
 	sendUserMessage(message, options) { userMessages.push({ message, options }); },
 	registerMessageRenderer(customType, renderer) { renderers.set(customType, renderer); },
+	registerEntryRenderer() {},
+	registerCommand() {},
+	appendEntry() {},
 	getThinkingLevel() { return "high"; },
 };
 extension(pi);
