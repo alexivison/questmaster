@@ -66,7 +66,6 @@ func classVoiceClasses() []string {
 
 type classVoiceSpec struct {
 	archetype string
-	flavour   string
 }
 
 func classVoiceSpecFor(class string) (classVoiceSpec, bool) {
@@ -87,17 +86,15 @@ func classVoiceSpecFor(class string) (classVoiceSpec, bool) {
 		switch strings.TrimSpace(key) {
 		case "Archetype":
 			spec.archetype = value
-		case "Flavour":
-			spec.flavour = value
 		default:
 			return classVoiceSpec{}, false
 		}
 	}
-	return spec, spec.archetype != "" && spec.flavour != ""
+	return spec, spec.archetype != ""
 }
 
-// ClassVoice returns the shared voice rules, the mapped archetype and example,
-// and the class-specific flavour for a master session of the given class.
+// ClassVoice returns the shared voice rules and mapped archetype for a master
+// session of the given class.
 // A blank or unknown class has no voice and returns "".
 //
 // The voice is part of the system prompt fixed at launch. Reclassing a live
@@ -118,6 +115,5 @@ func ClassVoice(class string) string {
 	return strings.Join([]string{
 		shared,
 		strings.TrimSpace(string(archetype)),
-		"Flavour: " + spec.flavour,
 	}, "\n\n")
 }

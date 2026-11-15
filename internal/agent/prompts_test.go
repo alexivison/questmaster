@@ -77,27 +77,24 @@ func TestClassVoiceDefinitions(t *testing.T) {
 
 	const shared = "Write every reply to the user in this voice. The voice shapes how you talk to the user, never what you say or its correctness. Keep it out of code, commits, PR text, docs, artifacts and messages to other sessions. No roleplay or archaic speech."
 	archetypes := map[string]string{
-		"Warrior":  "Archetype: Warrior — blunt and steady.\nShort sentences. Lead with the verdict, then the reason. No hedging, no pleasantries. Own mistakes plainly.\nExample: \"Tests pass. One flaky case in CI, it's the clock. Fixing it.\"",
-		"Sage":     "Archetype: Sage — calm and measured.\nUnhurried, full sentences. Explain the why before the what. At most one quiet image or dry aside per reply.\nExample: \"The test leans on the clock, and CI's clock runs slower. A small, patient fix will hold.\"",
-		"Showman":  "Archetype: Showman — bold and theatrical.\nConfident and lively. Open with energy. Use one flourish per reply (a vivid verb or a playful line), never more.\nExample: \"Done, and it sings. One stubborn test in CI, and I know exactly where it trips.\"",
-		"Shadow":   "Archetype: Shadow — terse and wry.\nFew words, none wasted. Understated, with a dry or dark edge. Note what others missed.\nExample: \"Passes here, dies in CI. Timing. Quietly fixed.\"",
-		"Sardonic": "Archetype: Sardonic — self-assured and sarcastic.\nConfident verdicts with a teasing, sarcastic edge. One barbed aside per reply, aimed at the problem, the code or the situation, never at the user. Never mean, never at the cost of the facts.\nExample: \"Naturally, the test that 'always passes' picked CI to stop. The clock lied; I've made it stop lying.\"",
+		"Warrior":  "Archetype: Warrior — blunt, steady and a little gruff.\nShort sentences. Lead with the verdict, then the reason. No hedging, no pleasantries. Own mistakes plainly.\nExample: \"Tests pass. One flaky case in CI, it's the clock. Fixing it.\"",
+		"Sage":     "Archetype: Sage — calm, measured and quietly wise.\nUnhurried, full sentences. Explain the why before the what.\nExample: \"The test leans on the clock, and CI's clock runs slower. A small, patient fix will hold.\"",
+		"Showman":  "Archetype: Showman — bold, boastful and theatrical.\nConfident and lively. Open with energy.\nExample: \"Done, and it sings. One stubborn test in CI, and I know exactly where it trips.\"",
+		"Shadow":   "Archetype: Shadow — terse, wry and grim.\nFew words, none wasted. Understated, with a dry or dark edge. Note what others missed.\nExample: \"Passes here, dies in CI. The clock again. Buried it.\"",
+		"Sardonic": "Archetype: Sardonic — self-assured and openly sarcastic.\nConfident verdicts with a teasing, sarcastic edge, aimed at the problem, the code or the situation, never at the user. Never mean, never at the cost of the facts.\nExample: \"Naturally, the test that 'always passes' picked CI to stop. The clock lied; I've made it stop lying.\"",
 	}
-	classes := map[string]struct {
-		archetype string
-		flavour   string
-	}{
-		"barbarian":   {archetype: "Warrior", flavour: "a little gruff."},
-		"fighter":     {archetype: "Warrior", flavour: "a veteran's calm."},
-		"paladin":     {archetype: "Warrior", flavour: "owns mistakes squarely."},
-		"wizard":      {archetype: "Sage", flavour: "dry, understated wit."},
-		"cleric":      {archetype: "Sage", flavour: "patient and reassuring."},
-		"druid":       {archetype: "Sage", flavour: "the odd image from nature."},
-		"bard":        {archetype: "Showman", flavour: "a showman's flair."},
-		"rogue":       {archetype: "Shadow", flavour: "low-key sarcasm."},
-		"necromancer": {archetype: "Shadow", flavour: "a macabre turn of phrase."},
-		"sorcerer":    {archetype: "Sardonic", flavour: "theatrical and a bit vain."},
-		"ranger":      {archetype: "Sardonic", flavour: "an eye on the trail ahead."},
+	classes := map[string]string{
+		"barbarian":   "Warrior",
+		"fighter":     "Warrior",
+		"paladin":     "Warrior",
+		"wizard":      "Sage",
+		"cleric":      "Sage",
+		"druid":       "Sage",
+		"bard":        "Showman",
+		"rogue":       "Shadow",
+		"necromancer": "Shadow",
+		"sorcerer":    "Sardonic",
+		"ranger":      "Sardonic",
 	}
 
 	voiceClasses := VoiceClasses()
@@ -123,12 +120,14 @@ func TestClassVoiceDefinitions(t *testing.T) {
 			for _, fragment := range []string{
 				"Your session class is the " + strings.ToUpper(class[:1]) + class[1:] + ".",
 				shared,
-				archetypes[want.archetype],
-				"Flavour: " + want.flavour,
+				archetypes[want],
 			} {
 				if !strings.Contains(got, fragment) {
 					t.Errorf("ClassVoice(%q) missing %q:\n%s", class, fragment, got)
 				}
+			}
+			if strings.Contains(got, "Flavour:") {
+				t.Errorf("ClassVoice(%q) includes a removed class flavour:\n%s", class, got)
 			}
 		})
 	}
