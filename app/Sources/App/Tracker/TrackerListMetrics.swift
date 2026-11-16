@@ -5,11 +5,15 @@ enum TrackerListMetrics {
     /// edge is flush against the tracker frame's own trailing edge (and so the terminal pane),
     /// with Ghostty's own padding completing that gap instead of a second copy of this padding.
     static let sidePadding: CGFloat = ShellMetrics.gap
-    /// The first plate's visible top is level with the action bar header's bottom edge. The tracker pane and the header
-    /// both start `ShellMetrics.sideCardInset` below the window's top (`ShellSplitLayoutPlanner`), so the header's
-    /// bottom is its height below the pane's top. The plate's row starts at its visible top (the silhouette margin is
-    /// only in its layers), and no project header is drawn above it. The loading skeleton uses the same inset.
-    static let firstSectionTopInset = ActionBarMetrics.height
+    /// The header banner (`TrackerHeader`) tops the column in the action bar header's band: its top is the tracker pane's
+    /// top, which is `ShellMetrics.sideCardInset` below the window's top like the header's, and it is as tall.
+    static let headerHeight = ActionBarMetrics.height
+    /// The first plate's visible top is a section gap below the banner's bottom edge (the user's pick, wider than the
+    /// list's own gap; the plate once started level with the action bar header's bottom). The
+    /// plates' list starts at the banner's bottom, so the inset is inside what scrolls. The plate's row starts at its
+    /// visible top (the silhouette margin is only in its layers), and no project header is drawn above it. The loading
+    /// skeleton uses the same inset.
+    static let firstSectionTopInset = Space.section
     static let verticalPadding = Space.section
     /// The scrolling plates stop this far above the avatar's reserved slot. The avatar stands on the banner,
     /// followed by `Space.section` and the shells, or just the bottom `verticalPadding` when there are no shells.

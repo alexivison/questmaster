@@ -354,7 +354,7 @@ struct TrackerRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // An attached plate reserves the avatar; otherwise the list fills its room, clear of the pinned shells.
         .padding(.bottom, connection.awaitsFirstTracker ? 0 : tagContent != nil ? TrackerListMetrics.avatarClearance : Space.section)
-        return VStack(alignment: .leading, spacing: 0) {
+        let content = VStack(alignment: .leading, spacing: 0) {
             list
             if let tagContent {
                 avatarBlock()
@@ -382,6 +382,14 @@ struct TrackerRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // The last tracker from a dropped connection stays, dimmed, until a fresh one arrives.
         .opacity(connection.showsLastTracker ? Token.Opacity.dimmed : 1)
+        // The header is static chrome above everything the tracker lists: it neither scrolls nor dims.
+        return VStack(alignment: .leading, spacing: 0) {
+            TrackerHeader()
+                .padding(.leading, TrackerListMetrics.sidePadding)
+                .zIndex(1)
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     /// The avatar's sole stands `avatarBannerGap` above the banner below its fixed slot, above the pinned shell section.

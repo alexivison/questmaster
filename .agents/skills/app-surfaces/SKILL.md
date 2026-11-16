@@ -1,6 +1,6 @@
 ---
 name: app-surfaces
-description: For working on the Questmaster codebase itself (not for users of the questmaster CLI). Decided behaviour and layout of a specific Questmaster app surface - the tracker (plates, shell section, attached dot), the Worker Log and its filter and tabs, the Watcher dock, the dock column, the action bar header, or the Quest Log. Read before editing or adding to one of these surfaces; it records what is app-wide versus per-master, what hides when, and which view owns the keys.
+description: For working on the Questmaster codebase itself (not for users of the questmaster CLI). Decided behaviour and layout of a specific Questmaster app surface - the tracker (header banner, plates, shell section, attached dot), the Worker Log and its filter and tabs, the Watcher dock, the dock column, the action bar header, or the Quest Log. Read before editing or adding to one of these surfaces; it records what is app-wide versus per-master, what hides when, and which view owns the keys.
 ---
 
 # Questmaster app surfaces
@@ -9,7 +9,7 @@ These references record decisions the code alone does not explain. Numbers that 
 
 | Editing | Read |
 |---|---|
-| Tracker plates, the shell rows, the attached dot, portraits, the avatar slot and session banner | `references/tracker.md` |
+| Tracker header banner, plates, the shell rows, the attached dot, portraits, the avatar slot and session banner | `references/tracker.md` |
 | The Worker Log, its Action filter, its worker tabs | `references/worker-log.md` |
 | The Watcher dock and its pull-request rows | `references/watcher.md` |
 | The dock column, dock titles, the action bar header, startup layout, dock keys | `references/dock-and-action-bar.md` |
