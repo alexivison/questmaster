@@ -41,7 +41,7 @@ enum TrackerPRBadgeFixture {
             master("preview-merged", "Merged only", "wizard", PullRequestCounts(merged: 2)),
             master("preview-open-draft", "Open and draft", "rogue", PullRequestCounts(open: 1, draft: 4)),
             // Own: one open and two merged. Workers share that open, add a draft, and add one open and one closed.
-            master("preview-workers", "Master + worker watches", "paladin", PullRequestCounts(open: 2, draft: 1, merged: 2, closed: 1), cast: TrackerCast(tool: "Bash", startedAt: castStart, typicalMS: 6000)),
+            master("preview-workers", "Master + worker watches", "paladin", PullRequestCounts(conflicts: 1, open: 2, draft: 1, merged: 2, closed: 1), cast: TrackerCast(tool: "Bash", startedAt: castStart, typicalMS: 6000)),
         ]
         sessions += [
             TrackerSession(id: "preview-worker-a", title: "Shared open + draft", repoName: "Example App", sessionClass: "paladin", agent: "claude", role: "worker", state: "working", snippet: "Checking the shared change", parentID: "preview-workers", duration: "0:00:36", cast: TrackerCast(tool: "Read", startedAt: castStart, typicalMS: 6000)),

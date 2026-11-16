@@ -14,15 +14,15 @@ enum TrackerPRBadgeMetrics {
 
 /// Informational chips outside the plate's hit area. Core supplies only the non-zero states of master rows. A chip comes
 /// and goes the way an expanded worker's plate does: it slides from the top and fades over `standard` (none under Reduce
-/// Motion). Chips are keyed by state, so a count change keeps its chip in place.
+/// Motion). Chips are keyed by kind, so a count change keeps its chip in place.
 struct TrackerPRBadges: View {
     let badges: [TrackerPullRequestBadge]
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.row) {
-            ForEach(badges, id: \.state) { badge in
+            ForEach(badges, id: \.kind) { badge in
                 HStack(spacing: Space.row) {
-                    if let glyph = badge.state.icon {
+                    if let glyph = badge.kind.icon {
                         PullRequestIconView(icon: glyph.icon, color: glyph.color)
                             .scaleEffect(TrackerPRBadgeMetrics.iconSide / PullRequestIcon.side)
                             .frame(width: TrackerPRBadgeMetrics.iconSide, height: TrackerPRBadgeMetrics.iconSide)
@@ -45,5 +45,15 @@ struct TrackerPRBadges: View {
         }
         .animation(Motion.animation(.standard), value: badges)
         .frame(width: TrackerPRBadgeMetrics.chipWidth, alignment: .topLeading)
+    }
+}
+
+private extension TrackerPullRequestBadge.Kind {
+    /// The conflicts chip takes the Watcher's conflict mark, the changes-requested ring in red; the others their git glyph.
+    var icon: (icon: PullRequestIcon, color: NSColor)? {
+        switch self {
+        case .conflicts: (.ringChanges, AppPalette.gitRed)
+        case .state(let state): state.icon
+        }
     }
 }
