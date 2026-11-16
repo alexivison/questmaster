@@ -109,6 +109,8 @@ enum RenderPreview {
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
         render(trackerView(connection: .reconnecting), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-reconnecting.png")
         render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
+        render(TrackerPRBadgeFixture.view(), size: TrackerPRBadgeFixtureMetrics.canvasSize, to: "\(outputDir)/tracker-pr-badges.png")
+        render(TrackerPRBadgeFixture.view(unwatched: true), size: TrackerPRBadgeFixtureMetrics.canvasSize, to: "\(outputDir)/tracker-pr-badges-unwatched.png")
         render(trackerListStatusView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-status.png")
         render(trackerListGapsView(), size: CGSize(width: 340, height: 820), to: "\(outputDir)/tracker-list-gaps.png")
         // The status list at the shell's real tracker column width, on a wider canvas: past the column's edge shows

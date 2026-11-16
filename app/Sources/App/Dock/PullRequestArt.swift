@@ -1,10 +1,11 @@
+import QuestmasterCore
 import SwiftUI
 
 /// Path data copied from `Session Detail Dock.svg` (the Watcher panel) in its own coordinates, one icon per
 /// design glyph: the four git states and the three review rings. Each icon's `origin` is its 15 x 15 box's top-left
 /// corner in the SVG, so the paths parse shifted into the box. The git icons are 1pt round-capped strokes; the rings are
 /// fills. The comment bubble is the fourth icon of `PR Status.svg`, drawn in a 20pt box and scaled into the slot.
-/// Colours stay with the view: each icon is one colour in the design.
+/// The shared git-state mapping supplies the same colours to the Watcher and tracker.
 struct PullRequestIcon {
     typealias Piece = (origin: CGPoint, d: String)
 
@@ -85,5 +86,19 @@ struct PullRequestIconView: View {
             }
         }
         .frame(width: PullRequestIcon.side, height: PullRequestIcon.side)
+    }
+}
+
+/// The colours the design gives each state. A row whose data is stale or inaccessible draws them in its look's icon
+/// colour instead: it can't be trusted, so it doesn't show a vivid pass or fail.
+extension PullRequestGitState {
+    var icon: (icon: PullRequestIcon, color: NSColor)? {
+        switch self {
+        case .open: (.gitOpen, AppPalette.gitGreen)
+        case .draft: (.gitDraft, AppPalette.controlBorder)
+        case .merged: (.gitMerged, AppPalette.gitMerged)
+        case .closed: (.gitClosed, AppPalette.gitRed)
+        case .unknown: nil
+        }
     }
 }

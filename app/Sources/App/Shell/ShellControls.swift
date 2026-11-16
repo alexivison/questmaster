@@ -37,8 +37,8 @@ enum ShellMetrics {
     /// from the header above it and from the window's bottom edge.
     static let horizontalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(gap), ghosttyPadding: GhosttyWindowPadding.resolved.x))
     static let verticalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(gap), ghosttyPadding: GhosttyWindowPadding.resolved.y))
-    /// The tracker column holds the plate band's 2pt past the plates' right edge; the gap after it is that much
-    /// shorter, so the plates sit `gap` from the terminal's first cell, not `gap` + 2.
+    /// The tracker keeps its 2pt band allowance past the badge column; the gap after it is that much
+    /// shorter, so the last chip sits `gap` from the terminal's first cell.
     static let trackerTrailingGap: CGFloat = max(0, horizontalFlushGap - TrackerPlateDesign.glowBandWidth)
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
         sideCardInset: Double(sideCardInset),
@@ -49,7 +49,7 @@ enum ShellMetrics {
         terminalToDockGap: Double(horizontalFlushGap),
         terminalVerticalInset: Double(verticalFlushGap),
         headerHeight: Double(ActionBarMetrics.height),
-        // The plates end the band's width short of the tracker column's edge, so the header sits `gap` past them.
+        // The badge column ends the band's width short of the tracker column's edge, so the header sits `gap` past it.
         headerTrackerGap: Double(gap - TrackerPlateDesign.glowBandWidth)
     )
 }

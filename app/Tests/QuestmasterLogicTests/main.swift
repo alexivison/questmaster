@@ -7,6 +7,7 @@ enum QuestmasterLogicTests {
         timed("TrackerPlateVariantTests") { TrackerPlateVariantTests.run() }
         timed("TrackerShellSectionTests") { TrackerShellSectionTests.run() }
         timed("TrackerAttachedDotTests") { TrackerAttachedDotTests.run() }
+        timed("TrackerPullRequestBadgeTests") { TrackerPullRequestBadgeTests.run() }
         timed("TrackerRecolorLogicTests") { TrackerRecolorLogicTests.run() }
         timed("TrackerCommandStateTests") { TrackerCommandStateTests.run() }
         timed("MutationRequestTests") { MutationRequestTests.run() }

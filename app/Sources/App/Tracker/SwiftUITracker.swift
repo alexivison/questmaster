@@ -734,23 +734,27 @@ private struct TrackerRepoSection: View {
         onToggleWorkersCollapsed: @escaping (String) -> Void
     ) -> some View {
         if let role = TrackerNameplateRole(rendered.session) {
-            TrackerSessionRow(
-                rendered: rendered,
-                role: role,
-                projectName: projectName,
-                selectedID: selectedID,
-                attachedID: attachedID,
-                areaFocused: areaFocused,
-                shortcutNumber: shortcutNumbers[rendered.session.id],
-                commandLongPressIsActive: commandLongPressIsActive,
-                hasWorkers: hasWorkers,
-                isWorkersCollapsed: isWorkersCollapsed,
-                collapsedWorkers: collapsedWorkers,
-                onSelect: onSelect,
-                onActivate: onActivate,
-                onEditSession: onEditSession,
-                onToggleWorkersCollapsed: onToggleWorkersCollapsed
-            )
+            HStack(alignment: .top, spacing: Space.row) {
+                TrackerSessionRow(
+                    rendered: rendered,
+                    role: role,
+                    projectName: projectName,
+                    selectedID: selectedID,
+                    attachedID: attachedID,
+                    areaFocused: areaFocused,
+                    shortcutNumber: shortcutNumbers[rendered.session.id],
+                    commandLongPressIsActive: commandLongPressIsActive,
+                    hasWorkers: hasWorkers,
+                    isWorkersCollapsed: isWorkersCollapsed,
+                    collapsedWorkers: collapsedWorkers,
+                    onSelect: onSelect,
+                    onActivate: onActivate,
+                    onEditSession: onEditSession,
+                    onToggleWorkersCollapsed: onToggleWorkersCollapsed
+                )
+                .frame(width: role.canvasSize.width)
+                TrackerPRBadges(badges: TrackerPullRequestBadge.make(for: rendered.session))
+            }
         }
     }
 }
@@ -906,9 +910,9 @@ enum TrackerNameplateRole: Equatable {
     /// edge, where the elapsed time right-aligns. The master's project name sits in its tab, the title and time on the
     /// title strip, and the snippet on the band below; the worker has no tab.
     static let topLevelTextX = TrackerPlateDesign.textX(afterDisc: TrackerPlateDesign.topLevel.discEdge)
-    static let topLevelTextRightEdge: CGFloat = 250
+    static let topLevelTextRightEdge = TrackerPlateDesign.plateWidth - Space.item
     static let workerTextX = TrackerPlateDesign.textX(afterDisc: TrackerPlateDesign.worker.discEdge)
-    static let workerTextRightEdge: CGFloat = 240
+    static let workerTextRightEdge = TrackerPlateDesign.plateWidth - Space.item
     static let titleTimeGap = Space.row
     /// The collapsed workers' circles start 40 points right of the master disc's left edge.
     static let circlesX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x
