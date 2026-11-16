@@ -15,7 +15,8 @@ enum WatcherMetrics {
     /// A watcher stack's logos overlap by one row step, so each sits `PullRequestIcon.side - Space.row` past the one before,
     /// and the later logo draws over the earlier one.
     static let stackSpacing: CGFloat = -Space.row
-    /// A row still waiting for its first status: ghost bars where the title and the CI and diff counters go.
+    /// A row still waiting for its first status: ghost bars where the number, the title and the CI and diff counters go.
+    static let skeletonNumberWidth: CGFloat = 45
     static let skeletonTitleWidth: CGFloat = 200
     static let skeletonDetailWidth: CGFloat = 60
     static let skeletonBarHeight = Space.item
@@ -165,29 +166,24 @@ struct WatcherRow: View {
         .accessibilityHint("Open pull request")
     }
 
-    /// A row the daemon hasn't polled yet: its `#number`, which the watch already knows, between ghosts of the git glyph and
-    /// the title, breathing as the other skeletons do.
+    /// A row the daemon hasn't polled yet: ghosts of the git glyph, the number and the title. Nothing real shows until the
+    /// first status lands, so the row doesn't fill in piece by piece.
     private var skeletonTitleLine: some View {
         HStack(alignment: .center, spacing: Space.item) {
             skeletonBar(width: PullRequestIcon.side, height: PullRequestIcon.side)
-            text(row.numberLabel, color: look.meta.color)
-                .fixedSize()
+            skeletonBar(width: Metrics.skeletonNumberWidth)
             skeletonBar(width: Metrics.skeletonTitleWidth)
             Spacer(minLength: 0)
         }
         .frame(height: Metrics.lineHeight, alignment: .top)
     }
 
-    /// Ghosts of the review glyph and the CI and diff counters. The watchers are known, so they show as on a loaded row.
+    /// Ghosts of the review glyph and the CI and diff counters; the author and watchers wait for the status too.
     private var skeletonDetailLine: some View {
         HStack(alignment: .center, spacing: Space.item) {
             skeletonBar(width: PullRequestIcon.side, height: PullRequestIcon.side)
             skeletonBar(width: Metrics.skeletonDetailWidth)
             Spacer(minLength: 0)
-            if let tooltip = row.watcherTooltip {
-                watchers
-                    .help(tooltip)
-            }
         }
         .frame(height: Metrics.lineHeight, alignment: .top)
     }

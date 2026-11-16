@@ -19,6 +19,6 @@
   A watched PR gaining conflicts sends one ordinary `conflicts` event alert, including when first observed on the
   first poll; resolution sends nothing. GitHub's temporary `UNKNOWN` retains the last known conflict value.
 - A just-watched PR the daemon hasn't polled yet has no status (`PullRequestDisplayRow.isLoading`, decided in Core). Its row
-  is a skeleton until the first poll: its `#number`, which the watch already knows, between ghost bars for the git glyph and
-  the title, then ghosts of the review glyph and the counters, with the watchers shown as on a loaded row. The bars breathe
+  is a skeleton until the first poll: ghost bars for the git glyph, the number and the title, then for the review glyph and
+  the counters. Nothing real shows, not even the number or the watchers, so the row doesn't fill in piece by piece. The bars breathe
   in `SkeletonPulse` (`WatcherMetrics.skeleton*`). An inaccessible PR has a status and is never loading.
