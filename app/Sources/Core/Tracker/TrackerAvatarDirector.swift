@@ -6,8 +6,6 @@ public enum TrackerAvatarTiming {
     /// A steady pose stays this long before a different one shows, so tool calls that change several times a second
     /// don't flicker. Calling out is the exception: it doesn't wait for the hold (it still waits for a block that has an end).
     public static let holdSeconds: TimeInterval = 1.0
-    /// The least working stretch that earns a bow when it ends. A shorter turn goes straight to idle; the user may tune this.
-    public static let minimumBowWorkSeconds: TimeInterval = 60
 }
 
 /// What the avatar shows at one instant.
@@ -29,7 +27,7 @@ public struct TrackerAvatarFrame: Equatable {
 
 /// Decides the class avatar's pose. It is pure: the view feeds it the attached session and the
 /// events, and asks for a frame at a clock time. Times are seconds from one clock, the same one each call uses, and that
-/// clock is the wall clock, so a session's own working start (its `elapsedSince`) can be compared with it.
+/// clock is the wall clock.
 ///
 /// - Nothing that has an end is cut: an enter, a finish and a one-shot (a cue's beat, the bow) always play to their end. A loop has
 ///   no end, so it is left whenever another pose is wanted or a cue starts: its own finish plays first, if it has one. A cue, a
@@ -39,11 +37,10 @@ public struct TrackerAvatarFrame: Equatable {
 ///   desired pose is kept meanwhile. Calling out skips the hold, and jumps ahead of the queued cues, but follows the same rule
 ///   otherwise: the loop it leaves finishes first and an enter or a finish on screen ends first. A steady change also waits for
 ///   the cues queued or playing.
-/// - A turn that ends after a working stretch of at least `minimumBowWorkSeconds` bows once. The bow waits for the
+/// - Every turn the director saw working bows once when it ends. The bow waits for the
 ///   sub-agents of that turn to stop, then waits for the pose's hold like any other change. The pose's finish plays first,
 ///   and the bow plays for its one-shot's length.
-///   A shorter turn goes straight to idle. Attaching to a done session, or switching to one, shows its steady pose with
-///   no bow.
+///   Attaching to a done session, or switching to one, shows its steady pose with no bow.
 /// - A steady pose with an `enter` plays it once when it comes on screen (on attach, a switch, a change or a calling out cut-in),
 ///   then its loop. The hold counts from the pose's arrival, so the enter counts toward it. A pose that continues doesn't replay
 ///   its enter, and Reduce Motion skips it.
@@ -80,12 +77,11 @@ public struct TrackerAvatarDirector {
     private var session: TrackerSession?
     private var attachedIsWorking = false
     private var attachedIsDone = false
-    /// When the working stretch in progress (or the last one) began: the payload's own working start while it has one, else
-    /// the first time the director saw the session working.
-    private var workingStart: TimeInterval?
-    /// A turn that ended after a qualifying stretch, waiting for its sub-agents to stop.
+    /// The director saw the attached session working since its last turn ended, so the turn's end earns a bow.
+    private var turnWorked = false
+    /// A turn that ended, waiting for its sub-agents to stop before its bow.
     private var bowPending = false
-    /// The bow is wanted: from the qualifying turn's end until it has played.
+    /// The bow is wanted: from the turn's end until it has played.
     private var bowRequested = false
     /// When the bow came on screen; it plays for `bowSeconds` from here.
     private var bowShownSince: TimeInterval?
@@ -140,7 +136,7 @@ public struct TrackerAvatarDirector {
             switchSession(to: session, at: now)
             return
         }
-        updateTurn(session, at: now)
+        updateTurn(session)
         advance(to: now)
     }
 
@@ -185,28 +181,24 @@ public struct TrackerAvatarDirector {
         bowShownSince = nil
         attachedIsWorking = isWorking(session)
         attachedIsDone = isDone(session)
-        workingStart = attachedIsWorking ? (session?.elapsedSince?.timeIntervalSince1970 ?? now) : nil
+        turnWorked = attachedIsWorking
         steadyWanted = wantedSteady()
         show(steadyWanted, at: now)
     }
 
-    /// Reads the attached session's turn: when a working stretch starts, and whether a turn that ends now earns a bow.
-    private mutating func updateTurn(_ session: TrackerSession?, at now: TimeInterval) {
+    /// Reads the attached session's turn: whether it has worked, and whether a turn that ends now earns a bow.
+    private mutating func updateTurn(_ session: TrackerSession?) {
         self.session = session
         let working = isWorking(session)
         let done = isDone(session)
         if working {
-            if let since = session?.elapsedSince?.timeIntervalSince1970 {
-                workingStart = since
-            } else if !attachedIsWorking {
-                workingStart = now
-            }
+            turnWorked = true
         }
         if done && !attachedIsDone {
-            if let start = workingStart, now - start >= TrackerAvatarTiming.minimumBowWorkSeconds {
+            if turnWorked {
                 bowPending = true
             }
-            workingStart = nil
+            turnWorked = false
         }
         if !done {
             // Work resumed: the turn that was ending isn't over, so its bow no longer applies.

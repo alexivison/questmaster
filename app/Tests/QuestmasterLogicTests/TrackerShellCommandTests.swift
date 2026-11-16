@@ -8,6 +8,7 @@ struct TrackerShellCommandTests {
         networkCommandsScry()
         everythingElseChannels()
         leadInsAndPipesDoNotChangeTheCommand()
+        setupLinesAreSkipped()
         spawnsSummon()
         otherQuestmasterCommandsStillChannel()
         print("TrackerShellCommandTests: all tests passed")
@@ -17,7 +18,7 @@ struct TrackerShellCommandTests {
         for command in [
             "ls -la", "cat README.md", "head -n 5 f", "tail -f log", "rg foo", "grep -r x .", "find . -name x", "fd x", "tree",
             "wc -l f", "sed -n 10,20p f.go", "git status", "git status -sb", "git log --oneline", "git diff HEAD",
-            "git show abc123", "git blame f.go", "gh pr view 3", "gh pr list", "gh pr diff 3",
+            "git show abc123", "git blame f.go",
         ] {
             expect(TrackerShellCommand.pose(for: command) == .studying, "\(command) should study, got \(TrackerShellCommand.pose(for: command))")
         }
@@ -26,7 +27,8 @@ struct TrackerShellCommandTests {
     private static func writingCommandsInscribe() {
         for command in [
             "sed -i 's/a/b/' f", "mv a b", "cp a b", "mkdir -p d", "touch f", "rm f", "apply_patch", "gofmt -w f.go",
-            "git add .", "git commit -m msg", "git mv a b", "git rm f",
+            "git add .", "git commit -m msg", "git mv a b", "git rm f", "git worktree add ../wt -b x origin/main",
+            "git checkout main", "git switch -c x", "git merge origin/main", "git rebase origin/main",
         ] {
             expect(TrackerShellCommand.pose(for: command) == .inscribing, "\(command) should inscribe, got \(TrackerShellCommand.pose(for: command))")
         }
@@ -36,6 +38,8 @@ struct TrackerShellCommandTests {
         for command in [
             "curl https://example.com", "wget https://example.com/f", "gh api repos/a/b", "git fetch origin", "git pull",
             "git push origin main", "git clone https://example.com/r.git", "gh pr create --draft", "gh pr merge 3",
+            "gh pr view 3", "gh pr list", "gh pr diff 3", "gh pr checks 3", "gh issue list", "gh run view 1",
+            "questmaster pr watch https://example.com/pr/1", "qm pr events 1 --unread",
         ] {
             expect(TrackerShellCommand.pose(for: command) == .scrying, "\(command) should scry, got \(TrackerShellCommand.pose(for: command))")
         }
@@ -58,12 +62,13 @@ struct TrackerShellCommandTests {
         }
     }
 
-    /// Builds, tests, scripts, questmaster, and the variants the table leaves out (`gofmt -l`, plain `sed`, other git and gh
+    /// Builds, tests, scripts, questmaster, and the variants the table leaves out (`gofmt -l`, plain `sed`, other git
     /// subcommands) all channel.
     private static func everythingElseChannels() {
         for command in [
-            "go test ./...", "make build", "./scripts/build.sh", "questmaster send master hi", "npm test", "git checkout main",
-            "gh issue list", "gofmt -l .", "sed s/a/b/ f", "git -C dir status", "", "   ",
+            "go test ./...", "make build", "./scripts/build.sh", "questmaster send master hi", "npm test", "swift build",
+            "python3 -I script.py", "python3 - <<'EOF'\nprint(1)\nEOF", "gofmt -l .", "sed s/a/b/ f", "git -C dir status",
+            "", "   ", "\n",
         ] {
             expect(TrackerShellCommand.pose(for: command) == .channelling, "\(command) should channel, got \(TrackerShellCommand.pose(for: command))")
         }
@@ -78,6 +83,23 @@ struct TrackerShellCommandTests {
         expect(TrackerShellCommand.pose(for: "rtk git status") == .studying, "the rtk proxy should be skipped")
         expect(TrackerShellCommand.pose(for: "cat f.txt | go run ./cmd") == .studying, "a pipeline should classify by its first command")
         expect(TrackerShellCommand.pose(for: "go test ./... | tee out") == .channelling, "a pipeline should channel by its first command")
+    }
+
+    /// Lines that only prepare the shell (a cd, an export, bare env assignments, a comment, a blank line) are skipped,
+    /// whether `&&`, `;` or a line break ends them.
+    private static func setupLinesAreSkipped() {
+        for (command, pose) in [
+            ("S=/tmp/x; cat $S/f", TrackerAvatarPose.studying),
+            ("F=a D=b; rm f", .inscribing),
+            ("export A=1 && git log", .studying),
+            ("export PATH=/x:$PATH\ngh pr view 3", .scrying),
+            ("cd /repo\nrg x", .studying),
+            ("\n\nls", .studying),
+            ("# look first\nls", .studying),
+            ("cd /repo\nS=/tmp/x\ngo test ./...", .channelling),
+        ] {
+            expect(TrackerShellCommand.pose(for: command) == pose, "\(command) should be \(pose), got \(TrackerShellCommand.pose(for: command))")
+        }
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

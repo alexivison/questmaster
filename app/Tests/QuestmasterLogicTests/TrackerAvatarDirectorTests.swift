@@ -6,14 +6,13 @@ struct TrackerAvatarDirectorTests {
         holdsASteadyPoseBeforeAChangeShows()
         collapsesToTheLatestPose()
         callingOutSkipsTheHoldOnALoopWithNoFinish()
-        bowsOnceWhenATurnEndsAfterAMinuteOfWork()
-        aShortTurnGoesStraightToIdle()
-        theMinuteIsInclusive()
+        bowsOnceWhenATurnEnds()
+        aShortTurnBowsToo()
         bowWaitsForTheCurrentPoseHold()
         bowIsHeldUntilSubagentsStop()
         resumedWorkCancelsAHeldBow()
-        attachingMidStretchUsesThePayloadsWorkingStart()
-        attachingWithoutAStartTimesFromFirstSeen()
+        attachingMidTurnBowsAtItsEnd()
+        aTurnNeverSeenWorkingDoesNotBow()
         doesNotBowOnAttachOrSwitch()
         spawnSummonsThenReleases()
         messageReleases()
@@ -85,17 +84,14 @@ struct TrackerAvatarDirectorTests {
         state: String = "working",
         tool: String? = nil,
         id: String = "qm-1",
-        elapsedSince: String? = nil,
         subagents: Int = 0,
         activity: String? = nil
     ) -> TrackerSession {
         AvatarSessionFixture.session(
-            id: id, state: state, tool: tool, elapsedSince: elapsedSince, activeSubagents: subagents, activity: activity
+            id: id, state: state, tool: tool, activeSubagents: subagents, activity: activity
         )
     }
 
-    /// The payload's working start of 1970-01-01T00:00:00Z, which is time 0 on the director's wall clock.
-    private static let epochStart = "1970-01-01T00:00:00Z"
 
     private static func holdsASteadyPoseBeforeAChangeShows() {
         var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
@@ -125,11 +121,11 @@ struct TrackerAvatarDirectorTests {
         expect(director.frame(at: 0.2).pose == .callingOut, "a blocked bard should call out without waiting out the hold, a loop with no finish snapping")
     }
 
-    private static func bowsOnceWhenATurnEndsAfterAMinuteOfWork() {
+    private static func bowsOnceWhenATurnEnds() {
         var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         director.observe(bard(state: "done"), at: 61)
-        expect(director.frame(at: 61).pose == .bow, "a turn ending after a minute of work should bow")
+        expect(director.frame(at: 61).pose == .bow, "a turn ending should bow")
         expect(director.frame(at: 61 + bowSeconds - 0.1).pose == .bow, "the bow should hold until its time is up")
         let afterBow = director.frame(at: 61 + bowSeconds)
         expect(afterBow.pose == .idle, "the bow should give way to idle, got \(String(describing: afterBow.pose))")
@@ -137,20 +133,12 @@ struct TrackerAvatarDirectorTests {
         expect(director.frame(at: 65).pose == .idle, "a session that stays done should not bow again")
     }
 
-    private static func aShortTurnGoesStraightToIdle() {
+    private static func aShortTurnBowsToo() {
         var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
-        director.observe(bard(state: "done"), at: 59.9)
-        let frame = director.frame(at: 59.9)
-        expect(frame.pose == .idle, "a turn under a minute should go straight to idle, got \(String(describing: frame.pose))")
-        expect(director.frame(at: 60).nextChange == nil, "a short turn should queue no bow")
-    }
-
-    private static func theMinuteIsInclusive() {
-        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
-        director.observe(bard(), at: 0)
-        director.observe(bard(state: "done"), at: TrackerAvatarTiming.minimumBowWorkSeconds)
-        expect(director.frame(at: TrackerAvatarTiming.minimumBowWorkSeconds).pose == .bow, "a working stretch of exactly the minimum should bow")
+        director.observe(bard(state: "done"), at: 2)
+        let frame = director.frame(at: 2)
+        expect(frame.pose == .bow, "a turn of a few seconds should bow at its end, got \(String(describing: frame.pose))")
     }
 
     private static func bowWaitsForTheCurrentPoseHold() {
@@ -187,20 +175,20 @@ struct TrackerAvatarDirectorTests {
         expect(later.nextChange == nil, "a cancelled bow should queue nothing")
     }
 
-    private static func attachingMidStretchUsesThePayloadsWorkingStart() {
-        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
-        director.observe(bard(elapsedSince: epochStart), at: 100)
-        director.observe(bard(state: "done"), at: 100 + TrackerAvatarTiming.holdSeconds / 2)
-        expect(director.frame(at: 100 + TrackerAvatarTiming.holdSeconds / 2).pose == .pondering, "the bow should wait for the pondering pose's hold from the attach")
-        expect(director.frame(at: 101 + TrackerAvatarTiming.holdSeconds).pose == .bow, "a turn that ran a minute before the attach should still bow")
-    }
-
-    private static func attachingWithoutAStartTimesFromFirstSeen() {
+    private static func attachingMidTurnBowsAtItsEnd() {
         var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 100)
-        director.observe(bard(state: "done"), at: 101)
-        expect(director.frame(at: 101 + TrackerAvatarTiming.holdSeconds).pose == .idle, "without the payload's start, a turn seen for a second should not bow")
-        expect(director.frame(at: 101 + TrackerAvatarTiming.holdSeconds).nextChange == nil, "a short turn should queue no bow")
+        director.observe(bard(state: "done"), at: 100 + TrackerAvatarTiming.holdSeconds / 2)
+        expect(director.frame(at: 100 + TrackerAvatarTiming.holdSeconds / 2).pose == .pondering, "the bow should wait for the pondering pose's hold from the attach")
+        expect(director.frame(at: 100 + TrackerAvatarTiming.holdSeconds).pose == .bow, "a turn attached mid-way should bow at its end")
+    }
+
+    private static func aTurnNeverSeenWorkingDoesNotBow() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        director.observe(bard(state: "idle"), at: 100)
+        director.observe(bard(state: "done"), at: 105)
+        expect(director.frame(at: 105).pose == .idle, "a session that goes done without the director seeing it work should not bow")
+        expect(director.frame(at: 105).nextChange == nil, "it should queue no bow")
     }
 
     private static func doesNotBowOnAttachOrSwitch() {

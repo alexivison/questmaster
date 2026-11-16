@@ -2813,7 +2813,6 @@ enum RenderPreview {
         sessionClass: String? = avatarPreviewClass,
         tool: String? = nil,
         exchange: (kind: String, at: String)? = nil,
-        elapsedSince: Date? = nil,
         subagents: Int = 0
     ) -> TrackerSession {
         var fields: [String: Any] = [
@@ -2828,9 +2827,6 @@ enum RenderPreview {
         }
         if let exchange {
             fields["last_exchange"] = ["kind": exchange.kind, "at": exchange.at]
-        }
-        if let elapsedSince {
-            fields["elapsed_since"] = ISO8601DateFormatter().string(from: elapsedSince)
         }
         fields["active_subagents"] = subagents
         let data = try! JSONSerialization.data(withJSONObject: fields)
@@ -2895,8 +2891,6 @@ enum RenderPreview {
     @MainActor
     private static func recordTrackerAvatarRound2(to dir: String) {
         let master = avatarPreviewSession(id: "qm-m1")
-        // A turn that has run for a minute and a half, so its end earns a bow.
-        let longTurn = avatarPreviewSession(id: "qm-m1", elapsedSince: Date().addingTimeInterval(-90))
         let channelling = avatarPreviewSession(id: "qm-m1", tool: "Bash")
         let studying = avatarPreviewSession(id: "qm-m1", tool: "Read")
         let done = avatarPreviewSession(id: "qm-m1", state: "done")
@@ -2914,7 +2908,7 @@ enum RenderPreview {
         recordTrackerAvatarTimeline("avatar-studying-finish", seconds: 4, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", tool: "Read")])), (2, feed([master]))], to: dir)
         // A cast that holds one finish frame: inscribing shows f4 for the whole finish, then pondering snaps in.
         recordTrackerAvatarTimeline("avatar-inscribing-finish", seconds: 4, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", tool: "Edit")])), (2, feed([master]))], to: dir)
-        recordTrackerAvatarTimeline("avatar-bow-oneshot", seconds: 4.5, steps: [(0, feed([longTurn])), (0.5, feed([done]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-bow-oneshot", seconds: 4.5, steps: [(0, feed([master])), (0.5, feed([done]))], to: dir)
         // A message plays the release, and a report the catch as it arrives.
         recordTrackerAvatarTimeline("avatar-message-release", seconds: 3, steps: [(0, feed([master, worker])), (0.5, feed([master, instructed]))], to: dir)
         recordTrackerAvatarTimeline("avatar-report-catch", seconds: 3.5, steps: [(0, feed([master, worker])), (0.5, feed([master, reported]))], to: dir)
