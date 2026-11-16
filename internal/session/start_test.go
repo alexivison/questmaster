@@ -142,7 +142,7 @@ func TestStartAssignsOrPersistsSessionClass(t *testing.T) {
 				t.Fatalf("DisplayClass() = %q, want %q", got, tt.want)
 			}
 			name := strings.ToUpper(tt.want[:1]) + tt.want[1:]
-			if launch := findLaunchArgContaining(runner, "exec '/bin/sh'"); !strings.Contains(launch, "Your session class is the "+name+". Write every reply to the user in this voice.") {
+			if launch := findLaunchArgContaining(runner, "exec '/bin/sh'"); !strings.Contains(launch, "Your session class is the "+name+". Use this voice in free-form prose addressed to the user.") {
 				t.Fatalf("master launch command missing %s class voice: %q", name, launch)
 			}
 		})
