@@ -390,6 +390,9 @@ struct TrackerRootView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The tracker's top is `sideCardInset` below the window's top, under the full-size-content titlebar, whose safe
+        // area would push the banner down off the action bar header's top (which ignores it too).
+        .ignoresSafeArea()
     }
 
     /// The avatar's sole stands `avatarBannerGap` above the banner below its fixed slot, above the pinned shell section.

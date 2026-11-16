@@ -67,7 +67,8 @@ enum LogicSelfTests {
         ("testAnAttachedShellsPanelBarFollowsItsOwnColour", testAnAttachedShellsPanelBarFollowsItsOwnColour),
         ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
-        ("testTrackerHeaderIsAStaticBannerTheWidthOfThePlates", testTrackerHeaderIsAStaticBannerTheWidthOfThePlates),
+        ("testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn", testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn),
+        ("testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar", testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar),
         ("testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate", testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
@@ -843,12 +844,14 @@ enum LogicSelfTests {
         }
     }
 
-    /// The tracker header banner: as wide as the plates and as tall as the action bar header, with the wordmark at the
+    /// The tracker header banner: as wide as the plates and the PR badge column beside them (not the 2pt band allowance
+    /// past it) and as tall as the action bar header, with the wordmark at the
     /// SVG's own scale (109 wide, not squeezed to the frame) centred on it, and nothing drawn outside the scooped frame's
     /// fill and border but the wordmark.
-    private static func testTrackerHeaderIsAStaticBannerTheWidthOfThePlates() throws {
+    private static func testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn() throws {
         let size = TrackerHeaderMetrics.size
-        try expect(size.width == TrackerPlateDesign.topLevelSize.width, "the header is as wide as the plates")
+        try expect(size.width == TrackerPlateDesign.plateWidth + TrackerPRBadgeMetrics.columnWidth, "the header spans the plates and the badge column")
+        try expect(size.width == TrackerListMetrics.contentWidth - TrackerPlateDesign.glowBandWidth, "the header stops short of the band allowance")
         try expect(size.height == ActionBarMetrics.height, "the header is as tall as the action bar header")
         let view = NSHostingView(rootView: TrackerHeader().frame(width: size.width, height: size.height).background(AppPalette.window.swiftUI))
         view.frame = NSRect(origin: .zero, size: size)
@@ -884,6 +887,59 @@ enum LogicSelfTests {
         let centre = CGFloat(minX + maxX + 1) / 2
         try expect(abs(width - 109) <= 2, "the wordmark keeps the SVG's 109 point width, got \(width)")
         try expect(abs(centre - size.width / 2) <= 1, "the wordmark is centred on the header, got centre \(centre) of \(size.width)")
+        try expect(probe.isColor(Int(size.width) - end, Int(size.height) / 2, AppPalette.panel), "the frame's fill reaches the badge column's right edge")
+    }
+
+    /// The tracker's frame starts `ShellMetrics.sideCardInset` below the window's top, level with the action bar header,
+    /// and the banner fills its top. A titled window with `fullSizeContentView`, like the app's, gives a hosting view
+    /// that reaches under the titlebar a top safe area that would push the banner down, so the tracker ignores it. The
+    /// headless window has no titlebar, so this one is a titled window like the app's, never shown.
+    private static func testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar() throws {
+        let size = CGSize(width: 700, height: 400)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = container
+        let tracker = TrackerKeyboardHostingView(rootView: TrackerRootView(
+            store: RuntimeStore(sourceLabel: "test"),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        ))
+        let inset = ShellMetrics.sideCardInset
+        tracker.frame = NSRect(x: 0, y: inset, width: TrackerListMetrics.contentWidth + TrackerListMetrics.sidePadding, height: size.height - 2 * inset)
+        container.addSubview(tracker)
+        tracker.layoutSubtreeIfNeeded()
+        try pumpOneMainRunLoopTurn()
+        tracker.layoutSubtreeIfNeeded()
+        guard let bitmap = tracker.bitmapImageRepForCachingDisplay(in: tracker.bounds) else {
+            throw TestFailure("could not make a bitmap")
+        }
+        tracker.cacheDisplay(in: tracker.bounds, to: bitmap)
+        // The bitmap is at the window's backing scale: convert points to its pixels.
+        let scale = CGFloat(bitmap.pixelsWide) / tracker.bounds.width
+        func pixels(_ points: CGFloat) -> Int { Int((points * scale).rounded()) }
+        let column = pixels(TrackerListMetrics.sidePadding + TrackerHeaderMetrics.size.width / 4)
+        let midline = pixels(TrackerListMetrics.headerHeight / 2)
+        // The bitmap is in the display's colour space, so the panel's fill is read from the banner's own middle.
+        guard let fill = bitmap.colorAt(x: column, y: midline) else {
+            throw TestFailure("could not read the banner's fill")
+        }
+        func isFill(_ x: Int, _ y: Int) -> Bool {
+            guard let pixel = bitmap.colorAt(x: x, y: y) else { return false }
+            return abs(pixel.redComponent - fill.redComponent) + abs(pixel.greenComponent - fill.greenComponent) + abs(pixel.blueComponent - fill.blueComponent) < 0.01
+        }
+        // The panel's fill starts just inside the border, so within a few points of the tracker's top.
+        let fillTop = (0..<midline).first { isFill(column, $0) }
+        try expect(
+            fillTop.map { $0 <= pixels(ScoopedRectangle.borderStrokeWidth + 1) } == true,
+            "the banner starts at the tracker's top, level with the header, under a titlebar (safe area \(tracker.safeAreaInsets.top)), got first panel row \(String(describing: fillTop)) px"
+        )
+        let rightEnd = TrackerListMetrics.sidePadding + TrackerListMetrics.columnWidth
+        try expect(isFill(pixels(rightEnd - ActionBarMetrics.scoopRadius), midline), "the banner's fill reaches the badge column's right edge")
+        try expect(!isFill(pixels(rightEnd + 1), midline), "the banner stops at the badge column's right edge")
+        try expect(!isFill(pixels(TrackerListMetrics.sidePadding - 1), midline), "the banner starts at the plates' leading edge")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {

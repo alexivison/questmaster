@@ -2033,6 +2033,7 @@ enum RenderPreview {
             role: "master",
             state: "working",
             snippet: "Implement request routing and recovery",
+            pullRequestCounts: PullRequestCounts(open: 3, draft: 1),
             elapsedSeedMS: 5_420_000
         )
         let root2 = TrackerSession(
@@ -2045,6 +2046,7 @@ enum RenderPreview {
             state: "working",
             snippet: "Update onboarding docs and reference",
             workerCount: 3,
+            pullRequestCounts: PullRequestCounts(open: 2),
             elapsedSeedMS: 5_420_000
         )
         let worker = TrackerSession(

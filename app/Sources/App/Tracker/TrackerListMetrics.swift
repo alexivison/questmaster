@@ -33,6 +33,9 @@ enum TrackerListMetrics {
     /// collapsed workers' circles, or its open cast row) to the top of the next disc, and each row is exactly that tall,
     /// so the spacing is the gap.
     static let spacing = Space.item
-    /// The badge column stays reserved even with no watched PRs. The existing 2pt band allowance remains at the right edge.
-    static let contentWidth = TrackerPlateDesign.plateWidth + TrackerPRBadgeMetrics.columnWidth + TrackerPlateDesign.glowBandWidth
+    /// From the plates' left edge through the badge column's right edge. The column stays reserved even with no watched
+    /// PRs, so the width never jumps. The banner spans all of it.
+    static let columnWidth = TrackerPlateDesign.plateWidth + TrackerPRBadgeMetrics.columnWidth
+    /// The column plus the existing 2pt band allowance at the right edge.
+    static let contentWidth = columnWidth + TrackerPlateDesign.glowBandWidth
 }

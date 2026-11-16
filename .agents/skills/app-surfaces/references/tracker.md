@@ -19,13 +19,18 @@ A shell row is 35 high (`ControlHeight.field`) and as wide as the 240pt plate co
 in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its
 edge), as tall as its rows up to `TrackerShellMetrics.maxHeight` (175, five rows), and scrolls inside itself past that;
 the plates scroll in their own list above it. A static banner (`TrackerHeader`, from `Tracker Header.svg`) tops the column in
-the action bar header's band: as tall as it (`TrackerListMetrics.headerHeight`) and as wide as the plates (260,
-`TrackerHeaderMetrics.size`), so its top and bottom edges are level with the action bar header's (the pane and the header both
-start `ShellMetrics.sideCardInset` below the window's top), and its left edge is the plates' (`TrackerListMetrics.sidePadding`).
+the action bar header's band: as tall as it (`TrackerListMetrics.headerHeight`) and as wide as the tracker column, from the plates'
+left edge through the PR badge column's right edge (`TrackerListMetrics.columnWidth`, 280: the 240 plates and the 40 badge column; the
+2pt band allowance past it is not covered), so it covers the chips' column even with no watches. Its left edge is the plates' column
+(`TrackerListMetrics.sidePadding`; the disc starts there, only a plate's agent badge hangs `badgeOverhang` outside), and its top and
+bottom edges are level with the action bar header's: the pane and the header both start `ShellMetrics.sideCardInset` below the
+window's top, and the tracker root ignores the safe area (`.ignoresSafeArea()`) as the header does, because under the window's
+full-size-content titlebar the hosting view gets a 12pt top safe area that pushed the banner 12pt below the header
+(`testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar`; the headless renders have no titlebar and cannot show it).
 It has no keys and no hover look, does not scroll with the plates or dim with a dropped connection, and goes with the pane when
 the tracker hides. The frame is the action bar header's scooped panel (`scoopedPanel`, `ActionBarMetrics.scoopRadius`, raised
-elevation, the panel fill and `lineSoftSubtle` border), not the SVG's own frame; the SVG is 354 wide, wider than the column's 260
-plates, so the wordmark keeps the SVG's scale (109 wide) and sits centred, shifted `TrackerHeaderMetrics.svgShift` (-47) into the
+elevation, the panel fill and `lineSoftSubtle` border), not the SVG's own frame; the SVG is 354 wide, wider than the 280 column,
+so the wordmark keeps the SVG's scale (109 wide) and sits centred, shifted `TrackerHeaderMetrics.svgShift` (-37) into the
 narrower frame. It is drawn as the SVG's own path data (`TrackerHeaderArt`; the SVG is kept in
 `app/Tests/QuestmasterLogicTests/Fixtures/tracker-header.svg`) in a `Canvas`: flat emblem fills from the `AppPalette.wordmark*` inks,
 and the letters' angular gradient as a squashed conic gradient clipped to the letters (CoreSVG cannot draw it). The first plate

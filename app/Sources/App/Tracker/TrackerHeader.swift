@@ -1,12 +1,13 @@
 import SwiftUI
 
 /// Geometry of the tracker header (`Tracker Header.svg`, 354 x 50): a scooped banner at the top of the tracker column, in
-/// the action bar header's band. The design's 354 is wider than the column's 260 plates, so the frame is the plates'
-/// width and the wordmark, which is 109 wide, keeps the SVG's scale and stays centred on it.
+/// the action bar header's band. The frame spans the tracker column, the plates and the PR badge column beside them
+/// (`TrackerListMetrics.columnWidth`), not the 354 the design draws, and the wordmark, which is 109 wide, keeps the
+/// SVG's scale and stays centred on it.
 enum TrackerHeaderMetrics {
-    /// As wide as the plates, level with the action bar header's top (the tracker pane starts at the same inset) and as
-    /// tall as it.
-    static let size = CGSize(width: TrackerPlateDesign.topLevelSize.width, height: ActionBarMetrics.height)
+    /// As wide as the plates and the badge column, level with the action bar header's top (the tracker pane starts at the
+    /// same inset) and as tall as it.
+    static let size = CGSize(width: TrackerListMetrics.columnWidth, height: ActionBarMetrics.height)
     /// The SVG's own width. The wordmark sits centred on it, so it moves by the difference of the two centres.
     static let svgWidth: CGFloat = 354
     static let svgShift = (size.width - svgWidth) / 2
