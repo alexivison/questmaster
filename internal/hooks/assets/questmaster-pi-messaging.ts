@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { basename, delimiter, isAbsolute, join } from "node:path";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -423,27 +424,33 @@ function identityLine(identity: Identity): string | undefined {
 type ListRow = { lead: string; leadRGB?: number[]; text: string };
 type ListEntry = { title: string; leadWidth: number; rows: ListRow[] };
 
-function fitCells(text: string, cells: number): string {
-	let used = 0;
-	let out = "";
-	for (const char of Array.from(text)) {
-		const size = cellWidth(char);
-		if (used + size > cells) break;
-		out += char;
-		used += size;
-	}
-	return out;
+function listEntry(title: string, rows: ListRow[]): ListEntry {
+	return { title, leadWidth: rows.reduce((width, row) => Math.max(width, visibleWidth(row.lead)), 0), rows };
 }
 
 function listComponent(entry: ListEntry) {
 	return {
 		render(width: number): string[] {
-			const cells = Math.max(10, width);
-			const lines = [paint(accentRGB, fitCells(entry.title, cells), true)];
+			const cells = Math.max(0, Math.floor(width));
+			if (cells === 0) return [""];
+			const lines = [paint(accentRGB, truncateToWidth(entry.title, cells), true)];
 			for (const row of entry.rows) {
-				const lead = fitCells(row.lead, entry.leadWidth).padEnd(entry.leadWidth);
+				const rowLeadWidth = visibleWidth(row.lead);
+				if (rowLeadWidth > cells) {
+					const wrapped = wrapTextWithAnsi(row.lead, cells);
+					lines.push(...wrapped.map((line) => {
+						const fitted = truncateToWidth(line, cells, "");
+						return row.leadRGB ? paint(row.leadRGB, fitted) : fitted;
+					}));
+					continue;
+				}
+
+				const leadWidth = Math.min(entry.leadWidth, cells);
+				const lead = truncateToWidth(row.lead, leadWidth, "", true);
 				const shown = row.leadRGB ? paint(row.leadRGB, lead) : lead;
-				lines.push(`${shown} ${fitCells(row.text, Math.max(0, cells - entry.leadWidth - 1))}`);
+				const gap = leadWidth > 0 && leadWidth < cells ? " " : "";
+				const textWidth = Math.max(0, cells - visibleWidth(shown) - gap.length);
+				lines.push(`${shown}${gap}${truncateToWidth(row.text, textWidth)}`);
 			}
 			return lines;
 		},
@@ -497,7 +504,7 @@ function questmasterJSON(args: string[]): Promise<unknown> {
 type WorkerRow = { session_id?: unknown; status?: unknown; title?: unknown };
 
 async function workersList(identity: Identity, sessionID: string): Promise<ListEntry> {
-	const entry = (rows: ListRow[], title = "Workers"): ListEntry => ({ title, leadWidth: 9, rows });
+	const entry = (rows: ListRow[], title = "Workers"): ListEntry => listEntry(title, rows);
 	if (identity.role !== "master") {
 		const text = identity.role === "worker"
 			? "This session is a worker. /workers lists a master's workers."
@@ -523,7 +530,7 @@ async function workersList(identity: Identity, sessionID: string): Promise<ListE
 }
 
 async function questsList(projectDir: string): Promise<ListEntry> {
-	const entry = (rows: ListRow[], title: string): ListEntry => ({ title, leadWidth: 12, rows });
+	const entry = (rows: ListRow[], title: string): ListEntry => listEntry(title, rows);
 	try {
 		const body = (await questmasterJSON(["quest", "ls", "--project", projectDir])) as { quests?: unknown };
 		const quests = (Array.isArray(body.quests) ? body.quests : []) as Array<{ id?: unknown; content?: unknown; types?: unknown; size?: unknown }>;
@@ -533,7 +540,7 @@ async function questsList(projectDir: string): Promise<ListEntry> {
 			const size = typeof quest.size === "string" ? quest.size : "";
 			const first = typeof quest.content === "string" ? nonEmptyLines(quest.content)[0] ?? "" : "";
 			const id = typeof quest.id === "string" ? quest.id : "";
-			return { lead: safeLine(id, 12), text: printable([tags, size, safeLine(first, 160)].filter(Boolean).join("  ")) };
+			return { lead: printable(id), text: printable([tags, size, safeLine(first, 160)].filter(Boolean).join("  ")) };
 		});
 		if (quests.length > shown.length) rows.push({ lead: "", text: `${quests.length - shown.length} more not shown` });
 		return entry(rows.length ? rows : [{ lead: "", text: "No quests for this project." }], `Quests (${quests.length})`);

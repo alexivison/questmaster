@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import { syncBuiltinESMExports } from "node:module";
 import { pathToFileURL } from "node:url";
+import { visibleWidth } from "./pi_tui_stub.mjs";
 
 // Checks the identity the launch command passes in: the footer status for each
 // role, and /workers and /quests as transcript entries that run the CLI and start
@@ -45,6 +46,16 @@ syncBuiltinESMExports();
 
 const { default: extension } = await import(pathToFileURL(extensionPath));
 const identityKeys = ["QUESTMASTER_ROLE", "QUESTMASTER_TITLE", "QUESTMASTER_CLASS", "QUESTMASTER_MASTER_CLASS"];
+
+function assertRowsFit(rows, width, label) {
+	for (const [index, row] of rows.entries()) {
+		assert.ok(visibleWidth(row) <= width, `${label} row ${index} is ${visibleWidth(row)} cells at width ${width}: ${JSON.stringify(row)}`);
+	}
+}
+
+function plain(text) {
+	return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
 
 // launch sets the identity variables the way the launch command exports them,
 // then starts an extension instance with a recording Pi API.
@@ -110,7 +121,7 @@ assert.equal(headless.statuses.length, 0, "no status is set without a UI");
 // /workers on a master lists its workers with their states. Titles are printed
 // without control characters, and no model turn starts.
 cli.set(`workers ${masterID}`, { code: 0, stdout: JSON.stringify({ master_id: masterID, workers: [
-	{ session_id: "qm-worker-1", status: "working", title: "Scan\x1b[31m repo" },
+	{ session_id: "qm-worker-1", status: "working", title: `✅ ${"W".repeat(65)} \x1b[31m👩‍💻` },
 	{ session_id: "qm-worker-2", status: "done", title: "Build" },
 ] }) });
 await master.commands.get("workers").handler("", master.ctx);
@@ -118,12 +129,17 @@ const workers = master.appended.at(-1);
 assert.equal(workers.type, "questmaster.list");
 assert.equal(workers.data.title, "Workers (2)", JSON.stringify(workers.data));
 assert.deepEqual(workers.data.rows.map((row) => row.lead), ["working", "done"]);
-assert.ok(workers.data.rows[0].text.startsWith("qm-worker-1  Scan"));
+assert.ok(workers.data.rows[0].text.startsWith("qm-worker-1  ✅ "));
 assert.ok(!workers.data.rows[0].text.includes("\x1b"), "titles cannot set terminal state");
 assert.equal(master.messages.length, 0, "/workers starts no model turn");
-const rows = master.entryRenderers.get("questmaster.list")(workers, {}, {}).render(60);
+const workersRenderer = master.entryRenderers.get("questmaster.list")(workers, {}, {});
+const rows = workersRenderer.render(60);
 assert.ok(rows[0].includes("Workers (2)"));
 assert.ok(rows.some((row) => row.includes("working") && row.includes("qm-worker-1")));
+for (const width of [80, 9, 1]) {
+	assertRowsFit(workersRenderer.render(width), width, `/workers at width ${width}`);
+}
+assert.ok(workersRenderer.render(80).some((row) => row.includes("✅")), "/workers keeps the wide emoji in its long title");
 
 // A worker runs no CLI call for /workers; it is told what the command is for.
 const callsBeforeWorker = calls.length;
@@ -155,15 +171,37 @@ assert.equal(bounded.title, "Workers (30)");
 assert.equal(calls.length - callsBeforeMany, 1, "one call lists every worker");
 assert.equal(bounded.rows.length, 26, "25 worker rows and one line for the rest");
 assert.ok(bounded.rows.at(-1).text.includes("5 more not shown"));
+assertRowsFit(master.entryRenderers.get("questmaster.list")(master.appended.at(-1), {}, {}).render(1), 1, "/workers with an empty lead at width 1");
 
 // /quests lists the project's quests, for the working directory of the command.
-cli.set("quest ls --project /workspace", { code: 0, stdout: JSON.stringify({ quests: [{ id: "q-1", content: "Improve pagination\nmore detail", types: ["improvement"], size: "S" }] }) });
+const questIDs = ["qst-1700000000", "qst-1700000099", "qst-1700000000-2"];
+const complexDescription = `${"x".repeat(39)}👩‍💻${"e\u0301".repeat(100)}`;
+cli.set("quest ls --project /workspace", { code: 0, stdout: JSON.stringify({ quests: [
+	{ id: questIDs[0], content: `✅ ${"A".repeat(100)}` },
+	{ id: questIDs[1], content: "Improve pagination\nmore detail", types: ["improvement"], size: "S" },
+	{ id: questIDs[2], content: complexDescription, types: ["feature"], size: "M" },
+] }) });
 await master.commands.get("quests").handler("", master.ctx);
-const quests = master.appended.at(-1).data;
-assert.equal(quests.title, "Quests (1)");
-assert.equal(quests.rows[0].lead, "q-1");
-assert.ok(quests.rows[0].text.startsWith("improvement  S  Improve pagination"));
+const questsEntry = master.appended.at(-1);
+const quests = questsEntry.data;
+assert.equal(quests.title, "Quests (3)");
+assert.deepEqual(quests.rows.map((row) => row.lead), questIDs, "quest IDs and collision suffixes remain complete");
+assert.equal(new Set(quests.rows.map((row) => row.lead)).size, questIDs.length, "colliding-prefix IDs stay distinct");
+assert.equal(quests.leadWidth, Math.max(...questIDs.map(visibleWidth)), "the lead column fits the longest displayed quest ID");
+assert.ok(quests.rows[0].text.startsWith("✅ "));
+assert.ok(quests.rows[1].text.startsWith("improvement  S  Improve pagination"));
 assert.equal(master.messages.length, 0, "/quests starts no model turn");
+const questsRenderer = master.entryRenderers.get("questmaster.list")(questsEntry, {}, {});
+const questsAt80 = questsRenderer.render(80);
+assertRowsFit(questsAt80, 80, "/quests at width 80");
+assert.ok(questsAt80.some((row) => row.includes("✅")), "/quests keeps the wide emoji");
+assert.ok(plain(questsAt80[3]).endsWith("e\u0301..."), "truncation keeps the full combining grapheme at the boundary");
+for (const width of [9, 1]) {
+	const rendered = questsRenderer.render(width);
+	assertRowsFit(rendered, width, `/quests at width ${width}`);
+	const joined = rendered.join("");
+	for (const id of questIDs) assert.ok(joined.includes(id), `/quests retains ${id} at width ${width}`);
+}
 
 // A CLI failure is shown as a row, not thrown into Pi.
 cli.set("quest ls --project /nowhere", { code: 1, stdout: "", stderr: "not a project\n" });
