@@ -101,6 +101,16 @@ private extension PullRequestGitState {
     }
 }
 
+private extension PullRequestGitLook {
+    func icon(for state: PullRequestGitState) -> (icon: PullRequestIcon, color: NSColor)? {
+        guard let glyph = state.icon else { return nil }
+        switch self {
+        case .normal: return glyph
+        case .conflicting: return (glyph.icon, AppPalette.gitRed)
+        }
+    }
+}
+
 private extension ReviewLook {
     /// No review yet and a review still required both wait: an empty amber ring. A commented review is no verdict, so
     /// it takes the neutral bubble instead of a ring.
@@ -159,8 +169,9 @@ struct WatcherRow: View {
     /// The git state, then `#number` and the title, which truncates.
     private var titleLine: some View {
         HStack(alignment: .top, spacing: Space.item) {
-            if let git = row.gitState.icon {
+            if let git = row.gitLook.icon(for: row.gitState) {
                 slot(git)
+                    .help(row.gitTooltip ?? row.repoLabel)
             } else {
                 emptySlot
             }
