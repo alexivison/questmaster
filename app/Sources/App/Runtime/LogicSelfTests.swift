@@ -220,6 +220,8 @@ enum LogicSelfTests {
         ("testServeClientStopEndsTheRetryWait", testServeClientStopEndsTheRetryWait),
         ("testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE", testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
+        ("testSettingsSearchPicksDefaultsWithoutSavingQueries", testSettingsSearchPicksDefaultsWithoutSavingQueries),
+        ("testSettingsSearchOwnsTypingAndRestoresOnEscape", testSettingsSearchOwnsTypingAndRestoresOnEscape),
         ("testSettingsArrangeMovesAProjectWithShiftJAndK", testSettingsArrangeMovesAProjectWithShiftJAndK),
         ("testTmuxSettingsRendersAtSheetSize", testTmuxSettingsRendersAtSheetSize),
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
@@ -8203,7 +8205,7 @@ enum LogicSelfTests {
         try expect(mutationClient.sentRequests.isEmpty, "resolving options alone must send nothing")
 
         model.focus(role: "master", field: .model)
-        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
+        try expect(model.handle(try keyEvent("", keyCode: 124)), "→ should cycle the model select")
 
         try expect(mutationClient.sentRequests.count == 1, "cycling a value should send its role_default.set immediately")
         guard let sent = mutationClient.sentRequests.first else {
@@ -8211,6 +8213,59 @@ enum LogicSelfTests {
         }
         try expect(sent.data["agent"] == "claude" && sent.data["role"] == "master", "should send the row that was actually cycled")
         try expect(sent.data["model"] == "sonnet", "should send the newly cycled value")
+    }
+
+    private static func testSettingsSearchPicksDefaultsWithoutSavingQueries() throws {
+        let mutationClient = StubMutationClient(result: .success(ServeMutationAck(data: nil)))
+        let effortClient = StubReasoningEffortClient(efforts: ["codex": ["low", "high"]], defaults: ["codex": "low"])
+        let model = settingsSheetModel(mutationClient: mutationClient, effortClient: effortClient)
+        model.state = RoleDefaultsSettingsModel(agents: ["codex"])
+        let options = [SessionModelOption(id: "model-a", label: "Standard"), SessionModelOption(id: "model-b", label: "Extended")]
+        model.state.setModelOptions(options, defaultModel: "model-a", agent: "codex", role: "master")
+        model.state.setModelOptions(options, defaultModel: "model-a", agent: "codex", role: "worker")
+        model.state.setEffortOptions(["low", "high"], defaultLevel: "low", agent: "codex", role: "master")
+
+        try expect(model.handle(try keyEvent("e", keyCode: 14)), "typing should start a model search")
+        model.typePickerText("extended", role: "master", field: .model)
+        try expect(mutationClient.sentRequests.isEmpty && effortClient.requests.isEmpty, "search queries must neither save nor fetch reasoning levels")
+        try expect(model.focusNonce(role: "master", field: .model) == 1, "starting the search should move the caret into the model field")
+        try expect(model.handle(try keyEvent("\r", keyCode: 36)), "Return should pick the model")
+        try expect(mutationClient.sentRequests.count == 1 && mutationClient.sentRequests[0].data["model"] == "model-b", "a keyboard pick should save the model id immediately")
+        try expect(effortClient.requests.last?.model == "model-b", "a picked model should refresh reasoning levels for that model")
+        try waitForMainQueueTurn()
+
+        try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab should move to reasoning after the pick")
+        try expect(model.state.focusedField == .effort, "reasoning should be its own focus stop")
+        try expect(model.handle(try keyEvent("h", keyCode: 4)), "h should start a reasoning search")
+        try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab should pick the reasoning suggestion")
+        try expect(mutationClient.sentRequests.count == 2 && mutationClient.sentRequests[1].data["reasoning_effort"] == "high", "a reasoning pick should save its selected level")
+
+        model.search(role: "worker", field: .model)
+        model.typePickerText("extended", role: "worker", field: .model)
+        model.pickSuggestion(visibleRow: 0)
+        try expect(mutationClient.sentRequests.count == 3 && mutationClient.sentRequests[2].data["role"] == "worker", "a pointer pick should save the clicked role")
+        try expect(model.state.pickerMode == .select, "a pointer pick should close the search")
+    }
+
+    private static func testSettingsSearchOwnsTypingAndRestoresOnEscape() throws {
+        let mutationClient = StubMutationClient(result: .success(ServeMutationAck(data: nil)))
+        var dismissed = false
+        let model = settingsSheetModel(mutationClient: mutationClient, dismiss: { dismissed = true })
+        model.state.setModelOptions([SessionModelOption(id: "model-a", label: "Standard")], defaultModel: "model-a", agent: "claude", role: "master")
+        model.search(role: "master", field: .model)
+        model.typePickerText("unmatched", role: "master", field: .model)
+        try expect(!model.handle(try keyEvent("]", keyCode: 30)), "a tab shortcut should type into an active search")
+        try expect(!model.handle(try keyEvent("J", keyCode: 38, modifierFlags: .shift)), "a section shortcut should type into an active search")
+        try expect(model.state.selectedAgent == "claude" && model.section == .modelsAndReasoning, "typing must keep the current section and tab")
+        try expect(model.handle(try keyEvent("\u{1B}", keyCode: 53)), "Escape should cancel the search")
+        try expect(!dismissed && model.state.pickerMode == .select, "the first Escape should keep Settings open")
+        try expect(model.state.text(role: "master", field: .model) == "Standard", "cancel should restore the configured model")
+
+        model.search(role: "master", field: .model)
+        try expect(model.handle(try keyEvent("j", keyCode: 38, modifierFlags: .control)), "control-j should leave a searchable field")
+        try expect(model.state.focusedField == .effort && model.state.pickerMode == .select, "leaving a field should discard its query")
+        try expect(mutationClient.sentRequests.isEmpty, "cancelled and abandoned searches must never persist")
+        try expect(model.handle(try keyEvent("\u{1B}", keyCode: 53)) && dismissed, "Escape outside a search should close Settings")
     }
 
     // With no Done button left, closing the sheet must never block on
@@ -8233,7 +8288,7 @@ enum LogicSelfTests {
             model.state.rows[0].modelOptions.contains(where: { $0.id == "sonnet" })
         })
         model.focus(role: "master", field: .model)
-        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
+        try expect(model.handle(try keyEvent("", keyCode: 124)), "→ should cycle the model select")
         try expect(mutationClient.sentRequests.count == 1, "sanity: cycling sent one save that's still in flight")
         try expect(!dismissed, "sanity: not dismissed yet")
 
@@ -8261,7 +8316,7 @@ enum LogicSelfTests {
             model.state.rows[0].modelOptions.contains(where: { $0.id == "sonnet" })
         })
         model.focus(role: "master", field: .model)
-        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
+        try expect(model.handle(try keyEvent("", keyCode: 124)), "→ should cycle the model select")
         try waitForMainQueue("failed role-default save", until: { model.errorMessage != nil })
 
         try expect(model.errorMessage != nil, "a failed save must surface an error instead of silently dropping it")
@@ -8292,13 +8347,13 @@ enum LogicSelfTests {
         try expect(model.state.rows[0].selectedModel == "opus", "sanity: seeded onto the persisted default")
 
         model.focus(role: "master", field: .model)
-        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle to the next model")
+        try expect(model.handle(try keyEvent("", keyCode: 124)), "→ should cycle to the next model")
         try expect(model.state.rows[0].selectedModel == "sonnet", "sanity: cycled to a new value")
         try expect(mutationClient.sentRequests.count == 1, "cycling should send immediately")
         try expect(mutationClient.sentRequests[0].data["model"] == "sonnet", "should send the value just cycled to")
 
         // The user keeps editing while that save is still in flight.
-        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle again before the first save acks")
+        try expect(model.handle(try keyEvent("", keyCode: 124)), "→ should cycle again before the first save acks")
         try expect(model.state.rows[0].selectedModel == "haiku", "sanity: a newer, independently-sent edit")
         try expect(mutationClient.sentRequests.count == 2, "the newer edit must be sent too, not silently dropped")
         try expect(mutationClient.sentRequests[1].data["model"] == "haiku", "the second send should carry the newer value")
