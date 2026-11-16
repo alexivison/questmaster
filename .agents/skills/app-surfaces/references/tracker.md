@@ -57,7 +57,8 @@ keep their shapes. The retained standalone selected-session panel uses the same 
 `TrackerListMetrics.contentWidth` (282pt), plus its 20pt leading gutter: the plate column, a permanent 40pt badge column
 (5pt gap and 35pt chip), and the existing 2pt band allowance. No watches leaves that column empty; its width never jumps.
 
-Only master plates show PR chips, top-aligned with the plate's project tab and stacked in open, draft, merged, closed
+Only master plates show PR chips. The stack starts at the top of the plate's project tab (`TrackerPRBadgeMetrics.topInset`,
+an offset that leaves the group's reserved height alone), not the disc's top, and stacks in open, draft, merged, closed
 order, skipping zero states. `TrackerPullRequestBadge` in Core supplies the chips from snapshot totals; the daemon counts
 the same live master-and-workers watch scope as the Watcher revision, counting shared PRs once. Unknown states contribute
 nothing, and ending a watch removes its contribution with no retention. The chips reuse the Watcher's git glyphs and

@@ -6,6 +6,10 @@ enum TrackerPRBadgeMetrics {
     static let chipHeight = Space.section
     static let iconSide = Space.item
     static let columnWidth = Space.row + chipWidth
+    /// How far below the master's row the stack starts: the top of the plate's project tab, so the first chip lines up
+    /// with the project bar rather than the disc's top. It's an offset, not padding, so a tall stack's reserved height and
+    /// the next group's grid position don't change.
+    static let topInset = (TrackerPlateDesign.topLevel.tab?.boundingRect.minY ?? 0) - TrackerPlateDesign.svgDiscInset
 }
 
 /// Informational chips outside the plate's hit area. Core supplies only the non-zero states of master rows.

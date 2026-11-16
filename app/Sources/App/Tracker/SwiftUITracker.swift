@@ -729,6 +729,7 @@ private struct TrackerRepoSection: View {
                         }
                     }
                     TrackerPRBadges(badges: TrackerPullRequestBadge.make(for: group.root.session))
+                        .offset(y: TrackerPRBadgeMetrics.topInset)
                 }
                 .padding(.top, gapAbove)
             }
