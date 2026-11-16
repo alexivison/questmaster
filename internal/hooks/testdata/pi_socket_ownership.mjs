@@ -25,7 +25,8 @@ function instance() {
 	const messages = [];
 	extension({
 		on(event, handler) { handlers.set(event, handler); },
-		sendUserMessage(message, options) { messages.push({ message, options }); },
+		registerMessageRenderer() {},
+		sendMessage(message, options) { messages.push({ message, options }); },
 	});
 	return { handlers, messages };
 }
@@ -65,14 +66,16 @@ let recovered;
 try {
 	await primary.handlers.get("session_start")();
 	await inherited.handlers.get("session_start")();
-	assert.equal((await send("first")).status, "unconfirmed");
-	assert.deepEqual(primary.messages, [{ message: "first", options: { deliverAs: "steer" } }]);
+	assert.equal((await send("first")).status, "accepted");
+	assert.equal(primary.messages.length, 1);
+	assert.equal(primary.messages[0].message.content, "first");
+	assert.deepEqual(primary.messages[0].options, { triggerTurn: true, deliverAs: "steer" });
 	assert.equal(inherited.messages.length, 0);
 	await inherited.handlers.get("session_shutdown")();
-	assert.equal((await send("second")).status, "unconfirmed");
+	assert.equal((await send("second")).status, "accepted");
 	assert.equal(primary.messages.length, 2);
 	await primary.handlers.get("session_start")();
-	assert.equal((await send("third")).status, "unconfirmed");
+	assert.equal((await send("third")).status, "accepted");
 	assert.equal(primary.messages.length, 3);
 	await primary.handlers.get("session_shutdown")();
 	await assert.rejects(lstat(socketPath), { code: "ENOENT" });
@@ -83,8 +86,8 @@ try {
 	assert.equal((await lstat(socketPath)).isSocket(), true);
 	recovered = instance();
 	await recovered.handlers.get("session_start")();
-	assert.equal((await send("recovered")).status, "unconfirmed");
-	assert.equal(recovered.messages[0].message, "recovered");
+	assert.equal((await send("recovered")).status, "accepted");
+	assert.equal(recovered.messages[0].message.content, "recovered");
 	await recovered.handlers.get("session_shutdown")();
 	await assert.rejects(lstat(socketPath), { code: "ENOENT" });
 } finally {

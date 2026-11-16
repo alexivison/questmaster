@@ -2819,6 +2819,7 @@ type piPayload struct {
 	SessionFile           string                  `json:"session_file"`
 	Recent                []string                `json:"recent"`
 	Snippet               string                  `json:"snippet"`
+	Busy                  bool                    `json:"busy"`
 	Text                  string                  `json:"text"`
 	Prompt                string                  `json:"prompt"`
 	StopReason            string                  `json:"stopReason"`
@@ -2963,6 +2964,13 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 
 const piOccurredAtWindow = 5 * time.Minute
 
+// piRunEnded reports whether a Pi action closes an agent run. agent_settled is the
+// idle signal, sent once Pi will not run again on its own. agent_end still closes
+// a run for sidecars loaded before agent_settled existed.
+func piRunEnded(action string) bool {
+	return action == "agent_end" || action == "agent_settled"
+}
+
 func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer, agentName string) (preparedPiEvent, bool) {
 	payload, err := decodePi(opts.stdin)
 	if err != nil {
@@ -3025,7 +3033,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		setTool = piToolName(payload)
 		setActivity = "Question: " + truncatePromptLine(piQuestionText(payload))
 		lastKind = "waiting_for_user"
-	case "agent_end":
+	case "agent_end", "agent_settled":
 		setState = "done"
 		clearTool = true
 		if !piAgentEndAborted(payload) {
@@ -3039,6 +3047,13 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 				}
 				setActivity = truncatePromptLine(activity)
 			}
+		}
+	case "ui_prompt_end":
+		// A dialog ends the wait for the user. Whether the agent is working again
+		// depends on whether a run is still open when the dialog closes.
+		setState = "done"
+		if payload.Busy {
+			setState = "working"
 		}
 	case "session_shutdown":
 		setState = "stopped"
@@ -3101,7 +3116,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		ev.Fields = fields
 	}
 	turnBoundary := opts.action == "session_start" || opts.action == "before_agent_start" || opts.action == "agent_start" ||
-		opts.action == "turn_end" || opts.action == "agent_end" || opts.action == "session_shutdown"
+		opts.action == "turn_end" || piRunEnded(opts.action) || opts.action == "session_shutdown"
 	mutate := func(ss *state.SessionState) bool {
 		role := "agent"
 		pane, exists := ss.Panes[role]
@@ -3142,7 +3157,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		}
 
 		preserveBlockedQuestion := opts.action == "tool_execution_start" && pane.State == "blocked" && pane.LastKind == "waiting_for_user"
-		clearStaleQuestionActivity := !isOvertaken && opts.action == "tool_execution_end" && pane.LastKind == "waiting_for_user" && strings.HasPrefix(pane.Activity, "Question: ")
+		clearStaleQuestionActivity := !isOvertaken && (opts.action == "tool_execution_end" || opts.action == "ui_prompt_end") && pane.LastKind == "waiting_for_user" && strings.HasPrefix(pane.Activity, "Question: ")
 		if preserveBlockedQuestion {
 			setState = ""
 			setActivity = ""
@@ -3198,7 +3213,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		if opts.action == "say" {
 			addChatEntryAt(ev, &pane, "say", piAssistantMessageText(payload), occurredAt)
 		}
-		if opts.action == "agent_end" {
+		if piRunEnded(opts.action) {
 			if !piAgentEndAborted(payload) {
 				if errorMessage := piAgentEndError(payload); errorMessage != "" {
 					addChatEntryAt(ev, &pane, "message", "Error: "+errorMessage, occurredAt)
@@ -3239,7 +3254,7 @@ func piRecentForAction(action string, payload piPayload) ([]string, bool) {
 	if payload.Recent != nil {
 		return cleanPiRecent(payload.Recent), true
 	}
-	if action == "message_end" || action == "agent_end" {
+	if action == "message_end" || piRunEnded(action) {
 		if text := piAssistantMessageText(payload); text != "" {
 			return cleanPiRecent(strings.Split(text, "\n")), true
 		}

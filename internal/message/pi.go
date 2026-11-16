@@ -24,6 +24,16 @@ const (
 	piMaxAckBytes   = 64 << 10
 )
 
+// Pi's acknowledgment statuses. "accepted" and "queued" mean the extension took the
+// frame, "queued" while Pi compacts. "rejected" means it did not take the frame.
+// "unconfirmed" is what sidecars before this set sent after handing the frame to Pi.
+const (
+	piAckAccepted    = "accepted"
+	piAckQueued      = "queued"
+	piAckRejected    = "rejected"
+	piAckUnconfirmed = "unconfirmed"
+)
+
 type piMessageRequest struct {
 	ID      string `json:"id"`
 	Message string `json:"message"`
@@ -171,8 +181,18 @@ func readPiAck(conn net.Conn, id string) error {
 	if err := json.Unmarshal(line, &ack); err != nil {
 		return fmt.Errorf("decode Pi acknowledgment: %w", err)
 	}
-	if ack.ID != id || ack.Status != "unconfirmed" {
+	if ack.ID != id {
 		return errors.New("Pi acknowledgment does not match request")
 	}
-	return nil
+	switch ack.Status {
+	case piAckAccepted, piAckQueued, piAckUnconfirmed:
+		return nil
+	case piAckRejected:
+		// Pi took nothing, so typing the text another way cannot duplicate it.
+		return fmt.Errorf("%w: Pi refused the message", errNativeUnavailable)
+	default:
+		// The frame was written, so Pi may have taken it. Typing it again could
+		// duplicate it, so this stays an error instead of a fallback.
+		return fmt.Errorf("Pi acknowledgment has unknown status %q", ack.Status)
+	}
 }

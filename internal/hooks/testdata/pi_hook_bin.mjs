@@ -22,14 +22,15 @@ const { default: extension } = await import(pathToFileURL(extensionPath));
 const handlers = new Map();
 extension({
 	on(event, handler) { handlers.set(event, handler); },
-	sendUserMessage() {},
+	registerMessageRenderer() {},
+	sendMessage() {},
 	getThinkingLevel() { return "high"; },
 });
 const context = { cwd: "/workspace", sessionManager: { getSessionId: () => "pi-session", getSessionFile: () => "session.jsonl" } };
 let stopped = false;
 try {
 	await handlers.get("session_start")({}, context);
-	await handlers.get("agent_end")({ messages: [{ role: "assistant", content: [{ type: "text", text: "Finished." }] }] }, context);
+	await handlers.get("agent_settled")({ aborted: false }, context);
 	await handlers.get("session_shutdown")();
 	stopped = true;
 	assert(hooks.calls.length > 0, "no hook ran");

@@ -20,6 +20,7 @@ func TestHookAgentOwnership(t *testing.T) {
 		{"claude", "done", `{"last_assistant_message":"Nested answer"}`, "done"},
 		{"codex", "done", `{"last_assistant_message":"Nested answer"}`, "done"},
 		{"pi", "agent_end", `{"errorMessage":"Example provider error"}`, "blocked"},
+		{"pi", "agent_settled", `{"errorMessage":"Example provider error"}`, "blocked"},
 		{"pi", "session_shutdown", `{}`, "stopped"},
 		{"pi", "batch", `{"events":[{"action":"agent_end","payload":{"errorMessage":"Example provider error"}},{"action":"session_shutdown","payload":{}}]}`, "stopped"},
 		{"opencode", "event", `{"version":"1.17.11","event":{"type":"session.status","properties":{"status":{"type":"busy"}}}}`, "working"},

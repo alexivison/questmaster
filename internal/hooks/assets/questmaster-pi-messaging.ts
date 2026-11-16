@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { basename, delimiter, isAbsolute, join } from "node:path";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -19,9 +20,17 @@ const hookBatchLimit = 32;
 const hookBatchByteLimit = 48 * 1024;
 const hookBatchDelayMs = 150;
 const sessionPattern = /^qm-[A-Za-z0-9_-]+$/;
+// Frames that arrive while Pi compacts wait here. A full queue answers "rejected",
+// so Questmaster types the message instead of holding it without bound.
+const maxHeldMessages = 32;
+// The card shows at most this many characters. The model still gets the whole text.
+const cardCharLimit = 4_000;
 
 type Request = { id: string; message: string };
+type AckStatus = "accepted" | "queued" | "rejected";
 type QueuedHook = { action: string; payload: Record<string, unknown>; bytes: number };
+type CardKind = "worker" | "master" | "peer" | "pr" | "message";
+type Card = { customType: string; content: string; display: true; details: { kind: CardKind; from: string } };
 type PiContext = {
 	cwd?: string;
 	model?: unknown;
@@ -31,6 +40,19 @@ type PiContext = {
 type PiMessage = { role?: string; content?: unknown; model?: unknown; provider?: unknown; api?: unknown; usage?: unknown; stopReason?: unknown; errorMessage?: unknown };
 type PiTurn = { index?: number; status?: "running" | "done"; started_at_ms?: number; ended_at_ms?: number; tool_calls?: number; errors?: number };
 type PiTool = { name?: string; call_id?: string; summary?: string; status?: "running" | "done" | "error"; started_at_ms?: number; ended_at_ms?: number };
+
+// Colours are Questmaster's tokens from app/Sources/App/SharedUI/Theme.swift.
+const cardStyles: Record<CardKind, { customType: string; rgb: [number, number, number]; heading: string }> = {
+	worker: { customType: "questmaster.worker", rgb: [188, 140, 255], heading: "worker report" }, // workerRole
+	master: { customType: "questmaster.master", rgb: [242, 204, 96], heading: "master" }, // masterRole
+	peer: { customType: "questmaster.peer", rgb: [88, 166, 255], heading: "from" }, // trackerNeedsInput
+	pr: { customType: "questmaster.pr", rgb: [217, 164, 65], heading: "pull request" }, // gitAmber
+	message: { customType: "questmaster.message", rgb: [217, 219, 184], heading: "message" }, // chatSpeech
+};
+
+// The routing tags Questmaster's Go side writes: [WORKER:<id>], [MASTER:<id>],
+// [FROM:<id>] (external for an outside sender) and [PR <ref>].
+const routeTag = /^\[(WORKER|MASTER|FROM|PR)([: ])([^\]]*)\] ?/;
 
 function safeLine(text: string, limit = snippetLimit): string {
 	return Array.from(text.replace(/\s+/g, " ").trim()).slice(0, limit).join("");
@@ -228,6 +250,75 @@ function runHook(action: string, input: string): Promise<void> {
 	});
 }
 
+// printable drops control characters, so a frame cannot set terminal state.
+function printable(text: string): string {
+	return text.replace(/\r/g, "").replace(/\t/g, "  ").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
+}
+
+function classify(text: string): { kind: CardKind; from: string } {
+	const match = routeTag.exec(text);
+	if (!match) return { kind: "message", from: "" };
+	const value = safeLine(printable(match[3]), 120);
+	switch (match[1]) {
+		case "WORKER": return { kind: "worker", from: value };
+		case "MASTER": return { kind: "master", from: value };
+		case "PR": return { kind: "pr", from: value };
+		default: return { kind: "peer", from: value };
+	}
+}
+
+// cardFor makes the custom message a routed frame becomes. Its content is the
+// frame unchanged, so the model reads the same text it always did.
+function cardFor(text: string): Card {
+	const { kind, from } = classify(text);
+	return { customType: cardStyles[kind].customType, content: text, display: true, details: { kind, from } };
+}
+
+function wrapCardLine(text: string, width: number, colour: string, style = "", reset = ""): string[] {
+	const cells = Math.max(0, Math.floor(width));
+	const prefix = truncateToWidth(`${colour}┃\x1b[39m `, cells, "");
+	const contentCells = Math.max(0, cells - visibleWidth(prefix));
+	if (contentCells === 0) return [prefix];
+	return wrapTextWithAnsi(text, contentCells).map((row) => {
+		const content = truncateToWidth(row, contentCells, "");
+		return truncateToWidth(`${prefix}${style}${content}${reset}`, cells, "");
+	});
+}
+
+// renderCard draws a routed message as a card: a coloured bar, a heading and the
+// text wrapped to the viewport. Control characters go, so a message cannot
+// change the terminal.
+function renderCard(kind: CardKind, from: string, text: string, width: number): string[] {
+	const [r, g, b] = cardStyles[kind].rgb;
+	const colour = `\x1b[38;2;${r};${g};${b}m`;
+	const heading = [cardStyles[kind].heading, from].filter(Boolean).join(" ");
+	const lines = wrapCardLine(printable(heading), width, colour, `${colour}\x1b[1m`, "\x1b[22m\x1b[39m");
+	// Only the first stretch is laid out, so a large frame costs the same on each redraw.
+	const shown = Array.from(printable(text.slice(0, cardCharLimit * 4))).slice(0, cardCharLimit).join("");
+	for (const line of shown.split("\n")) {
+		lines.push(...wrapCardLine(line, width, colour));
+	}
+	if (text.length > cardCharLimit) lines.push(...wrapCardLine("… shortened here; the full message is kept in the session", width, colour, "\x1b[2m", "\x1b[22m"));
+	return lines.map((line) => truncateToWidth(line, Math.max(0, Math.floor(width)), ""));
+}
+
+function cardComponent(message: { content?: unknown; details?: unknown }) {
+	const details = (message.details ?? {}) as { kind?: unknown; from?: unknown };
+	const kind = (Object.keys(cardStyles) as CardKind[]).find((name) => name === details.kind) ?? "message";
+	const from = typeof details.from === "string" ? details.from : "";
+	const body = textFromContent(message.content).replace(routeTag, "");
+	let cached: { width: number; lines: string[] } | undefined;
+	return {
+		render(width: number): string[] {
+			if (cached?.width !== width) cached = { width, lines: renderCard(kind, from, body, width) };
+			return cached.lines;
+		},
+		invalidate() {
+			cached = undefined;
+		},
+	};
+}
+
 export default function (pi: ExtensionAPI) {
 	let server: Server | undefined;
 	const connections = new Set<Socket>();
@@ -252,6 +343,16 @@ export default function (pi: ExtensionAPI) {
 	let hookQueueBytes = 0;
 	let hookFlushTimer: NodeJS.Timeout | undefined;
 	let hookDrain: Promise<void> | undefined;
+	// Pi reports run_end before retries, compaction and queued work finish, so the
+	// final payload waits here until agent_settled.
+	let finalRun: { message?: unknown; stopReason?: string; errorMessage?: string } = {};
+	// True from ask_user's question or a dialog's start until its end.
+	let promptWaiting = false;
+	// Between session_before_compact and its end, Pi refuses new prompts, so routed
+	// frames wait in held and go out after the compaction finishes.
+	let compacting = false;
+	let held: Card[] = [];
+	let heldFlush: NodeJS.Timeout | undefined;
 
 	function refreshMetadata(ctx?: PiContext): void {
 		if (!ctx) return;
@@ -429,6 +530,50 @@ export default function (pi: ExtensionAPI) {
 		return request as Request;
 	}
 
+	function sendCard(card: Card): void {
+		pi.sendMessage(card, { triggerTurn: true, deliverAs: "steer" });
+	}
+
+	function scheduleHeldFlush(): void {
+		if (heldFlush || held.length === 0) return;
+		heldFlush = setTimeout(flushHeld, 0);
+	}
+
+	// flushHeld runs one macrotask after compaction ends, so the compaction has
+	// cleared Pi's state before the first card starts a run.
+	function flushHeld(): void {
+		heldFlush = undefined;
+		if (compacting) return;
+		while (held.length) {
+			const card = held.shift() as Card;
+			try {
+				sendCard(card);
+			} catch {
+				// The frame was acknowledged as queued and Pi refused the card now. Pi
+				// is shutting down or its runtime was replaced, so there is nowhere to retry.
+			}
+		}
+	}
+
+	// acceptMessage takes ownership of a routed frame and says what it did. The
+	// ack is what Questmaster reports, so it names only outcomes this function has.
+	function acceptMessage(text: string): AckStatus {
+		if (typeof pi.sendMessage !== "function") return "rejected";
+		const card = cardFor(text);
+		if (compacting || held.length) {
+			if (held.length >= maxHeldMessages) return "rejected";
+			held.push(card);
+			scheduleHeldFlush();
+			return "queued";
+		}
+		try {
+			sendCard(card);
+			return "accepted";
+		} catch {
+			return "rejected";
+		}
+	}
+
 	function handle(connection: Socket): void {
 		connections.add(connection);
 		let received = Buffer.alloc(0);
@@ -446,18 +591,12 @@ export default function (pi: ExtensionAPI) {
 			if (newline !== received.length-1) return reject();
 			const request = parseRequest(received.subarray(0, newline));
 			if (!request) return reject();
-			try {
-				if (typeof pi.sendUserMessage !== "function") return reject();
-				pi.sendUserMessage(request.message, { deliverAs: "steer" });
-				connection.end(JSON.stringify({ id: request.id, status: "unconfirmed" }) + "\n");
-			} catch {
-				reject();
-			}
+			connection.end(JSON.stringify({ id: request.id, status: acceptMessage(request.message) }) + "\n");
 		});
 	}
 
 	async function start(): Promise<void> {
-		if (typeof pi.sendUserMessage !== "function") return;
+		if (typeof pi.sendMessage !== "function") return;
 		const sessionID = process.env.QUESTMASTER_SESSION ?? "";
 		if (!sessionPattern.test(sessionID)) return;
 		// Questmaster names the session's runtime directory; without it there is
@@ -494,6 +633,10 @@ export default function (pi: ExtensionAPI) {
 		server = next;
 	}
 
+	for (const style of Object.values(cardStyles)) {
+		pi.registerMessageRenderer(style.customType, (message) => cardComponent(message));
+	}
+
 	pi.on("session_start", async (_event, rawContext) => {
 		const occurredAtMS = Date.now();
 		await stop();
@@ -504,6 +647,7 @@ export default function (pi: ExtensionAPI) {
 		sessionFile = sessionManager?.getSessionFile?.() || sessionFile;
 		refreshMetadata(ctx);
 		tool = undefined;
+		promptWaiting = false;
 		setBusy(false, "idle");
 		await emitHook("session_start", undefined, false, occurredAtMS);
 	});
@@ -513,7 +657,9 @@ export default function (pi: ExtensionAPI) {
 		const ctx = rawContext as PiContext | undefined;
 		refreshMetadata(ctx);
 		const record = event && typeof event === "object" ? event as Record<string, unknown> : {};
-		const prompt = [record.prompt, record.input, record.message].find((value) => typeof value === "string" && value.trim()) as string | undefined;
+		// A run that a routed card starts carries the card as event.message.
+		const cardText = textFromContent((record.message as { content?: unknown } | undefined)?.content);
+		const prompt = [record.prompt, record.input, cardText].find((value) => typeof value === "string" && value.trim()) as string | undefined;
 		if (prompt) setSnippet(prompt);
 		await emitHook("before_agent_start", prompt ? { prompt: safeLine(prompt) } : undefined, false, occurredAtMS);
 	});
@@ -525,6 +671,7 @@ export default function (pi: ExtensionAPI) {
 		tool = undefined;
 		pendingNarration = "";
 		pendingNarrationAt = 0;
+		finalRun = {};
 		refreshMetadata(ctx);
 		setBusy(true, "thinking");
 		await emitHook("agent_start", undefined, false, occurredAtMS);
@@ -594,6 +741,8 @@ export default function (pi: ExtensionAPI) {
 		setBusy(true, "tool");
 		if (event.toolName === "ask_user") {
 			const args = event.args && typeof event.args === "object" ? event.args as Record<string, unknown> : {};
+			// The question is the prompt, so the dialog's own start does not report it again.
+			promptWaiting = true;
 			await emitHook("waiting_for_user", { prompt: typeof args.question === "string" ? safeLine(args.question) : currentTool }, true, occurredAtMS);
 		}
 		await emitHook("tool_execution_start", {
@@ -618,14 +767,16 @@ export default function (pi: ExtensionAPI) {
 		};
 		setSnippet(`${event.isError ? "✗" : "✓"} ${label}`);
 		currentTool = "";
+		promptWaiting = false;
 		await emitHook("tool_execution_end", {
 			tool_call_id: cleanString(event.toolCallId, 120),
 			tool_name: cleanString(event.toolName, 80),
 		}, event.toolName === "ask_user", occurredAtMS);
 	});
 
-	pi.on("agent_end", async (event: { messages?: unknown[] }, rawContext) => {
-		const occurredAtMS = Date.now();
+	// agent_end is not idle: Pi may retry, compact or run queued messages after it.
+	// Keep what it carries for the report agent_settled makes.
+	pi.on("agent_end", (event: { messages?: unknown[] }, rawContext) => {
 		let finalText = "";
 		let stopReason: string | undefined;
 		let errorMessage: string | undefined;
@@ -641,22 +792,68 @@ export default function (pi: ExtensionAPI) {
 		}
 		refreshMetadata(rawContext as PiContext | undefined);
 		if (finalText) setSnippet(lastTextLine(finalText), false);
-		if (tool) tool = { ...tool, status: "done", ended_at_ms: Date.now() };
-		setBusy(false, "done", snippet || "Done");
-		pendingNarration = "";
-		pendingNarrationAt = 0;
-		const finalPayload = {
+		finalRun = {
 			...(finalText ? { message: { role: "assistant", content: capChatText(finalText) } } : {}),
 			...(stopReason ? { stopReason } : {}),
 			...(errorMessage ? { errorMessage } : {}),
 		};
-		await emitHook("agent_end", Object.keys(finalPayload).length ? finalPayload : undefined, true, occurredAtMS);
+	});
+
+	// agent_settled is the final boundary: Pi will not run again on its own.
+	pi.on("agent_settled", async (event: { aborted?: unknown }, rawContext) => {
+		const occurredAtMS = Date.now();
+		refreshMetadata(rawContext as PiContext | undefined);
+		if (tool) tool = { ...tool, status: "done", ended_at_ms: Date.now() };
+		setBusy(false, "done", snippet || "Done");
+		pendingNarration = "";
+		pendingNarrationAt = 0;
+		const run = finalRun;
+		finalRun = {};
+		const payload = {
+			...run,
+			...(event.aborted === true && !run.stopReason ? { stopReason: "aborted" } : {}),
+		};
+		await emitHook("agent_settled", Object.keys(payload).length ? payload : undefined, true, occurredAtMS);
+	});
+
+	// Any blocking dialog is a wait for the user, not only ask_user. A dialog that
+	// opens inside ask_user is already reported as the question.
+	pi.on("ui_prompt_start", async (event: { title?: unknown; kind?: unknown }) => {
+		if (promptWaiting) return;
+		promptWaiting = true;
+		const prompt = cleanString(event.title) ?? cleanString(event.kind, 40) ?? "Waiting for input";
+		await emitHook("waiting_for_user", { prompt }, true);
+	});
+
+	pi.on("ui_prompt_end", async () => {
+		if (!promptWaiting) return;
+		promptWaiting = false;
+		await emitHook("ui_prompt_end", undefined, true);
+	});
+
+	pi.on("session_before_compact", () => {
+		compacting = true;
+	});
+
+	pi.on("session_compact", () => {
+		compacting = false;
+		scheduleHeldFlush();
+	});
+
+	pi.on("session_compact_failed", () => {
+		compacting = false;
+		scheduleHeldFlush();
 	});
 
 	pi.on("session_shutdown", async () => {
 		const occurredAtMS = Date.now();
 		setBusy(false, "idle");
 		await stop();
+		held = [];
+		if (heldFlush) {
+			clearTimeout(heldFlush);
+			heldFlush = undefined;
+		}
 		await emitHook("session_shutdown", undefined, true, occurredAtMS);
 	});
 }

@@ -215,6 +215,87 @@ func TestPiReceiptIsUnconfirmedAndNeverRetried(t *testing.T) {
 	}
 }
 
+// TestPiAcknowledgmentDecidesDelivery pins what each acknowledgment means: a status
+// that says Pi took the frame is accepted, a refusal falls back to typed input, and
+// anything ambiguous after the write is an error that is never retried.
+func TestPiAcknowledgmentDecidesDelivery(t *testing.T) {
+	ack := func(status string) func(string) string {
+		return func(id string) string { return `{"id":"` + id + `","status":"` + status + `"}` + "\n" }
+	}
+	cases := []struct {
+		name      string
+		reply     func(id string) string
+		want      Delivery
+		wantTyped int
+		wantError bool
+	}{
+		{name: "accepted", reply: ack("accepted"), want: DeliveryAccepted},
+		{name: "queued while Pi compacts", reply: ack("queued"), want: DeliveryAccepted},
+		{name: "unconfirmed from a sidecar before the status set", reply: ack("unconfirmed"), want: DeliveryAccepted},
+		{name: "rejected falls back to typed input", reply: ack("rejected"), want: DeliverySubmitted, wantTyped: 1},
+		{name: "unknown status is not retried", reply: ack("maybe"), wantError: true},
+		{name: "malformed acknowledgment is not retried", reply: func(string) string { return "not json\n" }, wantError: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, typed, id := piAckService(t, tc.reply)
+			delivery, err := svc.Relay(t.Context(), id, "hello")
+			if tc.wantError {
+				if err == nil || errors.Is(err, errNativeUnavailable) {
+					t.Fatalf("Relay error = %v, want a hard error that is not a fallback", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if delivery != tc.want || len(*typed) != tc.wantTyped {
+				t.Fatalf("delivery = %q, typed fallback = %v; want %q with %d typed", delivery, *typed, tc.want, tc.wantTyped)
+			}
+		})
+	}
+}
+
+// piAckService is a worker whose Pi socket answers every frame with reply.
+func piAckService(t *testing.T, reply func(id string) string) (*Service, *[]string, string) {
+	t.Helper()
+	runtime, err := os.MkdirTemp("/tmp", "qm-native-pi-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(runtime) })
+	if err := os.Chmod(runtime, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(runtime, "pi.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	if err := os.Chmod(socket, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				var request piMessageRequest
+				_ = json.NewDecoder(conn).Decode(&request)
+				_, _ = conn.Write([]byte(reply(request.ID)))
+			}()
+		}
+	}()
+	store := setupStore(t)
+	id := filepath.Base(runtime)
+	createManifest(t, store, id, "pi", "worker")
+	setAgent(t, store, id, "pi")
+	var typed []string
+	return newService(store, idleAndSendRunner(&typed)), &typed, id
+}
+
 type failingConn struct{ net.Conn }
 
 func (f *failingConn) Write([]byte) (int, error)   { return 1, errors.New("write failed") }

@@ -40,6 +40,16 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func piNodeCommand(t *testing.T, ctx context.Context, node string, args ...string) *exec.Cmd {
+	t.Helper()
+	loader, err := filepath.Abs(filepath.Join("testdata", "pi_tui_loader.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	commandArgs := append([]string{"--experimental-strip-types", "--experimental-loader", loader}, args...)
+	return exec.CommandContext(ctx, node, commandArgs...)
+}
+
 func TestPiMessagingSocketOwnership(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -60,7 +70,7 @@ func TestPiMessagingSocketOwnership(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, node, "--experimental-strip-types", filepath.Join("testdata", "pi_socket_ownership.mjs"), extension).CombinedOutput()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_socket_ownership.mjs"), extension).CombinedOutput()
 	if err != nil {
 		t.Fatalf("Pi socket ownership check: %v\n%s", err, out)
 	}
@@ -80,7 +90,7 @@ func TestPiActivityForwardingUsesDiscreteHooks(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, node, "--experimental-strip-types", filepath.Join("testdata", "pi_activity.mjs"), extension).CombinedOutput()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_activity.mjs"), extension).CombinedOutput()
 	if err != nil {
 		t.Fatalf("Pi activity extension check: %v\n%s", err, out)
 	}
@@ -100,7 +110,7 @@ func TestPiActivityQueueBatchesSlowHookCalls(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, node, "--experimental-strip-types", filepath.Join("testdata", "pi_hook_queue.mjs"), extension).CombinedOutput()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_hook_queue.mjs"), extension).CombinedOutput()
 	if err != nil {
 		t.Fatalf("Pi hook queue check: %v\n%s", err, out)
 	}
@@ -124,7 +134,7 @@ func TestPiActivityHookUsesQuestmasterBinAndWaitsForBoundedHook(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, node, "--experimental-strip-types", filepath.Join("testdata", "pi_hook_bin.mjs"), extension, binary).CombinedOutput()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_hook_bin.mjs"), extension, binary).CombinedOutput()
 	if err != nil {
 		t.Fatalf("Pi hook binary check: %v\n%s", err, out)
 	}
@@ -137,6 +147,28 @@ spawn("questmaster", ["hook", "pi", action], { stdio: ["pipe", "ignore", "ignore
 
 // newTestPiInstaller returns an installer with a Pi home holding agent/extensions
 // and an owned extension dir that does not exist yet.
+// TestPiNativeMessaging runs the routed-message checks against a fake Pi:
+// acknowledgments, compaction holds, cards, idle and dialog state.
+func TestPiNativeMessaging(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node is unavailable")
+	}
+	if err := exec.Command(node, "--experimental-strip-types", "-e", "").Run(); err != nil {
+		t.Skip("Node TypeScript type stripping is unavailable")
+	}
+	extension, err := filepath.Abs(filepath.Join("assets", "questmaster-pi-messaging.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_native.mjs"), extension).CombinedOutput()
+	if err != nil {
+		t.Fatalf("Pi native messaging check: %v\n%s", err, out)
+	}
+}
+
 func newTestPiInstaller(t *testing.T) *PiInstaller {
 	t.Helper()
 	home := t.TempDir()

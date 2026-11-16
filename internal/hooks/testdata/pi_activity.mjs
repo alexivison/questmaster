@@ -20,7 +20,8 @@ const subagentHandlers = new Map();
 extension({
 	on(event, handler) { handlers.set(event, handler); },
 	events: { on(event, handler) { subagentHandlers.set(event, handler); } },
-	sendUserMessage() {},
+	registerMessageRenderer() {},
+	sendMessage() {},
 	getThinkingLevel() { return "high"; },
 });
 const context = {
@@ -68,12 +69,14 @@ try {
 	await handlers.get("agent_end")({
 		messages: [{ role: "assistant", content: [{ type: "text", text: finalText }], usage: { output: 8 } }],
 	}, context);
+	await handlers.get("agent_settled")({ aborted: false }, context);
 	const errorText = `Your authentication token has expired. Please try refreshing it. ${"x".repeat(1600)}`;
 	await handlers.get("before_agent_start")({ prompt: "You are a smoke-test worker" }, context);
 	await handlers.get("agent_start")({}, context);
 	await handlers.get("agent_end")({
 		messages: [{ role: "assistant", content: [], stopReason: "error", errorMessage: errorText }],
 	}, context);
+	await handlers.get("agent_settled")({ aborted: false }, context);
 	await subagentHandlers.get("subagents:started")({ id: "subagent-1", type: "Explore", description: "private task" });
 	await subagentHandlers.get("subagents:completed")({ id: "subagent-1", type: "Explore", description: "private task" });
 	await subagentHandlers.get("subagents:started")({ id: "subagent-2", type: "Plan" });
@@ -85,8 +88,8 @@ try {
 	assert.deepEqual(entries.map((entry) => entry.args[2]), [
 		"session_start", "before_agent_start", "agent_start", "say", "tool_execution_start", "tool_execution_end",
 		"tool_execution_start", "tool_execution_end",
-		"waiting_for_user", "tool_execution_start", "tool_execution_end", "turn_end", "agent_end",
-		"before_agent_start", "agent_start", "agent_end", "subagent_start", "subagent_stop", "subagent_start", "subagent_stop", "session_shutdown",
+		"waiting_for_user", "tool_execution_start", "tool_execution_end", "turn_end", "agent_settled",
+		"before_agent_start", "agent_start", "agent_settled", "subagent_start", "subagent_stop", "subagent_start", "subagent_stop", "session_shutdown",
 	]);
 	assert.equal(entries[3].payload.message.content, "Checking this now.");
 	assert(entries[3].payload.occurred_at_ms >= narrationEventAt, "say timestamp should come from its text event");
