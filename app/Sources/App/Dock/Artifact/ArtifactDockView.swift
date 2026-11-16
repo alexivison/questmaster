@@ -12,6 +12,7 @@ struct ArtifactDockModel: Equatable {
     var currentSessionID: String
     var artifacts: [ArtifactReference]
     var projectTitlesByArtifactID: [String: String] = [:]
+    var projectColorsByID: [String: String] = [:]
     var artifactScope: ArtifactScope
     var selectedArtifactID: String?
     var selectedArtifactIDs: Set<String> = []
@@ -95,6 +96,7 @@ struct ArtifactDockView: View {
                         ArtifactRow(
                             artifact: artifact,
                             projectTitle: projectTitle(for: artifact),
+                            projectColor: model.projectColorsByID[artifact.projectID] ?? "",
                             look: RowLook.pick(highlighted: artifact.id == model.selectedArtifactID, areaFocused: areaFocused),
                             marked: model.selectedArtifactIDs.contains(artifact.id),
                             selectMode: !model.selectedArtifactIDs.isEmpty,
@@ -165,15 +167,12 @@ private extension ArtifactScope {
     }
 }
 
-/// A pick-to-open row: artifact-item-v2.svg's 50pt row fitted to 40 (2026-10-22, the tracker worker plate's density),
-/// radius 5, in its `RowLook` (the fill only while highlighted). The icon tile 30 square at (10, 5), radius 5, with a
-/// 1pt border and the icon at the design's 0.6 of the tile (14.4 x 18) centred; the title 10 past the tile; a 1pt
-/// divider through the row's middle from the tile to 40 short of the right edge; the title and the project and date
-/// sitting 4.5 off it on either side, the date ending on the divider's end. The 20pt gutters on either side hold the
-/// pane's margin; in select mode the left one holds the mark.
+/// A scooped list card: a recessed icon tile, the title, then the date on the left and the project on the right.
+/// The panel's side gutters also leave room for deletion marks.
 struct ArtifactRow: View {
     var artifact: ArtifactReference
     var projectTitle: String
+    var projectColor: String = ""
     var look: RowLook
     var marked: Bool
     var selectMode: Bool
@@ -181,21 +180,19 @@ struct ArtifactRow: View {
     var action: () -> Void
 
     private enum Metrics {
-        static let height = ControlHeight.bar
-        static let spacing = Space.row
+        static let height = ListItemMetrics.height
+        static let spacing = ListItemMetrics.spacing
         static let cornerRadius: CGFloat = 5
         static let gutter = Space.section
-        static let tileOrigin = CGPoint(x: Space.item, y: Space.row)
-        static let tileSide: CGFloat = 30
-        static let iconSize = CGSize(width: 14.4, height: 18)
+        static let tileOrigin = CGPoint(x: ListItemMetrics.textInset, y: Space.row)
+        static let tileSide = ControlHeight.bar
+        static let iconSize = CGSize(width: 19.2, height: 24)
         /// doc.richtext at this size and semibold fills `iconSize`, as the design's glyph does.
-        static let iconPointSize: CGFloat = 16.875
+        static let iconPointSize: CGFloat = 22.5
         static let textX = tileOrigin.x + tileSide + Space.item
-        /// The text column ends as far from the right as the tile's far edge is from the left.
-        static let trailingInset = tileOrigin.x + tileSide
-        static let titleBaseline: CGFloat = 15.5
-        static let dividerY: CGFloat = 20
-        static let metaBaseline: CGFloat = 32.5
+        static let trailingInset = ListItemMetrics.textInset
+        static let titleBaseline: CGFloat = 21
+        static let metaBaseline: CGFloat = 37
         static let markPointSize: CGFloat = 13
     }
 
@@ -244,34 +241,33 @@ struct ArtifactRow: View {
                     .truncationMode(.tail)
                     .frame(width: textWidth, alignment: .leading)
                     .offset(x: Metrics.textX)
-                Rectangle()
-                    .fill(AppPalette.line.swiftUI)
-                    .frame(width: max(0, proxy.size.width - Metrics.trailingInset - Metrics.tileOrigin.x - Metrics.tileSide), height: Token.Size.divider)
-                    .offset(x: Metrics.tileOrigin.x + Metrics.tileSide, y: Metrics.dividerY - Token.Size.divider / 2)
                 HStack(spacing: Space.item) {
-                    BaselineText(projectTitle, font: AppFonts.monoSmall, color: rowLook.meta.color, baseline: Metrics.metaBaseline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 0)
                     if let addedDate {
                         BaselineText(addedDate, font: AppFonts.monoSmall, color: rowLook.meta.color, baseline: Metrics.metaBaseline)
                             .lineLimit(1)
                             .layoutPriority(1)
                     }
+                    Spacer(minLength: 0)
+                    BaselineText(projectTitle, font: AppFonts.monoSmall, color: AppPalette.projectLabel(projectColor, fallback: rowLook.meta.color), baseline: Metrics.metaBaseline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
                 .frame(width: textWidth)
                 .offset(x: Metrics.textX)
             }
         }
         .frame(height: Metrics.height)
-        .stateRow(rowLook, cornerRadius: Metrics.cornerRadius)
+        .stateRow(rowLook, scoopRadius: ListItemMetrics.scoopRadius)
         .onTapGesture(perform: action)
     }
 
     private var tile: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: Metrics.cornerRadius)
-                .fill(AppPalette.panel.swiftUI)
+            Canvas { context, size in
+                let shape = Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: Metrics.cornerRadius)
+                context.fill(shape, with: .color(AppPalette.panel.swiftUI))
+                context.fillInnerShadow(shape, Recess.listItemIcon)
+            }
             RoundedRectangle(cornerRadius: Metrics.cornerRadius)
                 .strokeBorder(rowLook.iconBorder.color.swiftUI, lineWidth: Token.Size.divider)
             Image(systemName: iconName)

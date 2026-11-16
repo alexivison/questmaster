@@ -9,7 +9,7 @@ builds its matching entries from (`SharedUI/Theme.swift`).
 The mouse highlights, the keys move the cursor, and a click acts. The pointer
 shows the hover look (`RowLook.hovered`: a 1pt `line` outline, no fill, text
 and icon unchanged; `controlBorder` on a raised surface, where `line` barely
-shows; every cursor and selection look is filled, so the two never read alike)
+shows; hover adds no fill and keeps the resting text, so it reads apart from the cursor and selection)
 on the row under it, via `stateRow`, and moves no list's cursor or
 selection. Return, Tab and Save
 commit the keyboard cursor; a row the pointer only crossed needs a click. The
@@ -30,16 +30,19 @@ again where it was when the keys come back.
 
 | Element | State | Look |
 |---|---|---|
-| Pick-to-open row (artifacts, dropdowns, filter suggestions) | rest | no fill, `textBody` #ADBAC7, icon tile border `line`, icon and meta `textMeta` #8D9AA8 |
+| Plain pick-to-open row (dropdowns, filter suggestions) | rest | no fill, `textBody` #ADBAC7, icon tile border `line`, icon and meta `textMeta` #8D9AA8 |
 | | highlighted, area focused (`RowLook.highlighted`) | `item` fill, `textSelected` #C4D0DC, icon tile border `controlBorder`, icon `textSelected`, meta `textMetaHighlighted` #9DA7B1 |
 | | highlighted, area unfocused (`RowLook.highlightedUnfocused`) | `item` fill, `textBody` text and icon, icon tile border `controlBorder`, meta `textMeta` #8D9AA8 |
 | | missing file (`RowLook.missingFile`) | the row's look with a `warn` icon |
 | | marked for deletion (`MarkLook`) | `accent` diamond in the row's left gutter |
-| Any row | under the pointer (`RowLook.hovered`) | 1pt `line` outline, no fill; text, icon and meta as at rest |
+| Plain row | under the pointer (`RowLook.hovered`) | 1pt `line` outline, no fill; text, icon and meta as at rest |
+| Scooped list card (artifacts, quests, projects and unlisted folders, via `RowLook.listItem`) | rest | `item` fill, 1pt `line` border, resting text and icon |
+| | under the pointer | `controlBorder` border; fill, text, icon and weight unchanged; no cursor or selection change |
+| | highlighted or selected | `controlBorder` border and the underlying look's brighter text and icon; unfocused artifact highlights keep the dimmer text step; only a lasting selection is bold |
 | Row on a raised surface (the Worker Log filter's dropdown, drawn in `item`) | rest (`RowLook.raisedRest`) | no fill, `textBody`, icon and meta as at rest |
 | | highlighted (`RowLook.raisedHighlighted`) | `line` fill, one step above the surface (an `item` fill would vanish on it), `textSelected`, meta `textMetaHighlighted` |
 | | under the pointer | 1pt `controlBorder` outline, no fill; text, icon and meta as at rest |
-| Lasting-selection row (the Quest Log) | selected (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
+| Lasting-selection row | selected (`RowLook.selected`) | `item` fill, **bold** `textSelected`; the Quest Log's card also keeps its `controlBorder` border |
 | Tab (agent tabs, Session/All, Settings sidebar) | rest (`OutlineLook.tabRest`) | `line` outline, `textBody` |
 | | selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
 | | selected, area unfocused (`.tabSelectedUnfocused`) | `controlBorder` outline, `textBody` |

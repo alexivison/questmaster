@@ -596,6 +596,10 @@ final class DockPaneModel: ObservableObject {
         if artifactFilterSuggestionIndex >= suggestions.count {
             artifactFilterSuggestionIndex = 0
         }
+        var projectColors = Dictionary(uniqueKeysWithValues: snapshot.tracker.repos.map { ($0.id, $0.color) })
+        for project in snapshot.tracker.projects {
+            projectColors[project.id] = project.color
+        }
         let nextModel = ArtifactDockModel(
             currentSessionTitle: title,
             currentSessionID: session?.id ?? "",
@@ -604,6 +608,7 @@ final class DockPaneModel: ObservableObject {
                 artifacts: sourceArtifacts,
                 tracker: snapshot.tracker
             ),
+            projectColorsByID: projectColors,
             artifactScope: artifactScope,
             selectedArtifactID: update.selectedArtifactID,
             selectedArtifactIDs: selectedArtifactIDs,

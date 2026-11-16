@@ -2,6 +2,14 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
+/// Shared geometry of the artifact, quest and project list cards.
+enum ListItemMetrics {
+    static let height = ControlHeight.row
+    static let spacing = Space.row
+    static let textInset = Space.item + Space.row
+    static let scoopRadius: CGFloat = 7.5
+}
+
 /// The pointer (.agents/skills/app-ui/references/interaction-states.md): it shows the hover look on the row under it, the keys move the
 /// cursor, and a click acts. Only in the tracker, while it has the keys, does hover move the cursor; there only real
 /// pointer motion counts, so a list that scrolls under a still pointer after a key press keeps its cursor, and the
@@ -40,27 +48,40 @@ extension View {
         }
     }
 
-    /// A list row in its state look, with the hover look (a `line` outline) while the pointer is over a resting row.
-    /// The pointer moves no cursor here: a click acts.
-    func stateRow(_ look: RowLook, cornerRadius: CGFloat = 0) -> some View {
-        modifier(StateRowModifier(look: look, cornerRadius: cornerRadius))
+    /// A row in its state look. Scooped cards keep a resting fill and border; plain rows show the list's surface.
+    /// Hover adds only the look's border cue. The pointer moves no cursor here: a click acts.
+    func stateRow(_ look: RowLook, cornerRadius: CGFloat = 0, scoopRadius: CGFloat? = nil) -> some View {
+        modifier(StateRowModifier(look: look, cornerRadius: cornerRadius, scoopRadius: scoopRadius))
     }
 }
 
 private struct StateRowModifier: ViewModifier {
     let look: RowLook
     let cornerRadius: CGFloat
+    let scoopRadius: CGFloat?
     @State private var pointerOver = false
 
     func body(content: Content) -> some View {
         content
             .background {
-                let shown = look.underPointer(pointerOver)
-                if let fill = shown.fill {
-                    RoundedRectangle(cornerRadius: cornerRadius).fill(fill.color.swiftUI)
-                }
-                if let outline = shown.outline {
-                    RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(outline.color.swiftUI, lineWidth: Token.Size.divider)
+                if let scoopRadius {
+                    let shown = look.listItem(underPointer: pointerOver)
+                    let shape = ScoopedRectangle(scoopRadius: scoopRadius)
+                    if let fill = shown.fill {
+                        shape.fill(fill.color.swiftUI)
+                    }
+                    if let outline = shown.outline {
+                        shape.stroke(outline.color.swiftUI, lineWidth: Token.Size.divider * 2)
+                            .clipShape(shape)
+                    }
+                } else {
+                    let shown = look.underPointer(pointerOver)
+                    if let fill = shown.fill {
+                        RoundedRectangle(cornerRadius: cornerRadius).fill(fill.color.swiftUI)
+                    }
+                    if let outline = shown.outline {
+                        RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(outline.color.swiftUI, lineWidth: Token.Size.divider)
+                    }
                 }
             }
             .contentShape(Rectangle())

@@ -2,30 +2,28 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Settings > Projects row metrics, from settings-projects-mock.png and the row SVGs (597 wide, 47 high, rows 5 apart),
-/// snapped to the 5pt scale: a 45pt row, with the arrow column's divider at 30 and the text 10 past it.
+/// Settings > Projects cards, with an arrow column in arrange mode and a feather at rest.
 enum ProjectRowMetrics {
-    static let height: CGFloat = 45
-    static let cornerRadius: CGFloat = 5
-    static let rowSpacing = Space.row
-    static let nameBaseline: CGFloat = 17
-    static let pathBaseline: CGFloat = 36
-    static let textInset = Space.item
+    static let height = ListItemMetrics.height
+    static let rowSpacing = ListItemMetrics.spacing
+    static let nameBaseline: CGFloat = 18.5
+    static let pathBaseline: CGFloat = 39.5
+    static let textInset = ListItemMetrics.textInset
     /// The arrow column: 30 wide, its divider at its right edge, the text 10 past the divider.
     static let arrowColumnWidth: CGFloat = 30
     static let arrangedTextInset = arrowColumnWidth + Space.item
     static let dividerTop: CGFloat = 5
-    static let dividerHeight: CGFloat = 35
+    static let dividerHeight = ListItemMetrics.height - Space.item
     static let arrowPointSize: CGFloat = 11
     static let arrowFrameHeight: CGFloat = 15
     static let arrowUpTop: CGFloat = 5
-    static let arrowDownTop: CGFloat = 25
-    /// The feather's hit square, 10 in from the row's trailing edge.
+    static let arrowDownTop: CGFloat = 30
+    /// The feather's hit square, `trailingInset` in from the row's trailing edge.
     static let featherSide = Space.section
-    static let trailingInset = Space.item
+    static let trailingInset = ListItemMetrics.textInset
     /// The folder row's `+` sits where the feather does, drawn at this point size.
     static let addPointSize: CGFloat = 13
-    /// The session count clears the `+`'s box: 10 in from the edge, 20 wide, and a `Space.item` gap.
+    /// The session count clears the `+`'s box and a `Space.item` gap.
     static let folderCountTrailingInset = trailingInset + featherSide + Space.item
 }
 
@@ -51,7 +49,7 @@ enum ProjectFeatherArt {
 }
 
 /// One project in the Projects list: its name in the project's colour, or the row look's own text without one, and its
-/// folder under it. At rest the feather opens its edit sheet. Arranging fills the row and puts the arrow column on its left.
+/// folder under it. At rest the feather opens its edit sheet. Arranging puts the arrow column on its left.
 struct SettingsProjectRow: View {
     let project: TrackerProject
     let look: RowLook
@@ -74,7 +72,7 @@ struct SettingsProjectRow: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: ProjectRowMetrics.height, maxHeight: ProjectRowMetrics.height, alignment: .topLeading)
-        .stateRow(look, cornerRadius: ProjectRowMetrics.cornerRadius)
+        .stateRow(look, scoopRadius: ListItemMetrics.scoopRadius)
         .onTapGesture(perform: onSelect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Project \(project.name)")
@@ -82,24 +80,22 @@ struct SettingsProjectRow: View {
 
     private var nameAndPath: some View {
         let inset = arranging ? ProjectRowMetrics.arrangedTextInset : ProjectRowMetrics.textInset
+        let trailing = ProjectRowMetrics.trailingInset + (arranging ? 0 : ProjectRowMetrics.featherSide + Space.item)
         return ZStack(alignment: .topLeading) {
             BaselineText(project.name, font: AppFonts.questLogBody, color: nameColor, baseline: ProjectRowMetrics.nameBaseline)
                 .lineLimit(1)
             BaselineText(ProjectPathDisplay.shortened(project.path, homeDirectory: NSHomeDirectory()), font: AppFonts.monoSmall, color: look.meta.color, baseline: ProjectRowMetrics.pathBaseline)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .padding(.trailing, ProjectRowMetrics.featherSide)
         }
         .padding(.leading, inset)
+        .padding(.trailing, trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     /// A project's colour tints its name the way the tracker tints a project's bar; no colour leaves the row's text.
     private var nameColor: NSColor {
-        guard let color = AppPalette.displayColor(project.color) else {
-            return look.text.color
-        }
-        return TrackerNameplateColor.barLightness(color)
+        AppPalette.projectLabel(project.color, fallback: look.text.color)
     }
 
     private var arrowColumn: some View {
@@ -149,7 +145,7 @@ struct SettingsFolderRow: View {
                 .padding(.trailing, ProjectRowMetrics.trailingInset)
         }
         .frame(maxWidth: .infinity, minHeight: ProjectRowMetrics.height, maxHeight: ProjectRowMetrics.height, alignment: .topLeading)
-        .stateRow(look, cornerRadius: ProjectRowMetrics.cornerRadius)
+        .stateRow(look, scoopRadius: ListItemMetrics.scoopRadius)
         .onTapGesture(perform: onSelect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Folder \(folder.path), \(folder.sessionLabel)")

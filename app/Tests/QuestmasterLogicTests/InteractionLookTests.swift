@@ -13,6 +13,7 @@ struct InteractionLookTests {
         aRegionHasTheKeysOnlyWithoutAModal()
         missingFilesAndMarksKeepTheirColours()
         rowsOnARaisedSurfaceStepUpFromItsFill()
+        scoopedListItemsKeepHoverApartFromTheCursor()
         textTabsFollowThePillTabsAndLightUnderThePointer()
         print("InteractionLookTests: all tests passed")
     }
@@ -24,6 +25,20 @@ struct InteractionLookTests {
         expect(RowLook.pick(highlighted: true, areaFocused: false) == .highlightedUnfocused, "the highlight in an unfocused area should dim, not hide")
         expect(RowLook.lasting(selected: true) == .selected, "a lasting selection should look selected")
         expect(RowLook.lasting(selected: false) == .rest, "an unselected lasting row should rest")
+    }
+
+    private static func scoopedListItemsKeepHoverApartFromTheCursor() {
+        let rest = RowLook.rest.listItem(underPointer: false)
+        let hover = RowLook.rest.listItem(underPointer: true)
+        expect(rest.fill == .item && rest.outline == .line, "a list card should keep its fill and border at rest")
+        expect(hover.fill == rest.fill && hover.outline == .controlBorder, "hover should lift only the card's border")
+        expect(hover.text == rest.text && hover.icon == rest.icon && hover.meta == rest.meta && !hover.bold, "hover should leave text, icons and weight alone")
+        for look in [RowLook.highlighted, .highlightedUnfocused, .selected, .projectCursor] {
+            expect(look.listItem(underPointer: true) == look.listItem(underPointer: false), "hover should leave a card's cursor or selection alone")
+            expect(look.listItem(underPointer: false) != hover, "hover should remain distinct from a card's cursor or selection")
+        }
+        expect(RowLook.selected.listItem(underPointer: false).bold, "a lasting selection should stay bold")
+        expect(RowLook.rest.missingFile.listItem(underPointer: true).icon == .warn, "hover should keep a missing artifact's warning")
     }
 
     private static func tabsFieldsTogglesAndBandsPickTheirLook() {

@@ -5772,7 +5772,7 @@ enum LogicSelfTests {
     }
 
     /// The spacing the source scan can't see (.agents/skills/app-ui/references/spacing.md), measured on 1x renders: stacked paddings and row
-    /// internals. The artifact rows' tiles sit on a 45pt pitch (a 40pt row and 5) and are 30 high; a form's first field
+    /// internals. The artifact cards sit on a 55pt pitch (a 50pt row and 5), with 40pt tiles; a form's first field
     /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
     /// in one pixel column.
     private static func testRenderedSpacingStaysOnTheScale() throws {
@@ -5812,18 +5812,19 @@ enum LogicSelfTests {
         }
 
         // Inside the tile, past its 5pt corner and clear of its glyph: the gutter, the tile's inset, and 6.
-        let tileColumn = Int(Space.section + Space.item) + 6
+        let tileColumn = Int(Space.section + ListItemMetrics.textInset) + 6
         let pane = CGSize(width: DockWidthPreference.panelWidth, height: 1015)
-        let paneRows = try borderRows(RenderPreview.artifactPaneView(highlight: nil), size: pane, x: tileColumn, atLeast: 22)
-        // The tiles are the last borders down the column: a top and a bottom edge each, the eleven fixture rows.
-        let tiles = Array(paneRows.suffix(22))
-        try expect(tiles.count == 22, "the artifact tiles' borders should show in the column, got rows \(paneRows)")
-        let tops = stride(from: 0, to: tiles.count, by: 2).map { tiles[$0] }
-        for (top, bottom) in zip(tops, stride(from: 1, to: tiles.count, by: 2).map { tiles[$0] }) {
-            try expect(bottom - top + 1 == 30, "an artifact tile should be 30 high, got rows \(top)-\(bottom)")
+        let paneRows = try borderRows(RenderPreview.artifactPaneView(highlight: nil), size: pane, x: tileColumn, atLeast: 44)
+        // Each of the eleven cards has four border pixels here: card top, tile top, tile bottom, card bottom.
+        let cards = Array(paneRows.suffix(44))
+        try expect(cards.count == 44, "the artifact cards and tiles should show in the column, got rows \(paneRows)")
+        let tops = stride(from: 0, to: cards.count, by: 4).map { cards[$0] }
+        for index in stride(from: 0, to: cards.count, by: 4) {
+            try expect(cards[index + 2] - cards[index + 1] + 1 == 40, "an artifact tile should be 40 high")
+            try expect(cards[index + 3] - cards[index] + 1 == 50, "an artifact card should be 50 high")
         }
         for (above, below) in zip(tops, tops.dropFirst()) {
-            try expect(below - above == 45, "artifact rows should sit 45 apart, got tiles at \(above) and \(below)")
+            try expect(below - above == 55, "artifact rows should sit 55 apart, got cards at \(above) and \(below)")
         }
 
         let fieldColumn = Int(ModalFormMetrics.inset + Space.section)

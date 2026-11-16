@@ -6,6 +6,7 @@ struct QuestCoreTests {
         flatListIsNewestCreatedFirstAcrossProjects()
         displayOrdersByCreatedNotUpdated()
         projectTabsFollowTheUsersOrderAndOnlyListProjectsWithQuests()
+        questRowsResolveProjectNamesAndColors()
         noProjectQuestsAppearOnlyUnderAll()
         tabFallsBackToAllWhenItsProjectLosesItsLastQuest()
         tabsStepWithBracketsAndWrap()
@@ -147,6 +148,20 @@ struct QuestCoreTests {
         store.selectTab(0)
         store.select("qst-none")
         expect(store.selectedPage?.project == "No project", "a quest without a project should say so in its footer")
+    }
+
+    private static func questRowsResolveProjectNamesAndColors() {
+        let quest = QuestItem(id: "qst-example", content: "Example quest", projectID: "example-app", projectName: "Saved name")
+        let unfiled = QuestItem(id: "qst-unfiled", content: "Unfiled quest")
+        let repos = [TrackerRepo(id: "example-app", name: "Repository name", color: "green", sessions: [])]
+        let store = QuestLogStore()
+        store.sync(quests: [quest, unfiled], repos: repos, projects: [TrackerProject(id: "example-app", name: "Current name", color: "orange")])
+        expect(store.projectName(for: quest) == "Current name" && store.projectColor(for: quest) == "orange", "row metadata should prefer the current project over the repository and saved quest")
+        expect(store.projectName(for: unfiled) == "No project" && store.projectColor(for: unfiled).isEmpty, "an unfiled quest should have a neutral project label")
+        store.sync(quests: [quest], repos: repos)
+        expect(store.projectName(for: quest) == "Repository name" && store.projectColor(for: quest) == "green", "a repository should supply metadata without a project entry")
+        store.sync(quests: [quest], repos: [])
+        expect(store.projectName(for: quest) == "Saved name" && store.projectColor(for: quest).isEmpty, "missing projects should retain the saved name without a stale color")
     }
 
     private static func tabFallsBackToAllWhenItsProjectLosesItsLastQuest() {

@@ -21,8 +21,8 @@ struct QuestTagChip: View {
             .lineLimit(1)
             .padding(.horizontal, QuestTagChipMetrics.textInset)
             .frame(height: QuestTagChipMetrics.height)
-            .background(RoundedRectangle(cornerRadius: QuestTagChipMetrics.cornerRadius).fill(AppPalette.panel.swiftUI))
-            .overlay(RoundedRectangle(cornerRadius: QuestTagChipMetrics.cornerRadius).stroke(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Token.Size.divider))
+            .background(RoundedRectangle(cornerRadius: QuestTagChipMetrics.cornerRadius).fill(AppPalette.item.swiftUI))
+            .overlay(RoundedRectangle(cornerRadius: QuestTagChipMetrics.cornerRadius).stroke(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
             .fixedSize()
             .accessibilityLabel(name)
     }

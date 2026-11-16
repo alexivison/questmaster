@@ -56,15 +56,15 @@ enum Space {
 enum ControlHeight {
     /// Filter chips.
     static let chip: CGFloat = 15
-    /// Pill tabs, Quest Log rows.
+    /// Pill tabs and list title lines.
     static let compact: CGFloat = 25
     /// Buttons, dropdown rows, compact pickers.
     static let control: CGFloat = 30
     /// Text fields, filter bars, the Settings picker.
     static let field: CGFloat = 35
-    /// The dock's top bar, artifact rows; the tracker worker plate's row.
+    /// The dock's top bar and the tracker worker plate's row.
     static let bar: CGFloat = 40
-    /// The tracker master plate's row.
+    /// List cards and the tracker master plate's row.
     static let row: CGFloat = 50
 }
 

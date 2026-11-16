@@ -118,6 +118,17 @@ public struct RowLook: Equatable, Sendable {
         }
         return RowLook(fill: nil, outline: hoverOutline, text: text, meta: meta, icon: icon, iconBorder: iconBorder, bold: bold, hoverOutline: hoverOutline)
     }
+
+    /// The artifact, quest and project cards keep their fill and border at rest. Hover only lifts the border;
+    /// the cursor and selection also keep their own brighter text and icon, and only a lasting selection is bold.
+    public func listItem(underPointer: Bool) -> RowLook {
+        RowLook(
+            fill: .item,
+            outline: outline != nil || fill != nil || underPointer ? .controlBorder : .line,
+            text: text, meta: meta, icon: icon, iconBorder: iconBorder, bold: bold,
+            hoverOutline: .controlBorder
+        )
+    }
 }
 
 /// A tab's, a field's or a frame's outline and label.
@@ -241,8 +252,8 @@ public struct PointerCursor: Equatable, Sendable {
     }
 }
 
-/// The Projects list's rows (settings-projects-mock.png). At rest a row has no fill. The cursor row is filled and
-/// outlined in `controlBorder`, as the design draws it; arrange mode fills every row, the cursor's outlined too.
+/// The Projects list's interaction looks. Its scooped cards supply the resting fill and border through `listItem`;
+/// arranging changes the controls, while the cursor keeps the same look in both modes.
 extension RowLook {
     public static let projectRest = RowLook(fill: nil, outline: nil, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
 
@@ -250,19 +261,8 @@ extension RowLook {
         fill: .item, outline: .controlBorder, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: false
     )
 
-    public static let projectArranged = RowLook(fill: .item, outline: nil, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
-
-    public static func project(highlighted: Bool, arranging: Bool) -> RowLook {
-        switch (arranging, highlighted) {
-        case (true, true):
-            return projectCursor
-        case (true, false):
-            return projectArranged
-        case (false, true):
-            return projectCursor
-        case (false, false):
-            return projectRest
-        }
+    public static func project(highlighted: Bool) -> RowLook {
+        highlighted ? projectCursor : projectRest
     }
 
     /// A folder without a project (settings-projects Folders): the project row's shape with its text dimmed to meta.
