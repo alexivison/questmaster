@@ -137,6 +137,9 @@ Building, installing and branch-running the app bundle: `app-bundle` skill.
 - **Delivery labels are what happened:** `accepted` (a native socket took the frame),
   `submitted` (tmux `send-keys` typed it), or empty (alert held). Never label a tmux
   send as received.
+- Codex app-server messaging is experimental and defaults off. Set
+  `QUESTMASTER_CODEX_APP_SERVER=1` before app/daemon launch to test it; ownership,
+  shutdown and delivery rules live in `tmux-lifecycle`.
 - Workers ask the master for clarification through `send master`, rather than an
   ask-user tool. The daemon's `worker-attention` job alerts a live master when one
   of its live workers blocks, using the existing between-turn notification path.

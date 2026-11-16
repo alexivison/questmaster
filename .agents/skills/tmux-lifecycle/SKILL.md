@@ -88,6 +88,27 @@ The always-needed tmux rules (name the server and the exact session on every cal
   updated/live/already-set/failed counts,
   and keep it idempotent.
 
+## Experimental Codex app-server ownership
+
+Set `QUESTMASTER_CODEX_APP_SERVER=1` before starting an app or daemon to opt new
+and continued Codex sessions into native messaging. It defaults to off; the
+daemon preserves the explicit launch value and session setup passes it to worker
+CLIs. Existing plain TUI processes keep tmux delivery until relaunched.
+
+The pane runs `qm agent codex`, supervising one session-owned app-server and its
+foreground remote TUI. The server inherits that session's environment and role
+configuration; it never starts the shared Codex daemon. Either process exiting,
+or the launcher receiving a termination signal, stops the other process.
+The private runtime carries `codex-native`, `cx.sock` (Codex's guarded alias to
+an owner-only Unix socket), and a log capped at 1 MiB. Both the alias owner and
+resolved socket's private parent/ownership are validated before connecting.
+Session close/delete/prune owns runtime-directory removal.
+Native sends rejoin only the recorded, already-loaded thread on that socket,
+query one turn summary, and use `turn/steer` while active or `turn/start` while
+idle. They never answer server approval/input requests or cold-resume a missing
+TUI. Once the marker exists, delivery errors do not fall back to tmux or retry an
+uncertain RPC. The marker is cleared when a session relaunches without the opt-in.
+
 ## Shared tmux theme
 
 `internal/palette/palette.json` is the app/tmux colour source. Run

@@ -329,6 +329,8 @@ func (s *Service) continueLaunchFor(m state.Manifest) (continueLaunch, error) {
 			Continuing:      true,
 			Model:           agentState.Model,
 			ReasoningEffort: agentState.ReasoningEffort,
+			CodexNative:     os.Getenv(agent.CodexNativeEnv) == "1",
+			LauncherBinary:  os.Getenv("QUESTMASTER_BIN"),
 		})
 		if resumeID != "" {
 			l.agentResume[role] = resumeInfo{

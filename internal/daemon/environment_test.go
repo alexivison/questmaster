@@ -63,6 +63,22 @@ func TestDaemonEnvironmentCarriesStartingTmuxLabel(t *testing.T) {
 	}
 }
 
+func TestDaemonEnvironmentCarriesExplicitCodexOptIn(t *testing.T) {
+	c := Config{Root: t.TempDir(), Home: t.TempDir(), LoginEnvironmentRunner: func(context.Context, string, []string) ([]byte, error) {
+		return []byte("QUESTMASTER_CODEX_APP_SERVER=1\x00"), nil
+	}}
+	for _, value := range []string{"", "0", "1"} {
+		t.Setenv("QUESTMASTER_CODEX_APP_SERVER", value)
+		want := "0"
+		if value == "1" {
+			want = "1"
+		}
+		if got := c.daemonEnvironment("dev-example")["QUESTMASTER_CODEX_APP_SERVER"]; got != want {
+			t.Fatalf("launch value %q became %q, want %q", value, got, want)
+		}
+	}
+}
+
 func TestOnlyInstalledIdentitiesGetTheStableExecutableInTheEnvironment(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

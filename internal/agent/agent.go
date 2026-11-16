@@ -70,6 +70,10 @@ type CmdOpts struct {
 	// no reasoning-effort flag is passed and the harness applies its own
 	// behavior.
 	ReasoningEffort string
+	// CodexNative opts into the experimental session-owned app-server launcher.
+	CodexNative bool
+	// LauncherBinary is the Questmaster executable supervising that launcher.
+	LauncherBinary string
 }
 
 func joinSystemPrompt(base, brief string) string {

@@ -107,6 +107,12 @@ func (c Config) daemonEnvironment(id string) map[string]string {
 	if label, set := os.LookupEnv("QUESTMASTER_TMUX_LABEL"); set {
 		env["QUESTMASTER_TMUX_LABEL"] = label
 	}
+	// This rollout switch comes from the launching app/CLI, never a login
+	// shell captured after launch. Workers inherit it through session setup.
+	env["QUESTMASTER_CODEX_APP_SERVER"] = "0"
+	if os.Getenv("QUESTMASTER_CODEX_APP_SERVER") == "1" {
+		env["QUESTMASTER_CODEX_APP_SERVER"] = "1"
+	}
 	prefix := filepath.Join(c.Root, "daemon", "bin", id)
 	env["QUESTMASTER_STATE_ROOT"] = c.Root
 	env["QUESTMASTER_APP"] = "1"

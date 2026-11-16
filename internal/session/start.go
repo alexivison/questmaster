@@ -211,6 +211,8 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 				PiExtension:     state.PiExtensionPath(s.Store.Root()),
 				Model:           model,
 				ReasoningEffort: reasoningEffort,
+				CodexNative:     os.Getenv(agent.CodexNativeEnv) == "1",
+				LauncherBinary:  os.Getenv("QUESTMASTER_BIN"),
 			})
 			if resumeID != "" {
 				agentResume[binding.Role] = resumeInfo{
