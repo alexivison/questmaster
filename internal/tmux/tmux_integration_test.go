@@ -42,6 +42,10 @@ func TestIntegrationPrivateServerRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
+	// Exercise session deletion without also racing the server's automatic
+	// exit after its last session. Cleanup owns the server shutdown and needs
+	// to read its PID before stopping it.
+	mustRun(t, runner, "set-option", "-g", "exit-empty", "off")
 	if got, err := runner.Run(ctx, "display-message", "-t", tmux.SessionTarget(name), "-p", "#{pane_id}"); err != nil || got != pane {
 		t.Fatalf("NewSession pane = %q, session's pane = %q (%v)", pane, got, err)
 	}
