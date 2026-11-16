@@ -88,11 +88,13 @@ struct WatcherList: View {
 }
 
 private extension PullRequestGitLook {
+    /// A conflicting PR takes the changes-requested ring (red X) in the git glyph's place, as GitHub marks merge conflicts,
+    /// so it can't be mistaken for the closed glyph.
     func icon(for state: PullRequestGitState) -> (icon: PullRequestIcon, color: NSColor)? {
         guard let glyph = state.icon else { return nil }
         switch self {
         case .normal: return glyph
-        case .conflicting: return (glyph.icon, AppPalette.gitRed)
+        case .conflicting: return (.ringChanges, AppPalette.gitRed)
         }
     }
 }

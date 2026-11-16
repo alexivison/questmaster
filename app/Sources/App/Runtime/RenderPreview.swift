@@ -139,6 +139,7 @@ enum RenderPreview {
         render(watcherRowsView(highlight: nil, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design-rest.png")
         render(watcherRowsView(highlight: nil, rows: watcherCountRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-counts.png")
         render(watcherRowsView(highlight: nil, rows: watcherReviewRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-reviews.png")
+        render(watcherRowsView(highlight: nil, rows: watcherConflictRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-conflicts.png")
         render(watcherRowsView(highlight: nil, rows: watcherSqueezeRows()), size: CGSize(width: 300, height: 90), to: "\(outputDir)/watcher-rows-squeezed.png")
         render(pullRequestItemView(), size: CGSize(width: 686, height: 156), to: "\(outputDir)/pull-request-item.png")
         // The dock split: Watcher over the artifacts or the worker chat, each alone, and either panel with the keys.
@@ -441,6 +442,7 @@ enum RenderPreview {
         let watchers: [String]
         var author: String? = "example-author"
         var stale = false
+        var conflicts = false
     }
 
     /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws, with the watchers the
@@ -483,6 +485,18 @@ enum RenderPreview {
         ])
     }
 
+    /// An open and a draft PR with merge conflicts beside a closed one, so the conflict ring and the closed glyph compare.
+    @MainActor
+    private static func watcherConflictRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97650, title: "fix(agent-f): Open, no conflicts", state: "open", draft: false, review: "approved", ci: "success", additions: 52, deletions: 9, watchers: ["w1"]),
+            WatcherFixture(number: 97651, title: "fix(agent-f): Open with merge conflicts", state: "open", draft: false, review: "approved", ci: "success", additions: 52, deletions: 9, watchers: ["w1"], conflicts: true),
+            WatcherFixture(number: 97652, title: "fix(agent-f): Draft with merge conflicts", state: "open", draft: true, review: "review_required", ci: "pending", additions: 14, deletions: 2, watchers: ["w2"], conflicts: true),
+            WatcherFixture(number: 97653, title: "fix(agent-f): Conflicts and changes requested", state: "open", draft: false, review: "changes_requested", ci: "failure", additions: 210, deletions: 70, watchers: ["w3"], conflicts: true),
+            WatcherFixture(number: 97654, title: "fix(agent-f): Closed without merging", state: "closed", draft: false, review: "changes_requested", ci: "failure", additions: 88, deletions: 31, watchers: ["w4"]),
+        ])
+    }
+
     /// A row whose author and watcher title are both too long for the panel: the author truncates last, the title first.
     @MainActor
     private static func watcherSqueezeRows() -> [PullRequestDisplayRow] {
@@ -506,7 +520,7 @@ enum RenderPreview {
         return fixtures.map { fixture -> PullRequestDisplayRow in
             var status: [String: Any] = [
                 "title": fixture.title, "url": "https://github.com/owner/repo/pull/\(fixture.number)", "state": fixture.state, "draft": fixture.draft,
-                "review": fixture.review, "ci": fixture.ci, "additions": fixture.additions, "deletions": fixture.deletions, "stale": fixture.stale,
+                "review": fixture.review, "ci": fixture.ci, "additions": fixture.additions, "deletions": fixture.deletions, "stale": fixture.stale, "conflicts": fixture.conflicts,
             ]
             status["author"] = fixture.author
             let object: [String: Any] = [
