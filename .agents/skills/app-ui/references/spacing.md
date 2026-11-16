@@ -13,8 +13,8 @@ is a multiple of 5, and spacing takes one of four steps (`Space` in
 
 Control heights are one family (`ControlHeight`): `chip` 15, `compact` 25
 (pill tabs, Quest Log title lines), `control` 30 (buttons, dropdown rows), `field` 35
-(fields, filters, the Settings picker), `bar` 40 (the dock top bar, artifact
-rows), `row` 50. A shape drawn from a design at another height keeps its path's
+(fields, filters, the Settings picker), `bar` 40 (the dock top bar), `row` 50
+(artifact, quest and project cards). A shape drawn from a design at another height keeps its path's
 own height as an `svg…` constant and scales to the control's.
 
 Not spacing, so free of the rule: text baselines and line heights, a glyph's
@@ -47,6 +47,6 @@ breaks:
 
 The scan reads lines, so `testRenderedSpacingStaysOnTheScale` (a
 `--run-logic-tests` self-test) measures rendered pixels for what it can't see:
-the artifact rows' 45pt pitch and a form's fields 10 under the header band and
+the artifact cards' 55pt pitch, their 40pt icon tiles, and a form's fields 10 under the header band and
 20 apart.
 

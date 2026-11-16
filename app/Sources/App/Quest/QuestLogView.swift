@@ -23,14 +23,13 @@ enum QuestLogMetrics {
     static let inset = Space.section
     /// Below the page: `inset` to the buttons, which are `ControlHeight.control` high, then `Space.item` under them.
     static let buttonBandHeight = Space.section + ControlHeight.control + Space.item * 2
-    /// A row is one title line (`rowHeight`), with its tag chips under it (a tagged row). Rows are `rowSpacing` apart.
-    static let rowHeight = ControlHeight.compact
-    /// A tagged row is its title line and the chip line under it (`QuestTagChipMetrics.height`) with `Space.row` below.
-    static let taggedRowHeight = ControlHeight.row
-    static let rowSpacing = Space.item
-    static let rowBaseline: CGFloat = 16.5
-    static let rowTextInset = Space.item
-    static let rowCornerRadius: CGFloat = 3
+    /// Every card keeps the same height, including quests without tags. Its lower line holds tags and the project.
+    static let rowHeight = ListItemMetrics.height
+    static let titleHeight = ControlHeight.compact
+    static let rowSpacing = ListItemMetrics.spacing
+    static let rowBaseline: CGFloat = 17
+    static let projectBaseline: CGFloat = 16
+    static let rowTextInset = ListItemMetrics.textInset
     static let markSize: CGFloat = 5
     /// Page: the design's 473 wide page, its parchment clipped to the top 594.
     static let svgPageWidth: CGFloat = 473
@@ -276,29 +275,37 @@ private struct QuestLogList: View {
                 baseline: QuestLogMetrics.rowBaseline
             )
             .lineLimit(1)
-            .frame(maxWidth: .infinity, minHeight: QuestLogMetrics.rowHeight, maxHeight: QuestLogMetrics.rowHeight, alignment: .topLeading)
-            if !chips.isEmpty {
+            .frame(maxWidth: .infinity, minHeight: QuestLogMetrics.titleHeight, maxHeight: QuestLogMetrics.titleHeight, alignment: .topLeading)
+            HStack(alignment: .top, spacing: Space.item) {
                 chipRow(chips)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .clipped()
+                BaselineText(
+                    store.projectName(for: quest),
+                    font: AppFonts.monoSmall,
+                    color: AppPalette.projectLabel(store.projectColor(for: quest), fallback: look.meta.color),
+                    baseline: QuestLogMetrics.projectBaseline
+                )
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
             }
+            .frame(height: QuestTagChipMetrics.height, alignment: .top)
         }
-        .padding(.leading, QuestLogMetrics.rowTextInset)
-        .frame(maxWidth: .infinity, minHeight: rowHeight(chips), maxHeight: rowHeight(chips), alignment: .topLeading)
+        .padding(.horizontal, QuestLogMetrics.rowTextInset)
+        .frame(maxWidth: .infinity, minHeight: QuestLogMetrics.rowHeight, maxHeight: QuestLogMetrics.rowHeight, alignment: .topLeading)
         // The pointer shows the hover look; a click or the keys change the selection, which the page follows.
-        .stateRow(look, cornerRadius: QuestLogMetrics.rowCornerRadius)
+        .stateRow(look, scoopRadius: ListItemMetrics.scoopRadius)
         .overlay(alignment: .topLeading) {
             if store.markedIDs.contains(quest.id) {
                 DiamondShape()
                     .fill(AppPalette.accent.swiftUI)
                     .frame(width: QuestLogMetrics.markSize, height: QuestLogMetrics.markSize)
                     .padding(.leading, (QuestLogMetrics.rowTextInset - QuestLogMetrics.markSize) / 2)
-                    .padding(.top, (QuestLogMetrics.rowHeight - QuestLogMetrics.markSize) / 2)
+                    .padding(.top, (QuestLogMetrics.titleHeight - QuestLogMetrics.markSize) / 2)
             }
         }
         .onTapGesture { store.select(quest.id) }
-    }
-
-    private func rowHeight(_ chips: [String]) -> CGFloat {
-        chips.isEmpty ? QuestLogMetrics.rowHeight : QuestLogMetrics.taggedRowHeight
     }
 
     private func chipRow(_ names: [String]) -> some View {
@@ -307,7 +314,8 @@ private struct QuestLogList: View {
                 QuestTagChip(name: name)
             }
         }
-        .padding(.bottom, Space.row)
+        .fixedSize(horizontal: true, vertical: false)
+        .help(names.joined(separator: ", "))
     }
 }
 

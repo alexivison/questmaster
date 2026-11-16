@@ -328,7 +328,8 @@ enum RenderPreview {
             ForEach(Array(cases.enumerated()), id: \.offset) { _, item in
                 ArtifactRow(
                     artifact: ArtifactReference(kind: "html", path: "/tmp/\(item.0).html", label: item.0, addedAt: "2026-04-05", missing: item.2),
-                    projectTitle: "questmaster",
+                    projectTitle: "Example App",
+                    projectColor: "orange",
                     look: item.1,
                     marked: false,
                     selectMode: false,
@@ -2337,7 +2338,11 @@ enum RenderPreview {
     /// `tab` selects a project tab, as a click or `]` would; `selecting` selects a quest.
     private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, tab projectID: String? = nil) -> QuestLogStore {
         let store = QuestLogStore()
-        store.sync(quests: empty ? [] : questLogQuests(longBody: longBody), repos: [])
+        store.sync(
+            quests: empty ? [] : questLogQuests(longBody: longBody),
+            repos: [],
+            projects: settingsProjects.map { TrackerProject(id: $0.name, name: $0.name, color: $0.color) }
+        )
         if let projectID, let index = store.projectTabs.firstIndex(where: { $0.projectID == projectID }) {
             store.selectTab(index + 1)
         }
@@ -2351,7 +2356,7 @@ enum RenderPreview {
     private static func questLogOverflowStore() -> QuestLogStore {
         let store = QuestLogStore()
         store.sync(
-            quests: (1...8).map { QuestItem(id: "t\($0)", content: "Quest \($0)", projectID: "t\($0)", projectName: "a-long-project-name-\($0)") },
+            quests: (1...8).map { QuestItem(id: "t\($0)", content: "Quest \($0)", types: QuestTagType.allCases.map(\.rawValue), size: "L", projectID: "t\($0)", projectName: "a-long-project-name-\($0)") },
             repos: []
         )
         store.selectTab(store.tabTitles.count - 1)

@@ -63,7 +63,7 @@ struct SettingsProjectsView: View {
                     ForEach(Array(model.projectRows.enumerated()), id: \.element.id) { index, project in
                         SettingsProjectRow(
                             project: project,
-                            look: .project(highlighted: index == model.highlightIndex, arranging: model.isArranging),
+                            look: .project(highlighted: index == model.highlightIndex),
                             arranging: model.isArranging,
                             onSelect: { model.highlightRow(index) },
                             onEdit: { model.editRow(at: index) },

@@ -156,6 +156,11 @@ enum AppPalette {
         return displayColorNames[name]
     }
 
+    /// Project names share the tracker's readable project tint, with the row's own text step as a fallback.
+    static func projectLabel(_ value: String, fallback: NSColor) -> NSColor {
+        displayColor(value).map(TrackerNameplateColor.barLightness) ?? fallback
+    }
+
 }
 
 /// How far a surface floats above what is under it, drawn as a drop shadow in `AppPalette.shadow`. A shadow comes from
@@ -190,6 +195,8 @@ struct Recess {
 
     /// The portrait discs of the sheets (Class & Title.svg): the edge 3 deep, softly, a fifth black.
     static let portrait = Recess(opacity: 0.2, blur: 1, depth: 3)
+    /// The artifact card's icon tile, matching the inset edge in its SVG.
+    static let listItemIcon = Recess(opacity: 0.2, blur: 1, depth: 2)
 
     var color: NSColor { AppPalette.shadow.withAlphaComponent(opacity) }
     var sigma: CGFloat { blur / 2 }

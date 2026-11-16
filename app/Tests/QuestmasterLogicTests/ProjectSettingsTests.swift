@@ -9,7 +9,7 @@ struct ProjectSettingsTests {
         arrangementSendsTheWholeOrderOnlyWhenDirty()
         arrangementClampsItsStartingHighlight()
         arrangementReturnsTheSnapshotsProjectsInArrangedOrder()
-        projectRowLooksFillWhileArrangingOrHighlighted()
+        projectRowsKeepTheirCursorLook()
         editingAProjectWithoutAnOverrideShowsNoName()
         editingSendsOnlyTheFieldsThatChanged()
         editingClearsTheNameAndColourWithEmptyStrings()
@@ -228,11 +228,9 @@ struct ProjectSettingsTests {
         expect(RowLook.folder(highlighted: true) == .projectCursor, "the highlighted folder row should take the project cursor")
     }
 
-    private static func projectRowLooksFillWhileArrangingOrHighlighted() {
-        expect(RowLook.project(highlighted: false, arranging: false) == .projectRest, "a resting project row should have no fill")
-        expect(RowLook.project(highlighted: true, arranging: false) == .projectCursor, "the highlighted project row should take the cursor look")
-        expect(RowLook.project(highlighted: false, arranging: true) == .projectArranged, "every arranged row should be filled")
-        expect(RowLook.project(highlighted: true, arranging: true) == .projectCursor, "the arranged cursor row should keep the cursor look")
+    private static func projectRowsKeepTheirCursorLook() {
+        expect(RowLook.project(highlighted: false) == .projectRest, "a resting project row should take the resting interaction look")
+        expect(RowLook.project(highlighted: true) == .projectCursor, "the highlighted project row should take the cursor look")
         expect(RowLook.projectCursor.outline == .controlBorder && RowLook.projectCursor.fill == .item, "the cursor look should be filled and outlined in controlBorder")
     }
 

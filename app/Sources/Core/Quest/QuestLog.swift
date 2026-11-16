@@ -164,7 +164,8 @@ public final class QuestLogStore {
     public private(set) var scrollNonce = 0
     @ObservationIgnored private var keys = ListKeyResolver()
     @ObservationIgnored private var allQuests: [QuestItem] = []
-    @ObservationIgnored private var projectTitles: [String: String] = [:]
+    private var projectTitles: [String: String] = [:]
+    private var projectColors: [String: String] = [:]
     @ObservationIgnored private var filter = QuestListFilter()
 
     /// A page step keeps a line of overlap; a half page is vim's.
@@ -248,7 +249,17 @@ public final class QuestLogStore {
     ) {
         allQuests = quests
         self.filter = filter
-        projectTitles = QuestDisplayState.projectTitles(quests: quests, repos: repos, projects: projects)
+        let titles = QuestDisplayState.projectTitles(quests: quests, repos: repos, projects: projects)
+        if titles != projectTitles {
+            projectTitles = titles
+        }
+        var colors = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0.color) })
+        for project in projects {
+            colors[project.id] = project.color
+        }
+        if colors != projectColors {
+            projectColors = colors
+        }
         let tabs = QuestDisplayState.projectTabs(quests: quests, repos: repos, projects: projects)
         if tabs != projectTabs {
             projectTabs = tabs
@@ -290,12 +301,19 @@ public final class QuestLogStore {
         return QuestLogPage(quest: quest, project: projectName(for: quest))
     }
 
-    /// The project's name on the page's footer; a quest without a project says so.
-    private func projectName(for quest: QuestItem) -> String {
+    /// The project's name on a row and the page's footer; a quest without a project says so.
+    public func projectName(for quest: QuestItem) -> String {
         guard let projectID = QuestDisplayState.projectKey(of: quest) else {
             return "No project"
         }
         return projectTitles[projectID] ?? ""
+    }
+
+    public func projectColor(for quest: QuestItem) -> String {
+        guard let projectID = QuestDisplayState.projectKey(of: quest) else {
+            return ""
+        }
+        return projectColors[projectID] ?? ""
     }
 
     /// The marked quests in list order, or the selected one when nothing is marked.
