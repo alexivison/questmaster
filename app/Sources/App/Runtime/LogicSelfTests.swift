@@ -67,6 +67,7 @@ enum LogicSelfTests {
         ("testAnAttachedShellsPanelBarFollowsItsOwnColour", testAnAttachedShellsPanelBarFollowsItsOwnColour),
         ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
+        ("testTrackerHeaderIsAStaticBannerTheWidthOfThePlates", testTrackerHeaderIsAStaticBannerTheWidthOfThePlates),
         ("testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate", testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
@@ -774,8 +775,8 @@ enum LogicSelfTests {
             return (weight / (scale * scale), weight == 0 ? .zero : CGPoint(x: sum.x / weight, y: sum.y / weight))
         }
 
-        /// The first plate starts level with the action bar header's bottom; each following row adds its height and a gap.
-        let masterTop = TrackerListMetrics.firstSectionTopInset
+        /// The first plate starts the list gap under the header banner; each following row adds its height and a gap.
+        let masterTop = TrackerListMetrics.headerHeight + TrackerListMetrics.firstSectionTopInset
         let workerTop = masterTop + TrackerNameplateRole.master.canvasSize.height + TrackerListMetrics.spacing
         let collapsedTop = workerTop + TrackerNameplateRole.worker.canvasSize.height + TrackerListMetrics.spacing
         let gutter = TrackerListMetrics.sidePadding
@@ -836,6 +837,49 @@ enum LogicSelfTests {
                 }
             }
         }
+    }
+
+    /// The tracker header banner: as wide as the plates and as tall as the action bar header, with the wordmark at the
+    /// SVG's own scale (109 wide, not squeezed to the frame) centred on it, and nothing drawn outside the scooped frame's
+    /// fill and border but the wordmark.
+    private static func testTrackerHeaderIsAStaticBannerTheWidthOfThePlates() throws {
+        let size = TrackerHeaderMetrics.size
+        try expect(size.width == TrackerPlateDesign.topLevelSize.width, "the header is as wide as the plates")
+        try expect(size.height == ActionBarMetrics.height, "the header is as tall as the action bar header")
+        let view = NSHostingView(rootView: TrackerHeader().frame(width: size.width, height: size.height).background(AppPalette.window.swiftUI))
+        view.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size, scale: 1)
+        window.contentView = view
+        window.show()
+        defer { window.close() }
+        view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        try pumpOneMainRunLoopTurn()
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else {
+            throw TestFailure("could not make a bitmap")
+        }
+        bitmap.size = size
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let probe = PixelProbe(bitmap: bitmap, height: Int(size.height))
+        try expect(probe.isColor(Int(size.width) / 4, Int(size.height) / 2, AppPalette.panel), "the frame is the action bar header's panel fill")
+        // The wordmark's ink: every pixel inside the frame's border that is not the panel fill, clear of the scooped ends
+        // (their border runs `scoopRadius` + the border in from each end).
+        let inset = Int(ScoopedRectangle.borderStrokeWidth) + 1
+        let end = Int(ActionBarMetrics.scoopRadius + ScoopedRectangle.borderStrokeWidth) + 1
+        var minX = Int.max, maxX = Int.min
+        for x in end..<(Int(size.width) - end) {
+            for y in inset..<(Int(size.height) - inset) where !probe.isColor(x, y, AppPalette.panel) {
+                minX = min(minX, x)
+                maxX = max(maxX, x)
+            }
+        }
+        let width = CGFloat(maxX - minX + 1)
+        let centre = CGFloat(minX + maxX + 1) / 2
+        try expect(abs(width - 109) <= 2, "the wordmark keeps the SVG's 109 point width, got \(width)")
+        try expect(abs(centre - size.width / 2) <= 1, "the wordmark is centred on the header, got centre \(centre) of \(size.width)")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
@@ -918,7 +962,8 @@ enum LogicSelfTests {
 
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
         try expectClose(TrackerListMetrics.spacing, 10, "every gap in the list")
-        try expectClose(TrackerListMetrics.firstSectionTopInset, ActionBarMetrics.height, "first plate starts level with the action bar header's bottom edge")
+        try expectClose(TrackerListMetrics.headerHeight, ActionBarMetrics.height, "the tracker header is as tall as the action bar header")
+        try expectClose(TrackerListMetrics.firstSectionTopInset, TrackerListMetrics.spacing, "first plate starts the list gap under the tracker header")
         try expectClose(TrackerListMetrics.avatarClearance, 40, "clearance between the list and the avatar slot")
         try expectClose(TrackerListMetrics.avatarBannerGap, Space.item, "gap between the avatar's sole and the banner")
         try expectClose(SelectedSessionTagMetrics.width, 260, "banner matches a master plate's width")
@@ -2426,7 +2471,7 @@ enum LogicSelfTests {
                 try expect(SelectedSessionTagContent.make(currentTerminalSessionID: viewed, tracker: tracker) == nil,
                            "\(String(describing: viewed)): no banner should remain without an attached plate")
                 let shellHeight = CGFloat(shells) * TrackerShellMetrics.rowHeight
-                let listHeight = fixture.size.height - shellHeight - TrackerListMetrics.verticalPadding - (shells > 0 ? Space.section : 0)
+                let listHeight = fixture.size.height - TrackerListMetrics.headerHeight - shellHeight - TrackerListMetrics.verticalPadding - (shells > 0 ? Space.section : 0)
                 try expect(fixture.scrollView(height: listHeight) != nil,
                            "\(String(describing: viewed)): plates should fill the freed avatar and banner space up to \(listHeight)")
                 if shells > 0 {

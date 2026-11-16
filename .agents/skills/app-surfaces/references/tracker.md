@@ -18,10 +18,20 @@ A shell row is 35 high (`ControlHeight.field`) and as wide as the 260 column, fl
 (the tracker mock's layout, not Shell Session.svg's inset and spaced rows), with a 25pt disc (`ControlHeight.compact`) 10
 in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its
 edge), as tall as its rows up to `TrackerShellMetrics.maxHeight` (175, five rows), and scrolls inside itself past that;
-the plates scroll in their own list above it. The first plate section starts at
-`TrackerListMetrics.firstSectionTopInset` (`ActionBarMetrics.height`, 50), as does the loading skeleton: the first plate's
-visible top is level with the action bar header's bottom edge (the pane and the header both start `ShellMetrics.sideCardInset`
-below the window's top; no project header is drawn above the plate; the silhouette margin is only in its layers). Under the list,
+the plates scroll in their own list above it. A static banner (`TrackerHeader`, from `Tracker Header.svg`) tops the column in
+the action bar header's band: as tall as it (`TrackerListMetrics.headerHeight`) and as wide as the plates (260,
+`TrackerHeaderMetrics.size`), so its top and bottom edges are level with the action bar header's (the pane and the header both
+start `ShellMetrics.sideCardInset` below the window's top), and its left edge is the plates' (`TrackerListMetrics.sidePadding`).
+It has no keys and no hover look, does not scroll with the plates or dim with a dropped connection, and goes with the pane when
+the tracker hides. The frame is the action bar header's scooped panel (`scoopedPanel`, `ActionBarMetrics.scoopRadius`, raised
+elevation, the panel fill and `lineSoftSubtle` border), not the SVG's own frame; the SVG is 354 wide, wider than the column's 260
+plates, so the wordmark keeps the SVG's scale (109 wide) and sits centred, shifted `TrackerHeaderMetrics.svgShift` (-47) into the
+narrower frame. It is drawn as the SVG's own path data (`TrackerHeaderArt`; the SVG is kept in
+`app/Tests/QuestmasterLogicTests/Fixtures/tracker-header.svg`) in a `Canvas`: flat emblem fills from the `AppPalette.wordmark*` inks,
+and the letters' angular gradient as a squashed conic gradient clipped to the letters (CoreSVG cannot draw it). The first plate
+section starts at `TrackerListMetrics.firstSectionTopInset` (`spacing`, 10) below the banner, inside the plates' list, as does the
+loading skeleton, so the plates' visible top is `headerHeight` + 10 below the pane's top; no project header is drawn above it, and
+the silhouette margin is only in its layers. Under the list,
 `TrackerListMetrics.avatarClearance` (`Space.group`) precedes the fixed avatar slot. Its sole stands
 `TrackerListMetrics.avatarBannerGap` (`Space.item`, 10) above the session banner's id tab: the gap sits below the slot, so
 the slot keeps its size, every pose moves up with it, and the plate list gives up the room. The slot and banner are 260pt wide and left-aligned with the master plates at

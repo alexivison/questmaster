@@ -5,12 +5,14 @@ import SwiftUI
 /// by a quarter circle centred on each corner, as the Quest Log design's outer path draws them.
 struct ScoopedRectangle: Shape {
     static let radius: CGFloat = 25
+    /// A header's own scoop is smaller than a panel's (`ActionBarMetrics.scoopRadius`).
+    var scoopRadius = Self.radius
     /// Every panel's border: 2pt inside the shape, drawn as a twice-as-wide stroke clipped to it.
     static let borderWidth: CGFloat = 2
     static let borderStrokeWidth: CGFloat = 2 * borderWidth
 
     func path(in rect: CGRect) -> Path {
-        Path(Self.cgPath(in: rect))
+        Path(Self.cgPath(in: rect, radius: scoopRadius))
     }
 
     /// The same outline for AppKit layer masks and borders. Quarter circles use the design's
@@ -34,13 +36,19 @@ struct ScoopedRectangle: Shape {
 }
 
 extension View {
-    /// Fills and borders the view with the shared scooped background and clips its content to the shape. Every use is
-    /// a modal, so the panel casts the modal shadow, from behind the clip, which would cut it.
-    func scoopedPanel(fill: NSColor = AppPalette.panel, border: NSColor = AppPalette.lineSoftSubtle) -> some View {
-        background(ScoopedRectangle().fill(fill.swiftUI))
-            .overlay(ScoopedRectangle().stroke(border.swiftUI, lineWidth: ScoopedRectangle.borderStrokeWidth).allowsHitTesting(false))
-            .clipShape(ScoopedRectangle())
-            .elevation(.modal, of: ScoopedRectangle())
+    /// Fills and borders the view with the shared scooped background and clips its content to the shape. The panel casts
+    /// its shadow, from behind the clip, which would cut it: the modal's by default, or a header's raised one.
+    func scoopedPanel(
+        fill: NSColor = AppPalette.panel,
+        border: NSColor = AppPalette.lineSoftSubtle,
+        radius: CGFloat = ScoopedRectangle.radius,
+        elevation level: Elevation = .modal
+    ) -> some View {
+        let shape = ScoopedRectangle(scoopRadius: radius)
+        return background(shape.fill(fill.swiftUI))
+            .overlay(shape.stroke(border.swiftUI, lineWidth: ScoopedRectangle.borderStrokeWidth).allowsHitTesting(false))
+            .clipShape(shape)
+            .elevation(level, of: shape)
     }
 }
 

@@ -105,6 +105,8 @@ enum RenderPreview {
         render(trackerEmptyView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-empty.png")
         render(TerminalAttachSkeleton(), size: CGSize(width: 520, height: 300), to: "\(outputDir)/terminal-skeleton.png")
         renderView(terminalEndedView(), size: CGSize(width: 520, height: 300), to: "\(outputDir)/terminal-ended.png")
+        // The header alone, 20 in from the canvas's top left (the diff against the SVG's raster measures from there).
+        render(trackerHeaderView(), size: CGSize(width: 300, height: 90), to: "\(outputDir)/tracker-header.png")
         render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
         render(trackerView(connection: .reconnecting), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-reconnecting.png")
@@ -1134,6 +1136,15 @@ enum RenderPreview {
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
         .background(AppPalette.window.swiftUI)
+    }
+
+    /// `TrackerHeader` on the window colour, `Space.section` from the canvas's top left.
+    @MainActor
+    private static func trackerHeaderView() -> some View {
+        TrackerHeader()
+            .padding(Space.section)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(AppPalette.window.swiftUI)
     }
 
     @MainActor

@@ -85,6 +85,19 @@ enum AppPalette {
     static let parchmentHighlight = NSColor(hex: 0xffffeb)
     static let parchmentHighlightWarm = NSColor(hex: 0xfffff0)
     static let parchmentWhite = NSColor.white
+    /// The tracker header wordmark's inks (`Tracker Header.svg`): the gold of the Q and the letters, the steel of the Q's
+    /// tail, and the Q's blue gem, each with its light and dark.
+    static let wordmarkGold = NSColor(hex: 0xd3a755)
+    static let wordmarkGoldLight = NSColor(hex: 0xeed795)
+    static let wordmarkGoldDark = NSColor(hex: 0xb3853b)
+    static let wordmarkGoldShade = NSColor(hex: 0x4b300e)
+    static let wordmarkGoldDeep = NSColor(hex: 0x221508)
+    static let wordmarkSteel = NSColor(hex: 0x7f828d)
+    static let wordmarkSteelLight = NSColor(hex: 0xbec1b8)
+    static let wordmarkSteelDark = NSColor(hex: 0x43444a)
+    static let wordmarkGem = NSColor(hex: 0x358bea)
+    static let wordmarkGemDark = NSColor(hex: 0x084294)
+    static let wordmarkGemLight = NSColor(hex: 0x7fcdfe)
 
     static let displayColorNames: [String: NSColor] = [
         "none": inert,
