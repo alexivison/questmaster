@@ -67,7 +67,7 @@ an offset that leaves the group's reserved height alone), not the disc's top, an
 order, skipping zero states. `TrackerPullRequestBadge` in Core supplies the chips from snapshot totals; the daemon counts
 the same live master-and-workers watch scope as the Watcher revision, counting shared PRs once. Unknown states contribute
 nothing, and ending a watch removes its contribution with no retention. The chips reuse the Watcher's git glyphs and
-colours (green, grey dashed, purple, red). `TrackerPRBadgeMetrics` sets their 35x20pt size and 10pt icon; gaps and horizontal
+colours (green, grey dashed, purple, red). `TrackerPRBadgeMetrics` sets their 35x20pt size and 10pt icon; each chip casts the shared `Elevation.raised` shadow, like the plates; gaps and horizontal
 padding are `Space.row`, corners are `Token.Radius.segment`. Counts 1-9 use the normal font; above 9 the label is a single
 `+`, with no font shrinking. Every chip's tooltip gives its exact count. Chips have no click action. A chip appears and disappears like an
 expanded worker's plate, sliding from the top and fading over `MotionStep.standard` (skipped under Reduce Motion); chips are
