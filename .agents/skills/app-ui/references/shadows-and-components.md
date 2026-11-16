@@ -8,7 +8,7 @@
 - Shadows come only from an elevation token (`Elevation` in `SharedUI/Theme.swift`), never numbers at the call site;
   each is a black drop shadow, and a shadow drawn inside a clip is a bug (draw it outside, as `scoopedPanel` and
   `ScoopedLayerChrome` do). The look stays flat, so everything at panel level takes the one tight shadow, `raised`
-  (black 35%, blur 4, 1.5 down): tracker plates and their discs, every dropdown (`SuggestionDropdown`), the dock's
+  (black 35%, blur 4, 1.5 down): tracker plates, their discs and PR chips, every dropdown (`SuggestionDropdown`), the dock's
   panels, the action bar header and the toast; there is no softer panel level. A layer that draws a shadow leaves
   `raised.bleed` (7.5) of room past its shape (the plates' `TrackerPlateDesign.silhouetteMargin` and the toast's
   `ToastBanner.shadowMargin` are 10). `modal` (45%, blur 30, 10 down): every in-window modal, the Quest Log included. An inner shadow, the one kind that belongs inside

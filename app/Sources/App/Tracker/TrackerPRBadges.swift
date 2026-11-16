@@ -37,6 +37,7 @@ struct TrackerPRBadges: View {
                 .frame(width: TrackerPRBadgeMetrics.chipWidth, height: TrackerPRBadgeMetrics.chipHeight)
                 .background(AppPalette.panel.swiftUI, in: RoundedRectangle(cornerRadius: Token.Radius.segment))
                 .overlay(RoundedRectangle(cornerRadius: Token.Radius.segment).strokeBorder(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Token.Size.divider))
+                .elevation(.raised, of: RoundedRectangle(cornerRadius: Token.Radius.segment))
                 .help(badge.tooltip)
                 .accessibilityLabel(badge.tooltip)
                 .transition(.move(edge: .top).combined(with: .opacity))
