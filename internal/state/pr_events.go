@@ -12,7 +12,7 @@ import (
 type PullRequestEvent struct {
 	Seq        int64  `json:"seq"`
 	ID         string `json:"id"`
-	Kind       string `json:"kind"`
+	Kind       string `json:"kind"` // comment, review_comment, review, ci, state, or conflicts (gained merge conflicts)
 	OccurredAt string `json:"occurred_at"`
 	Author     string `json:"author,omitempty"`
 	Bot        bool   `json:"bot,omitempty"`

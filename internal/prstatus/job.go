@@ -344,6 +344,13 @@ func (j *Job) step(ctx context.Context) error {
 			failed[host] = item.Error != ""
 			limited[host] = item.BackoffUntil != ""
 		}
+		for key, current := range result.Statuses {
+			if current.State == "open" && result.Mergeable[key] != "MERGEABLE" && result.Mergeable[key] != "CONFLICTING" {
+				// GitHub recomputes mergeability after pushes. Keep the last known value through UNKNOWN.
+				current.Conflicts = statuses[key].Conflicts
+				result.Statuses[key] = current
+			}
+		}
 		for _, pr := range due {
 			current, ok := result.Statuses[pr.Key]
 			if !ok || failed[pr.Host] || current.InaccessibleReason != "" {
@@ -395,6 +402,19 @@ func (j *Job) step(ctx context.Context) error {
 				limited[pr.Host] = host.BackoffUntil != ""
 			}
 			if _, err := state.RecordPullRequestEvents(j.Root, pr.Key, events, ids); err != nil {
+				return err
+			}
+		}
+		// Conflict-only changes need no detail requests, and GitHub supplies no conflict timestamp.
+		// Like a first-poll CI result, the first observed conflict can alert an existing watch.
+		for _, pr := range due {
+			current, ok := result.Statuses[pr.Key]
+			if !ok || failed[pr.Host] || !current.Conflicts || statuses[pr.Key].Conflicts {
+				continue
+			}
+			at := now.UTC().Format(time.RFC3339Nano)
+			event := state.PullRequestEvent{ID: "conflicts:" + at, Kind: "conflicts", OccurredAt: at}
+			if _, err := state.RecordPullRequestEvents(j.Root, pr.Key, []state.PullRequestEvent{event}, nil); err != nil {
 				return err
 			}
 		}

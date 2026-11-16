@@ -22,7 +22,7 @@ func alertText(pr state.PullRequest, events []state.PullRequestEvent) string {
 	suffix := "; run: questmaster pr events " + ref + " --unread (duplicates possible)" + alertUntrustedNote
 	comments := 0
 	reviews := 0
-	var latestReview, latestCI, latestState string
+	var latestReview, latestCI, latestState, conflicts string
 	for _, event := range events {
 		switch event.Kind {
 		case "comment", "review_comment":
@@ -48,6 +48,8 @@ func alertText(pr state.PullRequest, events []state.PullRequestEvent) string {
 			}
 		case "state":
 			latestState = "PR: " + sanitizeAlertField(event.State, 16)
+		case "conflicts":
+			conflicts = "has conflicts"
 		}
 	}
 	parts := []string{}
@@ -61,7 +63,7 @@ func alertText(pr state.PullRequest, events []state.PullRequestEvent) string {
 	if reviews > 1 {
 		latestReview = fmt.Sprintf("%d reviews; latest %s", reviews, latestReview)
 	}
-	for _, part := range []string{latestReview, latestCI, latestState} {
+	for _, part := range []string{conflicts, latestReview, latestCI, latestState} {
 		if part != "" {
 			parts = append(parts, part)
 		}
