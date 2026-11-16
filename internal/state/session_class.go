@@ -3,7 +3,6 @@ package state
 import (
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"time"
 )
@@ -22,12 +21,6 @@ var sessionClassSet = func() map[string]struct{} {
 	}
 	return set
 }()
-
-// SessionClasses returns the class ids a session can take, in the order
-// ChooseSessionClass breaks ties. The Pi extension mirrors the list.
-func SessionClasses() []string {
-	return slices.Clone(sessionClassNames)
-}
 
 func ValidateSessionClass(class string) (string, error) {
 	class = strings.ToLower(strings.TrimSpace(class))
