@@ -69,6 +69,60 @@ func TestRunOwnsServerLifetime(t *testing.T) {
 	}
 }
 
+func TestRunKeepsRemoteResumePermissionsOnServer(t *testing.T) {
+	t.Parallel()
+	for _, resuming := range []bool{false, true} {
+		name := "new"
+		if resuming {
+			name = "resume"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := runtimeFixture(t)
+			settings := []string{`approval_policy="never"`, `sandbox_mode="danger-full-access"`, `model="example-model"`, `model_reasoning_effort="high"`, `developer_instructions="example role"`}
+			var args []string
+			if resuming {
+				args = []string{"resume", "example-thread"}
+			}
+			command := func(_ string, args ...string) *exec.Cmd {
+				cmd := exec.Command(os.Args[0], append([]string{"-test.run=^TestCodexLauncherHelper$", "--"}, args...)...)
+				cmd.Env = append(os.Environ(), "QM_CODEX_HELPER=1", "QM_CODEX_HELPER_DIR="+dir, "QM_CODEX_HELPER_MODE=tui-exits")
+				return cmd
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+			defer cancel()
+			if err := Run(ctx, Options{Binary: "example-codex", RuntimeDir: dir, Config: settings, Args: args, In: strings.NewReader(""), Out: io.Discard, Err: io.Discard, command: command}); err != nil {
+				t.Fatal(err)
+			}
+			serverData, err := os.ReadFile(filepath.Join(dir, "server.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var serverArgs []string
+			if err := json.Unmarshal(serverData, &serverArgs); err != nil {
+				t.Fatal(err)
+			}
+			tuiData, err := os.ReadFile(filepath.Join(dir, "tui.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var tui struct{ Args []string }
+			if err := json.Unmarshal(tuiData, &tui); err != nil {
+				t.Fatal(err)
+			}
+			for i, setting := range settings {
+				if !strings.Contains(strings.Join(serverArgs, " "), setting) {
+					t.Errorf("server lost setting %q", setting)
+				}
+				wantTUI := !resuming || i >= 2
+				if got := strings.Contains(strings.Join(tui.Args, " "), setting); got != wantTUI {
+					t.Errorf("TUI setting %q present=%v, want %v", setting, got, wantTUI)
+				}
+			}
+		})
+	}
+}
+
 func TestCodexLauncherHelper(t *testing.T) {
 	if os.Getenv("QM_CODEX_HELPER") != "1" {
 		return
@@ -76,6 +130,10 @@ func TestCodexLauncherHelper(t *testing.T) {
 	dir, mode := os.Getenv("QM_CODEX_HELPER_DIR"), os.Getenv("QM_CODEX_HELPER_MODE")
 	args := os.Args
 	if strings.Contains(strings.Join(args, " "), "app-server --listen") {
+		data, _ := json.Marshal(args)
+		if err := os.WriteFile(filepath.Join(dir, "server.json"), data, 0o600); err != nil {
+			os.Exit(7)
+		}
 		// Publish readiness only after termination handling and the private
 		// socket umask are in place, as Codex's guarded rendezvous does.
 		signals := make(chan os.Signal, 1)
@@ -119,6 +177,10 @@ func TestCodexLauncherHelper(t *testing.T) {
 	data, _ := json.Marshal(map[string]any{"args": args, "worker": os.Getenv("QUESTMASTER_SESSION")})
 	if err := os.WriteFile(filepath.Join(dir, "tui.json"), data, 0o600); err != nil {
 		os.Exit(5)
+	}
+	if strings.Contains(strings.Join(args, " "), " resume ") && (strings.Contains(strings.Join(args, " "), "approval_policy=") || strings.Contains(strings.Join(args, " "), "sandbox_mode=")) {
+		_, _ = os.Stderr.WriteString("Permission overrides are not supported when resuming a remote task.\n")
+		os.Exit(8)
 	}
 	if mode != "tui-exits" {
 		signals := make(chan os.Signal, 1)

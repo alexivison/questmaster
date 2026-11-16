@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -58,9 +59,17 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
-	var configArgs []string
+	var configArgs, tuiArgs []string
+	resuming := len(opts.Args) > 0 && opts.Args[0] == "resume"
 	for _, setting := range opts.Config {
 		configArgs = append(configArgs, "-c", setting)
+		key, _, _ := strings.Cut(setting, "=")
+		// Codex rejects CLI permission overrides when resuming a remote task.
+		// The app-server retains these settings as the owner of the session.
+		if resuming && (strings.TrimSpace(key) == "approval_policy" || strings.TrimSpace(key) == "sandbox_mode") {
+			continue
+		}
+		tuiArgs = append(tuiArgs, "-c", setting)
 	}
 	serverArgs := append([]string{"app-server", "--listen", "unix://" + path}, configArgs...)
 	serverCmd := opts.command(opts.Binary, serverArgs...)
@@ -77,7 +86,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err := waitSocket(readyCtx, opts.RuntimeDir, server); err != nil {
 		return fmt.Errorf("Codex app-server startup: %w; see codex-server.log in the session runtime", err)
 	}
-	tuiArgs := append(append([]string{}, configArgs...), "--remote", "unix://"+path)
+	tuiArgs = append(tuiArgs, "--remote", "unix://"+path)
 	tuiArgs = append(tuiArgs, opts.Args...)
 	tuiCmd := opts.command(opts.Binary, tuiArgs...)
 	tuiCmd.Stdin, tuiCmd.Stdout, tuiCmd.Stderr = opts.In, opts.Out, opts.Err

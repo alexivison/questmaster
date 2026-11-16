@@ -99,6 +99,8 @@ The pane runs `qm agent codex`, supervising one session-owned app-server and its
 foreground remote TUI. The server inherits that session's environment and role
 configuration; it never starts the shared Codex daemon. Either process exiting,
 or the launcher receiving a termination signal, stops the other process.
+On resume, approval and sandbox overrides stay on the owning app-server; the
+remote TUI rejects those overrides. Its model, effort and role overrides remain.
 The private runtime carries `codex-native`, `cx.sock` (Codex's guarded alias to
 an owner-only Unix socket), and a log capped at 1 MiB. Both the alias owner and
 resolved socket's private parent/ownership are validated before connecting.
