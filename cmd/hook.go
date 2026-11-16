@@ -185,6 +185,7 @@ func toolCommandFromInput(input interface{}) string {
 // It returns the append and update errors separately so callers can keep
 // their agent-specific stderr messages.
 func (r *HookRunner) updateAndLog(ctx context.Context, sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool) (appendErr, updateErr error) {
+	mutate = trackBlockedEpisode(ev.Ts, mutate)
 	var overflowEvents []*state.StateEvent
 	apply := func(ss *state.SessionState) bool {
 		changed := mutate(ss)
@@ -220,6 +221,35 @@ func (r *HookRunner) updateAndLog(ctx context.Context, sessionID string, ev *sta
 	}
 	appendErr = errors.Join(appendErr, appendOverflow())
 	return appendErr, updateErr
+}
+
+// trackBlockedEpisode preserves one durable alert token until the agent resumes.
+// All harnesses pass through here, including each individual event in a Pi batch.
+func trackBlockedEpisode(at time.Time, mutate func(*state.SessionState) bool) func(*state.SessionState) bool {
+	return func(ss *state.SessionState) bool {
+		previous := ss.Panes["agent"]
+		changed := mutate(ss)
+		pane, ok := ss.Panes["agent"]
+		if !ok {
+			return changed
+		}
+		if !pane.HasBlockedEpisode() {
+			pane.BlockedSince, pane.BlockedAlerted = time.Time{}, false
+		} else if !previous.HasBlockedEpisode() || previous.BlockedSince.IsZero() {
+			pane.BlockedSince = at
+			if pane.BlockedSince.IsZero() {
+				pane.BlockedSince = pane.LastEvent
+			}
+			pane.BlockedAlerted = false
+		} else {
+			pane.BlockedSince, pane.BlockedAlerted = previous.BlockedSince, previous.BlockedAlerted
+		}
+		if !pane.BlockedSince.Equal(previous.BlockedSince) || pane.BlockedAlerted != previous.BlockedAlerted {
+			changed = true
+		}
+		ss.Panes["agent"] = pane
+		return changed
+	}
 }
 
 const maxHookChatEventLineBytes = 64 * 1024
@@ -2920,7 +2950,7 @@ func applyPiBatch(ctx context.Context, r *HookRunner, sessionID string, prepared
 	err := r.updateAndLogEvents(ctx, sessionID, events, func(ss *state.SessionState) bool {
 		changed := false
 		for i := range prepared {
-			if prepared[i].mutate(ss) {
+			if trackBlockedEpisode(prepared[i].event.Ts, prepared[i].mutate)(ss) {
 				changed = true
 			}
 		}

@@ -21,6 +21,7 @@ import (
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
+	"github.com/alexivison/questmaster/internal/workeralert"
 	"github.com/spf13/cobra"
 )
 
@@ -188,8 +189,11 @@ func newDaemonConfigWithRouter(store *state.Store, tmuxClient *tmux.Client, rout
 		return daemon.Config{}, err
 	}
 	return daemon.Config{
-		Root:    root,
-		Jobs:    []daemon.Job{session.NewClassBackfillJob(state.OpenStore(root), tmuxClient, router)},
+		Root: root,
+		Jobs: []daemon.Job{
+			session.NewClassBackfillJob(state.OpenStore(root), tmuxClient, router),
+			workeralert.NewJob(state.OpenStore(root), router),
+		},
 		Runtime: &serve.Server{TmuxRouter: router},
 	}, nil
 }

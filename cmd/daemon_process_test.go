@@ -1409,7 +1409,9 @@ func TestDaemonLogRotationKeepsStderrCurrent(t *testing.T) {
 func TestDaemonIdleExitAndSIGTERM(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	startRun := func(grace string) *exec.Cmd {
-		cmd := exec.Command(h.bin, "daemon", "run", "--idle-grace="+grace)
+		ctx, cancel := context.WithTimeout(t.Context(), daemonProcessWaitTimeout)
+		t.Cleanup(cancel)
+		cmd := exec.CommandContext(ctx, h.bin, "daemon", "run", "--idle-grace="+grace)
 		cmd.Env = h.env
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
@@ -1438,4 +1440,27 @@ func TestDaemonIdleExitAndSIGTERM(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.waitStopped()
+}
+
+func TestDaemonWorkerAttentionAllowsIdleExitWithoutTmux(t *testing.T) {
+	h := newDaemonHarness(t, "")
+	binDir := filepath.Join(h.root, "daemon", "bin", "canonical")
+	if err := os.MkdirAll(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	probe := filepath.Join(h.root, "unexpected-tmux-probe")
+	script := "#!/bin/sh\n: > \"$QUESTMASTER_TEST_TMUX_PROBE\"\nexit 127\n"
+	if err := os.WriteFile(filepath.Join(binDir, "tmux"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), daemonProcessSocketTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, h.bin, "daemon", "run", "--idle-grace="+daemonProcessIdleGrace.String())
+	cmd.Env = append(h.env, "QUESTMASTER_TEST_TMUX_PROBE="+probe)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("idle daemon with unavailable tmux: %v\n%s", err, output)
+	}
+	if _, err := os.Stat(probe); !os.IsNotExist(err) {
+		t.Fatalf("empty daemon probed tmux: %v", err)
+	}
 }

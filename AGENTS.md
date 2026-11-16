@@ -137,6 +137,11 @@ Building, installing and branch-running the app bundle: `app-bundle` skill.
 - **Delivery labels are what happened:** `accepted` (a native socket took the frame),
   `submitted` (tmux `send-keys` typed it), or empty (alert held). Never label a tmux
   send as received.
+- Workers ask the master for clarification through `send master`, rather than an
+  ask-user tool. The daemon's `worker-attention` job alerts a live master when one
+  of its live workers blocks, using the existing between-turn notification path.
+  Hooks keep a durable blocked-episode token; delivery acknowledges only that
+  episode, repeated hooks do not repeat the alert, and resuming clears it.
 
 ## Swift app
 

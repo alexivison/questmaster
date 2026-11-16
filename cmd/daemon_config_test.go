@@ -34,8 +34,8 @@ func TestDaemonConfigRegistersSessionClassBackfillJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("daemon config: %v", err)
 	}
-	if len(config.Jobs) != 1 || config.Jobs[0].Name() != "session-class-backfill" {
-		t.Fatalf("daemon jobs = %#v, want registered session-class-backfill job", config.Jobs)
+	if len(config.Jobs) != 2 || config.Jobs[0].Name() != "session-class-backfill" || config.Jobs[1].Name() != "worker-attention" {
+		t.Fatalf("daemon jobs = %#v, want class-backfill and worker-attention jobs", config.Jobs)
 	}
 }
 
