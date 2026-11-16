@@ -129,7 +129,7 @@ func TestWriteEnforcedAtomicOwnerOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2 || entries[0].Name() != "enforced.questmaster.conf" || entries[1].Name() != "reload.questmaster.conf" {
+	if len(entries) != 4 || entries[0].Name() != "enforced.questmaster.conf" || entries[1].Name() != "reload.questmaster.conf" || entries[2].Name() != "theme-git-status.sh" || entries[3].Name() != "theme.conf" {
 		t.Fatalf("left temporary files: %v", entries)
 	}
 }

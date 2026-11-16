@@ -56,7 +56,7 @@ func TestStatusEditedSinceStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err = tmuxconfig.Status(t.Context(), tmux.NewClient(r), root)
-	if err != nil || !status.EditedSinceStart || status.TemplateVersion != 3 || status.BuiltinTemplateVersion != 3 {
+	if err != nil || !status.EditedSinceStart || status.TemplateVersion != 4 || status.BuiltinTemplateVersion != 4 {
 		t.Fatalf("after edit: %+v, %v", status, err)
 	}
 }

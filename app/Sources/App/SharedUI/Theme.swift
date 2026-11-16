@@ -2,8 +2,8 @@ import AppKit
 import QuestmasterCore
 
 enum AppPalette {
-    static let window = NSColor(hex: 0x1c2128)
-    static let panel = NSColor(hex: 0x252a31)
+    static let window = NSColor(hex: ThemePalette.window)
+    static let panel = NSColor(hex: ThemePalette.panel)
     static let item = StateColor.item.color
     static let artifactListColumn = panel
     static let artifactViewerBackground = artifactListColumn
@@ -27,10 +27,10 @@ enum AppPalette {
     static let deleted = NSColor(hex: 0xff7b72)
     /// Watcher (Session Detail Dock.svg): one green, red and amber, shared by the git state, the review ring, the CI
     /// label and the diff counter, and the indigo of a merged pull request.
-    static let gitGreen = NSColor(hex: 0x8cc265)
-    static let gitRed = NSColor(hex: 0xdf6567)
-    static let gitAmber = NSColor(hex: 0xd9a441)
-    static let gitMerged = NSColor(hex: 0x7a7af0)
+    static let gitGreen = NSColor(hex: ThemePalette.gitGreen)
+    static let gitRed = NSColor(hex: ThemePalette.gitRed)
+    static let gitAmber = NSColor(hex: ThemePalette.gitAmber)
+    static let gitMerged = NSColor(hex: ThemePalette.gitMerged)
     static let warn = StateColor.warn.color
     /// The one gold: titles (modal titles included), project headers and marks.
     static let accent = StateColor.accent.color
@@ -45,7 +45,7 @@ enum AppPalette {
     static let trackerDone = NSColor(hex: 0x57ab5a)
     /// Idle and stopped sessions, the "none" display colour, and a shown-but-inert control (the model field's effort
     /// segment when the model reports no levels).
-    static let inert = NSColor(hex: 0x6f757c)
+    static let inert = NSColor(hex: ThemePalette.displayColors["none"]!)
     static let trackerNeedsInput = NSColor(hex: 0x58a6ff)
     static let trackerError = NSColor(hex: 0xe8743b)
     /// Chat item tags by RPG rarity. No existing token is close to rare. Epic is the magenta display
@@ -86,23 +86,7 @@ enum AppPalette {
     static let parchmentHighlightWarm = NSColor(hex: 0xfffff0)
     static let parchmentWhite = NSColor.white
 
-    static let displayColorNames: [String: NSColor] = [
-        "none": inert,
-        "blue": NSColor(hex: 0x4d9bf0),
-        "green": NSColor(hex: 0x57ab5a),
-        "yellow": NSColor(hex: 0xd9a441),
-        "magenta": NSColor(hex: 0xc578dd),
-        "cyan": NSColor(hex: 0x4fb6c4),
-        "red": NSColor(hex: 0xe5534b),
-        "orange": NSColor(hex: 0xe0883b),
-        "gold": NSColor(hex: 0xd7b13d),
-        "lime": NSColor(hex: 0x8cc265),
-        "teal": NSColor(hex: 0x2bb8a3),
-        "sky": NSColor(hex: 0x4cb3e6),
-        "indigo": NSColor(hex: 0x7a7af0),
-        "violet": NSColor(hex: 0xb886e6),
-        "pink": NSColor(hex: 0xe57ab0),
-    ]
+    static let displayColorNames = ThemePalette.displayColors.mapValues { NSColor(hex: $0) }
 
     static func agent(_ name: String) -> NSColor {
         agent(AgentKind(name: name))

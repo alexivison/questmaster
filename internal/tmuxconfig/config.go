@@ -12,17 +12,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/config"
+	"github.com/alexivison/questmaster/internal/palette"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 //go:embed assets/questmaster.conf.tmpl
 var template []byte
+
+//go:embed assets/theme.conf.tmpl
+var themeTemplate string
 
 //go:embed assets/git-status.sh
 var statusScript []byte
@@ -33,6 +38,7 @@ var enforcedBlock string
 // FilePaths names the shared user files and label-specific generated files.
 type FilePaths struct {
 	Config       string `json:"config"`
+	Theme        string `json:"theme"`
 	Enforced     string `json:"enforced"`
 	Reload       string `json:"reload"`
 	StatusScript string `json:"status_script"`
@@ -58,6 +64,7 @@ func PathsForLabel(root, label string) FilePaths {
 	dir := filepath.Join(abs, "tmux")
 	return FilePaths{
 		Config:       filepath.Join(dir, "questmaster.conf"),
+		Theme:        filepath.Join(dir, "theme.conf"),
 		Enforced:     filepath.Join(dir, "enforced."+label+".conf"),
 		Reload:       filepath.Join(dir, "reload."+label+".conf"),
 		StatusScript: filepath.Join(dir, "git-status.sh"),
@@ -69,8 +76,17 @@ func Template(root string) string {
 	paths := Paths(root)
 	replacer := strings.NewReplacer(
 		"{{STATUS_SCRIPT}}", quotePath(paths.StatusScript),
+		"{{THEME_CONFIG}}", quotePath(paths.Theme),
 	)
 	return replacer.Replace(string(template))
+}
+
+func renderStatusScript() string {
+	script := string(statusScript)
+	for name, hex := range palette.Colors() {
+		script = strings.ReplaceAll(script, "{{"+name+"}}", hex)
+	}
+	return script
 }
 
 func quotePath(path string) string {
@@ -87,7 +103,7 @@ func EnsureUserFiles(root string) error {
 	if err := createOnce(paths.Config, []byte(Template(root)), 0o600); err != nil {
 		return err
 	}
-	return createOnce(paths.StatusScript, statusScript, 0o700)
+	return createOnce(paths.StatusScript, []byte(renderStatusScript()), 0o700)
 }
 
 // WriteEnforced atomically replaces Questmaster's enforced settings.
@@ -102,6 +118,21 @@ func WriteEnforced(root string) error {
 		return err
 	}
 	block := enforcedBlock
+	// These options are read at draw time, so session-local accents survive
+	// reloads and windows created by the user inherit the same theme.
+	colors := palette.Colors()
+	colors["session_accent"] = palette.Display("")
+	for name, hex := range palette.Source().Display {
+		colors["color_"+name] = hex
+	}
+	names := make([]string, 0, len(colors))
+	for name := range colors {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		block += fmt.Sprintf("set -g @questmaster_%s '%s'\n", name, colors[name])
+	}
 	hash := RootMarker(root, label)
 	block = strings.Replace(block, "<sha256 of the absolute state root>", hash, 1)
 	qm, err := config.ResolveQuestmasterCmd("")
@@ -127,6 +158,16 @@ func WriteEnforced(root string) error {
 	if err := replaceGenerated(paths.Enforced, block); err != nil {
 		return err
 	}
+	// The original status script is user-owned. Keep it intact and use a
+	// generated copy for the shared theme, whose colour arguments may evolve.
+	statusPath := filepath.Join(dir, "theme-git-status.sh")
+	theme := strings.ReplaceAll(themeTemplate, "{{STATUS_SCRIPT}}", "bash "+quotePath(statusPath))
+	if err := replaceGenerated(statusPath, renderStatusScript()); err != nil {
+		return err
+	}
+	if err := replaceGenerated(paths.Theme, theme); err != nil {
+		return err
+	}
 	return replaceGenerated(paths.Reload, reloadScript(paths))
 }
 
@@ -139,7 +180,7 @@ func EnsureGenerated(root string) error {
 		return err
 	}
 	paths := PathsForLabel(root, label)
-	for _, path := range []string{paths.Enforced, paths.Reload} {
+	for _, path := range []string{paths.Enforced, paths.Reload, paths.Theme, filepath.Join(filepath.Dir(paths.Config), "theme-git-status.sh")} {
 		if err := validateExisting(path); errors.Is(err, os.ErrNotExist) {
 			return WriteEnforced(root)
 		} else if err != nil {

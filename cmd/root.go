@@ -144,7 +144,7 @@ When invoked with no subcommand, it shows help.`,
 	root.AddCommand(newQuestCmd(o.store, o.client, o.repoRoot, router))
 	root.AddCommand(skillsCmd)
 	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot, router))
-	root.AddCommand(newRepoCmd(o.store))
+	root.AddCommand(newRepoCmd(o.store, router))
 	root.AddCommand(newDaemonCmd(o.store, router, routerErr))
 	root.AddCommand(newTmuxCmd(o.store, router, routerErr))
 

@@ -1,0 +1,1 @@
+#{?pane_active,#[fg=#539bf5] #{?#{==:#{@party_role},tracker},Tracker,#{?#{==:#{@party_role},shell},Shell,#{pane_title}}} ,#[fg=#768390] #{?#{==:#{@party_role},tracker},Tracker,#{?#{==:#{@party_role},shell},Shell,#{pane_title}}} }

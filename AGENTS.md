@@ -145,6 +145,8 @@ Building, installing and branch-running the app bundle: `app-bundle` skill.
 - The terminal's child env **strips `TMUX`/`TMUX_PANE`/`TMUX_TMPDIR`**.
 - **Style every view from the shared token layer** (`Token`, `AppPalette`, `AppFonts`,
   `Space`, `ControlHeight`, `MotionStep`): no raw hex, radii, spacing or durations.
+  Shared app/tmux colours live in `internal/palette/palette.json`; run
+  `go generate ./internal/palette` to update Core's generated Swift palette.
 
 ### UI scan tests
 

@@ -1,0 +1,84 @@
+{
+  "colors": {
+    "window": "#1c2128",
+    "panel": "#252a31",
+    "gitGreen": "#8cc265",
+    "gitRed": "#df6567",
+    "gitAmber": "#d9a441",
+    "gitMerged": "#7a7af0"
+  },
+  "states": [
+    {
+      "name": "lineSoftSubtle",
+      "hex": "#3a414a",
+      "description": "Panel and dock frames at rest."
+    },
+    {
+      "name": "line",
+      "hex": "#474f59",
+      "description": "Outlines at rest, and every divider inside a row."
+    },
+    {
+      "name": "item",
+      "hex": "#30363e",
+      "description": "A highlighted or selected row's fill."
+    },
+    {
+      "name": "controlBorder",
+      "hex": "#768390",
+      "description": "A highlighted or selected outline, and a focused field's border."
+    },
+    {
+      "name": "textMeta",
+      "hex": "#8d9aa8",
+      "description": "Meta text at rest (dates, projects, placeholders, hints). The terminal theme's white (ANSI 7)."
+    },
+    {
+      "name": "textMetaHighlighted",
+      "hex": "#9da7b1",
+      "description": "Meta text on a highlighted row in a focused area. The one step between the terminal's white and foreground."
+    },
+    {
+      "name": "textBody",
+      "hex": "#adbac7",
+      "description": "Body text at rest. The terminal theme's foreground."
+    },
+    {
+      "name": "textSelected",
+      "hex": "#c4d0dc",
+      "description": "Text on a highlighted or selected item. Bold on top of it means selected, in a lasting-selection list only.\nThe terminal theme's bright white (ANSI 15)."
+    },
+    {
+      "name": "accent",
+      "hex": "#d7b13d",
+      "description": "The one gold: titles, project headers and marks."
+    },
+    {
+      "name": "brassActive",
+      "hex": "#a58961",
+      "description": "\"On\", for toggles only (the action bar's inner glow)."
+    },
+    {
+      "name": "warn",
+      "hex": "#d29922",
+      "description": "A warning: a missing file's icon, in every state."
+    }
+  ],
+  "display": {
+    "none": "#6f757c",
+    "blue": "#4d9bf0",
+    "green": "#57ab5a",
+    "yellow": "#d9a441",
+    "magenta": "#c578dd",
+    "cyan": "#4fb6c4",
+    "red": "#e5534b",
+    "orange": "#e0883b",
+    "gold": "#d7b13d",
+    "lime": "#8cc265",
+    "teal": "#2bb8a3",
+    "sky": "#4cb3e6",
+    "indigo": "#7a7af0",
+    "violet": "#b886e6",
+    "pink": "#e57ab0"
+  }
+}

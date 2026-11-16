@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/alexivison/questmaster/internal/session"
+	"github.com/alexivison/questmaster/internal/sessiontheme"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
@@ -110,6 +111,11 @@ func newTmuxCmd(store *state.Store, router *tmuxroute.Router, routerErr error) *
 		result, err := tmuxconfig.Reload(cmd.Context(), client, store.Root())
 		if err != nil {
 			return err
+		}
+		if result.Running && len(result.Errors) == 0 {
+			if err := sessiontheme.Sync(cmd.Context(), store, router, ""); err != nil {
+				return err
+			}
 		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 	}})

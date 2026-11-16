@@ -33,10 +33,18 @@ The scans read lines. A value passed through a helper's parameter is not seen, s
 
 | Layer | File |
 |---|---|
-| Colours, fonts, elevation, state colours | `app/Sources/App/SharedUI/Theme.swift` (`AppPalette`, `AppFonts`, `Elevation`, `StateColor`) |
+| Colours, fonts, elevation | `app/Sources/App/SharedUI/Theme.swift` (`AppPalette`, `AppFonts`, `Elevation`) |
+| Shared colours and state colours | `internal/palette/palette.json` → `Core/Rendering/ThemePalette.swift` (`ThemePalette`, `StateColor`) |
 | Spacing, control heights, motion forms | `app/Sources/App/SharedUI/DesignTokens.swift` (`Space`, `ControlHeight`, `Motion`) |
 | State looks | `app/Sources/Core/Rendering/InteractionLook.swift` |
 | Motion steps and easing | `app/Sources/Core/Rendering/Motion.swift` (`MotionStep`, `MotionEasing`) |
+
+The colours shared with tmux (surfaces, state colours, git colours and named
+display colours) come from `internal/palette/palette.json`. Run
+`go generate ./internal/palette` after editing it; Core's
+`Rendering/ThemePalette.swift` is generated and checked for drift by Go tests.
+`StateColor` lives there; its state looks and luminance remain in
+`InteractionLook.swift`. Other app-only colours remain in `Theme.swift`.
 
 ## Before you commit a view
 

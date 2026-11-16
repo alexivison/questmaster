@@ -1,20 +1,22 @@
 package cmd
 
 import (
+	"github.com/alexivison/questmaster/internal/sessiontheme"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
 	"github.com/spf13/cobra"
 )
 
-func newRepoCmd(store *state.Store) *cobra.Command {
+func newRepoCmd(store *state.Store, router *tmuxroute.Router) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "repo",
 		Short: "Manage repository display metadata",
 	}
-	cmd.AddCommand(newRepoColorCmd(store))
+	cmd.AddCommand(newRepoColorCmd(store, router))
 	return cmd
 }
 
-func newRepoColorCmd(store *state.Store) *cobra.Command {
+func newRepoColorCmd(store *state.Store, router *tmuxroute.Router) *cobra.Command {
 	return &cobra.Command{
 		Use:   "color <repo-identity> <color>",
 		Short: "Set or clear a repository display color",
@@ -25,6 +27,9 @@ func newRepoColorCmd(store *state.Store) *cobra.Command {
 				return err
 			}
 			if err := state.NewRepoColorStore(store.Root()).Set(args[0], color); err != nil {
+				return err
+			}
+			if err := sessiontheme.Sync(cmd.Context(), store, router, ""); err != nil {
 				return err
 			}
 			return writeJSON(cmd.OutOrStdout(), struct {
