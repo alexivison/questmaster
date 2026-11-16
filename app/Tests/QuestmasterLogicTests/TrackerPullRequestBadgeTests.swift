@@ -14,7 +14,13 @@ struct TrackerPullRequestBadgeTests {
         expect(badges.map(\.count) == [1, 4, 2, 3], "chips preserve the daemon's master and worker totals")
         session.pullRequestCounts = PullRequestCounts(open: 1, draft: 4)
         expect(TrackerPullRequestBadge.make(for: session).map(\.state) == [.open, .draft], "zero states have no chip")
-        session.pullRequestCounts = PullRequestCounts()
+        for (count, label) in [(9, "9"), (10, "+")] {
+            session.pullRequestCounts = PullRequestCounts(open: count)
+            let badge = TrackerPullRequestBadge.make(for: session).first
+            expect(badge?.countLabel == label, "\(count) should display \(label) without shrinking")
+            expect(badge?.tooltip == "\(count) open pull requests", "the tooltip should preserve the exact count")
+        }
+        session.pullRequestCounts = PullRequestCounts(open: 0)
         expect(TrackerPullRequestBadge.make(for: session).isEmpty, "ending the last watch removes the chips")
         session.pullRequestCounts = PullRequestCounts(open: 3)
         for role in ["worker", "shell", "tmux", "orphan"] {

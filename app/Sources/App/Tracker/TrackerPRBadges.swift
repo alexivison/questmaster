@@ -21,21 +21,20 @@ struct TrackerPRBadges: View {
                             .scaleEffect(TrackerPRBadgeMetrics.iconSide / PullRequestIcon.side)
                             .frame(width: TrackerPRBadgeMetrics.iconSide, height: TrackerPRBadgeMetrics.iconSide)
                     }
-                    Text("\(badge.count)")
+                    Text(badge.countLabel)
                         .font(AppFonts.monoSmall.swiftUI)
                         .foregroundStyle(AppPalette.text.swiftUI)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.5)
                         .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, Space.row)
                 .frame(width: TrackerPRBadgeMetrics.chipWidth, height: TrackerPRBadgeMetrics.chipHeight)
                 .background(AppPalette.panel.swiftUI, in: RoundedRectangle(cornerRadius: Token.Radius.segment))
                 .overlay(RoundedRectangle(cornerRadius: Token.Radius.segment).strokeBorder(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Token.Size.divider))
-                .accessibilityLabel("\(badge.count) \(String(describing: badge.state)) pull requests")
+                .help(badge.tooltip)
+                .accessibilityLabel(badge.tooltip)
             }
         }
         .frame(width: TrackerPRBadgeMetrics.chipWidth, alignment: .topLeading)
-        .allowsHitTesting(false)
     }
 }

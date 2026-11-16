@@ -703,21 +703,24 @@ private struct TrackerRepoSection: View {
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { index, group in
                 let isCollapsed = !expandedMasterIDs.contains(group.root.session.id)
                 let gapAbove = index == 0 ? 0 : TrackerListMetrics.spacing
-                VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
-                    plateRow(
-                        group.root,
-                        hasWorkers: !group.workers.isEmpty,
-                        isWorkersCollapsed: isCollapsed,
-                        collapsedWorkers: isCollapsed ? group.workers : [],
-                        onToggleWorkersCollapsed: onToggleWorkersCollapsed
-                    )
-                    if !isCollapsed {
-                        ForEach(group.workers, id: \.session.id) { worker in
-                            plateRow(worker, hasWorkers: false, isWorkersCollapsed: false, collapsedWorkers: [], onToggleWorkersCollapsed: { _ in })
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                                .zIndex(-1)
+                HStack(alignment: .top, spacing: Space.row) {
+                    VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
+                        plateRow(
+                            group.root,
+                            hasWorkers: !group.workers.isEmpty,
+                            isWorkersCollapsed: isCollapsed,
+                            collapsedWorkers: isCollapsed ? group.workers : [],
+                            onToggleWorkersCollapsed: onToggleWorkersCollapsed
+                        )
+                        if !isCollapsed {
+                            ForEach(group.workers, id: \.session.id) { worker in
+                                plateRow(worker, hasWorkers: false, isWorkersCollapsed: false, collapsedWorkers: [], onToggleWorkersCollapsed: { _ in })
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                                    .zIndex(-1)
+                            }
                         }
                     }
+                    TrackerPRBadges(badges: TrackerPullRequestBadge.make(for: group.root.session))
                 }
                 .padding(.top, gapAbove)
             }
@@ -734,27 +737,24 @@ private struct TrackerRepoSection: View {
         onToggleWorkersCollapsed: @escaping (String) -> Void
     ) -> some View {
         if let role = TrackerNameplateRole(rendered.session) {
-            HStack(alignment: .top, spacing: Space.row) {
-                TrackerSessionRow(
-                    rendered: rendered,
-                    role: role,
-                    projectName: projectName,
-                    selectedID: selectedID,
-                    attachedID: attachedID,
-                    areaFocused: areaFocused,
-                    shortcutNumber: shortcutNumbers[rendered.session.id],
-                    commandLongPressIsActive: commandLongPressIsActive,
-                    hasWorkers: hasWorkers,
-                    isWorkersCollapsed: isWorkersCollapsed,
-                    collapsedWorkers: collapsedWorkers,
-                    onSelect: onSelect,
-                    onActivate: onActivate,
-                    onEditSession: onEditSession,
-                    onToggleWorkersCollapsed: onToggleWorkersCollapsed
-                )
-                .frame(width: role.canvasSize.width)
-                TrackerPRBadges(badges: TrackerPullRequestBadge.make(for: rendered.session))
-            }
+            TrackerSessionRow(
+                rendered: rendered,
+                role: role,
+                projectName: projectName,
+                selectedID: selectedID,
+                attachedID: attachedID,
+                areaFocused: areaFocused,
+                shortcutNumber: shortcutNumbers[rendered.session.id],
+                commandLongPressIsActive: commandLongPressIsActive,
+                hasWorkers: hasWorkers,
+                isWorkersCollapsed: isWorkersCollapsed,
+                collapsedWorkers: collapsedWorkers,
+                onSelect: onSelect,
+                onActivate: onActivate,
+                onEditSession: onEditSession,
+                onToggleWorkersCollapsed: onToggleWorkersCollapsed
+            )
+            .frame(width: role.canvasSize.width)
         }
     }
 }

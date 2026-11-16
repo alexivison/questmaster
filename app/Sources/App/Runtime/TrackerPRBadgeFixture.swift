@@ -4,10 +4,28 @@ import SwiftUI
 
 enum TrackerPRBadgeFixtureMetrics {
     static let canvasSize = CGSize(width: TrackerListMetrics.contentWidth + TrackerListMetrics.sidePadding, height: 900)
+    static let tallCanvasSize = CGSize(width: canvasSize.width, height: 300)
 }
 
 /// Production tracker with every badge state, a long title, expanded worker casts, and the width-matched footer.
 enum TrackerPRBadgeFixture {
+    @MainActor
+    static func tallView() -> some View {
+        let sessions = [
+            TrackerSession(id: "preview-tall-a", title: "Four states, first master", repoName: "Example App", sessionClass: "druid", agent: "codex", role: "master", snippet: "No workers or cast bar", pullRequestCounts: PullRequestCounts(open: 9, draft: 10, merged: 1, closed: 2)),
+            TrackerSession(id: "preview-tall-b", title: "Four states, next master", repoName: "Example App", sessionClass: "wizard", agent: "claude", role: "master", snippet: "Starts below the first stack", pullRequestCounts: PullRequestCounts(open: 3, draft: 4, merged: 10, closed: 9)),
+        ]
+        let store = RuntimeStore(sourceLabel: "preview")
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "example-app", name: "Example App", color: "lime", sessions: sessions)])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
     @MainActor
     static func view(unwatched: Bool = false) -> some View {
         func master(_ id: String, _ title: String, _ sessionClass: String, _ counts: PullRequestCounts = PullRequestCounts(), cast: TrackerCast? = nil) -> TrackerSession {

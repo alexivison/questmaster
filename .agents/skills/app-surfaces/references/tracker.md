@@ -52,5 +52,9 @@ order, skipping zero states. `TrackerPullRequestBadge` in Core supplies the chip
 the same live master-and-workers watch scope as the Watcher revision, counting shared PRs once. Unknown states contribute
 nothing, and ending a watch removes its contribution with no retention. The chips reuse the Watcher's git glyphs and
 colours (green, grey dashed, purple, red). `TrackerPRBadgeMetrics` sets their 35x20pt size and 10pt icon; gaps and horizontal
-padding are `Space.row`, corners are `Token.Radius.segment`. Chips have no click or hover action. A stack taller than its
-plate reserves its full height before the next row, so four states cannot overlap workers or the next master.
+padding are `Space.row`, corners are `Token.Radius.segment`. Counts 1-9 use the normal font; above 9 the label is a single
+`+`, with no font shrinking. Every chip's tooltip gives its exact count. Chips have no click action. A master group's
+height is the maximum of its plate content (including casts, collapsed circles or expanded workers) and its chip stack.
+A fitting stack adds no height; a taller stack reserves room before the next master, so adjacent four-state masters
+cannot overlap. The 240pt plate holds six collapsed worker circles, previously seven at 260pt: circles stay 25pt with
+5pt gaps and start at x40, so seven would reach x245, beyond the new plate edge.
