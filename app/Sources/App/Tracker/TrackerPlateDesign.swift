@@ -30,11 +30,15 @@ enum TrackerPlateDesign {
 
     /// Canvas sizes, and the rows' sizes. A row ends at its plate's right edge, which a master's collapsed circles' last
     /// right edge lines up with. The master's canvas stops under the crown pieces; the circles are drawn apart.
-    /// The master is 260 wide by decision (2026-10-21), not the SVG's 277; see `TrackerPlateShapes`.
-    static let topLevelArtSize = CGSize(width: 265, height: 55)
-    static let topLevelSize = CGSize(width: 260, height: ControlHeight.row)
-    static let workerArtSize = CGSize(width: 255, height: 45)
-    static let workerSize = CGSize(width: 232 + workerShift - svgDiscInset, height: ControlHeight.bar)
+    /// Plates end at the same right edge; the worker keeps its portrait indent. Only the straight SVG runs shorten.
+    static let plateWidth: CGFloat = 240
+    static let topLevelSize = CGSize(width: plateWidth, height: ControlHeight.row)
+    static let workerSize = CGSize(width: plateWidth, height: ControlHeight.bar)
+    static let topLevelArtSize = CGSize(width: plateWidth + Space.row, height: 55)
+    static let workerArtSize = CGSize(width: plateWidth + Space.row, height: 45)
+    /// The raw paths retain their previous right edges; moving their caps preserves the discs and corner curves.
+    static let masterBodyShortening: CGFloat = 260 - plateWidth
+    static let workerBodyShortening: CGFloat = 232 + workerShift - svgDiscInset - plateWidth
 
     /// Room around a canvas for the plate band, the art past its edges (the master's side diamond reaches 2 past
     /// x = 0) and the body's and disc's raised shadow (`Elevation.raised.bleed`, 7.5), so no layer clips them. Only the
@@ -106,6 +110,7 @@ enum TrackerPlateDesign {
 
     static let topLevel = TrackerPlateArtwork(
         size: topLevelArtSize,
+        shorteningBy: masterBodyShortening,
         tab: TrackerPlateShapes.masterTab,
         body: TrackerPlateShapes.masterBody,
         titleStrip: TrackerPlateShapes.masterTitleStrip,
@@ -117,6 +122,7 @@ enum TrackerPlateDesign {
     )
     static let worker = TrackerPlateArtwork(
         size: workerArtSize,
+        shorteningBy: workerBodyShortening,
         tab: nil,
         body: TrackerPlateShapes.workerBody,
         titleStrip: TrackerPlateShapes.workerTitleStrip,
@@ -219,6 +225,7 @@ struct TrackerPlateArtwork {
     /// Every coordinate is the SVG's, moved by `offset`.
     init(
         size: CGSize,
+        shorteningBy: CGFloat,
         tab: String?,
         body: String,
         titleStrip: String,
@@ -228,7 +235,9 @@ struct TrackerPlateArtwork {
         ornaments: [TrackerPlateShapes.Piece],
         offset: CGSize
     ) {
-        func parse(_ d: String) -> Path { SVGPath.parse(d, dx: offset.width, dy: offset.height) }
+        func parse(_ d: String) -> Path {
+            TrackerPlateShapes.parse(d, shorteningBy: shorteningBy, dx: offset.width, dy: offset.height)
+        }
         self.size = size
         self.tab = tab.map(parse)
         self.body = parse(body)

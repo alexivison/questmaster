@@ -87,20 +87,6 @@ struct WatcherList: View {
     }
 }
 
-/// The colours the design gives each state. A row whose data is stale or inaccessible draws them in its look's icon
-/// colour instead: it can't be trusted, so it doesn't show a vivid pass or fail.
-private extension PullRequestGitState {
-    var icon: (icon: PullRequestIcon, color: NSColor)? {
-        switch self {
-        case .open: (.gitOpen, AppPalette.gitGreen)
-        case .draft: (.gitDraft, AppPalette.controlBorder)
-        case .merged: (.gitMerged, AppPalette.gitMerged)
-        case .closed: (.gitClosed, AppPalette.gitRed)
-        case .unknown: nil
-        }
-    }
-}
-
 private extension PullRequestGitLook {
     func icon(for state: PullRequestGitState) -> (icon: PullRequestIcon, color: NSColor)? {
         guard let glyph = state.icon else { return nil }

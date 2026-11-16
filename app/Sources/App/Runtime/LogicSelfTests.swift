@@ -708,9 +708,13 @@ enum LogicSelfTests {
             return TrackerRenderedSession(session: session, status: TrackerRenderer.status(for: session), groupColor: AppPalette.accent, recolorEditHint: nil)
         }
         let states = ["working", "idle", "blocked", "done", "needs-input", "stopped", "error"]
-        let row = TrackerWorkerSummaryRow(workers: states.enumerated().map { worker("w\($0.offset)", state: $0.element) })
-        let circles = try host(row, "a collapsed row").subject.filter { $0.ringMode != TrackerPortraitRing.none }
-        try expect(circles.count == 4, "a collapsed row should draw a ring for each active worker only, got \(circles.count)")
+        // Exercise each status without the narrower row's overflow circle hiding a case.
+        for state in states {
+            let row = TrackerWorkerSummaryRow(workers: [worker("worker", state: state)])
+            let circles = try host(row, "a collapsed \(state) worker").subject.filter { $0.ringMode != TrackerPortraitRing.none }
+            let expected = ["working", "blocked", "needs-input", "error"].contains(state) ? 1 : 0
+            try expect(circles.count == expected, "a collapsed \(state) worker should draw \(expected) status rings, got \(circles.count)")
+        }
     }
 
     /// The attached session's dot: the plates' paths put it `Space.row` across, its centre `Space.item` left of the disc's
@@ -894,31 +898,31 @@ enum LogicSelfTests {
         let shift = TrackerPlateDesign.workerShift
 
         // Sizes: each canvas starts 2 above its row, which is the disc's height and the plate's width; canvases sit on 5s.
-        try expectClose(TrackerPlateDesign.topLevel.size.width, 265, "master canvas width")
+        try expectClose(TrackerPlateDesign.topLevel.size.width, 245, "master canvas width")
         try expectClose(TrackerPlateDesign.topLevel.size.height, 55, "master canvas height")
         try expectClose(TrackerPlateDesign.topLevelSize.height, 50, "master row height")
-        try expectClose(TrackerPlateDesign.topLevelSize.width, 260, "master row width, 260 by decision")
+        try expectClose(TrackerPlateDesign.topLevelSize.width, 240, "master row width")
         try expectClose(TrackerPlateDesign.svgDiscInset, 2, "canvas start above its row")
-        try expectClose(TrackerPlateDesign.worker.size.width, 255, "worker canvas width")
+        try expectClose(TrackerPlateDesign.worker.size.width, 245, "worker canvas width")
         try expectClose(TrackerPlateDesign.worker.size.height, 45, "worker canvas height")
-        try expectClose(TrackerPlateDesign.workerSize.width, 232 + shift - 2, "worker row width")
+        try expectClose(TrackerPlateDesign.workerSize.width, 240, "worker row width")
         try expectClose(TrackerPlateDesign.workerSize.height, 40, "worker row height")
 
         // The paths are the SVGs', moved onto whole points and the 5pt grid: the master's back by the SVG's slip and 2
-        // left so its disc spans 0-50 (its right edge stays at 260), the worker's to the list's worker indent.
+        // left so its disc spans 0-50 (its cap ends at 240), the worker's to the list's worker indent.
         let master = TrackerPlateDesign.topLevel
-        try expectRect(master.tab ?? Path(), 25, 3.5, 255, 15.5, "master project tab")
-        try expectRect(master.body, 25, 15.5, 260, 50.5, "master body")
-        try expectRect(master.titleStrip, 28, 17.5, 258, 36.5, "master title strip")
-        try expectRect(master.bar ?? Path(), 28, 38.5, 258, 48.5, "master project bar")
+        try expectRect(master.tab ?? Path(), 25, 3.5, 235, 15.5, "master project tab")
+        try expectRect(master.body, 25, 15.5, 240, 50.5, "master body")
+        try expectRect(master.titleStrip, 28, 17.5, 238, 36.5, "master title strip")
+        try expectRect(master.bar ?? Path(), 28, 38.5, 238, 48.5, "master project bar")
         try expectRect(master.disc, 1.5, 3.5, 48.5, 50.5, "master disc")
         try expectRect(master.discEdge, 0, 2, 50, 52, "master disc edge")
         try expectClose(master.discStroke, 3, "master disc stroke")
         try expect(master.snippetStrip == nil, "the master's snippet sits on its project bar")
         let worker = TrackerPlateDesign.worker
-        try expectRect(worker.body, 22 + shift - 2, 4.5, 232 + shift - 2, 39.5, "worker body")
-        try expectRect(worker.titleStrip, 25 + shift - 2, 6.5, 230 + shift - 2, 25.5, "worker title strip")
-        try expectRect(worker.snippetStrip ?? Path(), 25 + shift - 2, 27.5, 230 + shift - 2, 37.5, "worker snippet strip")
+        try expectRect(worker.body, 22 + shift - 2, 4.5, 240, 39.5, "worker body")
+        try expectRect(worker.titleStrip, 25 + shift - 2, 6.5, 238, 25.5, "worker title strip")
+        try expectRect(worker.snippetStrip ?? Path(), 25 + shift - 2, 27.5, 238, 37.5, "worker snippet strip")
         try expectRect(worker.discEdge, 2 + shift - 2, 2, 42 + shift - 2, 42, "worker disc edge")
         try expectClose(worker.discStroke, 2, "worker disc stroke")
         try expect(worker.tab == nil && worker.bar == nil && worker.ornaments.isEmpty, "the worker has no tab, project bar or ornaments")
@@ -966,16 +970,16 @@ enum LogicSelfTests {
         try expectClose(TrackerListMetrics.firstSectionTopInset, Space.section, "first plate starts a section gap under the tracker header")
         try expectClose(TrackerListMetrics.avatarClearance, 40, "clearance between the list and the avatar slot")
         try expectClose(TrackerListMetrics.avatarBannerGap, Space.item, "gap between the avatar's sole and the banner")
-        try expectClose(SelectedSessionTagMetrics.width, 260, "banner matches a master plate's width")
+        try expectClose(SelectedSessionTagMetrics.width, 240, "banner matches a master plate's width")
         try expectClose(SelectedSessionTagMetrics.tabInset, 5, "id tab inset on each side")
-        try expectClose(TrackerListMetrics.contentWidth, TrackerPlateDesign.topLevelSize.width + TrackerPlateDesign.glowBandWidth, "tracker content width, the master plate's and its band's")
+        try expectClose(TrackerListMetrics.contentWidth, 282, "tracker content width reserves the badge column and band allowance")
 
         // The collapsed workers sit right under the disc's row, 40 right of its left edge, and fill the plate's width.
         let discLeft = TrackerNameplateRole.master.portraitOrigin.x
         try expectClose(TrackerNameplateRole.circlesX - discLeft, 40, "first collapsed circle's offset from the disc's left edge")
         try expectClose(TrackerPlateDesign.collapsedCircleDiameter, 25, "collapsed circle diameter")
         try expectClose(TrackerPlateDesign.collapsedCircleGap, 5, "gap between collapsed circles")
-        try expect(TrackerWorkerSummary.maxCircles == 7, "a master's 260pt collapsed row should hold seven circles, got \(TrackerWorkerSummary.maxCircles)")
+        try expect(TrackerWorkerSummary.maxCircles == 6, "a master's 240pt collapsed row should hold six circles, got \(TrackerWorkerSummary.maxCircles)")
         let rowRight = TrackerNameplateRole.circlesX
             + CGFloat(TrackerWorkerSummary.maxCircles) * TrackerPlateDesign.collapsedCircleDiameter
             + CGFloat(TrackerWorkerSummary.maxCircles - 1) * TrackerPlateDesign.collapsedCircleGap
@@ -1203,10 +1207,10 @@ enum LogicSelfTests {
             if let next = try? snapshot(view, size: size, scale: scale) {
                 bitmap = next
             }
-            return (pixel(bitmap, 258.5, 24.5)?.alphaComponent ?? 0) > 0.9
+            return (pixel(bitmap, 238.5, 24.5)?.alphaComponent ?? 0) > 0.9
         }, "the panel should draw its frame")
-        try expect(bitmap.pixelsWide == 520 && bitmap.pixelsHigh == 150, "the panel should render 260 x 75 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
-        guard let arc = pixel(bitmap, 258.5, 24.5), let outside = pixel(bitmap, 259.5, 22),
+        try expect(bitmap.pixelsWide == 480 && bitmap.pixelsHigh == 150, "the panel should render 240 x 75 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
+        guard let arc = pixel(bitmap, 238.5, 24.5), let outside = pixel(bitmap, 239.5, 22),
               let frame = AppPalette.lineSoftSubtle.usingColorSpace(.sRGB) else {
             throw TestFailure("the corner pixels should be readable")
         }
@@ -1218,7 +1222,7 @@ enum LogicSelfTests {
         }
         try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
         try expect(isFrameColour(arc), "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
-        guard let bottomArc = pixel(bitmap, 258.5, 65) else {
+        guard let bottomArc = pixel(bitmap, 238.5, 65) else {
             throw TestFailure("the bottom-right pixel should be readable")
         }
         try expect(isFrameColour(bottomArc), "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")
@@ -2435,7 +2439,7 @@ enum LogicSelfTests {
                     let barMiddle = Int(bannerBottom - SelectedSessionTagMetrics.borderWidth - SelectedSessionTagMetrics.barHeight / 2)
                     let color = TrackerNameplateColor.barLightness(AppPalette.displayColor("indigo") ?? AppPalette.muted)
                     for x in [left + Int(Space.item), left + Int(TrackerAvatarMetrics.slotWidth - Space.item)] {
-                        try expect(probe.isColor(x, barMiddle, color), "\(sessionClass) with \(shells) shells: the banner's bar should span the full 260pt plate width at \(x), \(barMiddle)")
+                        try expect(probe.isColor(x, barMiddle, color), "\(sessionClass) with \(shells) shells: the banner's bar should span the full plate width at \(x), \(barMiddle)")
                     }
                     let tracker = TrackerRenderer.tracker(fixture.store.snapshot)
                     let attached = SelectedSessionTagContent.make(currentTerminalSessionID: viewed, tracker: tracker)
@@ -2455,7 +2459,7 @@ enum LogicSelfTests {
                 content: SelectedSessionTagContent(title: title, id: "qm-example", projectName: "Example", projectColor: AppPalette.muted),
                 onCopyID: { _ in }
             ))
-            try expect(tag.fittingSize.width == TrackerAvatarMetrics.slotWidth, "short and long titles should both reserve a 260pt banner")
+            try expect(tag.fittingSize.width == TrackerAvatarMetrics.slotWidth, "short and long titles should both reserve a plate-width banner")
         }
     }
 
@@ -5433,7 +5437,7 @@ enum LogicSelfTests {
     }
 
     /// The shell rows as the tracker mock lays them out, measured on the rendered section: 35 tall with no gap, each as
-    /// wide as the 260 column, the 25pt disc 10 into the row and the title 10 past it. The viewed shell and the cursor's
+    /// wide as the plate column, the 25pt disc 10 into the row and the title 10 past it. The viewed shell and the cursor's
     /// shell fill their rows, a resting row between them.
     private static func testShellRowsKeepTheMocksGeometry() throws {
         let sessions = ["a", "b", "c"].map { TrackerSession(id: $0, title: "Shell \($0)", repoName: "", agent: "") }

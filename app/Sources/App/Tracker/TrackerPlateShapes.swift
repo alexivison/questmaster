@@ -5,9 +5,9 @@ import SwiftUI
 /// list's columns, and draw them in the SVGs' own order. A strip the SVG draws as a rect inside a clip path is the
 /// two's intersection. Figma rounds each strip's outer right corner concentric with the body's 5 point corner (3 on
 /// the plates' 2 point inset, 3.5 on the panel's 1.5), which the export squares off, so those corners are Figma's.
-/// By decision (2026-10-21), the master plate and the panel are 260 wide, not the SVGs' 277: every x right of the disc
-/// (past 200) in their tab, body, strip and bar paths sits 17 points left of the SVG's (15 on the master, whose art
-/// then moves 2 left to put its disc at 0, 2026-10-23), so the straight runs shorten and every corner keeps its shape. The panel's right edge lines up with the master plate's. The plate bodies' 2pt and the panel's 1.5pt strokes run inside their fills in the same colour, so
+/// The raw paths keep their earlier widths (260 for master and panel, 250 for the worker in row coordinates).
+/// `parse` moves only their right caps to the shared `TrackerPlateDesign.plateWidth`, shortening the straight runs
+/// while preserving portraits, corner curves and stroke widths. The plate bodies' 2pt and the panel's 1.5pt strokes run inside their fills in the same colour, so
 /// they are not copied. Ornament pieces carry the role their colour has in the SVGs: `outline` is the plate's border
 /// colour (`lineSoftSubtle`, #3A414A), `panel` the plate body's (#252A31), and `project` the project's.
 enum TrackerPlateShapes {
@@ -18,6 +18,27 @@ enum TrackerPlateShapes {
     }
 
     typealias Piece = (role: Role, d: String)
+
+    /// Every point in a right cap, including its curve controls, moves together; everything left of the straight run stays put.
+    private static let svgCapJoinX: CGFloat = 200
+
+    static func parse(_ data: String, shorteningBy amount: CGFloat, dx: CGFloat = 0, dy: CGFloat = 0) -> Path {
+        func shifted(_ point: CGPoint) -> CGPoint {
+            CGPoint(x: point.x + dx - (point.x > svgCapJoinX ? amount : 0), y: point.y + dy)
+        }
+        var result = Path()
+        SVGPath.parse(data).forEach { element in
+            switch element {
+            case .move(let point): result.move(to: shifted(point))
+            case .line(let point): result.addLine(to: shifted(point))
+            case .quadCurve(let point, let control): result.addQuadCurve(to: shifted(point), control: shifted(control))
+            case .curve(let point, let control1, let control2):
+                result.addCurve(to: shifted(point), control1: shifted(control1), control2: shifted(control2))
+            case .closeSubpath: result.closeSubpath()
+            }
+        }
+        return result
+    }
 
     static let masterTab = "M27.1738 7.67392C27.1738 5.46478 28.9647 3.67392 31.1738 3.67392H254.674C256.055 3.67392 257.174 4.79321 257.174 6.17392V15.6739H27.1738V7.67392Z"
     static let masterBody = "M27.1738 15.6739H257.174C259.935 15.6739 262.174 17.9125 262.174 20.6739V45.6739C262.174 48.4353 259.935 50.6739 257.174 50.6739H27.1738V15.6739Z"

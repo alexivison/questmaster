@@ -711,21 +711,24 @@ private struct TrackerRepoSection: View {
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { index, group in
                 let isCollapsed = !expandedMasterIDs.contains(group.root.session.id)
                 let gapAbove = index == 0 ? 0 : TrackerListMetrics.spacing
-                VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
-                    plateRow(
-                        group.root,
-                        hasWorkers: !group.workers.isEmpty,
-                        isWorkersCollapsed: isCollapsed,
-                        collapsedWorkers: isCollapsed ? group.workers : [],
-                        onToggleWorkersCollapsed: onToggleWorkersCollapsed
-                    )
-                    if !isCollapsed {
-                        ForEach(group.workers, id: \.session.id) { worker in
-                            plateRow(worker, hasWorkers: false, isWorkersCollapsed: false, collapsedWorkers: [], onToggleWorkersCollapsed: { _ in })
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                                .zIndex(-1)
+                HStack(alignment: .top, spacing: Space.row) {
+                    VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
+                        plateRow(
+                            group.root,
+                            hasWorkers: !group.workers.isEmpty,
+                            isWorkersCollapsed: isCollapsed,
+                            collapsedWorkers: isCollapsed ? group.workers : [],
+                            onToggleWorkersCollapsed: onToggleWorkersCollapsed
+                        )
+                        if !isCollapsed {
+                            ForEach(group.workers, id: \.session.id) { worker in
+                                plateRow(worker, hasWorkers: false, isWorkersCollapsed: false, collapsedWorkers: [], onToggleWorkersCollapsed: { _ in })
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                                    .zIndex(-1)
+                            }
                         }
                     }
+                    TrackerPRBadges(badges: TrackerPullRequestBadge.make(for: group.root.session))
                 }
                 .padding(.top, gapAbove)
             }
@@ -759,6 +762,7 @@ private struct TrackerRepoSection: View {
                 onEditSession: onEditSession,
                 onToggleWorkersCollapsed: onToggleWorkersCollapsed
             )
+            .frame(width: role.canvasSize.width)
         }
     }
 }
@@ -914,9 +918,9 @@ enum TrackerNameplateRole: Equatable {
     /// edge, where the elapsed time right-aligns. The master's project name sits in its tab, the title and time on the
     /// title strip, and the snippet on the band below; the worker has no tab.
     static let topLevelTextX = TrackerPlateDesign.textX(afterDisc: TrackerPlateDesign.topLevel.discEdge)
-    static let topLevelTextRightEdge: CGFloat = 250
+    static let topLevelTextRightEdge = TrackerPlateDesign.plateWidth - Space.item
     static let workerTextX = TrackerPlateDesign.textX(afterDisc: TrackerPlateDesign.worker.discEdge)
-    static let workerTextRightEdge: CGFloat = 240
+    static let workerTextRightEdge = TrackerPlateDesign.plateWidth - Space.item
     static let titleTimeGap = Space.row
     /// The collapsed workers' circles start 40 points right of the master disc's left edge.
     static let circlesX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x

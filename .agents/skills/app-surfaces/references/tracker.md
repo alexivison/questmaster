@@ -14,7 +14,7 @@ their rows, and plate text starts `Space.row` past the disc's round edge (55,
 canvases and icon, logo and mark sizes are lengths like any other. A plate disc with a class portrait carries its
 agent's logo in a 25pt badge (logo 15), as big as a collapsed worker's circle, whose edge hangs `Space.row` outside the
 disc on the left and below it (`TrackerPlateDesign.badgeOverhang`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
-A shell row is 35 high (`ControlHeight.field`) and as wide as the 260 column, flush with the plates, stacked with no gap
+A shell row is 35 high (`ControlHeight.field`) and as wide as the 240pt plate column, flush with the plates, stacked with no gap
 (the tracker mock's layout, not Shell Session.svg's inset and spaced rows), with a 25pt disc (`ControlHeight.compact`) 10
 in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its
 edge), as tall as its rows up to `TrackerShellMetrics.maxHeight` (175, five rows), and scrolls inside itself past that;
@@ -34,7 +34,7 @@ loading skeleton, so the plates' visible top is `headerHeight` + 20 below the pa
 the silhouette margin is only in its layers. Under the list,
 `TrackerListMetrics.avatarClearance` (`Space.group`) precedes the fixed avatar slot. Its sole stands
 `TrackerListMetrics.avatarBannerGap` (`Space.item`, 10) above the session banner's id tab: the gap sits below the slot, so
-the slot keeps its size, every pose moves up with it, and the plate list gives up the room. The slot and banner are 260pt wide and left-aligned with the master plates at
+the slot keeps its size, every pose moves up with it, and the plate list gives up the room. The slot and banner are 240pt wide and left-aligned with the master plates at
 `TrackerListMetrics.sidePadding`; the slot reserves the tallest bundled class's idle figure, rounded up to 5pt (175pt now),
 so changing classes never moves the layout. `Space.section` separates the banner's bottom from the shells. With no
 shells, the banner ends `verticalPadding` above the column's bottom. Only an attached plate (master or worker) reserves
@@ -50,3 +50,21 @@ when no sprite is available. The banner resolver (`SelectedSessionTagContent.mak
 nothing attached or an unknown id, so neither banner nor avatar slot appears. A click copies the attached id. The sprite
 draws over the list; the banner draws in front of the sprite, keeping its raised shadow; art hanging below the sole shows in the gap.
 `SelectedSessionPanel` remains for its standalone previews and self-tests.
+
+Master plates are `TrackerPlateDesign.plateWidth` (240pt). Worker discs keep their 20-60pt column and their plates
+and cast bars end flush with the masters at x240; only straight SVG runs shorten, so portraits, corners and borders
+keep their shapes. The retained standalone selected-session panel uses the same width. The tracker content reserves
+`TrackerListMetrics.contentWidth` (282pt), plus its 20pt leading gutter: the plate column, a permanent 40pt badge column
+(5pt gap and 35pt chip), and the existing 2pt band allowance. No watches leaves that column empty; its width never jumps.
+
+Only master plates show PR chips, top-aligned with the plate's project tab and stacked in open, draft, merged, closed
+order, skipping zero states. `TrackerPullRequestBadge` in Core supplies the chips from snapshot totals; the daemon counts
+the same live master-and-workers watch scope as the Watcher revision, counting shared PRs once. Unknown states contribute
+nothing, and ending a watch removes its contribution with no retention. The chips reuse the Watcher's git glyphs and
+colours (green, grey dashed, purple, red). `TrackerPRBadgeMetrics` sets their 35x20pt size and 10pt icon; gaps and horizontal
+padding are `Space.row`, corners are `Token.Radius.segment`. Counts 1-9 use the normal font; above 9 the label is a single
+`+`, with no font shrinking. Every chip's tooltip gives its exact count. Chips have no click action. A master group's
+height is the maximum of its plate content (including casts, collapsed circles or expanded workers) and its chip stack.
+A fitting stack adds no height; a taller stack reserves room before the next master, so adjacent four-state masters
+cannot overlap. The 240pt plate holds six collapsed worker circles, previously seven at 260pt: circles stay 25pt with
+5pt gaps and start at x40, so seven would reach x245, beyond the new plate edge.

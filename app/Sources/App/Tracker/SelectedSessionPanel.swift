@@ -56,16 +56,16 @@ struct SelectedSessionPanel: View {
     let content: SelectedSessionPanelContent
     let onCopyID: (String) -> Void
 
-    /// The SVG's 299 x 76 cut to 260 (2026-10-21), so the panel's right edge lines up with the master plates', and to 75
+    /// The SVG's 299 x 76 cut to the shared plate width, so its right edge lines up with the master plates', and to 75
     /// (2026-10-23). Every Canvas draws at this size, so the bottom diamond's tip is cut at it.
-    static let canvasSize = CGSize(width: 260, height: 75)
+    static let canvasSize = CGSize(width: TrackerPlateDesign.plateWidth, height: 75)
     /// Where each line's first glyph cell starts, past the portrait like a plate's text (`TrackerPlateDesign.textX`),
     /// and its baseline. Every line stops at `textRightEdge`, so a long title truncates instead of running under the
     /// plate's right edge.
     /// `Space.item` past the disc, not a plate's `Space.row`.
     static let textX = TrackerPlateDesign.textX(afterDisc: PanelDesign.disc, gap: Space.item)
     private static let idX = textX
-    private static let textRightEdge: CGFloat = 250
+    private static let textRightEdge = TrackerPlateDesign.plateWidth - Space.item
     private static let idBaseline: CGFloat = 19
     private static let titleBaseline: CGFloat = 42.5
     private static let projectBaseline: CGFloat = 64.5
@@ -261,7 +261,7 @@ final class IconFadeView: NSView {
     }
 }
 
-/// The selected-session panel's shapes from `Selected Session.svg`, in the panel's own 260 x 76 coordinates.
+/// The selected-session panel's shapes from `Selected Session.svg`, with its straight runs shortened to the shared plate width.
 private enum PanelDesign {
     static let discCenter = CGPoint(x: 38, y: 38)
     static let discRadius: CGFloat = 32
@@ -282,10 +282,10 @@ private enum PanelDesign {
     /// The SVG's bar rim (141, 141, 255) lifts its bar (122, 122, 240) by 19 of 255 on each channel, up to white.
     private static let barRimLift: CGFloat = 19.0 / 255
 
-    static let tab = SVGPath.parse(TrackerPlateShapes.panelTab)
-    static let frame = SVGPath.parse(TrackerPlateShapes.panelBody)
-    static let titleStrip = SVGPath.parse(TrackerPlateShapes.panelTitleStrip)
-    static let projectBar = SVGPath.parse(TrackerPlateShapes.panelBar)
+    static let tab = TrackerPlateShapes.parse(TrackerPlateShapes.panelTab, shorteningBy: TrackerPlateDesign.masterBodyShortening)
+    static let frame = TrackerPlateShapes.parse(TrackerPlateShapes.panelBody, shorteningBy: TrackerPlateDesign.masterBodyShortening)
+    static let titleStrip = TrackerPlateShapes.parse(TrackerPlateShapes.panelTitleStrip, shorteningBy: TrackerPlateDesign.masterBodyShortening)
+    static let projectBar = TrackerPlateShapes.parse(TrackerPlateShapes.panelBar, shorteningBy: TrackerPlateDesign.masterBodyShortening)
     static let ornaments = TrackerPlateShapes.panelOrnaments.map { (role: $0.role, path: SVGPath.parse($0.d)) }
 
     static func barRimShadow(_ bar: NSColor) -> TrackerPlateShadow {
