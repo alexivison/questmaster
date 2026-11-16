@@ -103,6 +103,9 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		}
 	}
 	s = s.onHandle(creation)
+	if err := s.checkPiExtensionSymlink(launch.agents); err != nil {
+		return ContinueResult{}, err
+	}
 
 	rtDir, err := m.RuntimeDirOrLegacy()
 	if err != nil {
@@ -227,6 +230,9 @@ func (s *Service) respawnDeadAgent(ctx context.Context, m state.Manifest, pane t
 	if err != nil {
 		return err
 	}
+	if err := s.installPiExtension(launch.agents); err != nil {
+		return err
+	}
 	// A legacy session's directory may be gone and is never recreated; the
 	// manifest and the session environment carry the resume ID either way.
 	if m.RuntimeDir != "" {
@@ -235,9 +241,6 @@ func (s *Service) respawnDeadAgent(ctx context.Context, m state.Manifest, pane t
 		}
 	}
 	if err := s.setResumeEnv(ctx, m.SessionID, launch.agentResume); err != nil {
-		return err
-	}
-	if err := s.installPiExtension(launch.agents); err != nil {
 		return err
 	}
 	if err := s.Client.RespawnPane(ctx, pane.ID, cwd, launch.agentCmds[agent.RoleAgent]); err != nil {

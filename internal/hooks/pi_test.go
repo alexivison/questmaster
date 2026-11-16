@@ -422,14 +422,20 @@ func TestPiLegacySymlinkIsReportedNotRemoved(t *testing.T) {
 	if got := p.Status(); got.Status != StatusOutdated || !strings.Contains(got.Detail, "left in place") {
 		t.Fatalf("status with legacy symlink: %+v", got)
 	}
-	if err := p.Install(); err != nil {
-		t.Fatalf("install: %v", err)
+	if err := p.Install(); err == nil {
+		t.Fatal("install with a legacy messaging extension symlink succeeded")
+	} else {
+		for _, want := range []string{link, "remove the symlink", "target will be left untouched"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("install error %q does not mention %q", err, want)
+			}
+		}
 	}
 	if info, err := os.Lstat(link); err != nil || info.Mode()&fs.ModeSymlink == 0 {
 		t.Fatalf("install changed the legacy symlink: info = %v, err = %v", info, err)
 	}
 	if got := p.Status(); got.Status != StatusOutdated || !strings.Contains(got.Detail, "left in place") {
-		t.Fatalf("status after install with legacy symlink: %+v", got)
+		t.Fatalf("status after blocked install with legacy symlink: %+v", got)
 	}
 	if err := p.Uninstall(); err != nil {
 		t.Fatalf("uninstall: %v", err)
@@ -439,6 +445,61 @@ func TestPiLegacySymlinkIsReportedNotRemoved(t *testing.T) {
 	}
 	if _, err := os.Stat(target); err != nil {
 		t.Fatalf("symlink target removed: %v", err)
+	}
+	if _, err := os.Stat(p.extensionFile()); !os.IsNotExist(err) {
+		t.Fatalf("blocked install wrote the owned extension (err=%v)", err)
+	}
+}
+
+func TestPiLegacyMarkerSymlinkDoesNotBlockInstall(t *testing.T) {
+	t.Parallel()
+	p := newTestPiInstaller(t)
+	target := filepath.Join(t.TempDir(), ".questmaster-installed")
+	writeTestFile(t, target, "phase2-v3\n")
+	link := filepath.Join(p.Home, "agent", "extensions", ".questmaster-installed")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink legacy marker: %v", err)
+	}
+
+	if err := p.Install(); err != nil {
+		t.Fatalf("install with a legacy marker symlink: %v", err)
+	}
+	if data, err := os.ReadFile(p.extensionFile()); err != nil || string(data) != piMessagingExtension {
+		t.Fatalf("owned extension = %q, err = %v", data, err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		t.Fatalf("install changed the legacy marker symlink: info = %v, err = %v", info, err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("legacy marker symlink target removed: %v", err)
+	}
+}
+
+func TestPiInstallDryRunReportsLegacyExtensionLinkBlockWithoutWriting(t *testing.T) {
+	t.Parallel()
+	p := newTestPiInstaller(t)
+	target := filepath.Join(t.TempDir(), "questmaster-messaging.ts")
+	writeTestFile(t, target, legacyPiCopy)
+	link := filepath.Join(p.Home, "agent", "extensions", piLegacyExtensionName)
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink legacy copy: %v", err)
+	}
+
+	var log bytes.Buffer
+	if err := p.InstallWithOptions(InstallOptions{DryRun: true, Log: &log}); err != nil {
+		t.Fatalf("dry-run install: %v", err)
+	}
+	if !strings.Contains(log.String(), "install blocked") || !strings.Contains(log.String(), link) {
+		t.Fatalf("dry-run log = %q, want blocked action naming %s", log.String(), link)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		t.Fatalf("dry-run changed the legacy symlink: info = %v, err = %v", info, err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("dry-run changed the symlink target: %v", err)
+	}
+	if _, err := os.Stat(p.ExtensionDir); !os.IsNotExist(err) {
+		t.Fatalf("dry-run created owned extension dir (err=%v)", err)
 	}
 }
 
