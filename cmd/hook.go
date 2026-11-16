@@ -233,9 +233,9 @@ func trackBlockedEpisode(at time.Time, mutate func(*state.SessionState) bool) fu
 		if !ok {
 			return changed
 		}
-		if pane.State != "blocked" {
+		if !pane.HasBlockedEpisode() {
 			pane.BlockedSince, pane.BlockedAlerted = time.Time{}, false
-		} else if previous.State != "blocked" || previous.BlockedSince.IsZero() {
+		} else if !previous.HasBlockedEpisode() || previous.BlockedSince.IsZero() {
 			pane.BlockedSince = at
 			if pane.BlockedSince.IsZero() {
 				pane.BlockedSince = pane.LastEvent

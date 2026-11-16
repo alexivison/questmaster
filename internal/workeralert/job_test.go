@@ -6,8 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -282,5 +285,122 @@ func TestEmptyWorkerSetDoesNotRequireTmux(t *testing.T) {
 				t.Fatalf("empty worker set: tmux probes=%d, hasWork=%v", runner.lists, j.HasWork())
 			}
 		})
+	}
+}
+
+func TestSlowFailuresDoNotStarveAnotherMaster(t *testing.T) {
+	t.Parallel()
+	j, masterRunner := newAlertFixture(t)
+	other := state.Manifest{SessionID: "qm-other", TmuxServer: "dev_previous", Workers: []string{"qm-healthy"}, Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}
+	worker := state.Manifest{SessionID: "qm-healthy", TmuxServer: "questmaster", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}
+	worker.SetExtra("parent_session", other.SessionID)
+	for _, m := range []state.Manifest{other, worker} {
+		if err := j.store.Create(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	masterRunner.live = append(masterRunner.live, other.SessionID)
+	writePane(t, j.store.Root(), worker.SessionID, state.PaneState{State: "blocked", BlockedSince: blockedAt})
+	j.router = tmuxroute.New(j.store, map[string]*tmux.Client{
+		"dev_previous": tmux.NewClient(masterRunner),
+		"questmaster":  tmux.NewClient(&alertRunner{live: []string{"qm-worker", worker.SessionID}}),
+	}, func() string { return "questmaster" }, nil)
+	var cancelPass context.CancelFunc
+	healthy := 0
+	j.send = func(ctx context.Context, parent, _ string) (message.Delivery, error) {
+		if parent == other.SessionID {
+			healthy++
+			return message.DeliveryAccepted, nil
+		}
+		// Model a slow transport consuming the remaining pass budget, without a clock wait.
+		cancelPass()
+		return "", ctx.Err()
+	}
+	for range 2 {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancelPass = cancel
+		err := j.step(ctx)
+		cancel()
+		if err == nil {
+			t.Fatal("expected the failed transport to cancel the pass")
+		}
+	}
+	if healthy != 1 {
+		t.Fatalf("healthy master attempts=%d, want one despite earlier failures", healthy)
+	}
+}
+
+func TestContendedAcknowledgementDoesNotResendOrRetainWaiters(t *testing.T) {
+	// Serial: the goroutine count observes only this cancelled-lock scenario.
+	j, _ := newAlertFixture(t)
+	lock, err := os.OpenFile(state.SessionStateLockPath(j.store.Root(), "qm-worker"), os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	sends := 0
+	j.send = func(context.Context, string, string) (message.Delivery, error) {
+		sends++
+		return message.DeliverySubmitted, nil
+	}
+	base := t.Context()
+	before := runtime.NumGoroutine()
+	for range 5 {
+		ctx, cancel := context.WithTimeout(base, 50*time.Millisecond)
+		err := j.step(ctx)
+		cancel()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("held lock error=%v, want a bounded acknowledgement wait", err)
+		}
+	}
+	if after := runtime.NumGoroutine(); after > before+2 {
+		t.Fatalf("cancelled acknowledgements retained goroutines: before=%d after=%d", before, after)
+	}
+	if sends != 1 || len(j.delivered) != 1 {
+		t.Fatalf("pending acknowledgement: sends=%d retained=%d, want one of each", sends, len(j.delivered))
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	step(t, j)
+	if sends != 1 || len(j.delivered) != 0 || !loadPane(t, j.store.Root(), "qm-worker").BlockedAlerted {
+		t.Fatal("the delivered episode was resent or its acknowledgement did not recover")
+	}
+	if err := j.store.RemoveWorker("qm-master", "qm-worker"); err != nil {
+		t.Fatal(err)
+	}
+	j.delivered = map[string]time.Time{"qm-worker": blockedAt}
+	step(t, j)
+	if len(j.delivered) != 0 {
+		t.Fatal("deregistered workers retained acknowledgement state")
+	}
+}
+
+func TestAcknowledgementSurvivesSubagentWakeDuringDelivery(t *testing.T) {
+	t.Parallel()
+	j, _ := newAlertFixture(t)
+	sends := 0
+	j.send = func(context.Context, string, string) (message.Delivery, error) {
+		sends++
+		pane := loadPane(t, j.store.Root(), "qm-worker")
+		pane.SubagentWake = &state.SubagentWake{State: "blocked", Activity: pane.Activity, IDs: []string{"child-1"}}
+		pane.State = "working"
+		writePane(t, j.store.Root(), "qm-worker", pane)
+		return message.DeliveryAccepted, nil
+	}
+	step(t, j)
+	pane := loadPane(t, j.store.Root(), "qm-worker")
+	if !pane.BlockedAlerted || !pane.BlockedSince.Equal(blockedAt) {
+		t.Fatalf("subagent wake lost an in-flight acknowledgement: %+v", pane)
+	}
+	pane.State, pane.SubagentWake = "blocked", nil
+	writePane(t, j.store.Root(), "qm-worker", pane)
+	step(t, j)
+	if sends != 1 {
+		t.Fatal("the unanswered dialog was alerted again after subagent work")
 	}
 }

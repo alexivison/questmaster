@@ -18,10 +18,12 @@ import (
 
 // Job runs under the daemon's jobs.lock; the hook state is its durable queue.
 type Job struct {
-	store   *state.Store
-	router  *tmuxroute.Router
-	send    func(context.Context, string, string) (message.Delivery, error)
-	hasWork atomic.Bool
+	store     *state.Store
+	router    *tmuxroute.Router
+	send      func(context.Context, string, string) (message.Delivery, error)
+	hasWork   atomic.Bool
+	nextRow   int
+	delivered map[string]time.Time // sent episodes awaiting their durable acknowledgement
 }
 
 func NewJob(store *state.Store, router *tmuxroute.Router) *Job {
@@ -82,6 +84,7 @@ func (j *Job) step(ctx context.Context) error {
 	}
 	if !registered {
 		j.hasWork.Store(false)
+		clear(j.delivered)
 		return nil
 	}
 	j.hasWork.Store(true)
@@ -122,11 +125,25 @@ func (j *Job) step(ctx context.Context) error {
 			}
 		}
 	}
+	for id := range j.delivered {
+		worker, ok := live[id]
+		if !ok || !owners[worker.ExtraString("parent_session")+"\x00"+id] {
+			delete(j.delivered, id)
+		}
+	}
 	// Only live, registered workers are read. Historical state logs are never scanned.
-	for _, row := range inv.Rows {
+	start := 0
+	if len(inv.Rows) > 0 {
+		start = j.nextRow % len(inv.Rows)
+	}
+	for i := range inv.Rows {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		index := (start + i) % len(inv.Rows)
+		row := inv.Rows[index]
+		// Advance before an operation can consume the rest of this pass's budget.
+		j.nextRow = (index + 1) % len(inv.Rows)
 		worker, ok := live[row.ID]
 		parent := worker.ExtraString("parent_session")
 		if !ok || worker.AgentSessionType() != "worker" || !owners[parent+"\x00"+row.ID] {
@@ -141,20 +158,33 @@ func (j *Job) step(ctx context.Context) error {
 			continue
 		}
 		pane := ss.Panes["agent"]
-		if pane.State != "blocked" || pane.BlockedSince.IsZero() || pane.BlockedAlerted {
+		if !pane.HasBlockedEpisode() || pane.BlockedSince.IsZero() || pane.BlockedAlerted {
+			delete(j.delivered, worker.SessionID)
 			continue
 		}
-		call, cancel := context.WithTimeout(ctx, 2*time.Second)
-		delivery, err := j.send(call, parent, alertText(worker, pane))
-		cancel()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("notify %s about %s: %w", parent, worker.SessionID, err))
+		if pane.State != "blocked" {
 			continue
 		}
-		if delivery == message.DeliveryAccepted || delivery == message.DeliverySubmitted {
-			if err := state.MarkBlockedAlertedAt(ctx, j.store.Root(), worker.SessionID, pane.BlockedSince); err != nil {
-				errs = append(errs, err)
+		if !j.delivered[worker.SessionID].Equal(pane.BlockedSince) {
+			call, cancel := context.WithTimeout(ctx, 2*time.Second)
+			delivery, err := j.send(call, parent, alertText(worker, pane))
+			cancel()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("notify %s about %s: %w", parent, worker.SessionID, err))
+				continue
 			}
+			if delivery != message.DeliveryAccepted && delivery != message.DeliverySubmitted {
+				continue
+			}
+			if j.delivered == nil {
+				j.delivered = make(map[string]time.Time)
+			}
+			j.delivered[worker.SessionID] = pane.BlockedSince
+		}
+		if err := state.MarkBlockedAlertedAt(ctx, j.store.Root(), worker.SessionID, pane.BlockedSince); err != nil {
+			errs = append(errs, err)
+		} else {
+			delete(j.delivered, worker.SessionID)
 		}
 	}
 	// Keep monitoring while any managed worker is live, even between blocked episodes.

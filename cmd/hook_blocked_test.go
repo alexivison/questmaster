@@ -138,3 +138,38 @@ func TestPiBatchTracksEachBlockedEpisode(t *testing.T) {
 		t.Fatalf("batch failed to distinguish its new blocked episode: %+v", pane)
 	}
 }
+
+func TestBlockedEpisodeSurvivesSubagentWork(t *testing.T) {
+	for _, harness := range []string{"claude", "codex"} {
+		for _, alerted := range []bool{false, true} {
+			t.Run(harness+"/"+map[bool]string{false: "pending", true: "alerted"}[alerted], func(t *testing.T) {
+				r, rec := newTestRunner(t)
+				now := r.Now()
+				r.Now = func() time.Time { now = now.Add(time.Second); return now }
+				tool := "AskUserQuestion"
+				if harness == "codex" {
+					tool = "request_user_input"
+				}
+				const id = "qm-blocked-subagent"
+				runHookWithStdin(r, harness, "tool_start", id, map[string]interface{}{"tool_name": tool})
+				original := rec.lastState.Panes["agent"]
+				original.BlockedAlerted = alerted
+				rec.lastState.Panes["agent"] = original
+				runHookWithStdin(r, harness, "tool_start", id, map[string]interface{}{"agent_id": "child-1", "tool_name": "Read"})
+				during := rec.lastState.Panes["agent"]
+				if during.State != "working" || !during.BlockedSince.Equal(original.BlockedSince) || during.BlockedAlerted != alerted {
+					t.Fatalf("subagent wake lost the unanswered dialog: %+v", during)
+				}
+				runHookWithStdin(r, harness, "subagent_stop", id, map[string]interface{}{"agent_id": "child-1"})
+				after := rec.lastState.Panes["agent"]
+				if after.State != "blocked" || !after.BlockedSince.Equal(original.BlockedSince) || after.BlockedAlerted != alerted {
+					t.Fatalf("subagent stop replaced the blocked episode: %+v", after)
+				}
+				runHookWithStdin(r, harness, "working", id, map[string]interface{}{"prompt": "Continue"})
+				if pane := rec.lastState.Panes["agent"]; !pane.BlockedSince.IsZero() || pane.BlockedAlerted {
+					t.Fatalf("parent resumption retained the episode: %+v", pane)
+				}
+			})
+		}
+	}
+}
