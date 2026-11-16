@@ -120,6 +120,7 @@ struct ContractFixtureTests {
         expect(pulls.data[1].status?.inaccessibleReason == .saml && pulls.data[1].status?.state == nil, "pull_requests inaccessible status did not decode")
         let commented = pulls.data.last?.status
         expect(commented?.review == .commented && commented?.author == "example-author" && commented?.ci == .pending, "pull_requests commented review and author did not decode")
+        expect(commented?.conflicts == true && status?.conflicts == nil, "pull_requests should decode optional conflicts")
 
         let request = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_request.json")
         expect(request.method == "pr.refresh" && request.data.sessionID == "qm-demo", "pr.refresh request did not decode")

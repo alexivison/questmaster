@@ -11,6 +11,7 @@ struct PullRequestModelsTests {
         looksStaySeparate()
         labelsFormatEveryField()
         gitStateSeparatesDraftFromOpen()
+        gitLookShowsConflictsOnlyOnOpenPullRequests()
         urlFallsBackToTheRefAndStaysWeb()
         looksDimStaleRowsAndWarnInaccessibleOnes()
         print("PullRequestModelsTests: all tests passed")
@@ -135,6 +136,27 @@ struct PullRequestModelsTests {
         expect(display(row(1, status: status(reason: "forbidden"))).gitState == .unknown, "an inaccessible row has an unknown git state")
     }
 
+    private static func gitLookShowsConflictsOnlyOnOpenPullRequests() {
+        let legacy = row(1, status: status())
+        expect(legacy.status?.conflicts == nil, "an older backend may omit conflicts")
+        expect(display(legacy).gitLook == .normal && display(legacy).gitTooltip == nil, "absent conflicts keep the normal icon")
+        expect(display(row(1)).gitLook == .normal, "missing status keeps the normal icon")
+        expect(display(row(1, status: status(conflicts: false))).gitLook == .normal, "explicit false keeps the normal icon")
+        for draft in [false, true] {
+            let value = display(row(1, status: status(draft: draft, conflicts: true)))
+            expect(value.gitState == (draft ? .draft : .open), "conflicts preserve the open or draft glyph")
+            expect(value.gitLook == .conflicting && value.gitTooltip == "Has merge conflicts", "open and draft conflicts use the conflict look and tooltip")
+        }
+        for state in ["closed", "merged", "future"] {
+            let value = display(row(1, status: status(state: state, conflicts: true)))
+            expect(value.gitLook == .normal && value.gitTooltip == nil, "\(state) never shows conflicts")
+        }
+        let inaccessible = display(row(1, status: status(reason: "forbidden", conflicts: true)))
+        expect(inaccessible.gitLook == .normal && inaccessible.gitTooltip == nil, "an inaccessible row hides conflicts")
+        let stale = display(row(1, status: status(stale: true, conflicts: true)))
+        expect(stale.gitLook == .conflicting && stale.rowLook == .stale, "stale data retains conflicts while the row's look dims it")
+    }
+
     private static func urlFallsBackToTheRefAndStaysWeb() {
         let loaded = display(row(7, status: status(url: "https://github.com/Owner/Repo/pull/7")))
         expect(loaded.url?.absoluteString == "https://github.com/Owner/Repo/pull/7", "the loaded status link")
@@ -182,7 +204,7 @@ struct PullRequestModelsTests {
         state: String? = "open", review: String? = "none", ci: String? = "none",
         reason: String? = nil, updated: String? = "2026-06-19T00:00:00Z", draft: Bool = false,
         title: String? = "Title", additions: Int = 0, deletions: Int = 0,
-        stale: Bool = false, url: String? = nil, author: String? = nil
+        stale: Bool = false, url: String? = nil, author: String? = nil, conflicts: Bool? = nil
     ) -> [String: Any] {
         var result: [String: Any] = [
             "draft": draft, "additions": additions, "deletions": deletions,
@@ -196,6 +218,7 @@ struct PullRequestModelsTests {
         if let title { result["title"] = title }
         if let url { result["url"] = url }
         if let author { result["author"] = author }
+        if let conflicts { result["conflicts"] = conflicts }
         return result
     }
 

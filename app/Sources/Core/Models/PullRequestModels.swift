@@ -30,6 +30,7 @@ public struct PullRequestStatus: Decodable, Equatable {
     public let author: String?
     public let state: PullRequestState?
     public let draft: Bool
+    public let conflicts: Bool?
     public let headSHA: String?
     public let updatedAt: String?
     public let additions: Int
@@ -41,7 +42,7 @@ public struct PullRequestStatus: Decodable, Equatable {
     public let stale: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case title, url, author, state, draft, additions, deletions, review, ci, stale
+        case title, url, author, state, draft, conflicts, additions, deletions, review, ci, stale
         case headSHA = "head_sha", updatedAt = "updated_at", changedAt = "changed_at"
         case inaccessibleReason = "inaccessible_reason"
     }
@@ -94,6 +95,10 @@ public enum PullRequestRowLook: Equatable {
 /// The git state icon: a draft is an open pull request marked as one. Unknown also covers an inaccessible row.
 public enum PullRequestGitState: Equatable {
     case open, draft, merged, closed, unknown
+}
+
+public enum PullRequestGitLook: Equatable {
+    case normal, conflicting
 }
 
 /// The worker a master's row is tagged with: its title, and its agent for the logo.
@@ -178,6 +183,13 @@ public struct PullRequestDisplayRow: Equatable {
         case .closed: return .closed
         case .unknown, nil: return .unknown
         }
+    }
+    public var gitLook: PullRequestGitLook {
+        guard let status = accessibleStatus, status.state == .open, status.conflicts == true else { return .normal }
+        return .conflicting
+    }
+    public var gitTooltip: String? {
+        gitLook == .conflicting ? "Has merge conflicts" : nil
     }
     /// The pull request's page: GitHub's own link, or the one its ref implies while no status has loaded.
     public var url: URL? {
