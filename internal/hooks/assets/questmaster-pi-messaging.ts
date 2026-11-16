@@ -293,30 +293,15 @@ function cardFor(text: string): Card {
 	return { customType: cardStyles[kind].customType, content: text, display: true, details: { kind, from } };
 }
 
-function cellWidth(char: string): number {
-	const code = char.codePointAt(0) ?? 0;
-	const wide = (code >= 0x1100 && code <= 0x115f) || (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) ||
-		(code >= 0xf900 && code <= 0xfaff) || (code >= 0xfe30 && code <= 0xfe4f) || (code >= 0xff00 && code <= 0xff60) ||
-		(code >= 0xffe0 && code <= 0xffe6) || (code >= 0x1f300 && code <= 0x1faff);
-	return wide ? 2 : 1;
-}
-
-function wrapCells(line: string, cells: number): string[] {
-	const rows: string[] = [];
-	let row = "";
-	let used = 0;
-	for (const char of Array.from(line)) {
-		const size = cellWidth(char);
-		if (used + size > cells) {
-			rows.push(row);
-			row = "";
-			used = 0;
-		}
-		row += char;
-		used += size;
-	}
-	rows.push(row);
-	return rows;
+function wrapCardLine(text: string, width: number, colour: string, style = "", reset = ""): string[] {
+	const cells = Math.max(0, Math.floor(width));
+	const prefix = truncateToWidth(`${colour}┃\x1b[39m `, cells, "");
+	const contentCells = Math.max(0, cells - visibleWidth(prefix));
+	if (contentCells === 0) return [prefix];
+	return wrapTextWithAnsi(text, contentCells).map((row) => {
+		const content = truncateToWidth(row, contentCells, "");
+		return truncateToWidth(`${prefix}${style}${content}${reset}`, cells, "");
+	});
 }
 
 // renderCard draws a routed message as a card: a coloured bar, a heading and the
@@ -325,17 +310,15 @@ function wrapCells(line: string, cells: number): string[] {
 function renderCard(kind: CardKind, from: string, text: string, width: number): string[] {
 	const [r, g, b] = cardStyles[kind].rgb;
 	const colour = `\x1b[38;2;${r};${g};${b}m`;
-	const bar = `${colour}┃\x1b[39m `;
-	const cells = Math.max(10, width - 2);
 	const heading = [cardStyles[kind].heading, from].filter(Boolean).join(" ");
-	const lines = wrapCells(printable(heading), cells).map((row) => `${bar}${colour}\x1b[1m${row}\x1b[22m\x1b[39m`);
+	const lines = wrapCardLine(printable(heading), width, colour, `${colour}\x1b[1m`, "\x1b[22m\x1b[39m");
 	// Only the first stretch is laid out, so a large frame costs the same on each redraw.
 	const shown = Array.from(printable(text.slice(0, cardCharLimit * 4))).slice(0, cardCharLimit).join("");
 	for (const line of shown.split("\n")) {
-		for (const row of wrapCells(line, cells)) lines.push(`${bar}${row}`);
+		lines.push(...wrapCardLine(line, width, colour));
 	}
-	if (text.length > cardCharLimit) lines.push(`${bar}\x1b[2m… shortened here; the full message is kept in the session\x1b[22m`);
-	return lines;
+	if (text.length > cardCharLimit) lines.push(...wrapCardLine("… shortened here; the full message is kept in the session", width, colour, "\x1b[2m", "\x1b[22m"));
+	return lines.map((line) => truncateToWidth(line, Math.max(0, Math.floor(width)), ""));
 }
 
 function cardComponent(message: { content?: unknown; details?: unknown }) {

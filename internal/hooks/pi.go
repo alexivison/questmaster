@@ -64,8 +64,10 @@ func (p *PiInstaller) Install() error {
 	return p.InstallWithOptions(InstallOptions{})
 }
 
-// InstallWithOptions retires legacy copies and writes the owned extension. The
-// file is left untouched when it already holds the bundled asset.
+// InstallWithOptions retires legacy copies and writes the owned extension. A
+// recognized legacy extension symlink blocks installation because Pi loads it
+// alongside the owned extension. The owned file is left untouched when it
+// already holds the bundled asset.
 func (p *PiInstaller) InstallWithOptions(opts InstallOptions) error {
 	opts = opts.normalized()
 	if p.Home == "" {
@@ -74,10 +76,19 @@ func (p *PiInstaller) InstallWithOptions(opts InstallOptions) error {
 	if p.ExtensionDir == "" {
 		return errors.New("pi extension dir not resolved (state root is unset)")
 	}
+	legacyFiles := p.legacyFiles()
+	if path := legacyExtensionSymlinkPath(legacyFiles); path != "" {
+		conflict := legacyExtensionLinkConflict(path)
+		if opts.DryRun {
+			logf(opts, "questmaster: dry-run: install blocked: %s", conflict)
+			return nil
+		}
+		return conflict
+	}
 	if warning := p.legacySidecarWarning(); warning != "" {
 		logf(opts, "questmaster: warning: %s", warning)
 	}
-	for _, legacy := range p.legacyFiles() {
+	for _, legacy := range legacyFiles {
 		switch {
 		case legacy.link:
 			logf(opts, "questmaster: warning: legacy Questmaster Pi link at %s is left in place; remove it by hand", legacy.path)
@@ -124,6 +135,31 @@ func (p *PiInstaller) Uninstall() error {
 		return fmt.Errorf("remove Pi extension: %w", err)
 	}
 	return nil
+}
+
+// CheckLegacyExtensionSymlink reports whether Pi would auto-discover a
+// recognized legacy messaging extension symlink beside the owned extension.
+func (p *PiInstaller) CheckLegacyExtensionSymlink() error {
+	if p.Home == "" {
+		return errors.New("pi home not resolved (set $PI_HOME or $HOME)")
+	}
+	if path := legacyExtensionSymlinkPath(p.legacyFiles()); path != "" {
+		return legacyExtensionLinkConflict(path)
+	}
+	return nil
+}
+
+func legacyExtensionLinkConflict(path string) error {
+	return fmt.Errorf("legacy Questmaster Pi messaging extension symlink at %s is auto-discovered alongside the owned extension; remove the symlink (its target will be left untouched) before installing or launching Pi", path)
+}
+
+func legacyExtensionSymlinkPath(legacy []piLegacyFile) string {
+	for _, f := range legacy {
+		if f.link && filepath.Base(f.path) == piLegacyExtensionName {
+			return f.path
+		}
+	}
+	return ""
 }
 
 // Status implements Installer.

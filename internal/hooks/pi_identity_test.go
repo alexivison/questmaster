@@ -65,7 +65,7 @@ func TestPiIdentityAndCommands(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, node, piTestArgs(filepath.Join("testdata", "pi_identity.mjs"), extension)...).CombinedOutput()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_identity.mjs"), extension).CombinedOutput()
 	if err != nil {
 		t.Fatalf("Pi identity and commands check: %v\n%s", err, out)
 	}

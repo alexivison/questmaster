@@ -305,6 +305,11 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			}
 		}
 
+		// Refuse a conflicting legacy Pi extension before creating a tmux
+		// session. launchSession then starts the configured agent panes.
+		if err := s.checkPiExtensionSymlink(launchAgents); err != nil {
+			return s.startRollbackError(ctx, sessionID, false, handle.Label(), err)
+		}
 		if err := s.prepareCreation(ctx, handle); err != nil {
 			return s.startRollbackError(ctx, sessionID, false, handle.Label(), err)
 		}

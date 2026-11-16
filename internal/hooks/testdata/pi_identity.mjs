@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import { syncBuiltinESMExports } from "node:module";
 import { pathToFileURL } from "node:url";
-import { visibleWidth } from "./pi_tui_stub.mjs";
+import { visibleWidth } from "./pi_tui_fixture.mjs";
 
 // Checks the identity the launch command passes in: the footer status for each
 // role, and /workers and /quests as transcript entries that run the CLI and start

@@ -40,8 +40,14 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func piTestArgs(script string, args ...string) []string {
-	return append([]string{"--experimental-strip-types", "--loader=./testdata/pi_tui_loader.mjs", script}, args...)
+func piNodeCommand(t *testing.T, ctx context.Context, node string, args ...string) *exec.Cmd {
+	t.Helper()
+	loader, err := filepath.Abs(filepath.Join("testdata", "pi_tui_loader.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	commandArgs := append([]string{"--experimental-strip-types", "--experimental-loader", loader}, args...)
+	return exec.CommandContext(ctx, node, commandArgs...)
 }
 
 func TestPiMessagingSocketOwnership(t *testing.T) {
@@ -64,7 +70,7 @@ func TestPiMessagingSocketOwnership(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, node, piTestArgs(filepath.Join("testdata", "pi_socket_ownership.mjs"), extension)...).CombinedOutput()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_socket_ownership.mjs"), extension).CombinedOutput()
 	if err != nil {
 		t.Fatalf("Pi socket ownership check: %v\n%s", err, out)
 	}
@@ -84,7 +90,7 @@ func TestPiActivityForwardingUsesDiscreteHooks(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, node, piTestArgs(filepath.Join("testdata", "pi_activity.mjs"), extension)...).CombinedOutput()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_activity.mjs"), extension).CombinedOutput()
 	if err != nil {
 		t.Fatalf("Pi activity extension check: %v\n%s", err, out)
 	}
@@ -104,7 +110,7 @@ func TestPiActivityQueueBatchesSlowHookCalls(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, node, piTestArgs(filepath.Join("testdata", "pi_hook_queue.mjs"), extension)...).CombinedOutput()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_hook_queue.mjs"), extension).CombinedOutput()
 	if err != nil {
 		t.Fatalf("Pi hook queue check: %v\n%s", err, out)
 	}
@@ -128,7 +134,7 @@ func TestPiActivityHookUsesQuestmasterBinAndWaitsForBoundedHook(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, node, piTestArgs(filepath.Join("testdata", "pi_hook_bin.mjs"), extension, binary)...).CombinedOutput()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_hook_bin.mjs"), extension, binary).CombinedOutput()
 	if err != nil {
 		t.Fatalf("Pi hook binary check: %v\n%s", err, out)
 	}
@@ -157,7 +163,7 @@ func TestPiNativeMessaging(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, node, piTestArgs(filepath.Join("testdata", "pi_native.mjs"), extension)...).CombinedOutput()
+	out, err := piNodeCommand(t, ctx, node, filepath.Join("testdata", "pi_native.mjs"), extension).CombinedOutput()
 	if err != nil {
 		t.Fatalf("Pi native messaging check: %v\n%s", err, out)
 	}
@@ -448,14 +454,20 @@ func TestPiLegacySymlinkIsReportedNotRemoved(t *testing.T) {
 	if got := p.Status(); got.Status != StatusOutdated || !strings.Contains(got.Detail, "left in place") {
 		t.Fatalf("status with legacy symlink: %+v", got)
 	}
-	if err := p.Install(); err != nil {
-		t.Fatalf("install: %v", err)
+	if err := p.Install(); err == nil {
+		t.Fatal("install with a legacy messaging extension symlink succeeded")
+	} else {
+		for _, want := range []string{link, "remove the symlink", "target will be left untouched"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("install error %q does not mention %q", err, want)
+			}
+		}
 	}
 	if info, err := os.Lstat(link); err != nil || info.Mode()&fs.ModeSymlink == 0 {
 		t.Fatalf("install changed the legacy symlink: info = %v, err = %v", info, err)
 	}
 	if got := p.Status(); got.Status != StatusOutdated || !strings.Contains(got.Detail, "left in place") {
-		t.Fatalf("status after install with legacy symlink: %+v", got)
+		t.Fatalf("status after blocked install with legacy symlink: %+v", got)
 	}
 	if err := p.Uninstall(); err != nil {
 		t.Fatalf("uninstall: %v", err)
@@ -465,6 +477,61 @@ func TestPiLegacySymlinkIsReportedNotRemoved(t *testing.T) {
 	}
 	if _, err := os.Stat(target); err != nil {
 		t.Fatalf("symlink target removed: %v", err)
+	}
+	if _, err := os.Stat(p.extensionFile()); !os.IsNotExist(err) {
+		t.Fatalf("blocked install wrote the owned extension (err=%v)", err)
+	}
+}
+
+func TestPiLegacyMarkerSymlinkDoesNotBlockInstall(t *testing.T) {
+	t.Parallel()
+	p := newTestPiInstaller(t)
+	target := filepath.Join(t.TempDir(), ".questmaster-installed")
+	writeTestFile(t, target, "phase2-v3\n")
+	link := filepath.Join(p.Home, "agent", "extensions", ".questmaster-installed")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink legacy marker: %v", err)
+	}
+
+	if err := p.Install(); err != nil {
+		t.Fatalf("install with a legacy marker symlink: %v", err)
+	}
+	if data, err := os.ReadFile(p.extensionFile()); err != nil || string(data) != piMessagingExtension {
+		t.Fatalf("owned extension = %q, err = %v", data, err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		t.Fatalf("install changed the legacy marker symlink: info = %v, err = %v", info, err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("legacy marker symlink target removed: %v", err)
+	}
+}
+
+func TestPiInstallDryRunReportsLegacyExtensionLinkBlockWithoutWriting(t *testing.T) {
+	t.Parallel()
+	p := newTestPiInstaller(t)
+	target := filepath.Join(t.TempDir(), "questmaster-messaging.ts")
+	writeTestFile(t, target, legacyPiCopy)
+	link := filepath.Join(p.Home, "agent", "extensions", piLegacyExtensionName)
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink legacy copy: %v", err)
+	}
+
+	var log bytes.Buffer
+	if err := p.InstallWithOptions(InstallOptions{DryRun: true, Log: &log}); err != nil {
+		t.Fatalf("dry-run install: %v", err)
+	}
+	if !strings.Contains(log.String(), "install blocked") || !strings.Contains(log.String(), link) {
+		t.Fatalf("dry-run log = %q, want blocked action naming %s", log.String(), link)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		t.Fatalf("dry-run changed the legacy symlink: info = %v, err = %v", info, err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("dry-run changed the symlink target: %v", err)
+	}
+	if _, err := os.Stat(p.ExtensionDir); !os.IsNotExist(err) {
+		t.Fatalf("dry-run created owned extension dir (err=%v)", err)
 	}
 }
 
