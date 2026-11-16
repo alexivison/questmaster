@@ -146,7 +146,7 @@ func serveContractFixtures() []contractFixture {
 			SessionType:       "master",
 			WorkerCount:       1,
 			PullRequestsRev:   "abcdef1234567890",
-			PullRequestCounts: &PullRequestCounts{Open: 2, Draft: 1, Merged: 3, Closed: 4},
+			PullRequestCounts: &PullRequestCounts{Conflicts: 1, Open: 2, Draft: 1, Merged: 3, Closed: 4},
 			Artifacts:         []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact},
 			Repo: RepoSnapshot{
 				Identity: "/tmp/questmaster/.git",

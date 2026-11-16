@@ -28,7 +28,7 @@ struct ContractFixtureTests {
         expect(session.sessionClass == "wizard", "tracker class did not decode")
         expect(session.workerCount == 1, "tracker worker count did not decode")
         expect(session.pullRequestsRev == "abcdef1234567890", "tracker PR revision did not decode")
-        expect(session.pullRequestCounts == PullRequestCounts(open: 2, draft: 1, merged: 3, closed: 4), "tracker PR counts did not decode")
+        expect(session.pullRequestCounts == PullRequestCounts(conflicts: 1, open: 2, draft: 1, merged: 3, closed: 4), "tracker PR counts did not decode")
         expect(session.duration == "0:02:00", "tracker elapsed_ms did not decode")
         expect(session.artifacts.first?.label == "Plan", "tracker artifact did not decode")
         expect(session.narration == "It seems that something is still ...", "tracker narration did not decode")

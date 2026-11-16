@@ -127,8 +127,9 @@ Building, installing and branch-running the app bundle: `app-bundle` skill.
   hooks add an id on `SubagentStart` and remove it on `SubagentStop` (a stop with no matching start is ignored, and so is a
   start with no agent type or an `internal` one), and both `starting` and `stopped` clear the set. A finished turn keeps its
   sub-agents until they stop. The key is omitted at zero, and it needed no `ServeProtocolVersion` bump either.
-  Master rows also carry optional `pull_request_counts` (non-zero `open`, `draft`, `merged`, `closed` totals),
-  scoped to the master and its workers, like `pull_requests_rev`. Unknown states are excluded; the object is omitted
+  Master rows also carry optional `pull_request_counts` (non-zero `conflicts`, `open`, `draft`, `merged`, `closed`
+  totals; a conflicting open or draft PR counts only under `conflicts`), scoped to the master and its workers, like
+  `pull_requests_rev`. Unknown states are excluded; the object is omitted
   when all counts are zero. It is additive and needs no protocol version bump.
 - **No model or reasoning-effort list is hardcoded.** Each harness declares its
   catalog sources and effort source once in `agent.Spec`; model ids are passed

@@ -167,7 +167,9 @@ func countPullRequests(prs []state.PullRequest) *PullRequestCounts {
 		}
 		switch status.State {
 		case "open":
-			if status.Draft {
+			if status.Conflicts {
+				counts.Conflicts++
+			} else if status.Draft {
 				counts.Draft++
 			} else {
 				counts.Open++
