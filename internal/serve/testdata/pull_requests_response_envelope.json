@@ -73,6 +73,7 @@
         "author": "example-author",
         "state": "open",
         "draft": false,
+        "conflicts": true,
         "head_sha": "def456",
         "updated_at": "2026-06-19T04:20:00Z",
         "additions": 0,

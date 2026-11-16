@@ -219,7 +219,7 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	cmd.AddCommand(ls)
 	var unread, full bool
 	events := &cobra.Command{
-		Use: "events <ref>", Short: "Read watched pull-request activity", Long: "Read a watched PR's activity, including watches from other sessions. Use pr ls --all to find them. --unread needs a watch; use --session <watcher-id> to read its cursor.", Args: cobra.ExactArgs(1),
+		Use: "events <ref>", Short: "Read watched pull-request activity", Long: "Read a watched PR's comments, reviews, CI results, state changes and gained merge conflicts (conflicts events), including watches from other sessions. Use pr ls --all to find them. --unread needs a watch; use --session <watcher-id> to read its cursor.", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			id, err := resolve(c.Context())
 			if err != nil {

@@ -39,6 +39,7 @@ type PullRequestStatus struct {
 	Author             string `json:"author,omitempty"` // the PR author's login, bots with [bot]; empty when it is the authenticated viewer, kept when the viewer is unknown
 	State              string `json:"state,omitempty"`
 	Draft              bool   `json:"draft"`
+	Conflicts          bool   `json:"conflicts,omitempty"` // last known mergeability; only open PRs can conflict
 	HeadSHA            string `json:"head_sha,omitempty"`
 	UpdatedAt          string `json:"updated_at,omitempty"`
 	Additions          int    `json:"additions"`
