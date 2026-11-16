@@ -37,3 +37,21 @@ Use this skill when the user asks to record or change work in Questmaster's proj
 After `questmaster quest add` or `questmaster quest edit`, inspect the returned quest
 object. Confirm its content, project, tags, size, and ID reflect the request; use
 `questmaster quest ls <id>` if a separate read helps confirm the saved result.
+
+## Choosing a size
+
+Respect explicit user estimates and size the remaining requested work. For a
+research or design quest, estimate that deliverable rather than its possible
+future implementation. Revisit an existing size when the remaining scope changes
+or the user asks for re-estimation.
+
+- **S:** one focused behavior or bounded investigation using existing patterns.
+  Straightforward changes across models and views can still be small.
+- **M:** several coordinated behaviors, a substantial bounded investigation, or a
+  new shared mechanism.
+- **L:** broad, multi-stage work, a major migration, or substantial architectural
+  or lifecycle changes.
+
+Uncertainty and pending decisions do not by themselves justify M. Estimate scope,
+not file count or a target distribution. If the scope is too unclear for a useful
+estimate, leave size unset and identify what is missing instead of defaulting to M.
