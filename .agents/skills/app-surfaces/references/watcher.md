@@ -11,8 +11,9 @@
   squeeze the watcher title truncates first, then the author, and the counters never truncate. A stale or inaccessible
   row draws its semantic colours in the look's icon colour.
 
-- An open or draft PR with merge conflicts keeps its git-state glyph on the first line and draws it in `gitRed`, the
-  same token as the closed glyph, with the tooltip “Has merge conflicts”. It adds no element. Core's
+- An open or draft PR with merge conflicts shows the changes-requested ring (the red X ring, `ringChanges` in `gitRed`) in
+  its git glyph's place on the first line, as GitHub marks merge conflicts, with the tooltip “Has merge conflicts”. It
+  replaces the open or draft glyph and adds no element; a red-tinted git glyph read as the closed one. Core's
   `PullRequestDisplayRow.gitLook` decides whether the icon is normal or conflicting; `WatcherRow` only draws it.
   Closed and merged PRs never show conflicts. Stale and inaccessible rows retain the dimming rule above.
   A watched PR gaining conflicts sends one ordinary `conflicts` event alert, including when first observed on the
