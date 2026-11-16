@@ -16,6 +16,9 @@ func ResolveDisplayColors(store *state.Store, manifests []state.Manifest) map[st
 		rows = append(rows, row)
 	}
 	inheritWorkerDisplayColors(rows)
+	// Grouping gives a worker its master's project even when the master has
+	// no colour. Orphans keep their own project, just as in the app's rows.
+	rows = GroupRowsByRepo(OrderSessionRows(rows), state.NewProjectOrder(registry.Order))
 	result := make(map[string]string, len(rows))
 	for _, row := range rows {
 		color := row.DisplayColor

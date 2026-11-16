@@ -124,3 +124,51 @@ func TestSyncUsesTrackerColoursAndRecordedServers(t *testing.T) {
 		t.Fatal("unavailable server was silently ignored")
 	}
 }
+
+func TestSyncWorkerFollowsUncolouredMasterAndOrphanUsesOwnProject(t *testing.T) {
+	t.Parallel()
+	store := state.OpenStore(t.TempDir())
+	projectID, projectPath, err := state.ProjectIDForFolder(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.NewProjectStore(store.Root()).Update(func(reg *state.ProjectRegistry) error {
+		reg.SetPath(projectID, projectPath)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.NewRepoColorStore(store.Root()).Set(projectID, "pink"); err != nil {
+		t.Fatal(err)
+	}
+	master := state.Manifest{SessionID: "qm-master", Cwd: t.TempDir(), TmuxServer: "example", Agents: []state.AgentManifest{{Name: "example-agent", Role: "agent"}}}
+	worker := state.Manifest{SessionID: "qm-worker", Cwd: projectPath, TmuxServer: "example", Agents: master.Agents}
+	worker.SetExtra("parent_session", master.SessionID)
+	for _, m := range []state.Manifest{master, worker} {
+		if err := store.Create(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := &themeRunner{live: []string{master.SessionID, worker.SessionID}, accents: map[string]string{}}
+	router := tmuxroute.New(store, map[string]*tmux.Client{"example": tmux.NewClient(runner)}, func() string { return "example" }, nil)
+	for _, step := range []struct{ name, parent, masterColor, workerColor string }{
+		{"coloured master", master.SessionID, "blue", "blue"},
+		{"uncoloured master", master.SessionID, "", ""},
+		{"orphan worker", "qm-missing", "", "pink"},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			if err := store.SetDisplayColor(master.SessionID, step.masterColor); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Update(worker.SessionID, func(m *state.Manifest) { m.SetExtra("parent_session", step.parent) }); err != nil {
+				t.Fatal(err)
+			}
+			if err := Sync(t.Context(), store, router, ""); err != nil {
+				t.Fatal(err)
+			}
+			if got := runner.accents[tmux.SessionTarget(worker.SessionID)]; got != palette.Display(step.workerColor) {
+				t.Errorf("worker accent = %q, want %q", got, palette.Display(step.workerColor))
+			}
+		})
+	}
+}
