@@ -140,6 +140,7 @@ enum RenderPreview {
         render(watcherRowsView(highlight: nil, rows: watcherCountRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-counts.png")
         render(watcherRowsView(highlight: nil, rows: watcherReviewRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-reviews.png")
         render(watcherRowsView(highlight: nil, rows: watcherConflictRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-conflicts.png")
+        render(watcherRowsView(highlight: nil, rows: watcherLoadingRows()), size: CGSize(width: 480, height: 170), to: "\(outputDir)/watcher-rows-loading.png")
         render(watcherRowsView(highlight: nil, rows: watcherSqueezeRows()), size: CGSize(width: 300, height: 90), to: "\(outputDir)/watcher-rows-squeezed.png")
         render(pullRequestItemView(), size: CGSize(width: 686, height: 156), to: "\(outputDir)/pull-request-item.png")
         // The dock split: Watcher over the artifacts or the worker chat, each alone, and either panel with the keys.
@@ -443,6 +444,8 @@ enum RenderPreview {
         var author: String? = "example-author"
         var stale = false
         var conflicts = false
+        /// Watched but not polled yet: the row carries no status.
+        var loading = false
     }
 
     /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws, with the watchers the
@@ -497,6 +500,16 @@ enum RenderPreview {
         ])
     }
 
+    /// A just-watched PR the daemon hasn't polled yet, one with one watcher and one with several, under a loaded row.
+    @MainActor
+    private static func watcherLoadingRows() -> [PullRequestDisplayRow] {
+        watcherRows([
+            WatcherFixture(number: 97660, title: "", state: "open", draft: false, review: "none", ci: "none", additions: 0, deletions: 0, watchers: ["w1"], loading: true),
+            WatcherFixture(number: 97661, title: "", state: "open", draft: false, review: "none", ci: "none", additions: 0, deletions: 0, watchers: ["w2", "w3"], loading: true),
+            WatcherFixture(number: 97662, title: "fix(agent-f): Already polled", state: "open", draft: false, review: "approved", ci: "success", additions: 52, deletions: 9, watchers: ["w4"]),
+        ])
+    }
+
     /// A row whose author and watcher title are both too long for the panel: the author truncates last, the title first.
     @MainActor
     private static func watcherSqueezeRows() -> [PullRequestDisplayRow] {
@@ -523,11 +536,11 @@ enum RenderPreview {
                 "review": fixture.review, "ci": fixture.ci, "additions": fixture.additions, "deletions": fixture.deletions, "stale": fixture.stale, "conflicts": fixture.conflicts,
             ]
             status["author"] = fixture.author
-            let object: [String: Any] = [
+            var object: [String: Any] = [
                 "key": "github.com/owner/repo#\(fixture.number)-\(fixture.state)-\(fixture.draft)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": fixture.number,
                 "watchers": fixture.watchers.map { ["session_id": $0, "added_at": "2026-10-20T00:00:00Z"] },
-                "status": status,
             ]
+            if !fixture.loading { object["status"] = status }
             let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
             return PullRequestDisplayRow.make(from: [row], selectedSessionID: "m", sessions: sessions)[0]
         }

@@ -229,6 +229,10 @@ public struct PullRequestDisplayRow: Equatable {
         }
     }
 
+    /// Watched but not polled yet: the daemon has no status for it, so the row knows only its ref. It draws as a skeleton
+    /// until the first poll lands. An inaccessible PR has a status (its reason) and is not loading.
+    public var isLoading: Bool { pullRequest.status == nil }
+
     private var accessibleStatus: PullRequestStatus? {
         guard let status = pullRequest.status, status.inaccessibleReason == nil else { return nil }
         return status
