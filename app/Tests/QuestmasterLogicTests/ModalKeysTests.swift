@@ -72,7 +72,7 @@ struct ModalKeysTests {
     }
 
     private static func settingsSubmitsNothing() {
-        let settings = context(.select, fields: 4, text: false, submits: false)
+        let settings = context(.select, fields: 4, submits: false)
         expect(ModalKeys.command(for: press("\r", keyCode: 36), in: settings) == nil, "Settings' Return should do nothing")
         expect(ModalKeys.command(for: press("\r", [.command], keyCode: 36), in: settings) == nil, "Settings' ⌘Return should do nothing")
         expect(ModalKeys.command(for: press(nil, keyCode: 53), in: settings) == .cancel, "Settings should still close on Esc")

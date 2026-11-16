@@ -139,6 +139,20 @@ public struct RoleDefaultRow: Equatable {
         )
     }
 
+    /// Search only commits a resolved choice; typing cannot clear a persisted default.
+    public mutating func select(_ id: String, field: RoleDefaultField) {
+        switch field {
+        case .model:
+            if let index = modelOptions.firstIndex(where: { $0.id == id }) {
+                selectedModelIndex = index
+            }
+        case .effort:
+            if let index = effortOptions.firstIndex(where: { $0.id == id }) {
+                selectedEffortIndex = index
+            }
+        }
+    }
+
     /// Marks the backend's persisted values as the saved baseline. Apply its
     /// values to the visible selection only if the row still matches the send.
     public mutating func markSaved(model: String, reasoningEffort: String, sentModel: String, sentReasoningEffort: String) {
@@ -152,7 +166,7 @@ public struct RoleDefaultRow: Equatable {
 }
 
 /// The two independently-selectable controls within one `RoleDefaultRow`.
-public enum RoleDefaultField: Equatable {
+public enum RoleDefaultField: Hashable {
     case model
     case effort
 }
@@ -168,11 +182,23 @@ public struct RoleDefaultsSettingsModel: Equatable {
 
     public let agents: [String]
     public private(set) var rows: [RoleDefaultRow]
-    public var selectedAgentIndex: Int
+    public var selectedAgentIndex: Int {
+        didSet { if selectedAgentIndex != oldValue { endPickerSearch() } }
+    }
     /// Index into `Self.roles` for the currently focused row within the
     /// active tab.
-    public var focusedRoleIndex: Int
-    public var focusedField: RoleDefaultField
+    public var focusedRoleIndex: Int {
+        didSet { if focusedRoleIndex != oldValue { endPickerSearch() } }
+    }
+    public var focusedField: RoleDefaultField {
+        didSet { if focusedField != oldValue { endPickerSearch() } }
+    }
+
+    /// One search belongs to the focused field. Leaving it discards the query, keeping its current choice.
+    public private(set) var pickerMode = PickerFieldMode.select
+    public private(set) var searchText = ""
+    public private(set) var pickerWindow = PickerListWindow(visibleRows: NewSessionFormModel.maxModelSuggestions)
+    private var searchStartText = ""
 
     public init(agents: [String] = RoleDefaultsSettingsModel.defaultAgents) {
         let resolvedAgents = agents.isEmpty ? RoleDefaultsSettingsModel.defaultAgents : agents
@@ -195,6 +221,91 @@ public struct RoleDefaultsSettingsModel: Equatable {
         index(agent: selectedAgent, role: Self.roles[focusedRoleIndex])
     }
 
+    public func text(role: String, field: RoleDefaultField) -> String {
+        guard let rowIndex = index(agent: selectedAgent, role: role) else { return "" }
+        if rowIndex == focusedRowIndex, field == focusedField, pickerMode == .search {
+            return searchText
+        }
+        let row = rows[rowIndex]
+        return field == .model ? row.selectedModelOption?.label ?? "" : row.selectedEffortOption?.label ?? ""
+    }
+
+    private var pickerOptions: [SessionModelOption] {
+        guard let rowIndex = focusedRowIndex else { return [] }
+        let row = rows[rowIndex]
+        switch focusedField {
+        case .model: return row.modelOptions
+        case .effort: return row.effortOptions.map { SessionModelOption(id: $0.id, label: $0.label) }
+        }
+    }
+
+    private var isBrowsing: Bool {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchText == searchStartText
+    }
+
+    private var pickerMatches: [SessionModelOption] {
+        let options = pickerOptions
+        guard !isBrowsing else { return options }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let labels = PickerFieldMode.ranked(options, query: query) { $0.label.lowercased() }
+        let matchedIDs = Set(labels.map(\.id))
+        return labels + PickerFieldMode.ranked(options.filter { !matchedIDs.contains($0.id) }, query: query) { $0.id.lowercased() }
+    }
+
+    public var pickerSuggestions: [SessionModelOption] {
+        pickerWindow.visible(pickerMatches)
+    }
+
+    public var showsPickerSuggestions: Bool {
+        pickerMode == .search && !pickerMatches.isEmpty
+    }
+
+    public mutating func typePickerText(_ text: String) {
+        searchText = text
+        resetPickerHighlight()
+    }
+
+    public mutating func endPickerSearch() {
+        pickerMode = .select
+        searchText = ""
+    }
+
+    private mutating func resetPickerHighlight() {
+        let matches = pickerMatches
+        let row = focusedRowIndex.map { rows[$0] }
+        let selectedID = focusedField == .model ? row?.selectedModel : row?.selectedReasoningEffort
+        pickerWindow.reset(highlighting: isBrowsing ? matches.firstIndex { $0.id == selectedID } ?? 0 : 0, count: matches.count)
+    }
+
+    public mutating func pickSuggestion(visibleRow: Int) {
+        let visible = pickerSuggestions
+        guard let rowIndex = focusedRowIndex, visible.indices.contains(visibleRow) else { return }
+        rows[rowIndex].select(visible[visibleRow].id, field: focusedField)
+        endPickerSearch()
+    }
+
+    public mutating func applyPickerCommand(_ command: PickerFieldCommand) {
+        switch command {
+        case .startSearch(let start):
+            guard let rowIndex = focusedRowIndex else { return }
+            let row = rows[rowIndex]
+            guard focusedField == .model ? row.hasResolvedModelOptions : row.hasResolvedEffortOptions else { return }
+            searchStartText = text(role: row.role, field: focusedField)
+            pickerMode = .search
+            switch start {
+            case .seed(let text): searchText = text
+            case .editCurrent: searchText = searchStartText
+            }
+            resetPickerHighlight()
+        case .moveHighlight(let delta):
+            pickerWindow.move(delta, count: pickerMatches.count)
+        case .pick:
+            pickSuggestion(visibleRow: pickerWindow.visibleHighlightIndex)
+        case .endSearch, .restore:
+            endPickerSearch()
+        }
+    }
+
     public func index(agent: String, role: String) -> Int? {
         rows.firstIndex { $0.agent == agent && $0.role == role }
     }
@@ -204,6 +315,7 @@ public struct RoleDefaultsSettingsModel: Equatable {
             return
         }
         rows[index].setModelOptions(models, defaultModel: defaultModel)
+        if index == focusedRowIndex, focusedField == .model { resetPickerHighlight() }
     }
 
     public mutating func setEffortOptions(_ levels: [String], defaultLevel: String, agent: String, role: String) {
@@ -211,6 +323,7 @@ public struct RoleDefaultsSettingsModel: Equatable {
             return
         }
         rows[index].setEffortOptions(levels, defaultLevel: defaultLevel)
+        if index == focusedRowIndex, focusedField == .effort { resetPickerHighlight() }
     }
 
     /// Marks the values actually persisted by one row's `role_default.set`
@@ -238,6 +351,7 @@ public struct RoleDefaultsSettingsModel: Equatable {
         guard agents.indices.contains(index) else {
             return
         }
+        endPickerSearch()
         selectedAgentIndex = index
         focusedRoleIndex = 0
         focusedField = .model

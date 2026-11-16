@@ -273,6 +273,8 @@ enum RenderPreview {
         renderView(dockFrameView(focused: false), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-unfocused.png")
         render(ToastBanner(message: "Copied qm-1783901769").background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
+        render(settingsView(searchField: .model), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-model-search.png")
+        render(settingsView(searchField: .effort), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-reasoning-search.png")
         render(settingsView(loading: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-skeleton.png")
         render(tmuxSettingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-tmux.png")
         render(projectsSettingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects.png")
@@ -2520,16 +2522,30 @@ enum RenderPreview {
 
     /// `loading` leaves every picker's options unanswered, so each shows its skeleton.
     @MainActor
-    private static func settingsView(loading: Bool = false) -> some View {
-        SettingsSheetView(
+    private static func settingsView(loading: Bool = false, searchField: RoleDefaultField? = nil) -> some View {
+        let modelClient: ServeModelSuggesting = loading ? SettingsPreviewStalledClient() : SettingsPreviewModelClient()
+        let effortClient: ServeReasoningEffortSuggesting = loading ? SettingsPreviewStalledClient() : SettingsPreviewEffortClient()
+        let model = SettingsSheetModel(
             presentation: SettingsSheetPresentation(
                 mutationClient: SettingsPreviewMutationClient(),
-                modelClient: loading ? SettingsPreviewStalledClient() : SettingsPreviewModelClient(),
-                effortClient: loading ? SettingsPreviewStalledClient() : SettingsPreviewEffortClient(),
+                modelClient: searchField != nil ? nil : modelClient,
+                effortClient: searchField != nil ? nil : effortClient,
                 runtime: RuntimeStore(sourceLabel: "preview")
             ),
             dismiss: {}
         )
+        if let searchField {
+            for role in RoleDefaultsSettingsModel.roles {
+                model.state.setModelOptions([
+                    SessionModelOption(id: "example-standard", label: "example-standard"),
+                    SessionModelOption(id: "example-fast", label: "example-fast"),
+                    SessionModelOption(id: "example-extended", label: "example-extended"),
+                ], defaultModel: "example-standard", agent: model.state.selectedAgent, role: role)
+                model.state.setEffortOptions(["low", "medium", "high", "max"], defaultLevel: "medium", agent: model.state.selectedAgent, role: role)
+            }
+            model.search(role: "master", field: searchField)
+        }
+        return SettingsSheetView(model: model)
     }
 
     @MainActor

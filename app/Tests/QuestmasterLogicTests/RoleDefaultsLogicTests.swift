@@ -16,6 +16,11 @@ struct RoleDefaultsLogicTests {
         focusNavigationStaysWithinTheActiveTab()
         moveTabSwitchesAgentAndResetsFocus()
         cyclingFocusedValueAffectsOnlyTheFocusedField()
+        searchesModelsByLabelAndIDWithoutChangingTheDefault()
+        searchBrowsesEveryOptionAndPicksPastTheFirstWindow()
+        reasoningSearchStaysWithinItsAgentAndRole()
+        leavingOrCancellingSearchKeepsTheSelection()
+        refreshedOptionsReplaceSearchResults()
         print("RoleDefaultsLogicTests: all tests passed")
     }
 
@@ -283,6 +288,88 @@ struct RoleDefaultsLogicTests {
 
         let claudeMasterIndex = model.index(agent: "claude", role: "master")!
         expect(model.rows[claudeMasterIndex].selectedModelOption == nil, "an unrelated row must not be affected")
+    }
+
+    private static func searchesModelsByLabelAndIDWithoutChangingTheDefault() {
+        var model = RoleDefaultsSettingsModel(agents: ["codex"])
+        model.setModelOptions([
+            SessionModelOption(id: "model-a", label: "Standard"),
+            SessionModelOption(id: "model-b", label: "Fast"),
+            SessionModelOption(id: "model-c", label: "Fast extended"),
+        ], defaultModel: "model-a", agent: "codex", role: "master")
+
+        model.applyPickerCommand(.startSearch(.seed(" FAST ")))
+        expect(model.pickerSuggestions.map(\.id) == ["model-b", "model-c"], "search should rank an exact label before a prefix, ignoring case and surrounding spaces")
+        expect(model.rows[0].selectedModel == "model-a" && !model.rows[0].isDirty, "typing a query must not alter the configured default")
+        model.typePickerText("model-c")
+        expect(model.pickerSuggestions.map(\.id) == ["model-c"], "a model's id should remain searchable when its label differs")
+        model.applyPickerCommand(.pick)
+        expect(model.rows[0].selectedModel == "model-c" && model.rows[0].isModelDirty, "picking should commit the model id")
+        expect(model.pickerMode == .select && model.text(role: "master", field: .model) == "Fast extended", "the selected field should show its label with the dropdown closed")
+    }
+
+    private static func searchBrowsesEveryOptionAndPicksPastTheFirstWindow() {
+        var model = RoleDefaultsSettingsModel(agents: ["codex"])
+        let options = (0..<9).map { SessionModelOption(id: "model-\($0)", label: "Model \($0)") }
+        model.setModelOptions(options, defaultModel: "model-0", agent: "codex", role: "master")
+        model.applyPickerCommand(.startSearch(.editCurrent))
+        expect(model.pickerSuggestions.count == NewSessionFormModel.maxModelSuggestions, "browsing should keep the dropdown bounded")
+        for _ in 0..<8 { model.applyPickerCommand(.moveHighlight(1)) }
+        expect(model.pickerWindow.visibleHighlightIndex == 4, "the visible window should follow the highlight past its first page")
+        model.applyPickerCommand(.pick)
+        expect(model.rows[0].selectedModel == "model-8", "a keyboard pick should reach the final option")
+
+        model.applyPickerCommand(.startSearch(.editCurrent))
+        expect(model.pickerWindow.highlightedIndex == 8, "reopening should browse at the current selection")
+        model.applyPickerCommand(.moveHighlight(1))
+        model.pickSuggestion(visibleRow: 1)
+        expect(model.rows[0].selectedModel == "model-1", "a pointer pick should use the visible window's row")
+    }
+
+    private static func reasoningSearchStaysWithinItsAgentAndRole() {
+        var model = RoleDefaultsSettingsModel(agents: ["claude", "codex"])
+        model.setEffortOptions(["low", "high", "highest"], defaultLevel: "low", agent: "codex", role: "worker")
+        model.selectTab(1)
+        model.moveFocus(3)
+        model.applyPickerCommand(.startSearch(.seed("high")))
+        expect(model.pickerSuggestions.map(\.id) == ["high", "highest"], "reasoning levels should filter independently of models")
+        model.pickSuggestion(visibleRow: 1)
+        expect(model.rows[3].selectedReasoningEffort == "highest", "the pick should update the focused worker's reasoning level")
+        expect(model.rows.prefix(3).allSatisfy { !$0.isDirty }, "other agents and roles must remain untouched")
+    }
+
+    private static func leavingOrCancellingSearchKeepsTheSelection() {
+        var model = RoleDefaultsSettingsModel(agents: ["claude", "codex"])
+        model.setModelOptions([SessionModelOption(id: "model-a", label: "Model A")], defaultModel: "model-a", agent: "claude", role: "master")
+        model.applyPickerCommand(.startSearch(.seed("unknown")))
+        expect(!model.showsPickerSuggestions, "an unmatched query should show no suggestions")
+        model.applyPickerCommand(.endSearch)
+        expect(model.rows[0].selectedModel == "model-a" && !model.rows[0].isDirty, "an unmatched query cannot replace or clear the default")
+
+        model.applyPickerCommand(.startSearch(.seed("")))
+        model.applyPickerCommand(.restore)
+        expect(model.text(role: "master", field: .model) == "Model A", "Escape should restore the chosen label")
+        model.applyPickerCommand(.startSearch(.seed("query")))
+        model.moveFocus(1)
+        expect(model.pickerMode == .select && model.searchText.isEmpty, "moving to another field should discard the query")
+        model.moveFocus(-1)
+        model.applyPickerCommand(.startSearch(.seed("query")))
+        model.selectTab(1)
+        expect(model.pickerMode == .select && model.searchText.isEmpty, "changing agent tabs should discard the query")
+        expect(model.rows.allSatisfy { !$0.isDirty }, "abandoned searches must never create unsaved selections")
+    }
+
+    private static func refreshedOptionsReplaceSearchResults() {
+        var model = RoleDefaultsSettingsModel(agents: ["codex"])
+        model.applyPickerCommand(.startSearch(.seed("model")))
+        expect(model.pickerMode == .select, "an unresolved picker should stay in its loading state")
+        model.setEffortOptions(["low", "high"], defaultLevel: "low", agent: "codex", role: "master")
+        model.moveFocus(1)
+        model.applyPickerCommand(.startSearch(.seed("h")))
+        model.setEffortOptions(["low"], defaultLevel: "low", agent: "codex", role: "master")
+        expect(!model.showsPickerSuggestions, "a newly unsupported reasoning level must disappear from the search")
+        model.applyPickerCommand(.endSearch)
+        expect(model.rows[0].selectedReasoningEffort == "low", "ending the empty search should retain the supported default")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

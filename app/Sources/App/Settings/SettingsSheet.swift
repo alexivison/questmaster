@@ -40,7 +40,7 @@ struct SettingsSheetPresentation: Identifiable {
 
 /// settings-models.svg (900 x 780): the sections as pill tabs down the left (250 wide), and the selected
 /// section on the right (x 290-880): the agent tabs, then a "Master" and a "Worker" section, each a bold
-/// title over a vine-ended rule and two rows of label, description and a compact "‹ value ›" picker.
+/// title over a vine-ended rule and separate searchable model and reasoning fields.
 enum SettingsMetrics {
     static let inset = Space.section
     static let sidebarWidth: CGFloat = 250
@@ -54,16 +54,9 @@ enum SettingsMetrics {
     static let ruleDrop: CGFloat = 15
     static let firstRowDrop: CGFloat = 35
     static let rowPitch = pickerHeight + Space.section
-    /// From a row's picker top: the label's baseline and the description's.
-    static let labelBaseline: CGFloat = 11
-    static let descriptionBaseline: CGFloat = 29
-    /// The picker is a field: 35 high in the shared field chrome, "‹", the value and "›" 10 apart and 10 in, the text
-    /// on the field's baseline.
+    static let labelWidth: CGFloat = 150
+    static let labelBaseline = FormFieldMetrics.baseline
     static let pickerHeight = ControlHeight.field
-    static let pickerInset = Space.item
-    static let pickerSpacing = Space.item
-    static let pickerBaseline = FormFieldMetrics.baseline
-    static let skeletonWidth: CGFloat = 90
     /// The ghost of the picker's value, and the opacities the whole ghost breathes between.
     static let skeletonValueWidth: CGFloat = 40
     static let skeletonPulseFrom = 0.5
@@ -102,7 +95,7 @@ enum SettingsSection: CaseIterable {
 struct SettingsSheetView: View {
     @StateObject private var model: SettingsSheetModel
 
-    /// Role groups shown for the active tab, top-to-bottom, with each row's description.
+    /// Role groups shown for the active tab, top-to-bottom.
     private static let roleGroups = [("master", "Master"), ("worker", "Worker")]
 
     init(presentation: SettingsSheetPresentation, dismiss: @escaping () -> Void) {
@@ -130,6 +123,7 @@ struct SettingsSheetView: View {
         }
         .frame(width: SettingsSheetModel.sheetSize.width, height: SettingsSheetModel.sheetSize.height)
         .scoopedPanel()
+        .background(FocusSink(nonce: model.sinkNonce))
         .background(SheetKeyEventMonitor(onKeyDown: model.handle))
         .onAppear { model.present() }
         .onDisappear { model.disappear() }
@@ -185,6 +179,7 @@ struct SettingsSheetView: View {
             ForEach(Array(Self.roleGroups.enumerated()), id: \.offset) { offset, group in
                 roleSection(role: group.0, title: group.1)
                     .offset(y: SettingsMetrics.firstSectionBaseline + CGFloat(offset) * SettingsMetrics.sectionPitch)
+                    .zIndex(RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == group.0 ? 1 : 0)
             }
         }
     }
@@ -194,31 +189,41 @@ struct SettingsSheetView: View {
     private func roleSection(role: String, title: String) -> some View {
         if let rowIndex = model.state.index(agent: model.state.selectedAgent, role: role) {
             let row = model.state.rows[rowIndex]
-            let isFocusedRole = RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == role
             ZStack(alignment: .topLeading) {
                 BaselineText(title, font: AppFonts.settingsSectionTitle, color: AppPalette.text, baseline: 0)
                 SettingsSectionRule(width: SettingsMetrics.columnWidth)
                     .offset(y: SettingsMetrics.ruleDrop)
-                SettingsRoleRow(
-                    title: "Model",
-                    description: "The default \(role) model",
-                    value: row.selectedModelOption?.label ?? "Not configured",
-                    isLoading: !row.hasResolvedModelOptions,
-                    focused: isFocusedRole && model.state.focusedField == .model,
-                    onSelect: { model.focus(role: role, field: .model) }
-                )
+                roleField(role: role, field: .model, title: "Model", isLoading: !row.hasResolvedModelOptions)
                 .offset(y: SettingsMetrics.firstRowDrop)
-                SettingsRoleRow(
-                    title: "Reasoning effort",
-                    description: "The default \(role) reasoning effort",
-                    value: row.selectedEffortOption?.label ?? "Not configured",
-                    isLoading: !row.hasResolvedEffortOptions,
-                    focused: isFocusedRole && model.state.focusedField == .effort,
-                    onSelect: { model.focus(role: role, field: .effort) }
-                )
+                .zIndex(model.state.focusedField == .model ? 1 : 0)
+                roleField(role: role, field: .effort, title: "Reasoning effort", isLoading: !row.hasResolvedEffortOptions)
                 .offset(y: SettingsMetrics.firstRowDrop + SettingsMetrics.rowPitch)
             }
             .frame(width: SettingsMetrics.columnWidth, alignment: .topLeading)
+        }
+    }
+
+    private func roleField(role: String, field: RoleDefaultField, title: String, isLoading: Bool) -> some View {
+        let focused = RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == role && model.state.focusedField == field
+        return SettingsRoleRow(title: title, isLoading: isLoading) {
+            FormTextField(
+                text: Binding(
+                    get: { model.state.text(role: role, field: field) },
+                    set: { model.typePickerText($0, role: role, field: field) }
+                ),
+                placeholder: "Not configured",
+                focusNonce: model.focusNonce(role: role, field: field),
+                focused: focused,
+                onFocusChanged: { editing in
+                    if editing { model.search(role: role, field: field) }
+                }
+            )
+            .accessibilityLabel("\(role) \(title)")
+            .suggestionDropdown(focused && model.state.showsPickerSuggestions ? SuggestionDropdown(
+                rows: model.state.pickerSuggestions.map(\.label),
+                highlightedIndex: model.state.pickerWindow.visibleHighlightIndex,
+                onSelect: { model.pickSuggestion(visibleRow: $0) }
+            ) : nil)
         }
     }
 }
@@ -253,49 +258,27 @@ struct SettingsSectionRule: View {
     }
 }
 
-/// A setting: its label and description on the left, its compact picker right-aligned. Laid out from
-/// the picker's top.
-private struct SettingsRoleRow: View {
+/// A label and the same searchable field used in New Session, with no description line.
+private struct SettingsRoleRow<Input: View>: View {
     let title: String
-    let description: String
-    let value: String
     let isLoading: Bool
-    let focused: Bool
-    var onSelect: () -> Void
+    @ViewBuilder var input: () -> Input
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        HStack(alignment: .top, spacing: Space.item) {
             BaselineText(title, font: AppFonts.settingsLabel, color: AppPalette.text, baseline: SettingsMetrics.labelBaseline)
-            BaselineText(description, font: AppFonts.settingsDescription, color: AppPalette.settingsDescription, baseline: SettingsMetrics.descriptionBaseline)
-            picker
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(width: SettingsMetrics.labelWidth, alignment: .leading)
+            if isLoading {
+                SettingsSkeletonControl()
+            } else {
+                input()
+            }
         }
         .frame(width: SettingsMetrics.columnWidth, height: SettingsMetrics.pickerHeight, alignment: .topLeading)
     }
-
-    @ViewBuilder
-    private var picker: some View {
-        if isLoading {
-            SettingsSkeletonControl()
-                .frame(width: SettingsMetrics.skeletonWidth, height: SettingsMetrics.pickerHeight)
-        } else {
-            HStack(spacing: SettingsMetrics.pickerSpacing) {
-                BaselineText("<", font: AppFonts.settingsLabel, color: AppPalette.textMeta, baseline: SettingsMetrics.pickerBaseline)
-                BaselineText(value, font: AppFonts.settingsLabel, color: AppPalette.textBody, baseline: SettingsMetrics.pickerBaseline)
-                BaselineText(">", font: AppFonts.settingsLabel, color: AppPalette.textMeta, baseline: SettingsMetrics.pickerBaseline)
-            }
-            .padding(.horizontal, SettingsMetrics.pickerInset)
-            .frame(height: SettingsMetrics.pickerHeight)
-            .fieldChrome(focused: focused)
-            .fixedSize()
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onSelect)
-            .accessibilityLabel("\(title) \(value)")
-        }
-    }
 }
 
-/// A ghost of the compact picker, shown in its place until its options resolve: the picker's own field chrome around a ghost of
+/// A ghost of the picker, shown in its place until its options resolve: the picker's own field chrome around a ghost of
 /// its value, breathing as the other skeletons do (`SkeletonPulse`).
 private struct SettingsSkeletonControl: View {
     var body: some View {
@@ -318,6 +301,8 @@ final class SettingsSheetModel: ObservableObject {
     @Published var state = RoleDefaultsSettingsModel()
     @Published var section = SettingsSection.modelsAndReasoning
     @Published var errorMessage: String?
+    @Published private(set) var focusNonces: [String: [RoleDefaultField: Int]] = [:]
+    @Published private(set) var sinkNonce = 0
     let projects: SettingsProjectsModel
     let tmux: TmuxSettingsPageModel
     /// The projects' changes redraw the sheet too, since its error row belongs to the sheet.
@@ -355,6 +340,8 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     func selectSection(_ next: SettingsSection) {
+        state.endPickerSearch()
+        sinkNonce += 1
         section = next
         if next == .tmux { tmux.loadIfNeeded() }
     }
@@ -369,8 +356,7 @@ final class SettingsSheetModel: ObservableObject {
         guard let index = sections.firstIndex(of: section) else {
             return
         }
-        section = sections[(index + delta + sections.count) % sections.count]
-        if section == .tmux { tmux.loadIfNeeded() }
+        selectSection(sections[(index + delta + sections.count) % sections.count])
     }
 
     func present() {
@@ -402,10 +388,37 @@ final class SettingsSheetModel: ObservableObject {
 
     func selectTab(_ index: Int) {
         state.selectTab(index)
+        sinkNonce += 1
     }
 
-    /// The sheet's keys: K and J step the sections, the `[` and `]` tabs (its own), then the shared modal keys (`ModalKeys`). The rows are selects,
-    /// so ←/→ cycle a value, and j and k or Tab move between them. Nothing submits: each change applies as it is made.
+    private func moveTab(_ delta: Int) {
+        state.moveTab(delta)
+        sinkNonce += 1
+    }
+
+    func focusNonce(role: String, field: RoleDefaultField) -> Int {
+        focusNonces[role]?[field] ?? 0
+    }
+
+    func search(role: String, field: RoleDefaultField) {
+        focus(role: role, field: field)
+        if state.pickerMode == .select { applyPickerCommand(.startSearch(.editCurrent)) }
+    }
+
+    func typePickerText(_ text: String, role: String, field: RoleDefaultField) {
+        search(role: role, field: field)
+        state.typePickerText(text)
+    }
+
+    func pickSuggestion(visibleRow: Int) {
+        changeFocusedValue { self.state.pickSuggestion(visibleRow: visibleRow) }
+    }
+
+    private func applyPickerCommand(_ command: PickerFieldCommand) {
+        changeFocusedValue { self.state.applyPickerCommand(command) }
+    }
+
+    /// The focused picker takes its keys first; the shared modal keys move between fields. Changes apply as they are picked.
     func handle(_ event: NSEvent) -> Bool {
         ModalKeyActions(
             context: { self.modalKeyContext },
@@ -417,12 +430,11 @@ final class SettingsSheetModel: ObservableObject {
         ).handle(event)
     }
 
-    /// Both sections have no text field, so j and k move. Projects take Return (save the arrangement, or edit the
-    /// highlighted row). The models section's rows are selects that take no Return.
+    /// The models section is a form with searchable fields. Projects and Tmux remain lists.
     private var modalKeyContext: ModalKeyContext {
         switch section {
         case .modelsAndReasoning:
-            return ModalKeyContext(focus: .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount, hasTextFields: false, submitting: false, submits: false)
+            return ModalKeyContext(focus: state.pickerMode == .search ? .line : .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount, hasTextFields: true, submitting: false, submits: false)
         case .projects:
             return ModalKeyContext(focus: nil, fieldCount: projects.entries.count, hasTextFields: false, submitting: false, submits: true)
         case .tmux:
@@ -451,6 +463,7 @@ final class SettingsSheetModel: ObservableObject {
         switch section {
         case .modelsAndReasoning:
             state.moveFocus(delta)
+            sinkNonce += 1
         case .projects:
             projects.moveHighlight(by: delta)
         case .tmux:
@@ -467,6 +480,10 @@ final class SettingsSheetModel: ObservableObject {
 
     private func handleFieldKey(_ event: NSEvent) -> Bool {
         let press = event.keymapPress
+        if section == .modelsAndReasoning, state.pickerMode == .search {
+            // Printable section/tab shortcuts belong to the query while editing.
+            return handlePickerKey(press)
+        }
         if section == .projects, projects.isArranging {
             return projects.handleKey(press)
         }
@@ -482,14 +499,20 @@ final class SettingsSheetModel: ObservableObject {
             return projects.handleKey(press)
         }
         if Keymap.matches(press, .previousTab) {
-            state.moveTab(-1)
+            moveTab(-1)
             return true
         }
         if Keymap.matches(press, .nextTab) {
-            state.moveTab(1)
+            moveTab(1)
             return true
         }
-        return false
+        return section == .modelsAndReasoning && handlePickerKey(press)
+    }
+
+    private func handlePickerKey(_ press: Keymap.KeyPress) -> Bool {
+        guard let command = PickerFieldKey.command(press, mode: state.pickerMode, showsSuggestions: state.showsPickerSuggestions) else { return false }
+        applyPickerCommand(command)
+        return true
     }
 
     /// Closes the sheet. Every change already applies the moment it's made,
@@ -507,14 +530,22 @@ final class SettingsSheetModel: ObservableObject {
     /// invalidates the effort list (valid levels can depend on the model), so
     /// only that case re-fetches; cycling the effort itself needs no refetch.
     private func cycleFocusedValue(_ delta: Int) {
+        changeFocusedValue { self.state.cycleFocusedValue(delta) }
+    }
+
+    /// Query edits never persist. A pick or cycle saves only an actual selection change.
+    private func changeFocusedValue(_ change: () -> Void) {
         guard let rowIndex = state.focusedRowIndex else {
             return
         }
         let field = state.focusedField
         let previousRow = state.rows[rowIndex]
-        state.cycleFocusedValue(delta)
-        if field == .model {
-            requestEffortSuggestions(rowIndex: rowIndex)
+        let previousMode = state.pickerMode
+        change()
+        switch PickerFieldMode.caretChange(from: previousMode, to: state.pickerMode, fieldFocused: true) {
+        case .intoText: focusNonces[previousRow.role, default: [:]][field, default: 0] += 1
+        case .outOfText: sinkNonce += 1
+        case nil: break
         }
         let row = state.rows[rowIndex]
         // Guards against sending both fields empty (which the backend
@@ -522,6 +553,9 @@ final class SettingsSheetModel: ObservableObject {
         // resolved and produces no real change.
         guard row.selectedModel != previousRow.selectedModel || row.selectedReasoningEffort != previousRow.selectedReasoningEffort else {
             return
+        }
+        if row.selectedModel != previousRow.selectedModel {
+            requestEffortSuggestions(rowIndex: rowIndex)
         }
         errorMessage = nil
         sendRoleDefault(agent: row.agent, role: row.role, model: row.selectedModel, reasoningEffort: row.selectedReasoningEffort)
