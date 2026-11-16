@@ -8,12 +8,12 @@ enum TrackerListMetrics {
     /// The header banner (`TrackerHeader`) tops the column in the action bar header's band: its top is the tracker pane's
     /// top, which is `ShellMetrics.sideCardInset` below the window's top like the header's, and it is as tall.
     static let headerHeight = ActionBarMetrics.height
-    /// The first plate's visible top is `spacing` below the banner's bottom edge, the list's own gap (the mock draws the
-    /// banner and then the plates with that gap; the plate once started level with the action bar header's bottom). The
+    /// The first plate's visible top is a section gap below the banner's bottom edge (the user's pick, wider than the
+    /// list's own gap; the plate once started level with the action bar header's bottom). The
     /// plates' list starts at the banner's bottom, so the inset is inside what scrolls. The plate's row starts at its
     /// visible top (the silhouette margin is only in its layers), and no project header is drawn above it. The loading
     /// skeleton uses the same inset.
-    static let firstSectionTopInset = spacing
+    static let firstSectionTopInset = Space.section
     static let verticalPadding = Space.section
     /// The scrolling plates stop this far above the avatar's reserved slot. The avatar stands on the banner,
     /// followed by `Space.section` and the shells, or just the bottom `verticalPadding` when there are no shells.

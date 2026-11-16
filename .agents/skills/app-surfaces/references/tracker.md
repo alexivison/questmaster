@@ -29,8 +29,8 @@ plates, so the wordmark keeps the SVG's scale (109 wide) and sits centred, shift
 narrower frame. It is drawn as the SVG's own path data (`TrackerHeaderArt`; the SVG is kept in
 `app/Tests/QuestmasterLogicTests/Fixtures/tracker-header.svg`) in a `Canvas`: flat emblem fills from the `AppPalette.wordmark*` inks,
 and the letters' angular gradient as a squashed conic gradient clipped to the letters (CoreSVG cannot draw it). The first plate
-section starts at `TrackerListMetrics.firstSectionTopInset` (`spacing`, 10) below the banner, inside the plates' list, as does the
-loading skeleton, so the plates' visible top is `headerHeight` + 10 below the pane's top; no project header is drawn above it, and
+section starts at `TrackerListMetrics.firstSectionTopInset` (`Space.section`, 20) below the banner, inside the plates' list, as does the
+loading skeleton, so the plates' visible top is `headerHeight` + 20 below the pane's top; no project header is drawn above it, and
 the silhouette margin is only in its layers. Under the list,
 `TrackerListMetrics.avatarClearance` (`Space.group`) precedes the fixed avatar slot. Its sole stands
 `TrackerListMetrics.avatarBannerGap` (`Space.item`, 10) above the session banner's id tab: the gap sits below the slot, so

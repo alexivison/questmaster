@@ -963,7 +963,7 @@ enum LogicSelfTests {
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
         try expectClose(TrackerListMetrics.spacing, 10, "every gap in the list")
         try expectClose(TrackerListMetrics.headerHeight, ActionBarMetrics.height, "the tracker header is as tall as the action bar header")
-        try expectClose(TrackerListMetrics.firstSectionTopInset, TrackerListMetrics.spacing, "first plate starts the list gap under the tracker header")
+        try expectClose(TrackerListMetrics.firstSectionTopInset, Space.section, "first plate starts a section gap under the tracker header")
         try expectClose(TrackerListMetrics.avatarClearance, 40, "clearance between the list and the avatar slot")
         try expectClose(TrackerListMetrics.avatarBannerGap, Space.item, "gap between the avatar's sole and the banner")
         try expectClose(SelectedSessionTagMetrics.width, 260, "banner matches a master plate's width")
