@@ -15,6 +15,12 @@ enum WatcherMetrics {
     /// A watcher stack's logos overlap by one row step, so each sits `PullRequestIcon.side - Space.row` past the one before,
     /// and the later logo draws over the earlier one.
     static let stackSpacing: CGFloat = -Space.row
+    /// A row still waiting for its first status: ghost bars where the title and the CI and diff counters go.
+    static let skeletonTitleWidth: CGFloat = 200
+    static let skeletonDetailWidth: CGFloat = 60
+    static let skeletonBarHeight = Space.item
+    static let skeletonPulseFrom = 0.5
+    static let skeletonPulseTo = 0.7
 }
 
 /// The pull requests the selected session watches, a master's with its workers', newest open first.
@@ -138,8 +144,13 @@ struct WatcherRow: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: Metrics.lineGap) {
-                titleLine
-                detailLine
+                if row.isLoading {
+                    skeletonTitleLine
+                    skeletonDetailLine
+                } else {
+                    titleLine
+                    detailLine
+                }
             }
             .padding(.horizontal, Metrics.rowInset)
             .padding(.top, Metrics.rowInset)
@@ -152,6 +163,40 @@ struct WatcherRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(row.numberLabel) \(row.title)")
         .accessibilityHint("Open pull request")
+    }
+
+    /// A row the daemon hasn't polled yet: its `#number`, which the watch already knows, between ghosts of the git glyph and
+    /// the title, breathing as the other skeletons do.
+    private var skeletonTitleLine: some View {
+        HStack(alignment: .center, spacing: Space.item) {
+            skeletonBar(width: PullRequestIcon.side, height: PullRequestIcon.side)
+            text(row.numberLabel, color: look.meta.color)
+                .fixedSize()
+            skeletonBar(width: Metrics.skeletonTitleWidth)
+            Spacer(minLength: 0)
+        }
+        .frame(height: Metrics.lineHeight, alignment: .top)
+    }
+
+    /// Ghosts of the review glyph and the CI and diff counters. The watchers are known, so they show as on a loaded row.
+    private var skeletonDetailLine: some View {
+        HStack(alignment: .center, spacing: Space.item) {
+            skeletonBar(width: PullRequestIcon.side, height: PullRequestIcon.side)
+            skeletonBar(width: Metrics.skeletonDetailWidth)
+            Spacer(minLength: 0)
+            if let tooltip = row.watcherTooltip {
+                watchers
+                    .help(tooltip)
+            }
+        }
+        .frame(height: Metrics.lineHeight, alignment: .top)
+    }
+
+    private func skeletonBar(width: CGFloat, height: CGFloat = Metrics.skeletonBarHeight) -> some View {
+        SkeletonPulse(from: Metrics.skeletonPulseFrom, to: Metrics.skeletonPulseTo) {
+            SkeletonBar(width: width, height: height)
+        }
+        .frame(width: width, height: height)
     }
 
     /// The git state, then `#number` and the title, which truncates.

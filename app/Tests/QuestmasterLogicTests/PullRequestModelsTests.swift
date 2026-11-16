@@ -12,6 +12,7 @@ struct PullRequestModelsTests {
         labelsFormatEveryField()
         gitStateSeparatesDraftFromOpen()
         gitLookShowsConflictsOnlyOnOpenPullRequests()
+        rowIsLoadingOnlyUntilItsFirstStatus()
         urlFallsBackToTheRefAndStaysWeb()
         looksDimStaleRowsAndWarnInaccessibleOnes()
         print("PullRequestModelsTests: all tests passed")
@@ -134,6 +135,12 @@ struct PullRequestModelsTests {
         }
         expect(display(row(1)).gitState == .unknown, "no status has an unknown git state")
         expect(display(row(1, status: status(reason: "forbidden"))).gitState == .unknown, "an inaccessible row has an unknown git state")
+    }
+
+    private static func rowIsLoadingOnlyUntilItsFirstStatus() {
+        expect(display(row(1)).isLoading, "a watched PR with no status yet should load")
+        expect(!display(row(1, status: status())).isLoading, "a polled PR should not load")
+        expect(!display(row(1, status: status(reason: "forbidden"))).isLoading, "an inaccessible PR has its reason and should not load")
     }
 
     private static func gitLookShowsConflictsOnlyOnOpenPullRequests() {
