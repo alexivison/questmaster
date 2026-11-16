@@ -186,35 +186,19 @@ func Send(ctx context.Context, dir, threadID, text string) error {
 	if err := rpc.call(ctx, "thread/resume", map[string]any{"threadId": threadID, "excludeTurns": true}, nil); err != nil {
 		return err
 	}
-	var turns struct {
-		Data []struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		} `json:"data"`
-	}
-	if err := rpc.call(ctx, "thread/turns/list", map[string]any{"threadId": threadID, "limit": 1, "sortDirection": "desc", "itemsView": "summary"}, &turns); err != nil {
-		return err
-	}
+	// The owner atomically starts or steers through turn/start. Reading a turn
+	// summary first replays the entire rollout for older JSONL conversations.
 	params := map[string]any{"threadId": threadID, "input": []map[string]string{{"type": "text", "text": text}}}
-	method := "turn/start"
-	if len(turns.Data) > 0 && turns.Data[0].Status == "inProgress" {
-		method = "turn/steer"
-		params["expectedTurnId"] = turns.Data[0].ID
-	}
 	var reply struct {
-		TurnID string `json:"turnId"`
-		Turn   struct {
+		Turn struct {
 			ID string `json:"id"`
 		} `json:"turn"`
 	}
-	if err := rpc.call(ctx, method, params, &reply); err != nil {
+	if err := rpc.call(ctx, "turn/start", params, &reply); err != nil {
 		return err
 	}
-	if method == "turn/steer" && reply.TurnID != turns.Data[0].ID {
-		return errors.New("Codex steer returned an unexpected turn (delivery uncertain)")
-	}
-	if method == "turn/start" && reply.Turn.ID == "" {
-		return errors.New("Codex start returned no turn identity (delivery uncertain)")
+	if reply.Turn.ID == "" {
+		return errors.New("Codex input returned no turn identity (delivery uncertain)")
 	}
 	return nil
 }

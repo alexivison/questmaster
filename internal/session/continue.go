@@ -233,9 +233,23 @@ func (s *Service) respawnDeadAgent(ctx context.Context, m state.Manifest, pane t
 	if err := s.installPiExtension(launch.agents); err != nil {
 		return err
 	}
+	if m.RuntimeDir == "" && launch.agents[agent.RoleAgent].Name() == "codex" && os.Getenv(agent.CodexNativeEnv) == "1" {
+		// Native ownership needs a private runtime even when the exited agent
+		// predates recorded runtime directories. Leave its old /tmp path alone.
+		m.RuntimeDir = state.NewRuntimeDir(s.Store.Root(), m.SessionID)
+		if err := s.reuseRuntimeDir(ctx, m); err != nil {
+			return err
+		}
+		if err := s.Store.Update(m.SessionID, func(updated *state.Manifest) { updated.RuntimeDir = m.RuntimeDir }); err != nil {
+			return err
+		}
+	}
 	// A legacy session's directory may be gone and is never recreated; the
 	// manifest and the session environment carry the resume ID either way.
 	if m.RuntimeDir != "" {
+		if err := prepareCodexNativeRuntime(launchConfig{runtimeDir: m.RuntimeDir, agents: launch.agents}); err != nil {
+			return err
+		}
 		if err := s.persistResumeIDs(m.RuntimeDir, launch.agentResume); err != nil {
 			return err
 		}

@@ -104,10 +104,12 @@ an owner-only Unix socket), and a log capped at 1 MiB. Both the alias owner and
 resolved socket's private parent/ownership are validated before connecting.
 Session close/delete/prune owns runtime-directory removal.
 Native sends rejoin only the recorded, already-loaded thread on that socket,
-query one turn summary, and use `turn/steer` while active or `turn/start` while
-idle. They never answer server approval/input requests or cold-resume a missing
+use `turn/start`, which atomically steers an active turn or starts an idle one
+without a history query. They never answer server approval/input requests or cold-resume a missing
 TUI. Once the marker exists, delivery errors do not fall back to tmux or retry an
-uncertain RPC. The marker is cleared when a session relaunches without the opt-in.
+uncertain RPC. The marker follows the transport on every relaunch, including a
+dead-pane Continue; live reattachment preserves it. Opting an exited Codex agent
+with a legacy runtime into native messaging allocates a private recorded runtime.
 
 ## Shared tmux theme
 

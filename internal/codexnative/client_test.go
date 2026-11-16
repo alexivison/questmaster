@@ -29,9 +29,9 @@ func runtimeFixture(t *testing.T) string {
 }
 
 type peerOptions struct {
-	status, turnStatus, rejection string
-	drop                          bool
-	alias                         bool
+	status, rejection string
+	drop              bool
+	alias             bool
 }
 
 func mockPeer(t *testing.T, dir string, opts peerOptions) <-chan map[string]any {
@@ -86,17 +86,15 @@ func mockPeer(t *testing.T, dir string, opts peerOptions) <-chan map[string]any 
 					t.Error("relay claimed human approval capability")
 				}
 			case "thread/read":
+				if req.Params["includeTurns"] != false {
+					t.Error("thread read requested history")
+				}
 				result = map[string]any{"thread": map[string]any{"id": "example-thread", "status": map[string]string{"type": opts.status}}}
 			case "thread/resume":
 				if req.Params["excludeTurns"] != true {
 					t.Error("resume requested unbounded history")
 				}
-			case "thread/turns/list":
-				if req.Params["limit"] != float64(1) || req.Params["itemsView"] != "summary" {
-					t.Error("turn query was not bounded")
-				}
-				result = map[string]any{"data": []map[string]string{{"id": "example-turn", "status": opts.turnStatus}}}
-			case "turn/start", "turn/steer":
+			case "turn/start":
 				submissions <- map[string]any{"method": req.Method, "params": req.Params}
 				if opts.drop {
 					return
@@ -108,10 +106,7 @@ func mockPeer(t *testing.T, dir string, opts peerOptions) <-chan map[string]any 
 				}
 				// A server request (including a string ID) must be left to the TUI.
 				_ = conn.Write(ctx, websocket.MessageText, []byte(`{"id":"approval","method":"item/commandExecution/requestApproval","params":{}}`))
-				result = map[string]string{"turnId": "example-turn"}
-				if req.Method == "turn/start" {
-					result = map[string]any{"turn": map[string]string{"id": "example-turn"}}
-				}
+				result = map[string]any{"turn": map[string]string{"id": "example-turn"}}
 			default:
 				t.Errorf("unexpected RPC %s", req.Method)
 				return
@@ -134,12 +129,12 @@ func TestSend(t *testing.T) {
 		opts            peerOptions
 		method, wantErr string
 	}{
-		{"busy", peerOptions{status: "active", turnStatus: "inProgress"}, "turn/steer", ""},
-		{"guarded alias", peerOptions{status: "active", turnStatus: "inProgress", alias: true}, "turn/steer", ""},
-		{"idle", peerOptions{status: "idle", turnStatus: "completed"}, "turn/start", ""},
+		{"busy", peerOptions{status: "active"}, "turn/start", ""},
+		{"guarded alias", peerOptions{status: "active", alias: true}, "turn/start", ""},
+		{"idle", peerOptions{status: "idle"}, "turn/start", ""},
 		{"unloaded", peerOptions{status: "notLoaded"}, "", "refusing background resume"},
-		{"rejected", peerOptions{status: "active", turnStatus: "inProgress", rejection: "turn changed"}, "turn/steer", "rejected: turn changed"},
-		{"lost receipt", peerOptions{status: "idle", turnStatus: "completed", drop: true}, "turn/start", "delivery uncertain"},
+		{"rejected", peerOptions{status: "active", rejection: "turn changed"}, "turn/start", "rejected: turn changed"},
+		{"lost receipt", peerOptions{status: "idle", drop: true}, "turn/start", "delivery uncertain"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -166,9 +161,6 @@ func TestSend(t *testing.T) {
 					t.Fatalf("submission = %v", msg)
 				}
 				params := msg["params"].(map[string]any)
-				if tc.method == "turn/steer" && params["expectedTurnId"] != "example-turn" {
-					t.Fatalf("turn target = %v", params)
-				}
 				if !strings.Contains(string(mustJSON(t, params["input"])), "change course") {
 					t.Fatalf("input = %v", params)
 				}

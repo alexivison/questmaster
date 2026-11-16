@@ -25,6 +25,7 @@ enum LogicSelfTests {
         ("testInstalledBundleStartsTheStableLink", testInstalledBundleStartsTheStableLink),
         ("testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM", testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM),
         ("testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath", testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath),
+        ("testAppChildProcessEnvironmentPreservesCodexTransportOptIn", testAppChildProcessEnvironmentPreservesCodexTransportOptIn),
         ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
         ("testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges", testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
@@ -2832,6 +2833,18 @@ enum LogicSelfTests {
         try expect(env["QUESTMASTER_PATH_PREFIX"] == nil, "shim prefix should come from daemon record")
         try expect(env["QUESTMASTER_QM"] == nil, "child env should not preserve app override input")
         try expect(env["TMUX"] == nil && env["TMUX_PANE"] == nil && env["TMUX_TMPDIR"] == nil, "child env should strip tmux variables")
+    }
+
+    private static func testAppChildProcessEnvironmentPreservesCodexTransportOptIn() throws {
+        let key = "QUESTMASTER_CODEX_APP_SERVER"
+        for (launch, login, expected) in [
+            ([key: "1"], [key: "0"], "1"),
+            ([key: "0"], [key: "1"], "0"),
+            ([:], [key: "1"], "0"),
+        ] {
+            let env = appChildProcessEnvironment(environment: launch, loginEnvironment: login, backend: nil)
+            try expect(env[key] == expected, "login environment should preserve the app launch transport: \(launch)")
+        }
     }
 
     private static func testDaemonRecordFeedsTerminalEnvironment() throws {
