@@ -19,6 +19,9 @@ const handlers = new Map();
 extension({
 	on(event, handler) { handlers.set(event, handler); },
 	registerMessageRenderer() {},
+	registerEntryRenderer() {},
+	registerCommand() {},
+	appendEntry() {},
 	sendMessage() {},
 	getThinkingLevel() { return "high"; },
 });
