@@ -1985,10 +1985,10 @@ enum LogicSelfTests {
         guard let sprites = TrackerAvatarSprites.bundled()["cleric"] else {
             throw TestFailure("the cleric's sprites should load from the app bundle")
         }
-        try expect(sprites.animation.idle?.breathing?.frames.count == 14 && sprites.idleBreathingArt?.count == 14,
-                   "the cleric should load all fourteen breathing steps and their lid stencils")
-        try expect(sprites.animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
-        try expect(sprites.availableFidgets.count == 1, "the cleric's fidget should have its art")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 9 && sprites.idleBreathingArt?.count == 9,
+                   "the cleric should load all nine breathing steps and their lid stencils")
+        try expect(sprites.animation.fidgets.map(\.name) == ["capelet", "circlet"], "the cleric should have the capelet and circlet fidgets")
+        try expect(sprites.availableFidgets.count == 2, "the cleric's fidgets should have their art")
         try expect(sprites.idleStillArt != nil, "the cleric should have a still idle image")
         try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the cleric's art")
         let missing = missingFrames(of: sprites)
@@ -2309,7 +2309,7 @@ enum LogicSelfTests {
         [view] + view.subviews.flatMap { descendants(of: $0) }
     }
 
-    /// The cleric's sprites with a bubble anchor beside his head on the right, read the way a class's file would carry one.
+    /// The cleric's sprites with a bubble anchor beside her head on the left, read the way a class's file would carry one.
     @MainActor
     private static func bubbleFixture(tail: String? = nil) throws -> TrackerAvatarSprites {
         guard let folder = AppSymbolStyle.resourceBundle().resourceURL?.appendingPathComponent("Sprites/cleric", isDirectory: true),
@@ -2319,7 +2319,7 @@ enum LogicSelfTests {
               var calling = poses["11-calling-out"] as? [String: Any] else {
             throw TestFailure("the cleric's calling-out pose should read as JSON")
         }
-        var anchor: [String: Any] = ["x": 52, "y": 24]
+        var anchor: [String: Any] = ["x": 44, "y": 52]
         anchor["tail"] = tail
         calling["bubble"] = anchor
         poses["11-calling-out"] = calling
@@ -2353,7 +2353,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 155), ("druid", 154), ("fighter", 161), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 118), ("sorcerer", 150), ("wizard", 150)] {
+        for (classID, figure) in [("barbarian", 166), ("bard", 157), ("cleric", 156), ("druid", 154), ("fighter", 161), ("necromancer", 161), ("paladin", 173), ("ranger", 153), ("rogue", 118), ("sorcerer", 150), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }

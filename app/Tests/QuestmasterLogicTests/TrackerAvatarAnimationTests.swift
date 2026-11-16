@@ -322,8 +322,8 @@ struct TrackerAvatarAnimationTests {
         guard let cleric = try? decode(AvatarAnimationFixture.classJSON("cleric")) else {
             fail("the cleric's file should decode")
         }
-        expect(cleric.animation(for: .release)?.strikeFrame == 3, "the cleric's release should strike on its peak, f3")
-        expect(cleric.animation(for: .catching)?.strikeFrame == 9, "the cleric's catch should strike on its peak, f9")
+        expect(cleric.animation(for: .release)?.strikeFrame == 4, "the cleric's release should strike on its peak, f4")
+        expect(cleric.animation(for: .catching)?.strikeFrame == 4, "the cleric's catch should strike on its peak, f4")
     }
 
     /// Only a release and a catch move, so only they may name a strike, and the frame must be one the character shows: a frame only
@@ -739,15 +739,15 @@ struct TrackerAvatarAnimationTests {
         }
         expect(animation.idle?.blink == true, "the cleric should blink")
         expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xe3a372), "the cleric should keep the eyelid colour")
-        expect(animation.idle?.stillLidPixels.count == 2, "the cleric's two-pixel eye should take two lid pixels")
+        expect(animation.idle?.stillLidPixels.count == 2, "the cleric's two eye-ink pixels should take two lid pixels")
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the cleric should resume at the authored rest frame")
-        expect(animation.idle?.breathing?.frames.count == 14, "the cleric's breathing should play its 14 reviewed steps")
-        expect(animation.idle?.breathing?.frames.allSatisfy { $0.seconds == 0.3 } == true, "the cleric breathes slowly, 0.3 s a step")
-        expect(animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
-        expect(animation.fidgets.first?.frames == [2, 3, 4, 5, 4, 3, 2], "the mitre should play idle frames 2 to 5 and back")
+        expect(animation.idle?.breathing?.frames.count == 9, "the cleric's breathing should play its nine authored steps")
+        expect(animation.idle?.breathing?.frames.allSatisfy { $0.seconds == 0.2 } == true, "the cleric breathes 0.2 s a step")
+        expect(animation.fidgets.map(\.name) == ["capelet", "circlet"], "the cleric should have the capelet and circlet fidgets")
+        expect(animation.fidgets.first(where: { $0.name == "circlet" })?.frames == [2, 3, 4, 5, 6, 7, 8, 9], "the circlet should play idle frames 2 to 9")
         let pondering = animation.animation(for: .pondering)
-        expect(pondering?.footRow == 162 && pondering?.bodyColumn == 40, "pondering should stand at the cleric's foot row and body column")
-        expect(animation.animation(for: .callingOut)?.footRow == 162, "calling out should stand at the cleric's foot row")
+        expect(pondering?.footRow == 202 && pondering?.bodyColumn == 76, "pondering should stand at the cleric's foot row and body column")
+        expect(animation.animation(for: .callingOut)?.footRow == 202, "calling out should stand at the cleric's foot row")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the cleric's summoning should have a ground effect")
         expect(animation.animation(for: .channelling)?.finish != nil, "the cleric's channelling should finish")
     }
@@ -878,9 +878,9 @@ struct TrackerAvatarAnimationTests {
               let studyingFinish = animation.animation(for: .studying)?.finish else {
             fail("the cleric's summoning and studying should have their blocks")
         }
-        expect(enter.behind?.frame(at: 0.35, looping: false) == 15, "the ground circle should reach frame 15 at 0.35 s of its enter")
-        expect(studyingFinish.character.frame(at: 0, looping: false) == 7, "the studying's finish should start on the pose's f7")
-        expect(studyingFinish.character.frame(at: 9, looping: false) == 1, "the studying's finish should end on the cleric's f1")
+        expect(enter.behind?.frame(at: 0.35, looping: false) == 20, "the effect should reach frame 20 at 0.35 s of the summoning's enter")
+        expect(studyingFinish.character.frame(at: 0, looping: false) == 13, "the studying's finish should start on its generated f13")
+        expect(studyingFinish.character.frame(at: 9, looping: false) == 17, "the studying's finish should end on its f17")
     }
 
     private static func aCatalogShowsEachClassWithArtAndNoOthers() {
