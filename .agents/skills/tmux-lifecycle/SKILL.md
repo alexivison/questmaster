@@ -72,3 +72,24 @@ The always-needed tmux rules (name the server and the exact session on every cal
   label. Preserve resume IDs, watches, runtime paths and manifest age; report
   updated/live/already-set/failed counts,
   and keep it idempotent.
+
+## Shared tmux theme
+
+`internal/palette/palette.json` is the app/tmux colour source. Run
+`go generate ./internal/palette` to emit Core's `Rendering/ThemePalette.swift`.
+The generated `<state root>/tmux/theme.conf` uses `@questmaster_textBody`,
+`@questmaster_line`, `@questmaster_color_blue` and the other semantic/named
+colour options from the enforced file. `@questmaster_session_accent` is
+session-local: `internal/sessiontheme` uses tracker colour precedence and worker
+inheritance, sets it at launch, and refreshes live sessions after CLI/app
+recolours and CLI/app config reloads. Writes are serialized under `theme.lock`
+after metadata commits. Inventory is once per server; stopped sessions and
+missing/default ownership are skipped.
+
+Template v4 sources the theme. Existing user configs and status scripts are
+never rewritten. To adopt it, add `source-file ~/.questmaster-state/tmux/theme.conf`
+after the old visual settings (use the configured state root), then run
+`qm tmux config reload`. Personal overrides go below that include. Prefix R
+reloads the files and retains any session accent already set. CLI/app reloads
+also remove the exact stock template-v3 border format copied onto older titled
+panes, so those panes inherit the new theme; custom pane formats stay intact.

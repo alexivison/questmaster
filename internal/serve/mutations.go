@@ -121,8 +121,9 @@ var mutationRegistry = map[string]mutationHandler{
 	"rename": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRename(ctx, payload)
 	},
-	"recolor": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
-		return s.mutateRecolor(payload)
+	"recolor": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
+		result, err := s.mutateRecolor(payload)
+		return s.syncThemeAfter(ctx, result, err)
 	},
 	"reclass": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateReclass(payload)
@@ -130,11 +131,13 @@ var mutationRegistry = map[string]mutationHandler{
 	"role_default.set": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRoleDefaultSet(ctx, payload)
 	},
-	"project.add": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
-		return s.mutateProjectAdd(payload)
+	"project.add": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
+		result, err := s.mutateProjectAdd(payload)
+		return s.syncThemeAfter(ctx, result, err)
 	},
-	"project.update": func(s *Server, _ context.Context, req Request, _ mutationPayload) (any, error) {
-		return s.mutateProjectUpdate(req.Data)
+	"project.update": func(s *Server, ctx context.Context, req Request, _ mutationPayload) (any, error) {
+		result, err := s.mutateProjectUpdate(req.Data)
+		return s.syncThemeAfter(ctx, result, err)
 	},
 	"project.reorder": func(s *Server, _ context.Context, req Request, _ mutationPayload) (any, error) {
 		return s.mutateProjectReorder(req.Data)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/hooks"
+	"github.com/alexivison/questmaster/internal/sessiontheme"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -84,6 +85,9 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		}
 	}
 	if err := s.refreshAppOwnedSessionEnvironment(ctx, lc.sessionID); err != nil {
+		return err
+	}
+	if err := sessiontheme.Sync(ctx, s.Store, s.router(), lc.sessionID); err != nil {
 		return err
 	}
 

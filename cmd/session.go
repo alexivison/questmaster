@@ -6,6 +6,7 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/session"
+	"github.com/alexivison/questmaster/internal/sessiontheme"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
@@ -23,7 +24,7 @@ func newSessionCmd(store *state.Store, client *tmux.Client, repoRoot string, rou
 	}
 	cmd.AddCommand(
 		newSessionNewCmd(store, client, repoRoot, router),
-		newSessionColorCmd(store),
+		newSessionColorCmd(store, router),
 		newSessionReclassCmd(store),
 	)
 	return cmd
@@ -51,7 +52,7 @@ func newSessionReclassCmd(store *state.Store) *cobra.Command {
 	}
 }
 
-func newSessionColorCmd(store *state.Store) *cobra.Command {
+func newSessionColorCmd(store *state.Store, router *tmuxroute.Router) *cobra.Command {
 	return &cobra.Command{
 		Use:   "color <session-id> <color>",
 		Short: "Set or clear a session display color",
@@ -62,6 +63,9 @@ func newSessionColorCmd(store *state.Store) *cobra.Command {
 				return err
 			}
 			if err := store.SetDisplayColor(args[0], color); err != nil {
+				return err
+			}
+			if err := sessiontheme.Sync(cmd.Context(), store, router, ""); err != nil {
 				return err
 			}
 			return writeJSON(cmd.OutOrStdout(), struct {

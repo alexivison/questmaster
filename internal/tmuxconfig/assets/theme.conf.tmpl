@@ -1,0 +1,24 @@
+# Questmaster tmux theme. Generated; do not edit.
+# Colours come from internal/palette/palette.json; the session supplies its accent.
+set-option -g status-style 'bg=terminal,fg=#{@questmaster_textBody}'
+set-option -g status-left "#[fg=#{?client_prefix,#{@questmaster_window},#{@questmaster_textMeta}},bg=#{?client_prefix,#{@questmaster_gitGreen},terminal},bold] C-s #[fg=#{@questmaster_line},bg=terminal,nobold]・ #[default]"
+set-option -g status-right "#({{STATUS_SCRIPT}} #{q:pane_current_path} '#{@questmaster_controlBorder}' '#{@questmaster_gitAmber}' '#{@questmaster_gitGreen}' '#{@questmaster_gitRed}' '#{@questmaster_textMeta}')"
+set-option -g window-status-separator " "
+set-option -g window-status-format "#[fg=#{@questmaster_textMeta},bg=terminal,nobold]#I "
+set-option -g window-status-current-format "#[fg=#{@questmaster_session_accent},bg=terminal,bold]#I "
+set-option -g window-status-style "fg=#{@questmaster_textBody},bg=terminal"
+set-option -g window-status-activity-style "fg=#{@questmaster_textBody},bg=terminal"
+set-option -g window-status-bell-style "fg=#{@questmaster_gitAmber},bg=terminal"
+set-option -g window-status-last-style "fg=#{@questmaster_textBody},bg=terminal"
+set-option -g message-style 'fg=#{@questmaster_session_accent},bg=default'
+set-option -g window-style 'fg=#{@questmaster_textBody},bg=terminal'
+set-option -g window-active-style 'fg=#{@questmaster_textBody},bg=terminal'
+
+# Pane borders. Questmaster sets pane-border-status per agent window
+# (internal/session/layout.go); the format reads its @party_role pane option.
+set-option -g pane-border-style 'fg=#{@questmaster_line}'
+set-option -g pane-active-border-style 'fg=#{@questmaster_session_accent}'
+set-option -g pane-border-format '#{?pane_active,#[fg=#{@questmaster_session_accent}] #{?#{==:#{@party_role},tracker},Tracker,#{?#{==:#{@party_role},shell},Shell,#{?#{==:#{@questmaster_title},},#{pane_title},#{@questmaster_title}}}} ,#[fg=#{@questmaster_controlBorder}] #{?#{==:#{@party_role},tracker},Tracker,#{?#{==:#{@party_role},shell},Shell,#{?#{==:#{@questmaster_title},},#{pane_title},#{@questmaster_title}}}} }'
+
+# Copy-mode selection uses the session accent too.
+set-option -g mode-style 'fg=#{@questmaster_window},bg=#{@questmaster_session_accent}'

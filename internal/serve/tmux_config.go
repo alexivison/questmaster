@@ -60,7 +60,11 @@ func (s *Server) tmuxConfigReload(ctx context.Context) (tmuxconfig.ReloadResult,
 	if err != nil {
 		return tmuxconfig.ReloadResult{}, err
 	}
-	return tmuxconfig.Reload(ctx, client, s.tmuxConfigRoot())
+	result, err := tmuxconfig.Reload(ctx, client, s.tmuxConfigRoot())
+	if err == nil && result.Running && len(result.Errors) == 0 {
+		_, err = s.syncThemeAfter(ctx, nil, nil)
+	}
+	return result, err
 }
 
 func (s *Server) tmuxServerRestart(ctx context.Context) (tmuxconfig.RestartResult, error) {

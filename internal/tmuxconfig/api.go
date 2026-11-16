@@ -160,7 +160,7 @@ func Reload(ctx context.Context, client *tmux.Client, root string) (ReloadResult
 	paths := Paths(root)
 	_, err = client.RunBatch(ctx, []string{"source-file", paths.Reload})
 	if err == nil {
-		return result, nil
+		return result, upgradeManagedBorders(ctx, client)
 	}
 	var exit *tmux.ExitError
 	if !errors.As(err, &exit) {

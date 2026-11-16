@@ -1,4 +1,4 @@
-# Questmaster tmux config (template v3).
+# Questmaster tmux config (template v4).
 # Written once by Questmaster from its built-in template, migrated from a personal
 # ~/.tmux.conf on 2026-11-06. It is yours: Questmaster never rewrites this file.
 # Delete it to get the current template back at the next server start.
@@ -103,25 +103,6 @@ bind-key -T copy-mode-vi C-l select-pane -R
 bind-key -T copy-mode-vi 'C-\' select-pane -l
 bind-key C-l send-keys C-l
 
-# Status bar theme (GitHub Dark Dimmed)
-#   BAR_BG=terminal  BORDER=#768390  SOFT_BORDER=#373e47
-#   TEXT=#adbac7  ACCENT=#539bf5  GREEN=#5aa75f  DIM=#64707d  GOLD=#d0a647  RED=#e7716b
-set-option -g status-style 'bg=terminal,fg=#adbac7'
-set-option -g status-left "#[fg=#{?client_prefix,#1c2128,#64707d},bg=#{?client_prefix,#5aa75f,terminal},bold] C-s #[fg=#373e47,bg=terminal,nobold]・ #[default]"
-set-option -g status-right "#({{STATUS_SCRIPT}} #{pane_current_path})"
-set-option -g window-status-separator " "
-set-option -g window-status-format "#[fg=#64707d,bg=terminal,nobold]#I "
-set-option -g window-status-current-format "#[fg=#539bf5,bg=terminal,bold]#I "
-set-option -g window-status-style "fg=#adbac7,bg=terminal"
-set-option -g window-status-activity-style "fg=#adbac7,bg=terminal"
-set-option -g window-status-bell-style "fg=#d0a647,bg=terminal"
-set-option -g window-status-last-style "fg=#adbac7,bg=terminal"
-set-option -g message-style 'fg=#539bf5,bg=default'
-set-option -g window-style 'fg=#adbac7,bg=terminal'
-set-option -g window-active-style 'fg=#adbac7,bg=terminal'
-
-# Pane borders. Questmaster sets pane-border-status per agent window
-# (internal/session/layout.go); the format reads its @party_role pane option.
-set-option -g pane-border-style 'fg=#373e47'
-set-option -g pane-active-border-style 'fg=#768390'
-set-option -g pane-border-format '#{?pane_active,#[fg=#539bf5] #{?#{==:#{@party_role},tracker},Tracker,#{?#{==:#{@party_role},shell},Shell,#{pane_title}}} ,#[fg=#768390] #{?#{==:#{@party_role},tracker},Tracker,#{?#{==:#{@party_role},shell},Shell,#{pane_title}}} }'
+# Shared app/tmux palette and session accent. The generated theme is refreshed
+# with Questmaster; put any personal visual overrides below this include.
+source-file {{THEME_CONFIG}}

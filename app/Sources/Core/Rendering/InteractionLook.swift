@@ -1,32 +1,7 @@
 import Foundation
 
-/// The colours the interaction states are drawn in, as sRGB hex. AppPalette builds its matching colours from these,
-/// so a state look and the palette can't drift apart. The rules they serve are in .agents/skills/app-ui/references/interaction-states.md.
-public enum StateColor: UInt32, CaseIterable, Sendable {
-    /// Panel and dock frames at rest.
-    case lineSoftSubtle = 0x3a414a
-    /// Outlines at rest, and every divider inside a row.
-    case line = 0x474f59
-    /// A highlighted or selected row's fill.
-    case item = 0x30363e
-    /// A highlighted or selected outline, and a focused field's border.
-    case controlBorder = 0x768390
-    /// Meta text at rest (dates, projects, placeholders, hints). The terminal theme's white (ANSI 7).
-    case textMeta = 0x8d9aa8
-    /// Meta text on a highlighted row in a focused area. The one step between the terminal's white and foreground.
-    case textMetaHighlighted = 0x9da7b1
-    /// Body text at rest. The terminal theme's foreground.
-    case textBody = 0xadbac7
-    /// Text on a highlighted or selected item. Bold on top of it means selected, in a lasting-selection list only.
-    /// The terminal theme's bright white (ANSI 15).
-    case textSelected = 0xc4d0dc
-    /// The one gold: titles, project headers and marks.
-    case accent = 0xd7b13d
-    /// "On", for toggles only (the action bar's inner glow).
-    case brassActive = 0xa58961
-    /// A warning: a missing file's icon, in every state.
-    case warn = 0xd29922
-
+/// Relative luminance for the shared interaction-state colours.
+extension StateColor {
     /// WCAG relative luminance, 0 (black) to 1 (white).
     public var luminance: Double {
         func linear(_ shift: UInt32) -> Double {

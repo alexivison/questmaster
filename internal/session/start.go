@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/sessiontheme"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
@@ -350,6 +351,14 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return s.claimSessionID(ctx, m, launch)
 	}); err != nil {
 		return StartResult{}, err
+	}
+	// An explicit launch colour also seeds the project colour. Refresh older
+	// sessions after releasing lifecycle locks; the new session is already
+	// coloured by launchSession, even if a different server is unavailable.
+	if strings.TrimSpace(opts.DisplayColor) != "" {
+		if err := sessiontheme.Sync(ctx, s.Store, s.router(), ""); err != nil {
+			fmt.Fprintf(os.Stderr, "questmaster: session started; refresh tmux colours: %v\n", err)
+		}
 	}
 	return result, nil
 }
