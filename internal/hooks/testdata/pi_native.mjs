@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { installPiHookStub } from "./pi_hook_stub.mjs";
+import { visibleWidth } from "./pi_tui_fixture.mjs";
 
 // Checks the routed-message path end to end against a fake Pi: frames are
 // acknowledged truthfully, held across compaction, sent as cards with steer
@@ -43,6 +44,13 @@ const context = {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 const actions = () => hooks.calls.map(({ args }) => args[2]);
 const hookCalls = (action) => hooks.calls.filter(({ args }) => args[2] === action);
+const stripAnsi = (text) => text.replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g, "");
+const cardText = (row) => stripAnsi(row).replace(/^┃ ?/, "");
+function assertCardRowsFit(rows, width, label) {
+	for (const [index, row] of rows.entries()) {
+		assert.ok(visibleWidth(row) <= width, `${label} row ${index + 1} is ${visibleWidth(row)} cells at width ${width}: ${JSON.stringify(row)}`);
+	}
+}
 
 let requests = 0;
 async function send(message) {
@@ -211,9 +219,10 @@ try {
 		content: "x".repeat(5_000),
 		details: { kind: "message", from: "" },
 	}, {}, {}).render(40);
-	assert.ok(long.at(-1).includes("shortened here"), "a long card says it was shortened");
-	// Heading, the first 4000 characters wrapped to 38 cells, then the notice.
-	assert.equal(long.length, 1 + Math.ceil(4_000 / 38) + 1, "a long card shows only its first stretch");
+	assertCardRowsFit(long, 40, "long ASCII card");
+	assert.ok(long.some((row) => stripAnsi(row).includes("shortened here")), "a long card says it was shortened");
+	const longBody = long.map(cardText).filter((row) => /^x+$/.test(row));
+	assert.equal(longBody.join(""), "x".repeat(4_000), "a long card shows only its first 4000 characters");
 
 	const wide = renderers.get("questmaster.message")({
 		customType: "questmaster.message",
@@ -221,6 +230,39 @@ try {
 		details: { kind: "message", from: "" },
 	}, {}, {}).render(12);
 	assert.equal(wide.length, 4, "wide characters wrap by cell width: heading plus three rows");
+	assertCardRowsFit(wide, 12, "CJK card");
+
+	// All visible rows, including a long heading and the shortening notice, fit
+	// even when the pane is too narrow for the usual bar and content gutter.
+	for (const width of [0, 1, 2, 3, 7, 40, 59, 80]) {
+		const narrow = renderers.get("questmaster.worker")({
+			customType: "questmaster.worker",
+			content: "x".repeat(5_000),
+			details: { kind: "worker", from: "worker-" + "x".repeat(120) },
+		}, {}, {}).render(width);
+		assertCardRowsFit(narrow, width, `narrow card at width ${width}`);
+	}
+
+	// Pi treats the checkmark as two cells and keeps emoji sequences and combining
+	// marks intact as graphemes when it wraps them.
+	const checks = "✅".repeat(78);
+	const checkRows = renderers.get("questmaster.message")({
+		customType: "questmaster.message",
+		content: checks,
+		details: { kind: "message", from: "" },
+	}, {}, {}).render(80);
+	assertCardRowsFit(checkRows, 80, "checkmark emoji card");
+	assert.equal(checkRows.map(cardText).filter((row) => /^✅+$/.test(row)).join(""), checks, "the 78 checkmarks remain intact");
+
+	const graphemes = "✅👨‍👩‍👧‍👦e\u0301👩🏽‍💻".repeat(10);
+	const graphemeRows = renderers.get("questmaster.message")({
+		customType: "questmaster.message",
+		content: graphemes,
+		details: { kind: "message", from: "" },
+	}, {}, {}).render(17);
+	assertCardRowsFit(graphemeRows, 17, "grapheme boundary card");
+	const graphemeBody = graphemeRows.map(cardText).filter((row) => /[✅👨👩]/u.test(row));
+	assert.equal(graphemeBody.join(""), graphemes, "emoji and combining sequences are not split at wrap boundaries");
 
 	await handlers.get("session_shutdown")();
 	stopped = true;
