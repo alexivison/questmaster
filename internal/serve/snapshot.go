@@ -136,31 +136,40 @@ type ExchangeRow struct {
 	At   time.Time `json:"at"`
 }
 
+// PullRequestCounts totals the known git states of a master's watched PRs, including its workers' watches.
+type PullRequestCounts struct {
+	Open   int `json:"open,omitempty"`
+	Draft  int `json:"draft,omitempty"`
+	Merged int `json:"merged,omitempty"`
+	Closed int `json:"closed,omitempty"`
+}
+
 // SessionSnapshot is one tracker row with live activity already applied.
 type SessionSnapshot struct {
-	ID              string             `json:"id"`
-	Title           string             `json:"title,omitempty"`
-	Status          string             `json:"status"`
-	State           string             `json:"state,omitempty"`
-	ElapsedMS       int64              `json:"elapsed_ms"`
-	ElapsedSince    *time.Time         `json:"elapsed_since,omitempty"`
-	LastChatAt      *time.Time         `json:"last_chat_at,omitempty"`
-	LastExchange    *ExchangeRow       `json:"last_exchange,omitempty"`
-	ActiveSubagents int                `json:"active_subagents,omitempty"`
-	Narration       string             `json:"narration,omitempty"`
-	Cast            *CastSnapshot      `json:"cast,omitempty"`
-	LatestActivity  string             `json:"latest_activity,omitempty"`
-	LastKind        string             `json:"last_kind,omitempty"`
-	WorktreePath    string             `json:"worktree_path,omitempty"`
-	Agent           string             `json:"agent,omitempty"`
-	SessionType     string             `json:"session_type,omitempty"`
-	ParentID        string             `json:"parent_id,omitempty"`
-	WorkerCount     int                `json:"worker_count"`
-	PullRequestsRev string             `json:"pull_requests_rev,omitempty"`
-	Artifacts       []ArtifactSnapshot `json:"artifacts,omitempty"`
-	Repo            RepoSnapshot       `json:"repo,omitempty"`
-	DisplayColor    string             `json:"display_color,omitempty"`
-	Class           string             `json:"class,omitempty"`
+	ID                string             `json:"id"`
+	Title             string             `json:"title,omitempty"`
+	Status            string             `json:"status"`
+	State             string             `json:"state,omitempty"`
+	ElapsedMS         int64              `json:"elapsed_ms"`
+	ElapsedSince      *time.Time         `json:"elapsed_since,omitempty"`
+	LastChatAt        *time.Time         `json:"last_chat_at,omitempty"`
+	LastExchange      *ExchangeRow       `json:"last_exchange,omitempty"`
+	ActiveSubagents   int                `json:"active_subagents,omitempty"`
+	Narration         string             `json:"narration,omitempty"`
+	Cast              *CastSnapshot      `json:"cast,omitempty"`
+	LatestActivity    string             `json:"latest_activity,omitempty"`
+	LastKind          string             `json:"last_kind,omitempty"`
+	WorktreePath      string             `json:"worktree_path,omitempty"`
+	Agent             string             `json:"agent,omitempty"`
+	SessionType       string             `json:"session_type,omitempty"`
+	ParentID          string             `json:"parent_id,omitempty"`
+	WorkerCount       int                `json:"worker_count"`
+	PullRequestsRev   string             `json:"pull_requests_rev,omitempty"`
+	PullRequestCounts *PullRequestCounts `json:"pull_request_counts,omitempty"`
+	Artifacts         []ArtifactSnapshot `json:"artifacts,omitempty"`
+	Repo              RepoSnapshot       `json:"repo,omitempty"`
+	DisplayColor      string             `json:"display_color,omitempty"`
+	Class             string             `json:"class,omitempty"`
 }
 
 type CastSnapshot struct {
@@ -649,34 +658,40 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			elapsedSince = time.Time{}
 		}
 		prRev := ""
+		var prCounts *PullRequestCounts
 		if len(prs) > 0 {
 			scope := map[string]bool{row.ID: true}
 			if row.SessionType == "master" {
 				scope = prScopes[row.ID]
 			}
-			prRev = pullRequestsRevision(filterPullRequests(prs, scope))
+			scoped := filterPullRequests(prs, scope)
+			prRev = pullRequestsRevision(scoped)
+			if row.SessionType == "master" {
+				prCounts = countPullRequests(scoped)
+			}
 		}
 		out[i] = SessionSnapshot{
-			ID:              row.ID,
-			Title:           row.Title,
-			Status:          row.Status,
-			State:           stateName,
-			ElapsedMS:       elapsedMS(observedAt, elapsedSince),
-			ElapsedSince:    timePtr(elapsedSince),
-			LastChatAt:      timePtr(result.LastChatAt),
-			LastExchange:    exchangeRow(result),
-			ActiveSubagents: result.ActiveSubagents,
-			Narration:       result.Narration,
-			Cast:            castSnapshot(result, row.Agent, typicals),
-			LatestActivity:  snippet,
-			LastKind:        lastKind,
-			WorktreePath:    row.Cwd,
-			Agent:           row.Agent,
-			SessionType:     row.SessionType,
-			ParentID:        row.ParentID,
-			WorkerCount:     row.WorkerCount,
-			PullRequestsRev: prRev,
-			Artifacts:       artifactSnapshots(state.FilterArtifacts(artifacts, state.ArtifactScopeSession, row.ID, "")),
+			ID:                row.ID,
+			Title:             row.Title,
+			Status:            row.Status,
+			State:             stateName,
+			ElapsedMS:         elapsedMS(observedAt, elapsedSince),
+			ElapsedSince:      timePtr(elapsedSince),
+			LastChatAt:        timePtr(result.LastChatAt),
+			LastExchange:      exchangeRow(result),
+			ActiveSubagents:   result.ActiveSubagents,
+			Narration:         result.Narration,
+			Cast:              castSnapshot(result, row.Agent, typicals),
+			LatestActivity:    snippet,
+			LastKind:          lastKind,
+			WorktreePath:      row.Cwd,
+			Agent:             row.Agent,
+			SessionType:       row.SessionType,
+			ParentID:          row.ParentID,
+			WorkerCount:       row.WorkerCount,
+			PullRequestsRev:   prRev,
+			PullRequestCounts: prCounts,
+			Artifacts:         artifactSnapshots(state.FilterArtifacts(artifacts, state.ArtifactScopeSession, row.ID, "")),
 			Repo: RepoSnapshot{
 				Identity: row.RepoIdentity,
 				Name:     row.RepoName,

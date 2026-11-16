@@ -155,3 +155,31 @@ func pullRequestsRevision(prs []state.PullRequest) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:8])
 }
+
+// countPullRequests receives the same scoped, live watch set used for the Watcher revision.
+// Each PR is one row even when several sessions in the scope watch it.
+func countPullRequests(prs []state.PullRequest) *PullRequestCounts {
+	var counts PullRequestCounts
+	for _, pr := range prs {
+		status := pr.Status
+		if status == nil || status.InaccessibleReason != "" {
+			continue
+		}
+		switch status.State {
+		case "open":
+			if status.Draft {
+				counts.Draft++
+			} else {
+				counts.Open++
+			}
+		case "merged":
+			counts.Merged++
+		case "closed":
+			counts.Closed++
+		}
+	}
+	if counts == (PullRequestCounts{}) {
+		return nil
+	}
+	return &counts
+}

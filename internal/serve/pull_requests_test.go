@@ -181,7 +181,11 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 	if stable.Sessions[trackerSessionIndex(stable.Sessions, "qm-demo")].PullRequestsRev != initial.Sessions[masterIndex].PullRequestsRev {
 		t.Fatal("unchanged set changed rev")
 	}
-	if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{ref1.Key: {Title: "Updated", State: "open", ChangedAt: env.now.Format(time.RFC3339)}}, nil); err != nil {
+	if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{
+		ref1.Key: {Title: "Updated", State: "open", ChangedAt: env.now.Format(time.RFC3339)},
+		ref2.Key: {State: "open", Draft: true},
+		ref3.Key: {State: "merged"},
+	}, nil); err != nil {
 		t.Fatal(err)
 	}
 	withStatus, err := snapshotter.TrackerForChange(Change{Topics: []string{topicTracker}, BroadTracker: true})
@@ -190,6 +194,13 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 	}
 	if withStatus.Sessions[masterIndex].PullRequestsRev == initial.Sessions[masterIndex].PullRequestsRev || request("qm-demo")[0].Status.Title != "Updated" {
 		t.Fatal("status did not reach response and tracker revision")
+	}
+	counts := withStatus.Sessions[masterIndex].PullRequestCounts
+	if counts == nil || *counts != (PullRequestCounts{Open: 1, Draft: 1}) {
+		t.Fatalf("master and worker counts (shared watch counted once, unrelated watch excluded) = %+v", counts)
+	}
+	if counts := withStatus.Sessions[trackerSessionIndex(withStatus.Sessions, "qm-worker")].PullRequestCounts; counts != nil {
+		t.Fatalf("worker counts = %+v", counts)
 	}
 	if _, err := state.UnwatchPullRequest(env.store.Root(), "qm-worker", ref2.Key); err != nil {
 		t.Fatal(err)
@@ -201,12 +212,27 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 	if changed.Sessions[trackerSessionIndex(changed.Sessions, "qm-demo")].PullRequestsRev == initial.Sessions[masterIndex].PullRequestsRev {
 		t.Fatal("changed set kept rev")
 	}
+	counts = changed.Sessions[trackerSessionIndex(changed.Sessions, "qm-demo")].PullRequestCounts
+	if counts == nil || *counts != (PullRequestCounts{Open: 1}) {
+		t.Fatalf("ended watch still counted = %+v", counts)
+	}
 	if err := env.store.Delete("qm-worker"); err != nil {
 		t.Fatal(err)
 	}
 	master = request("qm-demo")
 	if len(master) != 1 || len(master[0].Watchers) != 1 {
 		t.Fatalf("dead worker shown: %#v", master)
+	}
+	if _, err := state.UnwatchPullRequest(env.store.Root(), "qm-demo", ref1.Key); err != nil {
+		t.Fatal(err)
+	}
+	ended, err := snapshotter.TrackerForChange(Change{Topics: []string{topicTracker}, BroadTracker: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := ended.Sessions[trackerSessionIndex(ended.Sessions, "qm-demo")]
+	if row.PullRequestCounts != nil || row.PullRequestsRev != "" {
+		t.Fatalf("last watch ended: counts=%+v revision=%q", row.PullRequestCounts, row.PullRequestsRev)
 	}
 }
 

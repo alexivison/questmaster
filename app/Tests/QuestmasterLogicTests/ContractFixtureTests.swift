@@ -6,6 +6,10 @@ struct ContractFixtureTests {
         do {
             try payloadFixturesDecode()
             try envelopeFixturesDecode()
+            let emptyCounts = try JSONDecoder().decode(PullRequestCounts.self, from: Data("{}".utf8))
+            expect(emptyCounts == PullRequestCounts(), "omitted PR counts should default to zero")
+            let sparseCounts = try JSONDecoder().decode(PullRequestCounts.self, from: Data(#"{"merged":2,"future":7}"#.utf8))
+            expect(sparseCounts == PullRequestCounts(merged: 2), "sparse PR counts should ignore unknown keys")
             print("ContractFixtureTests: all tests passed")
         } catch {
             fail("contract fixtures threw \(error)")
@@ -24,6 +28,7 @@ struct ContractFixtureTests {
         expect(session.sessionClass == "wizard", "tracker class did not decode")
         expect(session.workerCount == 1, "tracker worker count did not decode")
         expect(session.pullRequestsRev == "abcdef1234567890", "tracker PR revision did not decode")
+        expect(session.pullRequestCounts == PullRequestCounts(open: 2, draft: 1, merged: 3, closed: 4), "tracker PR counts did not decode")
         expect(session.duration == "0:02:00", "tracker elapsed_ms did not decode")
         expect(session.artifacts.first?.label == "Plan", "tracker artifact did not decode")
         expect(session.narration == "It seems that something is still ...", "tracker narration did not decode")
