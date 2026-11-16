@@ -106,7 +106,7 @@ func TestOpenCodeBuildCmd_SelectsClassMasterAgentFiles(t *testing.T) {
 	t.Parallel()
 
 	o := NewOpenCode(AgentConfig{})
-	classes := []string{"barbarian", "paladin", "wizard", "cleric", "druid", "rogue", "bard"}
+	classes := VoiceClasses()
 	for _, class := range classes {
 		t.Run(class, func(t *testing.T) {
 			t.Parallel()

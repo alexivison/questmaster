@@ -9,6 +9,11 @@ import (
 
 var sessionClassNames = []string{"paladin", "wizard", "druid", "barbarian", "rogue", "cleric", "bard", "ranger", "necromancer", "sorcerer", "fighter"}
 
+// SessionClasses returns the supported session classes in selection order.
+func SessionClasses() []string {
+	return append([]string(nil), sessionClassNames...)
+}
+
 var sessionClassSet = func() map[string]struct{} {
 	set := make(map[string]struct{}, len(sessionClassNames))
 	for _, class := range sessionClassNames {

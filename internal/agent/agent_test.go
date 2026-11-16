@@ -171,7 +171,7 @@ func TestClassVoiceHarnessPromptRoutes(t *testing.T) {
 	for _, harness := range tests {
 		t.Run(harness.name, func(t *testing.T) {
 			t.Parallel()
-			for _, class := range []string{"barbarian", "paladin", "wizard", "cleric", "druid", "rogue", "bard"} {
+			for _, class := range VoiceClasses() {
 				t.Run(class, func(t *testing.T) {
 					t.Parallel()
 					voice := ClassVoice(class)
@@ -182,13 +182,14 @@ func TestClassVoiceHarnessPromptRoutes(t *testing.T) {
 					}
 				})
 			}
-			voice := ClassVoice("barbarian")
-			workerCommand := harness.build("barbarian", RoleWorker)
-			if strings.Contains(workerCommand, voice) {
-				t.Fatalf("worker command includes master class voice: %q", workerCommand)
-			}
-			if want := harness.wantRoute(harness.workerPrompt()); !strings.Contains(workerCommand, want) {
-				t.Fatalf("worker command missing worker prompt route %q: %q", want, workerCommand)
+			for _, class := range VoiceClasses() {
+				workerCommand := harness.build(class, RoleWorker)
+				if voice := ClassVoice(class); strings.Contains(workerCommand, voice) {
+					t.Fatalf("worker command for %s includes master class voice: %q", class, workerCommand)
+				}
+				if want := harness.wantRoute(harness.workerPrompt()); !strings.Contains(workerCommand, want) {
+					t.Fatalf("worker command for %s missing worker prompt route %q: %q", class, want, workerCommand)
+				}
 			}
 		})
 	}

@@ -48,21 +48,53 @@ var workerPrompt = strings.TrimRight(workerPromptMD, "\n") + `
 //go:embed prompts/class_voice.md
 var classVoiceMD string
 
-//go:embed prompts/class_voice/*.md
+//go:embed prompts/class_voice/*.md prompts/voice_archetypes/*.md
 var classVoiceFS embed.FS
 
-// classVoiceClasses lists the classes that have a voice line, in file order.
+// classVoiceClasses lists the classes that have a voice mapping, in file order.
 func classVoiceClasses() []string {
 	entries, _ := classVoiceFS.ReadDir("prompts/class_voice")
 	classes := make([]string, 0, len(entries))
 	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
 		classes = append(classes, strings.TrimSuffix(entry.Name(), ".md"))
 	}
 	return classes
 }
 
-// ClassVoice returns the class-voice paragraph for a master session of the
-// given class: the shared paragraph naming the class, then the class's line.
+type classVoiceSpec struct {
+	archetype string
+}
+
+func classVoiceSpecFor(class string) (classVoiceSpec, bool) {
+	if class == "" {
+		return classVoiceSpec{}, false
+	}
+	data, err := classVoiceFS.ReadFile("prompts/class_voice/" + class + ".md")
+	if err != nil {
+		return classVoiceSpec{}, false
+	}
+	var spec classVoiceSpec
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if !ok {
+			return classVoiceSpec{}, false
+		}
+		value = strings.TrimSpace(value)
+		switch strings.TrimSpace(key) {
+		case "Archetype":
+			spec.archetype = value
+		default:
+			return classVoiceSpec{}, false
+		}
+	}
+	return spec, spec.archetype != ""
+}
+
+// ClassVoice returns the shared voice rules and mapped archetype for a master
+// session of the given class.
 // A blank or unknown class has no voice and returns "".
 //
 // The voice is part of the system prompt fixed at launch. Reclassing a live
@@ -70,11 +102,18 @@ func classVoiceClasses() []string {
 // continue of a stopped session or a restart, uses the new class and rebuilds
 // the launch command (and, for OpenCode, selects the new class's agent file).
 func ClassVoice(class string) string {
-	line, err := classVoiceFS.ReadFile("prompts/class_voice/" + class + ".md")
-	if err != nil || class == "" {
+	spec, ok := classVoiceSpecFor(class)
+	if !ok {
+		return ""
+	}
+	archetype, err := classVoiceFS.ReadFile("prompts/voice_archetypes/" + strings.ToLower(spec.archetype) + ".md")
+	if err != nil {
 		return ""
 	}
 	name := strings.ToUpper(class[:1]) + class[1:]
 	shared := strings.ReplaceAll(strings.TrimSpace(classVoiceMD), "{Class}", name)
-	return shared + "\n\n" + strings.TrimSpace(string(line))
+	return strings.Join([]string{
+		shared,
+		strings.TrimSpace(string(archetype)),
+	}, "\n\n")
 }
