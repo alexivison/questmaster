@@ -38,6 +38,12 @@
         "session_type": "master",
         "worker_count": 1,
         "pull_requests_rev": "abcdef1234567890",
+        "pull_request_counts": {
+          "open": 2,
+          "draft": 1,
+          "merged": 3,
+          "closed": 4
+        },
         "artifacts": [
           {
             "id": "art-contract-plan",
