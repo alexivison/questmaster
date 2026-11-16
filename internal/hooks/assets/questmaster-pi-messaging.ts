@@ -1,8 +1,11 @@
+// Questmaster's Pi messaging extension. Questmaster writes this file into its own
+// state directory on every Pi launch and loads it with `pi -e`; it is never
+// installed into Pi's extensions directory, so it has no install marker.
 import { chmod, lstat, unlink } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { accessSync, constants, mkdirSync, writeFileSync } from "node:fs";
+import { accessSync, constants } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
-import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
+import { basename, delimiter, isAbsolute, join } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -15,7 +18,6 @@ const hookTimeoutMs = 5_000;
 const hookBatchLimit = 32;
 const hookBatchByteLimit = 48 * 1024;
 const hookBatchDelayMs = 150;
-const sidecarVersion = "phase2-v3";
 const sessionPattern = /^qm-[A-Za-z0-9_-]+$/;
 
 type Request = { id: string; message: string };
@@ -173,20 +175,6 @@ function formatTool(toolName: string | undefined, rawArgs?: unknown): string {
 		case "find": return `find: ${safeLine(arg("pattern", "path") ?? "files", 120)}`;
 		case "ls": return `ls: ${safeLine(arg("path") ?? "directory", 120)}`;
 		default: return name;
-	}
-}
-
-function markerPaths(): string[] {
-	const home = process.env.PI_HOME || (process.env.HOME ? join(process.env.HOME, ".pi") : "");
-	return home ? [join(home, "agent", "extensions", ".questmaster-installed"), join(home, "extensions", ".questmaster-installed")] : [];
-}
-
-function writeMarker(): void {
-	for (const marker of markerPaths()) {
-		try {
-			mkdirSync(dirname(marker), { recursive: true });
-			writeFileSync(marker, `${sidecarVersion}\n`, "utf8");
-		} catch {}
 	}
 }
 
@@ -522,7 +510,6 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (event: unknown, rawContext) => {
 		const occurredAtMS = Date.now();
-		writeMarker();
 		const ctx = rawContext as PiContext | undefined;
 		refreshMetadata(ctx);
 		const record = event && typeof event === "object" ? event as Record<string, unknown> : {};

@@ -54,6 +54,12 @@ type CmdOpts struct {
 	// Class is the session's class. Master launches add its class voice to the
 	// system prompt; workers and classless masters get none.
 	Class string
+	// MasterClass is a worker's master class, which Pi exports to the worker's
+	// extension. Empty for masters and for workers whose master has no class.
+	MasterClass string
+	// PiExtension is the absolute path of the Questmaster-owned Pi extension,
+	// loaded with -e. Empty means none.
+	PiExtension string
 	// Continuing reopens an existing Questmaster session. Providers leave model
 	// selection to the native conversation unless Model explicitly overrides it.
 	Continuing bool

@@ -661,7 +661,7 @@ func TestPiBuildCmdUsesHookStateSidecar(t *testing.T) {
 		Role:      RoleWorker,
 	})
 
-	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/pi'"
+	want := "export PATH='/tmp/bin:/usr/bin'; export QUESTMASTER_ROLE='worker'; exec '/opt/homebrew/bin/pi'"
 	if !strings.Contains(got, want) {
 		t.Fatalf("BuildCmd() missing Pi exec prefix %q in %q", want, got)
 	}
@@ -686,6 +686,58 @@ func TestPiBuildCmdWithResume(t *testing.T) {
 	})
 	if !strings.Contains(got, " --session '"+resumeID+"'") {
 		t.Fatalf("BuildCmd(resume) missing --session UUID: %q", got)
+	}
+}
+
+// TestPiBuildCmdIdentityAndExtension compares the part of the command before
+// the system prompt: the identity export, the extension and the session name.
+func TestPiBuildCmdIdentityAndExtension(t *testing.T) {
+	t.Parallel()
+
+	const extension = "/state/pi/questmaster-pi-messaging.ts"
+	base := CmdOpts{Binary: "/opt/homebrew/bin/pi", AgentPath: "/tmp/bin:/usr/bin"}
+	tests := []struct {
+		name     string
+		opts     CmdOpts
+		wantHead string
+	}{
+		{
+			name: "master with extension and no title or class",
+			opts: CmdOpts{Binary: base.Binary, AgentPath: base.AgentPath, Role: RoleMaster, PiExtension: extension},
+			wantHead: "export PATH='/tmp/bin:/usr/bin'; export QUESTMASTER_ROLE='master'; " +
+				"exec '/opt/homebrew/bin/pi' -e '/state/pi/questmaster-pi-messaging.ts'",
+		},
+		{
+			name:     "master with a quoted title and class",
+			opts:     CmdOpts{Binary: base.Binary, AgentPath: base.AgentPath, Role: RoleMaster, PiExtension: extension, Title: "Fix Bob's auth", Class: "paladin"},
+			wantHead: `export PATH='/tmp/bin:/usr/bin'; export QUESTMASTER_ROLE='master' QUESTMASTER_TITLE='Fix Bob'"'"'s auth' QUESTMASTER_CLASS='paladin'; exec '/opt/homebrew/bin/pi' -e '/state/pi/questmaster-pi-messaging.ts' --name 'Fix Bob'"'"'s auth'`,
+		},
+		{
+			name: "worker with a title and master class",
+			opts: CmdOpts{Binary: base.Binary, AgentPath: base.AgentPath, Role: RoleWorker, Title: "scan repo", MasterClass: "wizard"},
+			wantHead: "export PATH='/tmp/bin:/usr/bin'; " +
+				"export QUESTMASTER_ROLE='worker' QUESTMASTER_TITLE='scan repo' QUESTMASTER_MASTER_CLASS='wizard'; " +
+				"exec '/opt/homebrew/bin/pi' --name 'scan repo'",
+		},
+		{
+			name: "worker without title, class or extension",
+			opts: CmdOpts{Binary: base.Binary, AgentPath: base.AgentPath, Role: RoleWorker},
+			wantHead: "export PATH='/tmp/bin:/usr/bin'; export QUESTMASTER_ROLE='worker'; " +
+				"exec '/opt/homebrew/bin/pi'",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := NewPi(AgentConfig{}).BuildCmd(tt.opts)
+			head, _, found := strings.Cut(got, " --append-system-prompt ")
+			if !found {
+				t.Fatalf("BuildCmd() has no system prompt flag: %q", got)
+			}
+			if head != tt.wantHead {
+				t.Fatalf("BuildCmd() head = %q, want %q", head, tt.wantHead)
+			}
+		})
 	}
 }
 

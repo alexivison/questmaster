@@ -50,7 +50,9 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 			return fmt.Errorf("install OpenCode config: %w", err)
 		}
 	}
-
+	if err := s.installPiExtension(lc.agents); err != nil {
+		return err
+	}
 	if provider, ok := lc.agents[agent.RoleAgent]; ok {
 		if _, hasCmd := lc.agentCmds[agent.RoleAgent]; hasCmd {
 			if err := provider.PreLaunchSetup(ctx, s.Client, lc.sessionID); err != nil {
@@ -154,6 +156,43 @@ func (s *Service) openCodeConfigDir(agents map[agent.Role]agent.Agent) string {
 		}
 	}
 	return ""
+}
+
+// installPiExtension writes the Questmaster-owned Pi extension when a Pi agent
+// is in agents. Its launch command loads the file with -e, so the file must
+// exist before any pane starts, and a respawn needs it too.
+func (s *Service) installPiExtension(agents map[agent.Role]agent.Agent) error {
+	usesPi := false
+	for _, provider := range agents {
+		usesPi = usesPi || provider.Name() == "pi"
+	}
+	if !usesPi {
+		return nil
+	}
+	installer := hooks.NewPiInstaller("")
+	installer.ExtensionDir = state.PiExtensionDir(s.Store.Root())
+	if err := installer.Install(); err != nil {
+		return fmt.Errorf("install Pi extension: %w", err)
+	}
+	return nil
+}
+
+// checkPiExtensionSymlink refuses a known auto-discovered legacy extension
+// before a tmux session is created. The installer runs later in launchSession.
+func (s *Service) checkPiExtensionSymlink(agents map[agent.Role]agent.Agent) error {
+	usesPi := false
+	for _, provider := range agents {
+		usesPi = usesPi || provider.Name() == "pi"
+	}
+	if !usesPi {
+		return nil
+	}
+	installer := hooks.NewPiInstaller("")
+	installer.ExtensionDir = state.PiExtensionDir(s.Store.Root())
+	if err := installer.CheckLegacyExtensionSymlink(); err != nil {
+		return fmt.Errorf("install Pi extension: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) refreshAppOwnedSessionEnvironment(ctx context.Context, sessionID string) error {

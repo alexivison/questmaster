@@ -103,6 +103,9 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		}
 	}
 	s = s.onHandle(creation)
+	if err := s.checkPiExtensionSymlink(launch.agents); err != nil {
+		return ContinueResult{}, err
+	}
 
 	rtDir, err := m.RuntimeDirOrLegacy()
 	if err != nil {
@@ -227,6 +230,9 @@ func (s *Service) respawnDeadAgent(ctx context.Context, m state.Manifest, pane t
 	if err != nil {
 		return err
 	}
+	if err := s.installPiExtension(launch.agents); err != nil {
+		return err
+	}
 	// A legacy session's directory may be gone and is never recreated; the
 	// manifest and the session environment carry the resume ID either way.
 	if m.RuntimeDir != "" {
@@ -285,6 +291,7 @@ func (s *Service) continueLaunchFor(m state.Manifest) (continueLaunch, error) {
 		return continueLaunch{}, err
 	}
 	l.manifestAgents = make([]state.AgentManifest, 0, len(manifestSpecs))
+	masterClass := s.parentMasterClass(m.ExtraString("parent_session"))
 
 	for _, agentState := range manifestSpecs {
 		role := agent.Role(agentState.Role)
@@ -316,6 +323,8 @@ func (s *Service) continueLaunchFor(m state.Manifest) (continueLaunch, error) {
 			Title:           m.Title,
 			Role:            agentRole,
 			Class:           m.DisplayClass(),
+			MasterClass:     masterClass,
+			PiExtension:     state.PiExtensionPath(s.Store.Root()),
 			SystemBrief:     brief,
 			Continuing:      true,
 			Model:           agentState.Model,

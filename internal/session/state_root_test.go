@@ -27,8 +27,21 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
 		panic(err)
 	}
+	// A Pi launch installs the extension and retires legacy copies in Pi's
+	// config, so pin the Pi locations to temporary dirs.
+	piRoot, err := os.MkdirTemp("", "qm-session-pi-*")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("PI_HOME", filepath.Join(piRoot, "home")); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("PI_CODING_AGENT_DIR", filepath.Join(piRoot, "agent")); err != nil {
+		panic(err)
+	}
 	code := m.Run()
 	_ = os.RemoveAll(root)
+	_ = os.RemoveAll(piRoot)
 	os.Exit(code)
 }
 
