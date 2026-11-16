@@ -57,6 +57,13 @@ The always-needed tmux rules (name the server and the exact session on every cal
   older close hooks need one manual Continue each to restore membership.
   The close handler rewrites its own manifest through `Store.Update` to signal
   the daemon's liveness watcher; runtime-directory removal alone is not watched.
+- The daemon's `worker-attention` job inventories recorded servers once per pass
+  and reads state only for live, registered workers with a live owning master.
+  Hook state holds one `blocked_since` token and `blocked_alerted` acknowledgement
+  per episode, so pending alerts survive a daemon restart. Messages wait while the
+  master is busy; a worker that resumes before delivery is no longer pending.
+  Automatic alerts include the worker's recorded server and exact session target
+  for manual inspection of a native dialog; they do not answer the dialog.
 - **The user's default server has no operational route.** `ProbeDefaultSessions`
   is the one remaining reader, used by audit, stopped-manifest backfill and
   cleanup guards to detect managed sessions that remain there. It runs only `list-sessions` through

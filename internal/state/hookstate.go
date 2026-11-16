@@ -105,6 +105,8 @@ type PaneState struct {
 	LastEvent               time.Time            `json:"last_event"`
 	LastKind                string               `json:"last_kind"`
 	WorkingSince            time.Time            `json:"working_since,omitempty"`
+	BlockedSince            time.Time            `json:"blocked_since,omitempty"`
+	BlockedAlerted          bool                 `json:"blocked_alerted,omitempty"`
 	LastChatAt              time.Time            `json:"last_chat_at,omitempty"`
 	LastExchangeKind        string               `json:"last_exchange_kind,omitempty"`
 	LastExchangeAt          time.Time            `json:"last_exchange_at,omitempty"`
