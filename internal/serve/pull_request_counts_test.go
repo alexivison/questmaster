@@ -25,6 +25,8 @@ func TestCountPullRequests(t *testing.T) {
 		{"draft", &state.PullRequestStatus{State: "open", Draft: true}, `{"pull_request_counts":{"draft":1}}`},
 		{"merged", &state.PullRequestStatus{State: "merged", Draft: true}, `{"pull_request_counts":{"merged":1}}`},
 		{"closed", &state.PullRequestStatus{State: "closed", Draft: true}, `{"pull_request_counts":{"closed":1}}`},
+		{"open with conflicts", &state.PullRequestStatus{State: "open", Conflicts: true}, `{"pull_request_counts":{"conflicts":1}}`},
+		{"draft with conflicts", &state.PullRequestStatus{State: "open", Draft: true, Conflicts: true}, `{"pull_request_counts":{"conflicts":1}}`},
 		{"stale known state", &state.PullRequestStatus{State: "open", Stale: true}, `{"pull_request_counts":{"open":1}}`},
 	}
 	for _, tc := range cases {
@@ -49,10 +51,11 @@ func TestCountPullRequests(t *testing.T) {
 		{Status: &state.PullRequestStatus{State: "open"}},
 		{Status: &state.PullRequestStatus{State: "open"}},
 		{Status: &state.PullRequestStatus{State: "open", Draft: true}},
+		{Status: &state.PullRequestStatus{State: "open", Conflicts: true}},
 		{Status: &state.PullRequestStatus{State: "merged"}},
 		{Status: &state.PullRequestStatus{State: "closed"}},
 	})
-	if got == nil || *got != (PullRequestCounts{Open: 2, Draft: 1, Merged: 1, Closed: 1}) {
+	if got == nil || *got != (PullRequestCounts{Conflicts: 1, Open: 2, Draft: 1, Merged: 1, Closed: 1}) {
 		t.Fatalf("combined counts = %+v", got)
 	}
 }

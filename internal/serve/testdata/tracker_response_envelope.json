@@ -39,6 +39,7 @@
         "worker_count": 1,
         "pull_requests_rev": "abcdef1234567890",
         "pull_request_counts": {
+          "conflicts": 1,
           "open": 2,
           "draft": 1,
           "merged": 3,

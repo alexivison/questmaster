@@ -137,11 +137,13 @@ type ExchangeRow struct {
 }
 
 // PullRequestCounts totals the known git states of a master's watched PRs, including its workers' watches.
+// An open or draft PR with merge conflicts counts under Conflicts instead of Open or Draft, so each PR counts once.
 type PullRequestCounts struct {
-	Open   int `json:"open,omitempty"`
-	Draft  int `json:"draft,omitempty"`
-	Merged int `json:"merged,omitempty"`
-	Closed int `json:"closed,omitempty"`
+	Conflicts int `json:"conflicts,omitempty"`
+	Open      int `json:"open,omitempty"`
+	Draft     int `json:"draft,omitempty"`
+	Merged    int `json:"merged,omitempty"`
+	Closed    int `json:"closed,omitempty"`
 }
 
 // SessionSnapshot is one tracker row with live activity already applied.
