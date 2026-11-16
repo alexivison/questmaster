@@ -23,11 +23,13 @@ type alertRunner struct {
 	live  []string
 	sends []string
 	err   error
+	lists int
 }
 
 func (r *alertRunner) Run(_ context.Context, args ...string) (string, error) {
 	switch args[0] {
 	case "list-sessions":
+		r.lists++
 		return strings.Join(r.live, "\n"), r.err
 	case "has-session":
 		id := strings.TrimSuffix(strings.TrimPrefix(args[2], "="), ":")
@@ -246,5 +248,39 @@ func TestUnavailableInventoryRetainsMonitoring(t *testing.T) {
 	}
 	if len(runner.sends) != 0 {
 		t.Fatal("alert sent without a live master")
+	}
+}
+
+func TestEmptyWorkerSetDoesNotRequireTmux(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{"empty root", "master only", "orphan worker", "deregistered worker"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
+			j, runner := newAlertFixture(t)
+			switch scenario {
+			case "empty root":
+				if err := j.store.Delete("qm-master"); err != nil {
+					t.Fatal(err)
+				}
+				fallthrough
+			case "master only":
+				if err := j.store.Delete("qm-worker"); err != nil {
+					t.Fatal(err)
+				}
+			case "orphan worker":
+				if err := j.store.Delete("qm-master"); err != nil {
+					t.Fatal(err)
+				}
+			case "deregistered worker":
+				if err := j.store.RemoveWorker("qm-master", "qm-worker"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner.err = errors.New("tmux unavailable")
+			step(t, j)
+			if runner.lists != 0 || j.HasWork() {
+				t.Fatalf("empty worker set: tmux probes=%d, hasWork=%v", runner.lists, j.HasWork())
+			}
+		})
 	}
 }

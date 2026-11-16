@@ -27,7 +27,6 @@ type Job struct {
 func NewJob(store *state.Store, router *tmuxroute.Router) *Job {
 	j := &Job{store: store, router: router}
 	j.send = message.NewServiceWithRouter(store, router).Notify
-	j.hasWork.Store(true)
 	return j
 }
 
@@ -55,6 +54,37 @@ func (j *Job) Run(ctx context.Context) error {
 }
 
 func (j *Job) step(ctx context.Context) error {
+	// An empty worker set needs neither tmux nor a background-work lease. In
+	// particular, a missing tmux binary must not keep an unused daemon alive.
+	manifests, err := j.store.DiscoverSessions()
+	if err != nil {
+		return err
+	}
+	byID := make(map[string]state.Manifest, len(manifests))
+	for _, m := range manifests {
+		byID[m.SessionID] = m
+	}
+	registered := false
+	for _, master := range manifests {
+		if master.AgentSessionType() != "master" {
+			continue
+		}
+		for _, id := range master.Workers {
+			worker := byID[id]
+			if worker.AgentSessionType() == "worker" && worker.ExtraString("parent_session") == master.SessionID {
+				registered = true
+				break
+			}
+		}
+		if registered {
+			break
+		}
+	}
+	if !registered {
+		j.hasWork.Store(false)
+		return nil
+	}
+	j.hasWork.Store(true)
 	if j.router == nil {
 		return fmt.Errorf("tmux router is required for worker alerts")
 	}

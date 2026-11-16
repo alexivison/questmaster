@@ -59,6 +59,8 @@ The always-needed tmux rules (name the server and the exact session on every cal
   the daemon's liveness watcher; runtime-directory removal alone is not watched.
 - The daemon's `worker-attention` job inventories recorded servers once per pass
   and reads state only for live, registered workers with a live owning master.
+  With no registered worker/master pair, it skips tmux and reports no work, so
+  an unavailable tmux command cannot keep an otherwise idle daemon alive.
   Hook state holds one `blocked_since` token and `blocked_alerted` acknowledgement
   per episode, so pending alerts survive a daemon restart. Messages wait while the
   master is busy; a worker that resumes before delivery is no longer pending.
