@@ -12,7 +12,6 @@ enum AvatarSessionFixture {
         parentID: String = "",
         tool: String? = nil,
         exchange: (kind: String, at: String)? = nil,
-        elapsedSince: String? = nil,
         activeSubagents: Int = 0,
         activity: String? = nil
     ) -> TrackerSession {
@@ -34,9 +33,6 @@ enum AvatarSessionFixture {
         }
         if let exchange {
             fields["last_exchange"] = ["kind": exchange.kind, "at": exchange.at]
-        }
-        if let elapsedSince {
-            fields["elapsed_since"] = elapsedSince
         }
         fields["active_subagents"] = activeSubagents
         if let activity {
