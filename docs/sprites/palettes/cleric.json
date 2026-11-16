@@ -48,10 +48,15 @@
   },
   "neutral": [],
   "glow": [
-    "#f5d69d",
-    "#fff6dc"
+    "#a8485e",
+    "#d9697a",
+    "#f19a96",
+    "#ffc9a4",
+    "#ffe3a6",
+    "#fff4d4",
+    "#ffffff"
   ],
-  "glow_note": "Actual dawnlight workbench flight, impact and sigil swatches.",
+  "glow_note": "The seven colours of the pose effects, dark to light (deep rose, rose, peach, gold, white: warm radiant dawn light, used by the halo, flare, sparkles, burst, flame and ring); the flame adds a gold ramp (#6e3a10, #a8641c, #d99a34, #f2c85c, #ffe48a, #fff4c0). Redone 2026-11-16 from the new base.",
   "regions": "palette-regions/manifest.json",
   "source_map": {
     "outline": {

@@ -28,5 +28,10 @@ Columns: 3
 168 142  98	parchment 1
 201 176 133	parchment 2
 224 204 156	parchment 3
-245 214 157	glow 1
-255 246 220	glow 2
+168  72  94	glow 1
+217 105 122	glow 2
+241 154 150	glow 3
+255 201 164	glow 4
+255 227 166	glow 5
+255 244 212	glow 6
+255 255 255	glow 7
