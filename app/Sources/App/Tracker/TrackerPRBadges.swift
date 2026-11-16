@@ -12,13 +12,15 @@ enum TrackerPRBadgeMetrics {
     static let topInset = (TrackerPlateDesign.topLevel.tab?.boundingRect.minY ?? 0) - TrackerPlateDesign.svgDiscInset
 }
 
-/// Informational chips outside the plate's hit area. Core supplies only the non-zero states of master rows.
+/// Informational chips outside the plate's hit area. Core supplies only the non-zero states of master rows. A chip comes
+/// and goes the way an expanded worker's plate does: it slides from the top and fades over `standard` (none under Reduce
+/// Motion). Chips are keyed by state, so a count change keeps its chip in place.
 struct TrackerPRBadges: View {
     let badges: [TrackerPullRequestBadge]
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.row) {
-            ForEach(Array(badges.enumerated()), id: \.offset) { _, badge in
+            ForEach(badges, id: \.state) { badge in
                 HStack(spacing: Space.row) {
                     if let glyph = badge.state.icon {
                         PullRequestIconView(icon: glyph.icon, color: glyph.color)
@@ -37,8 +39,10 @@ struct TrackerPRBadges: View {
                 .overlay(RoundedRectangle(cornerRadius: Token.Radius.segment).strokeBorder(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Token.Size.divider))
                 .help(badge.tooltip)
                 .accessibilityLabel(badge.tooltip)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        .animation(Motion.animation(.standard), value: badges)
         .frame(width: TrackerPRBadgeMetrics.chipWidth, alignment: .topLeading)
     }
 }
