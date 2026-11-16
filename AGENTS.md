@@ -11,11 +11,12 @@ Detail lives in project skills: read the file the "Skills index" row names first
   and CLI behavior. Delegation thresholds, reviewer cadence, model preferences,
   and general writing or repository practices belong to the user or applicable
   project instructions, not the injected session prompt.
-- Master launches get the shared voice rules, mapped archetype and class flavour
+- Master launches get the shared voice rules and mapped archetype
   from `internal/agent/prompts/`; workers get none. Claude and Pi append it,
   Codex uses `developer_instructions`, and OpenCode selects a managed per-class
   master agent file. The voice is fixed at launch; reclassing takes effect on
   the next launch, including continuing a stopped session or restarting it.
+  Each archetype sets its own degree of older diction, formality and theatre.
 - Branch from a freshly fetched `origin/main` (`git fetch origin`, then
   `git worktree add <path> -b <branch> origin/main`), never from a local `main`:
   it can be stale or still on a history `main` has since rewritten, and a PR

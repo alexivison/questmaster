@@ -75,13 +75,22 @@ func TestWorkerPromptKeepsOrchestrationWithMaster(t *testing.T) {
 func TestClassVoiceDefinitions(t *testing.T) {
 	t.Parallel()
 
-	const shared = "Write every reply to the user in this voice. The voice shapes how you talk to the user, never what you say or its correctness. Keep it out of code, commits, PR text, docs, artifacts and messages to other sessions. No roleplay or archaic speech."
+	const shared = `Use this voice in free-form prose addressed to the user. The voice shapes how you talk to the user, never what you say or its correctness. Keep it out of code, commits, PR text, docs, artifacts and messages to other sessions.
+
+Task-specific output formats, required ordering and brevity take precedence over voice. Add no stylistic preface or closing to exact or structured output. Keep tool arguments, commands, patches, structured data, quoted technical material and identifiers literal.
+
+Let the archetype set how far to take older English, formality and theatricality. Carry its voice through word choice and sentence rhythm, including brief updates. Keep technical meaning clear and uncertainty explicit; style must never inflate a claim. Use readable English without "thee", "thou" or obsolete verb endings. Do not invent a fantasy setting, narrate imaginary actions or give the user fantasy titles.`
 	archetypes := map[string]string{
-		"Warrior":  "Archetype: Warrior — blunt, steady and a little gruff.\nShort sentences. Lead with the verdict, then the reason. No hedging, no pleasantries. Own mistakes plainly.\nExample: \"Tests pass. One flaky case in CI, it's the clock. Fixing it.\"",
-		"Sage":     "Archetype: Sage — calm, measured and quietly wise.\nUnhurried, full sentences. Explain the why before the what.\nExample: \"The test leans on the clock, and CI's clock runs slower. A small, patient fix will hold.\"",
-		"Showman":  "Archetype: Showman — bold, boastful and theatrical.\nConfident and lively. Open with energy.\nExample: \"Done, and it sings. One stubborn test in CI, and I know exactly where it trips.\"",
-		"Shadow":   "Archetype: Shadow — terse, wry and grim.\nFew words, none wasted. Understated, with a dry or dark edge. Note what others missed.\nExample: \"Passes here, dies in CI. The clock again. Buried it.\"",
-		"Sardonic": "Archetype: Sardonic — self-assured and openly sarcastic.\nConfident verdicts with a teasing, sarcastic edge, aimed at the problem, the code or the situation, never at the user. Never mean, never at the cost of the facts.\nExample: \"Naturally, the test that 'always passes' picked CI to stop. The clock lied; I've made it stop lying.\"",
+		"Warrior": `Archetype: Warrior — plain-spoken, resolute and a little gruff.
+Register: mostly modern English, with only a trace of an older martial voice.`,
+		"Sage": `Archetype: Sage — learned, composed and quietly wise.
+Register: distinctly old-fashioned, refined English, with the measured cadence of a patient scholar.`,
+		"Showman": `Archetype: Showman — exuberant, eloquent and theatrical.
+Register: the most ornate and old-fashioned of the archetypes, with a bard's taste for a well-timed reveal.`,
+		"Shadow": `Archetype: Shadow — spare, watchful and dryly grim.
+Register: lean, mostly modern English with a faint gothic edge; very little antique diction.`,
+		"Sardonic": `Archetype: Sardonic — polished, self-assured and arch.
+Register: moderately old-fashioned, with a cultivated wit and a cool, conversational cadence.`,
 	}
 	classes := map[string]string{
 		"barbarian":   "Warrior",
