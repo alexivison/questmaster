@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/alexivison/questmaster/internal/agent"
 )
 
 func callsAfter(runner *mockRunner, from int, command string) [][]string {
@@ -19,6 +21,121 @@ func callsAfter(runner *mockRunner, from int, command string) [][]string {
 		}
 	}
 	return calls
+}
+
+func setPiTestAgent(t *testing.T, svc *Service) {
+	t.Helper()
+	piCLI := filepath.Join(t.TempDir(), "pi")
+	if err := os.WriteFile(piCLI, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write Pi fixture: %v", err)
+	}
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{"pi": {CLI: piCLI}},
+		Roles:  agent.RolesConfig{Agent: &agent.RoleConfig{Agent: "pi", Window: 0}},
+	})
+	if err != nil {
+		t.Fatalf("create Pi registry: %v", err)
+	}
+	svc.Registry = registry
+}
+
+func setPiTestHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("PI_HOME", home)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	return home
+}
+
+func addLegacyPiMessagingSymlink(t *testing.T, home string) string {
+	t.Helper()
+	link := filepath.Join(home, "agent", "extensions", "questmaster-messaging.ts")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatalf("create Pi extensions dir: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "questmaster-messaging.ts")
+	if err := os.WriteFile(target, []byte("const sessionID = process.env.QUESTMASTER_SESSION ?? '';\n"), 0o644); err != nil {
+		t.Fatalf("write legacy Pi extension fixture: %v", err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink legacy Pi extension: %v", err)
+	}
+	return link
+}
+
+func assertLegacyPiBlock(t *testing.T, err error, link string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("operation succeeded with a legacy Pi extension symlink")
+	}
+	for _, want := range []string{link, "remove the symlink", "target will be left untouched"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+func TestStartRefusesLegacyPiExtensionSymlinkBeforeCreatingSession(t *testing.T) {
+	svc, runner := setupService(t)
+	svc.Now = uniqueSessionClock()
+	home := setPiTestHome(t)
+	link := addLegacyPiMessagingSymlink(t, home)
+	setPiTestAgent(t, svc)
+
+	_, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Class: "paladin"})
+	assertLegacyPiBlock(t, err, link)
+	if runner.hasCall("new-session") {
+		t.Fatal("Start created a tmux session before reporting the legacy Pi extension symlink")
+	}
+}
+
+func TestContinueRefusesToRelaunchPiWithLegacyExtensionSymlinkBeforeCreatingSession(t *testing.T) {
+	svc, runner := setupService(t)
+	svc.Now = uniqueSessionClock()
+	home := setPiTestHome(t)
+	setPiTestAgent(t, svc)
+	result, err := svc.Start(t.Context(), StartOpts{
+		Cwd:       t.TempDir(),
+		Class:     "paladin",
+		ResumeIDs: map[string]string{"pi": "resume-pi"},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	link := addLegacyPiMessagingSymlink(t, home)
+	delete(runner.sessions, result.SessionID)
+	before := len(runner.calls)
+
+	_, err = svc.Continue(t.Context(), result.SessionID)
+	assertLegacyPiBlock(t, err, link)
+	if creates := callsAfter(runner, before, "new-session"); len(creates) != 0 {
+		t.Fatalf("Continue created a tmux session before reporting the legacy Pi extension symlink: %v", creates)
+	}
+}
+
+func TestContinueRefusesPiRespawnWithLegacyExtensionSymlinkBeforeRespawningPane(t *testing.T) {
+	svc, runner := setupService(t)
+	svc.Now = uniqueSessionClock()
+	home := setPiTestHome(t)
+	setPiTestAgent(t, svc)
+	result, err := svc.Start(t.Context(), StartOpts{
+		Cwd:       t.TempDir(),
+		Class:     "paladin",
+		ResumeIDs: map[string]string{"pi": "resume-pi"},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	link := addLegacyPiMessagingSymlink(t, home)
+	pane := runner.sessionPane(result.SessionID)
+	runner.deadPanes[pane] = "17"
+	before := len(runner.calls)
+
+	_, err = svc.Continue(t.Context(), result.SessionID)
+	assertLegacyPiBlock(t, err, link)
+	if respawns := callsAfter(runner, before, "respawn-pane"); len(respawns) != 0 {
+		t.Fatalf("Continue respawned a pane before reporting the legacy Pi extension symlink: %v", respawns)
+	}
 }
 
 // Launch targets the pane new-session reported, never =name:0.0, so a server
