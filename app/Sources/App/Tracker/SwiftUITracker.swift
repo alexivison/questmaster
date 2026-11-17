@@ -1707,21 +1707,9 @@ struct TrackerAgentMark: View {
                 canvasSize: canvasSize
             )
         case .shell:
-            return AppSymbolStyle.image(
-                name: "apple.terminal",
-                pointSize: side * 0.58,
-                weight: .medium,
-                color: AppPalette.muted,
-                canvasSize: canvasSize
-            )
+            return AppIcon.discShellTerminal.image(glyphSide: side * 0.58, canvasSide: side, tint: AppPalette.muted)
         case .unknown:
-            return AppSymbolStyle.image(
-                name: "questionmark.circle",
-                pointSize: 10,
-                weight: .medium,
-                color: AppPalette.muted,
-                canvasSize: canvasSize
-            )
+            return AppIcon.discUnknownMask.image(glyphSide: side * 0.58, canvasSide: side, tint: AppPalette.muted)
         }
     }
 }

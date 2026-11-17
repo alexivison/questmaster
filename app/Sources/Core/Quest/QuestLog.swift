@@ -287,6 +287,11 @@ public final class QuestLogStore {
         selectTab((selectedTabIndex + delta + count) % count)
     }
 
+    /// Why the list shows nothing: no quests at all, or a search or filter that hid every one.
+    public var emptyReason: ListEmptyReason {
+        ListEmptyReason.of(total: allQuests.count, shown: visibleQuests.count)
+    }
+
     public func select(_ id: String) {
         guard visibleQuests.contains(where: { $0.id == id }) else {
             return

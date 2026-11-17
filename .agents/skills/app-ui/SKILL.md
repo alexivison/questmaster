@@ -38,6 +38,7 @@ The scans read lines. A value passed through a helper's parameter is not seen, s
 | Spacing, control heights, motion forms | `app/Sources/App/SharedUI/DesignTokens.swift` (`Space`, `ControlHeight`, `Motion`) |
 | State looks | `app/Sources/Core/Rendering/InteractionLook.swift` |
 | Motion steps and easing | `app/Sources/Core/Rendering/Motion.swift` (`MotionStep`, `MotionEasing`) |
+| Decided icons (line and filled SVGs) | `app/Sources/App/Resources/Icons/{line,filled}`, drawn through `AppIcon` (`SharedUI/AppIcon.swift`); a glyph with no icon yet stays an SF Symbol through `AppGlyph` |
 
 The colours shared with tmux (surfaces, state colours, git colours and named
 display colours) come from `internal/palette/palette.json`. Run

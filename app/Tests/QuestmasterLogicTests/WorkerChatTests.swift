@@ -31,6 +31,7 @@ struct WorkerChatTests {
         changeDuringAPullIsPickedUpByTheNextOne()
         failedPullRetriesOnNextSync()
         emptyStateWaitsForTheFirstWholeRead()
+        emptyReasonSaysWhetherTheTabHidLines()
         attachChangeResetsTheFeed()
         hiddenAttachmentChangesResetWhenReopened()
         nonMasterRolesDoNotPull()
@@ -380,6 +381,20 @@ struct WorkerChatTests {
         store.fail(first)
         let retry = store.sync(selectedSessionID: "m", sessions: group(), isVisible: true)
         expect(retry != nil, "a failed pull should retry on the next sync")
+    }
+
+    /// An empty reply has nothing yet; a worker tab that hides every line the feed has is a no-match.
+    private static func emptyReasonSaysWhetherTheTabHidLines() {
+        let whole = makeStore()
+        _ = whole.receive(WorkerFeedPayload(), for: open(whole))
+        expect(whole.emptyReason == .nothingYet, "an empty whole reply has nothing yet")
+
+        let tabbed = makeStore()
+        feed(tabbed, [entry(0, "w1", "say", "hello")])
+        tabbed.selectWorker("w2")
+        expect(tabbed.isKnownEmpty && tabbed.emptyReason == .noMatch, "a tab that hides every line is a no-match")
+        tabbed.selectWorker(nil)
+        expect(!tabbed.isKnownEmpty, "back on All the line shows again")
     }
 
     /// The dock's empty icon means "read, and nothing there": never while the first read is pending, failed or partial, and

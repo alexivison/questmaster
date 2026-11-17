@@ -130,7 +130,7 @@ struct QuestLogView: View {
             QuestLogList(store: store)
                 .frame(width: layout.listWidth, height: layout.listHeight, alignment: .top)
                 .offset(x: layout.listOrigin.x, y: layout.listOrigin.y)
-            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout)
+            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout, emptyReason: store.emptyReason)
                 .offset(x: layout.pageOrigin.x, y: layout.pageOrigin.y)
             // Last but the buttons: a ZStack draws later children on top, and the filter's suggestion dropdown opens
             // over the list.
@@ -326,6 +326,8 @@ private struct QuestLogPageView: View {
     let pageID: String?
     let pageScroll: QuestLogPageScroll
     let layout: QuestLogLayout
+    /// Why there is no page to show, when there is none.
+    let emptyReason: ListEmptyReason
     @State private var unrolled = false
     @State private var inked = false
 
@@ -392,7 +394,7 @@ private struct QuestLogPageView: View {
             .id(pageID)
             .transition(.opacity)
         } else {
-            EmptyState(color: AppPalette.panel)
+            EmptyState(color: AppPalette.panel, reason: emptyReason)
         }
     }
 }

@@ -7,27 +7,23 @@ struct StatusMessagePane: View {
     var title: String = ""
     var message: String
     var detail: String = ""
-    var symbolName: String?
+    var glyph: AppGlyph?
     var alignment: HorizontalAlignment = .leading
     var textAlignment: TextAlignment = .leading
     var frameAlignment: Alignment = .topLeading
     var backgroundColor: NSColor?
     var detailSelectable = false
 
-    private static let symbolSide = ControlHeight.compact
+    /// A control's height: the glyph's square, as the SF Symbol it replaces was.
+    private static let glyphSide = ControlHeight.compact
 
     var body: some View {
         VStack(alignment: alignment, spacing: Space.item) {
-            if let symbolName, let image = AppSymbolStyle.image(
-                name: symbolName,
-                pointSize: Self.symbolSide,
-                color: AppPalette.muted,
-                canvasSize: NSSize(width: Self.symbolSide, height: Self.symbolSide)
-            ) {
+            if let glyph, let image = glyphImage(glyph) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: Self.symbolSide, height: Self.symbolSide)
+                    .frame(width: Self.glyphSide, height: Self.glyphSide)
             }
             if !title.isEmpty {
                 Text(title)
@@ -48,6 +44,20 @@ struct StatusMessagePane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: frameAlignment)
         .padding(Space.section)
         .background(backgroundFill)
+    }
+
+    private func glyphImage(_ glyph: AppGlyph) -> NSImage? {
+        switch glyph {
+        case .symbol(let name):
+            return AppSymbolStyle.image(
+                name: name,
+                pointSize: Self.glyphSide,
+                color: AppPalette.muted,
+                canvasSize: NSSize(width: Self.glyphSide, height: Self.glyphSide)
+            )
+        case .icon(let icon):
+            return icon.image(glyphSide: Self.glyphSide, tint: AppPalette.muted)
+        }
     }
 
     @ViewBuilder

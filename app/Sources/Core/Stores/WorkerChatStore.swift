@@ -53,6 +53,8 @@ public final class WorkerChatStore {
     /// failed or partial) the chat is blank rather than empty, and `readNotice` says what went wrong. A filter that hides
     /// every line leaves nothing to list too, and the feed has lines then, so it needs no whole read.
     public var isKnownEmpty: Bool { lines.isEmpty && (hasLoaded || !allLines.isEmpty) }
+    /// Why the feed shows nothing, once `isKnownEmpty`: the filter hid every built line, or nothing has been read yet.
+    public var emptyReason: ListEmptyReason { ListEmptyReason.of(total: allLines.count, shown: lines.count) }
     public private(set) var filter = WorkerLogFilter()
     public private(set) var menu = WorkerLogMenu()
     /// The attached master's workers, in the order the tracker shows them: the tab row's tabs after All.

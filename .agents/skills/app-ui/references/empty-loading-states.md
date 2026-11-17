@@ -1,7 +1,9 @@
 # Empty, loading and connection states
 
-- Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
-  section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
+- Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) glyph in `textMeta`, centred in the
+  section the list would fill, with no text, hint or command. The glyph says why it's empty: the moon (`empty-idle-moon`)
+  when nothing is there yet, the shrug (`empty-no-match-shrug`) when a filter hid everything (`ListEmptyReason`, decided in
+  Core from the total and what the filter lets through). Every dock panel (the artifact list under its tabs, the
   artifact viewer, the Worker Log, Watcher), the tracker and the Quest Log's page draw it; the page passes the
   parchment ink instead. The Worker Log draws it only once its first read came back whole and empty, or when
   its filter or worker tab hides every line (`WorkerChatStore.isKnownEmpty`, decided in Core; the chip above it stays, with its x, and the tabs under it when they show);

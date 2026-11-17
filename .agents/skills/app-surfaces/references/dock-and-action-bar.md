@@ -20,9 +20,11 @@
   tracker's plates and the dock, or from the window's edges when they're hidden, with the terminal's text starting
   `Space.section` under it. `ShellSplitLayoutPlanner` gives its frame (`headerFrame`) and `MainSplitView` lays it out
   and animates it with the panes. Its buttons sit centred (`ActionBarMetrics.buttonSize`, `buttonInset`) and `endInset` in from
-  its ends: the tracker toggle alone at the leading end; New Session, Quest Log and Settings, then Artifacts, Worker Log
-  and Watcher at the trailing end, `buttonSeam` apart in a group and `groupGap` between the groups; caffeinate
-  `toggleGap` past them. Its empty space drags the window. Toasts sit `Space.section` above the
+  its ends: the tracker toggle alone at the leading end; New Session, Quest Log, New Quest (opens the same modal as ⌘T)
+  and Settings, then Artifacts, Worker Log and Watcher at the trailing end, `buttonSeam` apart in a group and `groupGap`
+  between the groups; caffeinate `toggleGap` past them. Its glyphs are `AppIcon`s, 20pt. A button whose look is active or
+  on (the tracker shown, a dock panel shown, caffeinate on) draws the filled drawing; the active or on colour step stays.
+  Its empty space drags the window. Toasts sit `Space.section` above the
   window's bottom edge.
 - Scoops are stepped (`ScoopedRectangle`): a 5pt square step at each end of the scoop, its arc centred on the step's inner
   corner. The action bar header and the tracker banner step 3 at their 13pt scoop (`ActionBarMetrics.scoopStep`); the

@@ -12,15 +12,6 @@ public struct CaffeineState: Equatable {
         self.isActive = isActive
     }
 
-    /// Header SF Symbol — a plain cup, *without* baked-in heat waves, because the
-    /// active state draws its own animated steam on top (the symbol's own heat
-    /// waves can't be animated in isolation). Filled while the assertion is held,
-    /// outline when idle — the on-state reads by shape, so it survives Reduce
-    /// Motion and color-blindness, not the warm tint alone.
-    public var symbolName: String {
-        isActive ? "cup.and.saucer.fill" : "cup.and.saucer"
-    }
-
     /// Tooltip / accessibility label; flips with the toggle.
     public var accessibilityLabel: String {
         isActive ? "Stop keeping Mac awake" : "Keep Mac awake"
