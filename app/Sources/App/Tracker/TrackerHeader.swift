@@ -26,7 +26,7 @@ struct TrackerHeader: View {
     var body: some View {
         TrackerHeaderWordmark()
             .frame(width: TrackerHeaderMetrics.size.width, height: TrackerHeaderMetrics.size.height)
-            .scoopedPanel(radius: ActionBarMetrics.scoopRadius, step: ActionBarMetrics.scoopStep, ruled: false, elevation: .raised)
+            .scoopedPanel(radius: ActionBarMetrics.scoopRadius, step: ActionBarMetrics.scoopStep, elevation: .raised)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

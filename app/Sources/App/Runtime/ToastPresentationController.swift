@@ -113,7 +113,6 @@ struct ToastBanner: View {
             fill: AppPalette.panel.withAlphaComponent(0.88),
             radius: Self.scoopRadius,
             step: Self.scoopStep,
-            ruled: false,
             elevation: .raised
         )
         .padding(Self.shadowMargin)

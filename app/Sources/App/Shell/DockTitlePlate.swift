@@ -3,9 +3,9 @@ import QuestmasterCore
 import SwiftUI
 
 /// The dock's title plate (the title tab): a nameplate centred on each dock panel's top edge, `lift` above it, so it breaks the
-/// 2pt border and the double rule and hides both behind its panel fill. Its ends are `AngledButtonShape`, the angled
-/// buttons' own, and its 2pt border lifts to `controlBorder` with the rule while the dock has the keys. While a refresh the
-/// user asked for runs, it takes the on look (`OnLook`): the brass glow band inside its border and the spinner round it.
+/// panel's 2pt border and hides it behind its panel fill. Its ends are `AngledButtonShape`, the angled buttons' own, and its
+/// 2pt border lifts to `controlBorder` with the panel's frame while the dock has the keys. While a refresh the user asked for
+/// runs, it takes the on look (`OnLook`): the brass glow band inside its border and the spinner round it.
 enum DockTitlePlateMetrics {
     static let height: CGFloat = 30
     /// How far the plate rises above the panel's top edge: the window's gap above the dock, less the plate's own headroom.
@@ -37,12 +37,15 @@ struct DockTitlePlateView: View {
                 .background(shape.fill(AppPalette.panel.swiftUI))
                 .overlay { OnLookGlow(look: look, shape: AnyShape(shape), band: DockTitlePlateMetrics.glowBand) }
                 .overlay(
-                    shape.stroke(OutlineLook.plate(focused: model.isFocused).border.color.swiftUI, lineWidth: DockTitlePlateMetrics.borderStrokeWidth)
+                    shape.stroke(OutlineLook.frame(focused: model.isFocused).border.color.swiftUI, lineWidth: DockTitlePlateMetrics.borderStrokeWidth)
                 )
                 .clipShape(shape)
                 .overlay {
                     OnLookSpinner(look: look, outline: .shape(AnyShape(shape)), stroke: DockTitlePlateMetrics.borderWidth)
                 }
+                // The top dock's plate reaches under a full-size-content titlebar, which the hosting view reads as a top safe
+                // area and pushes the title down by. The plate is positioned by its host, so it takes no safe-area inset.
+                .ignoresSafeArea()
         }
     }
 }

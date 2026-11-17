@@ -35,7 +35,7 @@
   and next, wrapping as the Settings tabs do (`Keymap.Action.previousTab` and `nextTab`, handled where `f` is), with the dropdown open or closed,
   and work only while the bottom panel has the keys and the row shows (otherwise they pass through). The feed ends where
   the row begins; the row's height, baseline and bottom inset are `TextTabMetrics` and `WorkerLogTabMetrics` (`reserved`,
-  `bottomInset`, which is `Space.row` clear of the double rule). Tabs too many for the
+  `bottomInset`). Tabs too many for the
   panel scroll sideways with no scroller, in a view inset by `WorkerLogTabMetrics.sideInset` (the
-  bottom corners' scoop radius plus `Space.item`), so every tab, clipped or not, stays clear of the scoop and of the rule's arc there; a side
+  bottom corners' scoop radius plus `Space.item`), so every tab, clipped or not, stays clear of the scoop; a side
   with hidden tabs fades out over `TextTabMetrics.fadeWidth`, as the feed's top does. A change of selection scrolls it to the middle. The empty state stays centred in the room above the row.

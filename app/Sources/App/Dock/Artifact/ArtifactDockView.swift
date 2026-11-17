@@ -112,8 +112,8 @@ struct ArtifactDockView: View {
             }
         }
         .padding(.top, Space.section)
-        // The column's leading edge sits `Space.item` in, so the list's 20pt gutter, where a row's mark draws, clears the
-        // double rule's inner edge (6 in) by 5 from its own leading edge.
+        // The column starts `Space.item` in, so the gutter where a row's mark and the keyboard pointer draw sits clear of the
+        // panel's 2pt border.
         .padding(.leading, Space.item)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.artifactListColumn.swiftUI)

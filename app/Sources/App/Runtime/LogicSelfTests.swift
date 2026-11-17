@@ -69,6 +69,7 @@ enum LogicSelfTests {
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn", testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn),
         ("testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar", testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar),
+        ("testDockTitlesStayCentredOnTheirPlatesUnderATitlebar", testDockTitlesStayCentredOnTheirPlatesUnderATitlebar),
         ("testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate", testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
@@ -945,6 +946,90 @@ enum LogicSelfTests {
         try expect(isFill(pixels(rightEnd - ActionBarMetrics.scoopRadius), midline), "the banner's fill reaches the badge column's right edge")
         try expect(!isFill(pixels(rightEnd + 1), midline), "the banner stops at the badge column's right edge")
         try expect(!isFill(pixels(TrackerListMetrics.sidePadding - 1), midline), "the banner starts at the plates' leading edge")
+    }
+
+    /// A dock title plate under a full-size-content titlebar, as the app's window has one: a hosting view there takes the
+    /// titlebar as a top safe area, which pushed the title down on the top dock. Measured at 2x on the cap band of the title's
+    /// first capital (its top to its baseline, so descenders don't count), counting only the title's gold ink so the grey
+    /// filter and close glyphs beside it never do. The title must sit as it does with no titlebar, and centred on its plate
+    /// for the Watcher, the Artifacts and the Worker Log at either position. The titlebar check is exact to half a point. The
+    /// centring allows 1.5pt, since the title's line box centres the font's own ascent and descent: the user's terminal font
+    /// sits 0.25pt high, and a runner without it (the system's monospace) sits about a point lower.
+    private static func testDockTitlesStayCentredOnTheirPlatesUnderATitlebar() throws {
+        let width: CGFloat = 400, height: CGFloat = 700, scale: CGFloat = 2
+        let topFrame = NSRect(x: 20, y: height - 20 - 300, width: 360, height: 300)
+        let bottomFrame = NSRect(x: 20, y: 20, width: 360, height: height - 40 - 300 - 20)
+        let watcher = DockTopBarModel.watcher
+        let artifacts = DockTopBarModel.make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false)
+        let workerLog = DockTopBarModel.make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true)
+
+        /// The offset of the first capital's cap band from its plate's centre, positive upward, in points.
+        func offset(_ topBar: DockTopBarModel, frame: NSRect, titlebar: Bool) throws -> CGFloat {
+            let styleMask: NSWindow.StyleMask = titlebar ? [.titled, .fullSizeContentView] : [.borderless]
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: styleMask, backing: .buffered, defer: false)
+            window.titlebarAppearsTransparent = titlebar
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+            window.contentView = container
+            let shell = DockShellView(body: NSView(), model: DockChromeModel(topBar: topBar))
+            shell.frame = frame
+            container.addSubview(shell)
+            container.layoutSubtreeIfNeeded()
+            try pumpOneMainRunLoopTurn()
+            container.layoutSubtreeIfNeeded()
+            guard let plate = descendant(DockTitlePlateHost.self, in: shell) else {
+                throw TestFailure("the dock should host its title plate")
+            }
+            let plateRect = container.convert(plate.bounds, from: plate)
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(width * scale), pixelsHigh: Int(height * scale), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ) else {
+                throw TestFailure("could not make a bitmap")
+            }
+            bitmap.size = NSSize(width: width, height: height)
+            container.cacheDisplay(in: container.bounds, to: bitmap)
+            // The gold leans red over blue by at least a fifth, so an antialiased edge half-covered by gold still counts.
+            func isGold(_ column: Int, _ row: Int) -> Bool {
+                guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB) else { return false }
+                return pixel.redComponent - pixel.blueComponent > 0.2 && pixel.redComponent > pixel.greenComponent
+            }
+            // Pixel rows of the plate's band, and the columns of the title's first capital (about 8pt wide from the first gold).
+            let rows = Int((height - plateRect.maxY) * scale)...Int((height - plateRect.minY) * scale) - 1
+            let firstColumn = (Int(plateRect.minX * scale)..<Int(plateRect.maxX * scale)).first { column in
+                rows.contains { isGold(column, $0) }
+            }
+            guard let left = firstColumn else {
+                throw TestFailure("the plate should show its title's ink")
+            }
+            let capColumns = left..<(left + Int(8 * scale))
+            let capRows = rows.filter { row in capColumns.contains { isGold($0, row) } }
+            guard let top = capRows.first, let bottom = capRows.last else {
+                throw TestFailure("the first capital should show ink")
+            }
+            let capTop = height - CGFloat(top) / scale
+            let capBottom = height - CGFloat(bottom + 1) / scale
+            return (capTop + capBottom) / 2 - plateRect.midY
+        }
+
+        let watcherBare = try offset(watcher, frame: topFrame, titlebar: false)
+        let watcherTitled = try offset(watcher, frame: topFrame, titlebar: true)
+        let workerTopBare = try offset(workerLog, frame: topFrame, titlebar: false)
+        let workerTopTitled = try offset(workerLog, frame: topFrame, titlebar: true)
+        let workerBottomBare = try offset(workerLog, frame: bottomFrame, titlebar: false)
+        let workerBottomTitled = try offset(workerLog, frame: bottomFrame, titlebar: true)
+        let artifactsBare = try offset(artifacts, frame: bottomFrame, titlebar: false)
+        let artifactsTitled = try offset(artifacts, frame: bottomFrame, titlebar: true)
+        let report = "cap band offsets, titled / bare: Watcher top \(watcherTitled) / \(watcherBare); Worker Log top \(workerTopTitled) / \(workerTopBare); Worker Log bottom \(workerBottomTitled) / \(workerBottomBare); Artifacts bottom \(artifactsTitled) / \(artifactsBare)"
+        try expect(abs(watcherTitled - watcherBare) <= 0.5, "the Watcher title should sit where it does with no titlebar: \(report)")
+        try expect(abs(workerTopTitled - workerTopBare) <= 0.5, "the Worker Log title at the top should sit where it does with no titlebar: \(report)")
+        try expect(abs(workerBottomTitled - workerBottomBare) <= 0.5, "the Worker Log title at the bottom should sit where it does with no titlebar: \(report)")
+        try expect(abs(artifactsTitled - artifactsBare) <= 0.5, "the Artifacts title should sit where it does with no titlebar: \(report)")
+        try expect(abs(watcherTitled) <= 1.5, "the Watcher title should be centred on its plate: \(report)")
+        try expect(abs(workerTopTitled) <= 1.5, "the Worker Log title at the top should be centred on its plate: \(report)")
+        try expect(abs(workerBottomTitled) <= 1.5, "the Worker Log title at the bottom should be centred on its plate: \(report)")
+        try expect(abs(artifactsTitled) <= 1.5, "the Artifacts title should be centred on its plate: \(report)")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
@@ -5788,7 +5873,6 @@ enum LogicSelfTests {
     /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
     /// in one pixel column.
     /// A panel's scoop: the top edge ends 25 from the corner, drops a 5pt step, and its arc (centred 5 in) cuts the corner.
-    /// The double rule's centre line sits 5.5 in, so its 1pt stroke covers the band from 5 to 6.
     private static func testScoopedPanelsStepIntoTheirCorners() throws {
         let bounds = CGRect(x: 0, y: 0, width: 200, height: 200)
         let outline = ScoopedRectangle.cgPath(in: bounds)
@@ -5797,10 +5881,6 @@ enum LogicSelfTests {
         try expect(outline.contains(CGPoint(x: 26, y: 6)), "the step's face should run down 5 from the top edge")
         try expect(!outline.contains(CGPoint(x: 10, y: 10)), "the arc should cut the corner")
         try expect(outline.contains(CGPoint(x: 100, y: 0.5)) && outline.contains(CGPoint(x: 0.5, y: 100)), "the straight edges should be the panel's own")
-        let rule = ScoopedRectangle.ruleCGPath(in: bounds).copy(strokingWithWidth: ScoopedRectangle.ruleStrokeWidth, lineCap: .butt, lineJoin: .miter, miterLimit: 10)
-        try expect(rule.contains(CGPoint(x: 100, y: 5.5)) && rule.contains(CGPoint(x: 5.5, y: 100)), "the double rule should run 5 in, centred on 5.5")
-        try expect(!rule.contains(CGPoint(x: 100, y: 4.5)) && !rule.contains(CGPoint(x: 100, y: 6.5)), "the double rule should be 1pt wide")
-        try expect(!rule.contains(CGPoint(x: 100, y: 100)), "the double rule should not reach the centre")
     }
 
     private static func testRenderedSpacingStaysOnTheScale() throws {
@@ -5844,11 +5924,8 @@ enum LogicSelfTests {
         let tileColumn = Int(Space.item + Space.section + ListItemMetrics.textInset) + 6
         let pane = CGSize(width: DockWidthPreference.panelWidth, height: 1015)
         let paneRows = try borderRows(RenderPreview.artifactPaneView(highlight: nil), size: pane, x: tileColumn, atLeast: 44)
-        // The dock's double rule is drawn in the same `line` colour across the top and bottom, 5pt in; the cards lie inside it.
-        let rule = Int(ScoopedRectangle.ruleInset + ScoopedRectangle.ruleStrokeWidth)
-        let insideRule = paneRows.filter { $0 >= rule && $0 < Int(pane.height) - rule }
         // Each of the eleven cards has four border pixels here: card top, tile top, tile bottom, card bottom.
-        let cards = Array(insideRule.suffix(44))
+        let cards = Array(paneRows.suffix(44))
         try expect(cards.count == 44, "the artifact cards and tiles should show in the column, got rows \(paneRows)")
         let tops = stride(from: 0, to: cards.count, by: 4).map { cards[$0] }
         for index in stride(from: 0, to: cards.count, by: 4) {
