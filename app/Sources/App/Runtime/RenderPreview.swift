@@ -265,6 +265,11 @@ enum RenderPreview {
         renderView(artifactPaneView(highlight: 2, suggesting: true), size: pane, to: "\(outputDir)/artifact-pane.png")
         renderView(artifactPaneView(highlight: 4, focused: false), size: pane, to: "\(outputDir)/artifact-pane-unfocused.png")
         renderView(artifactPaneView(highlight: nil), size: pane, to: "\(outputDir)/artifact-pane-rest.png")
+        renderView(artifactPaneView(highlight: nil, session: true), size: pane, to: "\(outputDir)/artifact-pane-session.png")
+        // The same two panes with a margin above, for the comparison with the mock, where the plate's top shows.
+        let framed = CGSize(width: pane.width, height: pane.height + Space.section)
+        renderView(framedArtifactPane(artifactPaneView(highlight: nil), size: pane, topMargin: Space.section), size: framed, to: "\(outputDir)/artifact-pane-rest-framed.png")
+        renderView(framedArtifactPane(artifactPaneView(highlight: nil, session: true), size: pane, topMargin: Space.section), size: framed, to: "\(outputDir)/artifact-pane-session-framed.png")
         render(artifactHoverView(), size: CGSize(width: 400, height: 260), to: "\(outputDir)/artifact-hover.png")
         renderView(artifactPaneView(highlight: 1, marked: [0, 2], missing: [1, 3]), size: pane, to: "\(outputDir)/artifact-pane-marked.png")
         renderView(artifactPaneView(highlight: nil, empty: true), size: pane, to: "\(outputDir)/artifact-pane-empty.png")
@@ -355,6 +360,14 @@ enum RenderPreview {
     /// in the delete selection and `missing` ones lost their file; `empty` shows the Session tab, or the All tab (`allTab`),
     /// with nothing in it, or the viewer (`viewer`) with no artifact to show.
     @MainActor
+    /// The pane on a canvas `topMargin` taller, so its title plate shows whole: a pane's own canvas starts at the panel's top edge.
+    static func framedArtifactPane(_ pane: NSView, size: CGSize, topMargin: CGFloat) -> NSView {
+        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: size.width, height: size.height + topMargin))
+        pane.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
+        canvas.addSubview(pane)
+        return canvas
+    }
+
     static func artifactPaneView(
         highlight: Int?,
         focused: Bool = true,
@@ -363,6 +376,7 @@ enum RenderPreview {
         missing: Set<Int> = [],
         empty: Bool = false,
         allTab: Bool = false,
+        session: Bool = false,
         viewer: Bool = false
     ) -> NSView {
         let artifacts = (0..<11).map { index in
@@ -383,7 +397,7 @@ enum RenderPreview {
             currentSessionID: "preview",
             artifacts: empty ? [] : artifacts,
             projectTitlesByArtifactID: Dictionary(uniqueKeysWithValues: artifacts.map { ($0.id, "questmaster") }),
-            artifactScope: empty && !allTab ? .session : .all,
+            artifactScope: session || (empty && !allTab) ? .session : .all,
             selectedArtifactID: highlight.map { artifacts[$0].id },
             selectedArtifactIDs: Set(marked.map { artifacts[$0].id }),
             route: viewer ? .viewer : .list,

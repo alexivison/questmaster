@@ -23,7 +23,8 @@
   0.8 opacity; disabled is window fill with `item` border and label (the shared
   button styles).
 - Use the shared components: `stateRow` for rows (`ListRow` for the tracker's
-  plates), `PillTab`/`PillTabRow` for tabs (no icon: no disc),
+  plates), `PillTab`/`PillTabRow` for agent and settings tabs (no icon: no disc),
+  `TextTabRow` for text tabs (the Worker Log, the Quest Log and the Artifacts' Session/All),
   `fieldChrome`/`FormTextField` for fields, `FilterBar` for filter fields,
   `SuggestionDropdown` for every dropdown and suggestion list (`dropdownChrome`
   is its box, for a dropdown that isn't a list of suggestions), `FilterChip` for

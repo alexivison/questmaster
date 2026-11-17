@@ -22,7 +22,7 @@ The scans read lines. A value passed through a helper's parameter is not seen, s
 ## Rules that are not scanned
 
 - The mouse highlights, the keys move the cursor, and a click acts. Hover never moves a list's cursor or selection (the tracker is the one exception). `references/interaction-states.md`.
-- Use the shared components: `stateRow` for rows, `PillTab`/`PillTabRow` for tabs, `fieldChrome`/`FormTextField` for fields, `FilterBar`, `SuggestionDropdown`, `FilterChip`, `AngledButton`. `references/shadows-and-components.md`.
+- Use the shared components: `stateRow` for rows, `PillTab`/`PillTabRow` for agent and settings tabs, `TextTabRow` for text tabs, `fieldChrome`/`FormTextField` for fields, `FilterBar`, `SuggestionDropdown`, `FilterChip`, `AngledButton`. `references/shadows-and-components.md`.
 - A view asks for a state's look (`RowLook`, `OutlineLook`, `ActionBarButtonLook`, `PlateBand`) and draws it; it never picks a palette colour by state.
 - Shadows come only from an `Elevation` token, never numbers at the call site, and a shadow drawn inside a clip is a bug.
 - Nothing to list is one `EmptyState` icon with no text; a list still loading is a skeleton. `references/empty-loading-states.md`.

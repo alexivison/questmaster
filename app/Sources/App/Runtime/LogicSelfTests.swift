@@ -3828,7 +3828,8 @@ enum LogicSelfTests {
         }
         let dock = CGSize(width: DockWidthPreference.panelWidth, height: 400)
         try expectCentred(try ink(artifacts(.viewer), size: dock), in: CGRect(origin: .zero, size: dock), "the artifact viewer")
-        let listTop = Space.section + ControlHeight.compact + Space.section
+        // The tabs' layout height (their box less what hangs under the baseline), then `Space.section` to the list.
+        let listTop = (TextTabMetrics.height - ArtifactTabsMetrics.belowBaseline) + Space.section
         try expectCentred(
             try ink(artifacts(.list), size: dock, below: Int(listTop)),
             in: CGRect(x: 0, y: listTop, width: dock.width, height: dock.height - listTop),

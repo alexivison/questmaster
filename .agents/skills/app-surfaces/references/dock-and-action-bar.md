@@ -37,6 +37,13 @@
   (`MenuPointerMetrics.gutter`) in on both sides, like the Quest Log and the Watcher. The row's mark and the keyboard
   pointer draw in that gutter, 3.5pt from the panel's outer edge, 1.5pt clear of its 2pt border. The toast is a scooped panel too, with its own size
   (`ToastBanner.scoopRadius` 10, `scoopStep` 2: the action bar's proportion for a one-line toast).
+- The Artifacts' Session/All tabs are text tabs (`TextTabRow`, as the Worker Log's and the Quest Log's), centred on the
+  panel: `ArtifactDockView.scopeTabs` takes back the column's `Space.item`. The list starts at the top bar's bottom edge,
+  since the bar keeps its 40pt band, so the tab text sits about 31pt under the plate's bottom edge. The mock
+  (`artifact-tabs-mock.png`, 3x) has it about 14pt under (snapped 15), which the bar's band rules out: closing that gap
+  means letting the list start under the bar, a `DockShellView` change the Worker Log and Watcher share. The row's box
+  runs `ArtifactTabsMetrics.belowBaseline` under the text, so the filter (All only) and the rows sit `Space.section` under
+  the baseline, as the mock has them. The mock draws the filter under Session too; the dock shows it under All only.
 - The dock is two stacked scooped panels, `DockColumnLayout.panelGap` apart: Watcher on top at the fixed
   `DockColumnLayout.watcherHeight`, and
   under it the artifacts or the Worker Log. Each has its own title and close button, and either shows alone
