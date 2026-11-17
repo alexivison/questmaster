@@ -5,8 +5,8 @@
 - Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in `accent`, 14pt bold, on a title plate
   (`DockTitlePlateView`) centred on the panel's top edge: 30 high (`DockTitlePlateMetrics.height`), rising `lift` (10) above
   the panel, `Space.section` either side of the title, and ending in `AngledButtonShape`, the angled buttons' own ends. Its
-  2pt border is `lineSoftSubtle` and lifts to `controlBorder` with the double rule while the dock has the keys
-  (`OutlineLook.plate(focused:)`). The plate hides the border and the rule behind its fill, and the top bar keeps only the
+  2pt border is the dock's frame look: `lineSoftSubtle`, lifting to `controlBorder` while the dock has the keys
+  (`OutlineLook.frame(focused:)`). The plate hides the panel's border behind its fill, and the top bar keeps only the
   icons. The dock gap stays `DockColumnLayout.panelGap` (20): the lower plate's top sits 10 below the panel above. While a
   refresh the user asked for (`r`) is under way, Watcher's plate takes the on look (`OnLook`, the caffeinate toggle's own
   effect): the brass glow band inside its border at 15% (`Token.Size.glowRing` past the 2pt border), and the tracker's
@@ -28,11 +28,9 @@
   window's bottom edge.
 - Scoops are stepped (`ScoopedRectangle`): a 5pt square step at each end of the scoop, its arc centred on the step's inner
   corner. The action bar header and the tracker banner step 3 at their 13pt scoop (`ActionBarMetrics.scoopStep`); the
-  cards keep the plain scoop. Dock panels and in-window modals also carry a 1pt double rule 5pt in from the outer edge.
-  Content keeps 5 clear of that rule: the Watcher's close glyph (`ShellMetrics.dockTopBarHorizontalInset`), the Worker
-  Log's tab row (`WorkerLogTabMetrics.bottomInset`, `Space.row` past the rule) and the artifact column, which starts
-  `Space.item` in so its list's gutter clears the rule's inner edge. The toast is a scooped panel too, with its own
-  size (`ToastBanner.scoopRadius` 10, `scoopStep` 2: the action bar's proportion for a one-line toast) and no rule.
+  cards keep the plain scoop. The artifact column starts `Space.item` in, so the gutter where a row's mark and the keyboard
+  pointer draw sits clear of the panel's 2pt border. The toast is a scooped panel too, with its own size
+  (`ToastBanner.scoopRadius` 10, `scoopStep` 2: the action bar's proportion for a one-line toast).
 - The dock is two stacked scooped panels, `DockColumnLayout.panelGap` apart: Watcher on top at the fixed
   `DockColumnLayout.watcherHeight`, and
   under it the artifacts or the Worker Log. Each has its own title and close button, and either shows alone

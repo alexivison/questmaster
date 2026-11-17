@@ -7,7 +7,7 @@ import QuestmasterCore
 
 enum ShellMetrics {
     /// The dock top bar of every dock panel: its icon buttons centred 20 down, the close button 40 in from the right edge
-    /// (30 to its 20pt button frame), clear of the scooped corner and the double rule. Its title sits on the plate over the
+    /// (30 to its 20pt button frame), clear of the scooped corner. Its title sits on the plate over the
     /// panel's top edge (`DockTitlePlateMetrics`).
     static let dockTopBarHeight = ControlHeight.bar
     static let dockTopBarIconCentre: CGFloat = 20

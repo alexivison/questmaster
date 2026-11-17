@@ -150,7 +150,7 @@ final class DockShellView: NSView {
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        chrome = ScoopedLayerChrome(view: self, content: content, rule: OutlineLook.ruleRest.border.color)
+        chrome = ScoopedLayerChrome(view: self, content: content)
         // The title plate rises above the top edge, outside the masked content, so it is this view's own subview.
         addSubview(titlePlate)
     }
@@ -182,12 +182,11 @@ final class DockShellView: NSView {
     private(set) var isFocused = false
     private let titlePlate: DockTitlePlateHost
 
-    /// The 1pt rule inside the border, and the title plate's border, lift one step while the dock has keyboard focus; the
-    /// 2pt border stays put.
+    /// The 2pt frame lifts one step while the dock has keyboard focus, and the title plate's border lifts with it.
     func setFocused(_ focused: Bool) {
         isFocused = focused
         model.isFocused = focused
-        chrome.setRuleColor(OutlineLook.rule(focused: focused).border.color)
+        chrome.setBorderColor(OutlineLook.frame(focused: focused).border.color)
     }
 
     func updateTabs(

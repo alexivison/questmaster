@@ -144,10 +144,9 @@ public struct OutlineLook: Equatable, Sendable {
     public static let tabSelectedUnfocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: true)
     public static let fieldRest = OutlineLook(border: .line, label: .textBody, recessed: false)
     public static let fieldFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
-    /// A dock panel's double rule: the 1pt line inside its 2pt border (which stays `lineSoftSubtle`). It lifts one step
-    /// while the dock has keyboard focus; a modal's rule is always at rest.
-    public static let ruleRest = OutlineLook(border: .line, label: .textBody, recessed: false)
-    public static let ruleFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
+    /// A dock's 2pt frame: it lifts one step while the dock has keyboard focus. A dock title's plate takes the same look.
+    public static let frameRest = OutlineLook(border: .lineSoftSubtle, label: .textBody, recessed: false)
+    public static let frameFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
 
     /// The keys and a click move a tab row's selection; an unfocused row dims it one step. A pill tab is already
     /// `item` filled, so the pointer adds no hover look.
@@ -160,17 +159,8 @@ public struct OutlineLook: Equatable, Sendable {
         focused ? .fieldFocused : .fieldRest
     }
 
-    public static func rule(focused: Bool) -> OutlineLook {
-        focused ? .ruleFocused : .ruleRest
-    }
-
-    /// A dock title's plate: its 2pt border is `lineSoftSubtle`, and it lifts to `controlBorder` with the rule while the dock
-    /// has the keys.
-    public static let plateRest = OutlineLook(border: .lineSoftSubtle, label: .textBody, recessed: false)
-    public static let plateFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
-
-    public static func plate(focused: Bool) -> OutlineLook {
-        focused ? .plateFocused : .plateRest
+    public static func frame(focused: Bool) -> OutlineLook {
+        focused ? .frameFocused : .frameRest
     }
 }
 

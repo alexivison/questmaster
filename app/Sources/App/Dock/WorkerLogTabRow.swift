@@ -1,11 +1,10 @@
 import QuestmasterCore
 import SwiftUI
 
-/// The Worker Log's tab row insets: the row ends `bottomInset` above the panel's bottom edge, which keeps it `Space.row` clear
-/// of the double rule. The bottom corners' scoop reaches its radius in beside the row, so the tabs keep clear of it and
-/// of the rule's arc there.
+/// The Worker Log's tab row insets: the row ends `bottomInset` above the panel's bottom edge, and the bottom corners'
+/// scoop reaches its radius in beside the row, so the tabs keep `Space.item` clear of it.
 enum WorkerLogTabMetrics {
-    static let bottomInset = Space.item + Space.row
+    static let bottomInset = Space.item
     /// What the row takes from the panel's bottom: the row and the inset under it.
     static let reserved = TextTabMetrics.height + bottomInset
     static let sideInset = ScoopedRectangle.radius + Space.item
