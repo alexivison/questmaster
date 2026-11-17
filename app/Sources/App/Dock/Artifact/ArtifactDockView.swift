@@ -191,9 +191,9 @@ struct ArtifactRow: View {
         static let gutter = Space.section
         static let tileOrigin = CGPoint(x: ListItemMetrics.textInset, y: Space.row)
         static let tileSide = ControlHeight.bar
-        /// The kind's glyph in its 40pt tile. At this side the drawings' ink is about the old SF symbols' (their 22.5pt ink was
-        /// 19 x 24 for html and markdown, 26 x 20.5 for image; this side gives 16.5 x 21 and 18.5 x 23 and 21 x 23, the nearest
-        /// a 5pt inset in the tile allows). The mock's 20pt would show about 60% of that ink.
+        /// The kind's glyph in its 40pt tile. At 30 the keylined html and markdown measure 20 x 25 against the SF symbols' 19 x 24,
+        /// and the missing-file triangle 22 x 20 against 23.5 x 21. The image (20 x 23 against 26 x 20.5) and the question mark
+        /// (13 x 25 against 20.5 x 20.5) differ by shape, and 30 is the largest the tile's 5pt inset allows.
         static let iconSide: CGFloat = 30
         static let textX = tileOrigin.x + tileSide + Space.item
         static let trailingInset = ListItemMetrics.textInset

@@ -7,9 +7,13 @@ enum AppGlyph {
     case icon(AppIcon)
 }
 
-/// The decided "fantasy line" icons: one case per drawing. The SVGs in `Resources/Icons/line` (32) and `Resources/Icons/filled`
-/// (29) are the source of truth, bundled unchanged. Each is 24 units with a 1.5 stroke, round caps and joins, `#000000` for
+/// The decided "fantasy line" icons: one case per drawing. The SVGs in `Resources/Icons/line` (33) and `Resources/Icons/filled`
+/// (30) are the source of truth, bundled unchanged. Each is 24 units with a 1.5 stroke, round caps and joins, `#000000` for
 /// ink and `#ffffff` for a knock-out that shows the tile through. The raw value is the drawing's file name.
+///
+/// Keylines, so the set reads at one size like the SF Symbols: a round shape fills a 20-unit circle (cog, globe), a square-ish
+/// one an 18 box, a tall one is 20 high, a wide one 20 wide, and a bare stroke (cross, back arrow) 16. Shapes are not redrawn
+/// to fit; only scale and centring move. A new drawing follows the same rule, with the stroke kept at 1.5.
 ///
 /// A drawing is read as a coverage mask rather than as colour: ink is opaque, a knock-out and the space around the glyph are
 /// clear. `image` fills only the ink, so one cached mask serves every tint, as a template image would. The mask is rasterised

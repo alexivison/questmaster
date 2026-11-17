@@ -14,8 +14,8 @@ enum ChromeMetrics {
     static let iconHeight: CGFloat = 20
     /// The SF Symbols still drawn here keep their 15pt.
     static let iconPointSize: CGFloat = 15
-    /// A decided icon fills the hit square: the drawings' ink then matches the 15pt SF symbols they replaced (funnel 15 x 14,
-    /// close 11 x 11, back 13 x 11, copy 14 x 15.5, refresh 13 x 14 at this side, against 15 x 9, 12 x 12, 14 x 11.5, 15 x 18.5, 13 x 16).
+    /// A decided icon fills the hit square. At this side the keylined funnel, close, back, copy and refresh measure 15 x 14,
+    /// 13 x 13, 13 x 12, 13.5 x 15 and 13 x 15, against the 15pt SF symbols' 15 x 9, 12 x 12, 14 x 11.5, 15 x 18.5 and 13 x 16.
     static let glyphSide: CGFloat = iconWidth
 }
 

@@ -62,6 +62,7 @@ display colours) come from `internal/palette/palette.json`. Run
 - `references/modal-keys.md`: the key rules every modal follows, and the non-modal lists' keys.
 - `references/spacing.md`: the 5s scale, control heights, the three scan rules.
 - `references/motion.md`: motion steps, easing, Reduce Motion, modal entrance, the three scan rules.
+- `references/icons.md`: `AppIcon`, the keyline rule every drawing follows, and how a surface's glyph size is set.
 
 Decided behaviour of one surface (tracker, Worker Log, Watcher, dock, action bar, Quest Log) is in `app-surfaces`.
 

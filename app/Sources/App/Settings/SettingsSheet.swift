@@ -47,8 +47,8 @@ enum SettingsMetrics {
     static let columnSpacing = Space.section
     static let columnWidth = SettingsSheetModel.sheetSize.width - 2 * inset - sidebarWidth - columnSpacing
     static let sidebarSpacing = Space.section
-    /// A section's glyph fills its tab's 20pt icon square: the drawings' ink then matches the SF symbols they replaced, which
-    /// the tab drew at 14pt and aspect-fitted into that square (folder 16 x 13, terminal 16 x 12.5, brain 15.6 x 15 measured).
+    /// A section's glyph fills its tab's 20pt icon square. The keylined brain, folder and terminal measure 15 x 15, 15 x 14
+    /// and 15 x 13 there, against the SF symbols' 15.6 x 15, 16.3 x 13.2 and 16.0 x 12.5 that the tab fitted into that square.
     static let sectionIconSide: CGFloat = PillTabMetrics.iconSide
     /// From the top of the agent tabs: the first section title's baseline, then each next one 175 on.
     static let firstSectionBaseline: CGFloat = 65
