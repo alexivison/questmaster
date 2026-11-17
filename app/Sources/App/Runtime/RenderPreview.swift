@@ -1,6 +1,7 @@
 import AppKit
 import QuestmasterCore
 import SwiftUI
+import WebKit
 
 /// Dev-only: renders real production views off-screen to PNGs so layout fixes
 /// can be pixel-checked without a running GUI session. Not for shipping —
@@ -218,6 +219,7 @@ enum RenderPreview {
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
         render(artifactViewerView(lightDocument: false), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-dark.png")
         render(artifactViewerView(lightDocument: true), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-light.png")
+        render(ArtifactViewerPane(displayState: .viewing(previewHTMLArtifact(lightDocument: false)), reloadNonce: 0, onOpenExternal: { _ in }, ruleListCompiler: FailingRuleListCompiler()), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-blocked.png")
         render(artifactListView(showFilter: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter.png")
         render(artifactListView(showFilter: true, suggesting: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter-suggestions.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
@@ -2336,6 +2338,15 @@ enum RenderPreview {
             onOpenExternal: { _ in },
             areaFocused: true
         )
+    }
+
+    /// A blocker that fails to compile, so the viewer shows its "Page not loaded" pane. WebKit answers later, not inline.
+    private struct FailingRuleListCompiler: ArtifactRuleListCompiling {
+        func compileRuleList(identifier: String, encodedRules: String, completion: @escaping (WKContentRuleList?, Error?) -> Void) {
+            DispatchQueue.main.async {
+                completion(nil, NSError(domain: "RenderPreview", code: 1, userInfo: [NSLocalizedDescriptionKey: "content rule list failed to compile"]))
+            }
+        }
     }
 
     private static func previewHTMLArtifact(lightDocument: Bool) -> ArtifactReference {

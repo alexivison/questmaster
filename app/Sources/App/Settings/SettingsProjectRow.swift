@@ -2,7 +2,7 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Settings > Projects cards, with an arrow column in arrange mode and a feather at rest.
+/// Settings > Projects cards, with an arrow column in arrange mode and a quill at rest.
 enum ProjectRowMetrics {
     static let height = ListItemMetrics.height
     static let rowSpacing = ListItemMetrics.spacing
@@ -14,42 +14,36 @@ enum ProjectRowMetrics {
     static let arrangedTextInset = arrowColumnWidth + Space.item
     static let dividerTop: CGFloat = 5
     static let dividerHeight = ListItemMetrics.height - Space.item
-    static let arrowPointSize: CGFloat = 11
     static let arrowFrameHeight: CGFloat = 15
     static let arrowUpTop: CGFloat = 5
     static let arrowDownTop: CGFloat = 30
-    /// The feather's hit square, `trailingInset` in from the row's trailing edge.
-    static let featherSide = Space.section
+    /// The trailing glyph's square, `trailingInset` in from the row's trailing edge: the Settings icon side, which is also its
+    /// hit square. The quill at rest and the folder row's `+` sit in it.
+    static let glyphSide = SettingsMetrics.sectionIconSide
     static let trailingInset = ListItemMetrics.textInset
-    /// The folder row's `+` sits where the feather does, drawn at this point size.
-    static let addPointSize: CGFloat = 13
-    /// The session count clears the `+`'s box and a `Space.item` gap.
-    static let folderCountTrailingInset = trailingInset + featherSide + Space.item
+    /// The session count clears the `+`'s square and a `Space.item` gap.
+    static let folderCountTrailingInset = trailingInset + glyphSide + Space.item
 }
 
-/// The Projects row's feather (the design's own path, settings-projects-mock.png): it's the one icon with no SF Symbol
-/// here, so it is drawn from its path, its right edge at the square's right and its ink centred vertically.
-struct ProjectFeatherGlyph: View {
+/// A glyph in the row's trailing square, drawn at the Settings icon side. The square is its hit area, so a tap anywhere in it
+/// is a tap on the glyph; the row's own tap still selects the row.
+struct ProjectRowGlyph: View {
+    let icon: AppIcon
     let color: NSColor
 
     var body: some View {
-        Canvas { context, size in
-            let path = SVGPath.parse(ProjectFeatherArt.d)
-            let bounds = path.boundingRect
-            let placed = path.applying(CGAffineTransform(translationX: size.width - bounds.maxX, y: size.height / 2 - bounds.midY))
-            context.fill(placed, with: .color(color.swiftUI))
+        Group {
+            if let image = icon.image(glyphSide: ProjectRowMetrics.glyphSide, tint: color) {
+                Image(nsImage: image)
+            }
         }
-        .frame(width: ProjectRowMetrics.featherSide, height: ProjectRowMetrics.featherSide)
+        .frame(width: ProjectRowMetrics.glyphSide, height: ProjectRowMetrics.glyphSide)
+        .contentShape(Rectangle())
     }
 }
 
-/// The feather's path data: settings-projects Highlighted=False, Rearrange Mode On=False.svg, its fill `textMeta`.
-enum ProjectFeatherArt {
-    static let d = "M587 16.0001C584.397 15.9921 581.733 16.3893 579.362 17.4039C579.526 17.8138 579.664 18.2906 579.777 18.8214C579.139 18.3453 578.34 18.1932 577.634 18.2902C576.181 19.1753 574.894 20.3544 573.877 21.8888C574.67 22.1303 575.5 22.5989 576.169 23.2537C575.166 23.0344 574.001 23.0702 573.049 23.3471C572.617 24.2402 572.262 25.23 572 26.326C576.049 25.3713 576.106 26.4354 573.596 30.6981C574.127 31.0907 574.923 31.1267 575.544 30.6494C575.724 23.6584 578.789 25.4737 579.505 26.3552C579.954 25.0916 580.599 23.7856 581.484 22.4181C580.94 21.9614 580.25 21.6448 579.476 21.4102C580.274 21.2465 581.078 21.07 581.808 21.0609C582.012 21.0583 582.21 21.0693 582.401 21.0969C582.953 20.3495 583.577 19.5835 584.28 18.7941C583.886 18.5976 583.479 18.4375 583.081 18.3281C583.62 18.1488 584.19 18.0685 584.743 18.0742C584.806 18.0748 584.869 18.0771 584.932 18.08C585.563 17.4042 586.251 16.711 587 16V16.0001ZM584.932 16.7891C580.813 18.8249 577.803 21.8612 576.068 25.7004C576.93 21.0581 580.539 17.9499 584.932 16.7891Z"
-}
-
 /// One project in the Projects list: its name in the project's colour, or the row look's own text without one, and its
-/// folder under it. At rest the feather opens its edit sheet. Arranging puts the arrow column on its left.
+/// folder under it. At rest the quill opens its edit sheet. Arranging puts the arrow column on its left.
 struct SettingsProjectRow: View {
     let project: TrackerProject
     let look: RowLook
@@ -65,7 +59,7 @@ struct SettingsProjectRow: View {
             }
             nameAndPath
             if !arranging {
-                ProjectFeatherGlyph(color: look.icon.color)
+                ProjectRowGlyph(icon: .castEditQuill, color: look.icon.color)
                     .onTapGesture(perform: onEdit)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                     .padding(.trailing, ProjectRowMetrics.trailingInset)
@@ -80,7 +74,7 @@ struct SettingsProjectRow: View {
 
     private var nameAndPath: some View {
         let inset = arranging ? ProjectRowMetrics.arrangedTextInset : ProjectRowMetrics.textInset
-        let trailing = ProjectRowMetrics.trailingInset + (arranging ? 0 : ProjectRowMetrics.featherSide + Space.item)
+        let trailing = ProjectRowMetrics.trailingInset + (arranging ? 0 : ProjectRowMetrics.glyphSide + Space.item)
         return ZStack(alignment: .topLeading) {
             BaselineText(project.name, font: AppFonts.questLogBody, color: nameColor, baseline: ProjectRowMetrics.nameBaseline)
                 .lineLimit(1)
@@ -100,9 +94,9 @@ struct SettingsProjectRow: View {
 
     private var arrowColumn: some View {
         ZStack(alignment: .topLeading) {
-            arrowButton(symbolName: "arrow.up", delta: -1)
+            arrowButton(icon: .rowMoveUp, delta: -1)
                 .offset(y: ProjectRowMetrics.arrowUpTop)
-            arrowButton(symbolName: "arrow.down", delta: 1)
+            arrowButton(icon: .rowMoveDown, delta: 1)
                 .offset(y: ProjectRowMetrics.arrowDownTop)
             Rectangle()
                 .fill(AppPalette.line.swiftUI)
@@ -112,15 +106,17 @@ struct SettingsProjectRow: View {
         .frame(width: ProjectRowMetrics.arrowColumnWidth, height: ProjectRowMetrics.height, alignment: .topLeading)
     }
 
-    private func arrowButton(symbolName: String, delta: Int) -> some View {
+    private func arrowButton(icon: AppIcon, delta: Int) -> some View {
         Button {
             onMove(delta)
         } label: {
-            Image(systemName: symbolName)
-                .font(.system(size: ProjectRowMetrics.arrowPointSize, weight: .regular))
-                .foregroundStyle(look.icon.color.swiftUI)
-                .frame(width: ProjectRowMetrics.arrowColumnWidth, height: ProjectRowMetrics.arrowFrameHeight)
-                .contentShape(Rectangle())
+            Group {
+                if let image = icon.image(glyphSide: ProjectRowMetrics.glyphSide, tint: look.icon.color) {
+                    Image(nsImage: image)
+                }
+            }
+            .frame(width: ProjectRowMetrics.arrowColumnWidth, height: ProjectRowMetrics.arrowFrameHeight)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(delta < 0 ? "Move \(project.name) up" : "Move \(project.name) down")
@@ -128,7 +124,7 @@ struct SettingsProjectRow: View {
 }
 
 /// A folder without a project, in the project row's shape and dimmed: its name and its path in meta text, the session
-/// count on the name's line, and a `+` where the feather sits. The `+` and Edit (e, Return) open Add Project with the
+/// count on the name's line, and a `+` where the quill sits. The `+` and Edit (e, Return) open Add Project with the
 /// path filled in.
 struct SettingsFolderRow: View {
     let folder: TrackerUnlistedFolder
@@ -139,7 +135,7 @@ struct SettingsFolderRow: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             nameAndPath
-            ProjectAddGlyph(color: look.icon.color)
+            ProjectRowGlyph(icon: .settingsAddPlus, color: look.icon.color)
                 .onTapGesture(perform: onAdd)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                 .padding(.trailing, ProjectRowMetrics.trailingInset)
@@ -155,7 +151,7 @@ struct SettingsFolderRow: View {
         ZStack(alignment: .topLeading) {
             BaselineText(URL(fileURLWithPath: folder.path).lastPathComponent, font: AppFonts.questLogBody, color: look.text.color, baseline: ProjectRowMetrics.nameBaseline)
                 .lineLimit(1)
-                .padding(.trailing, ProjectRowMetrics.featherSide)
+                .padding(.trailing, ProjectRowMetrics.glyphSide)
             BaselineText(folder.sessionLabel, font: AppFonts.monoSmall, color: look.meta.color, baseline: ProjectRowMetrics.nameBaseline)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -163,22 +159,9 @@ struct SettingsFolderRow: View {
             BaselineText(ProjectPathDisplay.shortened(folder.path, homeDirectory: NSHomeDirectory()), font: AppFonts.monoSmall, color: look.meta.color, baseline: ProjectRowMetrics.pathBaseline)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .padding(.trailing, ProjectRowMetrics.featherSide)
+                .padding(.trailing, ProjectRowMetrics.glyphSide)
         }
         .padding(.leading, ProjectRowMetrics.textInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-/// The folder row's `+`, drawn in the feather's square so the two rows line up.
-struct ProjectAddGlyph: View {
-    let color: NSColor
-
-    var body: some View {
-        Image(systemName: "plus")
-            .font(.system(size: ProjectRowMetrics.addPointSize, weight: .regular))
-            .foregroundStyle(color.swiftUI)
-            .frame(width: ProjectRowMetrics.featherSide, height: ProjectRowMetrics.featherSide)
-            .contentShape(Rectangle())
     }
 }

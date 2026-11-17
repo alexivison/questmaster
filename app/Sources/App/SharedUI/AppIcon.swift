@@ -1,13 +1,11 @@
 import AppKit
 
-/// A glyph the app draws: a decided icon, or an SF Symbol for a place no icon has been decided for yet. Each caller draws an
-/// SF Symbol at the size it always has.
+/// A glyph the app draws: one of the decided icons, at the side its surface sets. A status pane or a chrome button takes one.
 enum AppGlyph {
-    case symbol(String)
     case icon(AppIcon)
 }
 
-/// The decided "fantasy line" icons: one case per drawing. The SVGs in `Resources/Icons/line` (33) and `Resources/Icons/filled`
+/// The decided "fantasy line" icons: one case per drawing. The SVGs in `Resources/Icons/line` (39) and `Resources/Icons/filled`
 /// (30) are the source of truth, bundled unchanged. Each is 24 units with a 1.5 stroke, round caps and joins, `#000000` for
 /// ink and `#ffffff` for a knock-out that shows the tile through. The raw value is the drawing's file name.
 ///
@@ -42,6 +40,12 @@ enum AppIcon: String, CaseIterable {
     case discUnknownMask = "disc-unknown-mask"
     case settingsModelsBrain = "settings-models-brain"
     case settingsProjectsFolder = "settings-projects-folder"
+    // The Projects page: the header's arrange, save and add, a row's move arrows, and the folder row's add.
+    case settingsArrangeArrows = "settings-arrange-arrows"
+    case settingsSaveCheck = "settings-save-check"
+    case settingsAddPlus = "settings-add-plus"
+    case rowMoveUp = "row-move-up"
+    case rowMoveDown = "row-move-down"
     // The dock's top bars.
     case dockFilterFunnel = "dock-filter-funnel"
     case dockCloseCross = "dock-close-cross"
@@ -54,13 +58,18 @@ enum AppIcon: String, CaseIterable {
     case artifactImagePortrait = "artifact-image-portrait"
     case artifactUnsupportedQuestion = "artifact-unsupported-question"
     case artifactMissingHazard = "artifact-missing-hazard"
+    case artifactBlockedShield = "artifact-blocked-shield"
     case artifactDeleteMarkDiamond = "artifact-delete-mark-diamond"
     // The empty states: the moon when nothing is there yet, the shrug when a filter hid everything.
     case emptyIdleMoon = "empty-idle-moon"
     case emptyNoMatchShrug = "empty-no-match-shrug"
 
-    /// The three glyphs with no filled drawing: the dock's close, back and refresh.
-    private static let lineOnly: Set<AppIcon> = [.dockCloseCross, .dockBackArrow, .dockRefreshCycle]
+    /// The glyphs with no filled drawing: the dock's close, back and refresh, the Projects page's five, and the viewer's shield.
+    private static let lineOnly: Set<AppIcon> = [
+        .dockCloseCross, .dockBackArrow, .dockRefreshCycle,
+        .settingsArrangeArrows, .settingsSaveCheck, .settingsAddPlus, .rowMoveUp, .rowMoveDown,
+        .artifactBlockedShield,
+    ]
     private static let bundle = AppSymbolStyle.resourceBundle()
     private static let masks = NSCache<NSString, CGImage>()
 

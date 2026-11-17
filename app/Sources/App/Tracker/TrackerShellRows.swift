@@ -13,46 +13,29 @@ enum TrackerShellMetrics {
     static let titleLead = discLead + discDiameter + Space.item
     static let titleTrail = Space.item
     static let cornerRadius = FormFieldMetrics.cornerRadius
-    /// The terminal glyph's own box in the SVG's coordinates (15 x 11), centred in the disc.
-    static let svgGlyphSize = CGSize(width: 15, height: 11)
+    /// The terminal disc glyph's square: the plates' logo share of the disc, as the shortcut numbers' side is.
+    static let glyphSide = discDiameter * TrackerPlateDesign.logoShare
     /// The section is as tall as its rows up to this: five of them. Past it the section scrolls inside itself, so many
     /// shells never push the section past the column's bottom (at the 600pt minimum window the plates still keep room).
     static let maxHeight: CGFloat = 175
 }
 
-/// The terminal glyph of Shell Session.svg: the SVG's own paths (a rounded frame, then the prompt and its cursor), in
-/// the glyph's own coordinates, its top-left at the origin. The shell rows' discs and the selected-session panel's draw it.
-enum ShellTerminalGlyph {
-    private static let frame = "M27.9666 34H38.8016C40.1169 34 40.7682 33.3846 40.7682 32.1537V24.8523C40.7682 23.6214 40.1169 23 38.8016 23H27.9666C26.6576 23 26 23.6214 26 24.8523V32.1537C26 33.3846 26.6576 34 27.9666 34ZM27.9791 33.038C27.3528 33.038 27.0084 32.7214 27.0084 32.0999V24.906C27.0084 24.2846 27.3528 23.962 27.9791 23.962H38.7891C39.4092 23.962 39.7599 24.2846 39.7599 24.906V32.0999C39.7599 32.7214 39.4092 33.038 38.7891 33.038H27.9791Z"
-    private static let prompt = "M28.6929 27.6186C28.2044 27.8995 28.6177 28.6105 29.1564 28.2878L30.9601 27.2123C31.3171 26.9972 31.2983 26.4894 30.9601 26.2862L29.1564 25.2107C28.6177 24.8881 28.1981 25.5931 28.6929 25.8799L30.2023 26.7463L28.6929 27.6186ZM31.3359 28.2819C31.3359 28.491 31.5113 28.6643 31.7367 28.6643H34.1229C34.3484 28.6643 34.5238 28.491 34.5238 28.2819C34.5238 28.0668 34.3484 27.8935 34.1229 27.8935H31.7367C31.5113 27.8935 31.3359 28.0668 31.3359 28.2819Z"
-    /// Where the SVG's glyph starts in its first row.
-    private static let svgOrigin = CGPoint(x: 26, y: 23)
-
-    static let path: Path = {
-        var path = SVGPath.parse(frame, dx: -svgOrigin.x, dy: -svgOrigin.y)
-        path.addPath(SVGPath.parse(prompt, dx: -svgOrigin.x, dy: -svgOrigin.y))
-        return path
-    }()
-}
-
 /// The icon disc of a shell row: the panel's fill, a 1pt border in the look's icon-border colour (`item` at rest, as the
-/// SVG draws it, then the state rules' `controlBorder` on a filled row), and the terminal glyph in the look's icon
-/// colour, centred.
+/// SVG draws it, then the state rules' `controlBorder` on a filled row), and the terminal disc glyph (`AppIcon.discShellTerminal`)
+/// in the look's icon colour at the plates' logo share, centred.
 struct ShellRowDisc: View {
     let glyphColor: NSColor
     let borderColor: NSColor
 
     var body: some View {
         let side = TrackerShellMetrics.discDiameter
-        let glyph = TrackerShellMetrics.svgGlyphSize
         ZStack(alignment: .topLeading) {
             Circle()
                 .fill(AppPalette.panel.swiftUI)
             Circle()
                 .strokeBorder(borderColor.swiftUI, lineWidth: Token.Size.divider)
-            Canvas { context, _ in
-                context.translateBy(x: (side - glyph.width) / 2, y: (side - glyph.height) / 2)
-                context.fill(ShellTerminalGlyph.path, with: .color(glyphColor.swiftUI))
+            if let glyph = AppIcon.discShellTerminal.image(glyphSide: TrackerShellMetrics.glyphSide, canvasSide: side, tint: glyphColor) {
+                Image(nsImage: glyph)
             }
         }
         .frame(width: side, height: side)

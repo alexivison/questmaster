@@ -148,19 +148,17 @@ struct SelectedSessionPanel: View {
         context.fill(PanelDesign.disc, with: .color(TrackerPlateDesign.discFill.swiftUI))
     }
 
-    /// The class portrait; else, for a shell, tmux or orphan, the shell row's terminal glyph in its resting colour, scaled
-    /// up from the row's disc to this one; else nothing.
+    /// The class portrait; else, for a shell, tmux or orphan, the terminal disc glyph in its resting colour at the plates'
+    /// logo share of this disc; else nothing.
     private func drawIcon(_ context: inout GraphicsContext) {
         if let portrait = content.portrait {
             context.drawPortrait(portrait, in: PanelDesign.disc, strength: PanelDesign.portraitStrength)
             return
         }
         guard content.isShell else { return }
-        let scale = PanelDesign.disc.boundingRect.width / TrackerShellMetrics.discDiameter
-        let glyph = TrackerShellMetrics.svgGlyphSize
-        context.translateBy(x: PanelDesign.discCenter.x - glyph.width * scale / 2, y: PanelDesign.discCenter.y - glyph.height * scale / 2)
-        context.scaleBy(x: scale, y: scale)
-        context.fill(ShellTerminalGlyph.path, with: .color(AppPalette.textMeta.swiftUI))
+        let side = PanelDesign.disc.boundingRect.width * TrackerPlateDesign.logoShare
+        guard let glyph = AppIcon.discShellTerminal.image(glyphSide: side, tint: AppPalette.textMeta) else { return }
+        context.draw(Image(nsImage: glyph), in: CGRect(x: PanelDesign.discCenter.x - side / 2, y: PanelDesign.discCenter.y - side / 2, width: side, height: side))
     }
 
     private func drawDiscOverlay(_ context: inout GraphicsContext) {

@@ -7947,7 +7947,7 @@ enum LogicSelfTests {
     }
 
     /// Every decided icon has its line drawing bundled, and its filled drawing exactly where it has one: every icon but the
-    /// dock's close, back and refresh. Each cast icon name Core gives a tool names an icon.
+    /// line-only ones. Each cast icon name Core gives a tool names an icon.
     private static func testEveryAppIconHasItsDrawings() throws {
         for icon in AppIcon.allCases {
             try expect(icon.url(filled: false) != nil, "no line drawing bundled as \(icon.rawValue).svg")
@@ -7955,7 +7955,12 @@ enum LogicSelfTests {
             try expect(icon.image(glyphSide: 20, tint: .white) != nil, "\(icon.rawValue) should draw")
         }
         let lineOnly = Set(AppIcon.allCases.filter { !$0.hasFilled })
-        try expect(lineOnly == [.dockCloseCross, .dockBackArrow, .dockRefreshCycle], "only close, back and refresh are line-only")
+        let expectedLineOnly: Set<AppIcon> = [
+            .dockCloseCross, .dockBackArrow, .dockRefreshCycle,
+            .settingsArrangeArrows, .settingsSaveCheck, .settingsAddPlus, .rowMoveUp, .rowMoveDown,
+            .artifactBlockedShield,
+        ]
+        try expect(lineOnly == expectedLineOnly, "the line-only icons are the dock's close, back and refresh, the Projects page's five and the viewer's shield")
         for tool in ["Bash", "Edit", "Read", "WebFetch", "Task", "TodoWrite", "mcp__linear__save_issue"] {
             let name = TrackerCast(tool: tool, startedAt: Date(), typicalMS: 0).iconName
             try expect(AppIcon(rawValue: name) != nil, "the cast icon \(name) for \(tool) has no glyph")
