@@ -191,14 +191,16 @@ struct ArtifactRow: View {
         static let gutter = Space.section
         static let tileOrigin = CGPoint(x: ListItemMetrics.textInset, y: Space.row)
         static let tileSide = ControlHeight.bar
-        /// The kind's glyph in its tile (the mock's 20pt).
-        static let iconSide: CGFloat = 20
+        /// The kind's glyph in its 40pt tile. At 30 the keylined html and markdown measure 20 x 25 against the SF symbols' 19 x 24,
+        /// and the missing-file triangle 22 x 20 against 23.5 x 21. The image (20 x 23 against 26 x 20.5) and the question mark
+        /// (13 x 25 against 20.5 x 20.5) differ by shape, and 30 is the largest the tile's 5pt inset allows.
+        static let iconSide: CGFloat = 30
         static let textX = tileOrigin.x + tileSide + Space.item
         static let trailingInset = ListItemMetrics.textInset
         static let titleBaseline: CGFloat = 21
         static let metaBaseline: CGFloat = 37
-        /// The delete mark in the gutter: the SF diamond it replaces drew at 13pt, rounded to the 5 scale.
-        static let markSide: CGFloat = 15
+        /// The delete mark fills the 20pt gutter's width: its ink (13 x 13) is the SF diamond's (14 x 14) to within a point.
+        static let markSide: CGFloat = 20
     }
 
     private var rowLook: RowLook { artifact.missing ? look.missingFile : look }

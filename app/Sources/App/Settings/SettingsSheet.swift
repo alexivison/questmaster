@@ -47,8 +47,9 @@ enum SettingsMetrics {
     static let columnSpacing = Space.section
     static let columnWidth = SettingsSheetModel.sheetSize.width - 2 * inset - sidebarWidth - columnSpacing
     static let sidebarSpacing = Space.section
-    /// A section's decided glyph inside its tab's 20pt icon square (the mock's 15pt).
-    static let sectionIconSide: CGFloat = 15
+    /// A section's glyph fills its tab's 20pt icon square. The keylined brain, folder and terminal measure 15 x 15, 15 x 14
+    /// and 15 x 13 there, against the SF symbols' 15.6 x 15, 16.3 x 13.2 and 16.0 x 12.5 that the tab fitted into that square.
+    static let sectionIconSide: CGFloat = PillTabMetrics.iconSide
     /// From the top of the agent tabs: the first section title's baseline, then each next one 175 on.
     static let firstSectionBaseline: CGFloat = 65
     static let sectionPitch: CGFloat = 175
@@ -82,14 +83,15 @@ enum SettingsSection: CaseIterable {
         }
     }
 
-    var glyph: AppGlyph {
+    /// The tab's decided icon: the Projects folder, and the tmux tab's shell disc.
+    var icon: AppIcon {
         switch self {
         case .modelsAndReasoning:
-            return .icon(.settingsModelsBrain)
+            return .settingsModelsBrain
         case .projects:
-            return .symbol("folder")
+            return .settingsProjectsFolder
         case .tmux:
-            return .symbol("terminal")
+            return .discShellTerminal
         }
     }
 }
@@ -131,14 +133,9 @@ struct SettingsSheetView: View {
         .onDisappear { model.disappear() }
     }
 
-    /// A section's glyph in its tab's icon square: the decided icon at `sectionIconSide`, or an SF Symbol at the 14pt it drew.
+    /// A section's icon in its tab's icon square, at `sectionIconSide`.
     private func sectionImage(_ section: SettingsSection, tint: NSColor) -> NSImage? {
-        switch section.glyph {
-        case .symbol(let name):
-            return AppSymbolStyle.image(name: name, pointSize: 14, weight: .regular, color: tint, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide))
-        case .icon(let icon):
-            return icon.image(glyphSide: SettingsMetrics.sectionIconSide, canvasSide: PillTabMetrics.iconSide, tint: tint)
-        }
+        section.icon.image(glyphSide: SettingsMetrics.sectionIconSide, canvasSide: PillTabMetrics.iconSide, tint: tint)
     }
 
     private var sidebar: some View {

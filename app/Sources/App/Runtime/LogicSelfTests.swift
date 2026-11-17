@@ -7898,12 +7898,13 @@ enum LogicSelfTests {
         }
     }
 
-    /// A knock-out (`#ffffff`) in a filled drawing shows the tile through, and the ink around it stays opaque. The empty
-    /// moon's filled body has a half-disc knocked out at (12, 12) of its 24-unit grid, below its top edge, and ink at (12, 15).
+    /// A knock-out (`#ffffff`) in a filled drawing shows the tile through, and the ink around it stays opaque. The cog's filled
+    /// body has its centre disc (radius 2.7) knocked out at (12, 12) of its 24-unit grid, inside the black ring (radius 6.9),
+    /// so the ink at (12, 16) stays opaque.
     private static func testFilledKnockOutsStayClear() throws {
         func alpha(x: Int, y: Int) throws -> UInt8 {
             let side = 24
-            guard let image = AppIcon.emptyIdleMoon.image(glyphSide: CGFloat(side), tint: .black, filled: true),
+            guard let image = AppIcon.settingsCog.image(glyphSide: CGFloat(side), tint: .black, filled: true),
                   let bitmap = NSBitmapImageRep(
                       bitmapDataPlanes: nil, pixelsWide: side * 2, pixelsHigh: side * 2, bitsPerSample: 8, samplesPerPixel: 4,
                       hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
@@ -7920,7 +7921,7 @@ enum LogicSelfTests {
             return pixels[(y * 2) * bitmap.bytesPerRow + (x * 2) * (bitmap.bitsPerPixel / 8) + 3]
         }
         try expect(try alpha(x: 12, y: 12) < 16, "the knock-out should be clear, got alpha \(try alpha(x: 12, y: 12))")
-        try expect(try alpha(x: 12, y: 15) > 240, "the ink below the knock-out should be opaque, got alpha \(try alpha(x: 12, y: 15))")
+        try expect(try alpha(x: 12, y: 16) > 240, "the ink below the knock-out should be opaque, got alpha \(try alpha(x: 12, y: 16))")
     }
 
     private static func testNewSessionTabTakesTheHighlightedModelThenMovesOn() throws {

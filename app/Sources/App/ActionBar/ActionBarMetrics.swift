@@ -24,6 +24,7 @@ enum ActionBarMetrics {
     /// The working spinner traces the button's 1pt border.
     static let spinnerStroke: CGFloat = 1
 
-    /// Every button's glyph is a square of this side, centred in its button (the mock's 20pt).
-    static let iconSide: CGFloat = 20
+    /// Every button's glyph is a square of this side, centred in its button. At 25 the keylined set's ink is the SF symbols'
+    /// to 3.2pt mean over the eight buttons (20 was 4.6; 24 is equal on the mean and was left off the 5s).
+    static let iconSide: CGFloat = 25
 }
