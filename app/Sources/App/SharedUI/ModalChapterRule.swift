@@ -2,104 +2,46 @@ import AppKit
 import CoreText
 import SwiftUI
 
-/// The chapter break under a modal sheet's title: a rule of box-drawing glyphs, `╶──── ◆ ────╴`, set in the app font with
-/// a gold diamond at its centre. The lines repeat `─` to fill the width, so the rule follows the terminal's font. The
-/// diamond stays a shape rather than a `◆` glyph: a glyph comes from whichever font draws it, while the shape is centred
-/// on the lines' midline as measured in the same font.
+/// The chapter break under a modal sheet's title: a hairline with a gold diamond at its centre, drawn as paths on whole
+/// points so it centres exactly at 1x and 2x. The hairline's weight is the `─` glyph's thickness in the app font, rounded
+/// to a whole point, so it still matches the terminal's type. The diamond is a shape, not a `◆` glyph, for the same reason.
 struct ModalChapterRule: View {
     /// The diamond's square before its 45° turn, about 7 across.
     private static let diamondSide: CGFloat = 5
-    /// The diamond's layout box. Even, so at 1x its centre falls on a whole point; the square is centred in it.
-    private static let diamondBox: CGFloat = 6
-    private static let line = measureLine()
+    /// The hairline's weight: the `─` glyph's thickness in the app font, on whole points.
+    private static let weight = max(1, dashThickness().rounded())
 
     var body: some View {
-        GeometryReader { proxy in
-            let line = Self.line
-            // The row runs past each end of the frame by what its caps' glyphs leave empty, so the visible lines reach
-            // the frame's edges. Each side holds its cap and as many `─` as fit before the diamond's gap; the Spacers
-            // share the rest of the row equally, so the two sides stay the same width.
-            let row = proxy.size.width + line.leftOverhang + line.rightOverhang
-            let cells = max(1, Int(((row - Self.diamondBox) / 2 - Space.item) / line.advance))
-            let dashes = String(repeating: "─", count: cells - 1)
-            HStack(alignment: .chapterRuleCentre, spacing: 0) {
-                Text("╶" + dashes)
-                    .alignmentGuide(.chapterRuleCentre) { $0[.firstTextBaseline] - line.midline }
-                Spacer(minLength: Space.item)
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(AppPalette.accent.swiftUI)
-                    .frame(width: Self.diamondSide, height: Self.diamondSide)
-                    .rotationEffect(.degrees(45))
-                    .frame(width: Self.diamondBox, height: Self.diamondBox)
-                    // The row's centre sits off the visible lines' centre by the caps' asymmetry; the diamond follows them.
-                    .offset(x: line.centreOffset)
-                Spacer(minLength: Space.item)
-                Text(dashes + "╴")
-                    .alignmentGuide(.chapterRuleCentre) { $0[.firstTextBaseline] - line.midline }
-            }
-            .font(AppFonts.body.swiftUI)
-            .foregroundStyle(AppPalette.line.swiftUI)
-            .padding(.leading, -line.leftOverhang)
-            .padding(.trailing, -line.rightOverhang)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Canvas { context, size in
+            let weight = Self.weight
+            // The hairline sits in the middle of the band, its edges on whole points; the diamond's centre is its middle.
+            let top = ((size.height - weight) / 2).rounded()
+            let centre = CGPoint(x: (size.width / 2).rounded(), y: top + weight / 2)
+            // Each side stops the same whole number of points from the centre: the diamond's tip plus `Space.item`.
+            let reach = (Self.diamondSide / CGFloat(2).squareRoot() + Space.item).rounded()
+            let leftLine = CGRect(x: 0, y: top, width: centre.x - reach, height: weight)
+            let rightLine = CGRect(x: centre.x + reach, y: top, width: size.width - centre.x - reach, height: weight)
+            let square = CGRect(x: -Self.diamondSide / 2, y: -Self.diamondSide / 2, width: Self.diamondSide, height: Self.diamondSide)
+            let turn = CGAffineTransform(rotationAngle: Angle.degrees(45).radians)
+                .concatenating(CGAffineTransform(translationX: centre.x, y: centre.y))
+            context.fill(Path(leftLine), with: .color(AppPalette.line.swiftUI))
+            context.fill(Path(rightLine), with: .color(AppPalette.line.swiftUI))
+            context.fill(Path(roundedRect: square, cornerRadius: 1).applying(turn), with: .color(AppPalette.accent.swiftUI))
         }
         .frame(height: ModalChapterRuleMetrics.band)
     }
 
-    /// The `─` cell and the caps' visible ends in the font Text sets the lines in, all in points.
-    private struct LineMetrics {
-        /// One `─` cell's advance.
-        let advance: CGFloat
-        /// The `─` midline's height above the baseline.
-        let midline: CGFloat
-        /// How far the left cap's line starts inside its cell: the row's left overhang.
-        let leftOverhang: CGFloat
-        /// How far the right cap's line ends short of its cell's right edge: the row's right overhang.
-        let rightOverhang: CGFloat
-        /// Where the visible lines' centre sits from the row's centre, so the diamond can be moved onto it.
-        let centreOffset: CGFloat
-    }
-
-    private static func measureLine() -> LineMetrics {
-        let dash = glyphBounds("─")
-        let start = glyphBounds("╶").bounds.minX
-        let end = glyphBounds("╴").bounds.maxX
-        let advance = dash.advance
-        return LineMetrics(
-            advance: advance,
-            midline: dash.bounds.midY,
-            leftOverhang: start,
-            rightOverhang: advance - end,
-            centreOffset: (start + end - advance) / 2
-        )
-    }
-
-    /// The advance and bounds of one character's glyph, in the font Text draws it in: the app font, or the one CoreText
-    /// falls back to for it.
-    private static func glyphBounds(_ character: String) -> (advance: CGFloat, bounds: CGRect) {
-        let font = CTFontCreateForString(AppFonts.body as CTFont, character as CFString, CFRange(location: 0, length: 1))
-        var unit = UniChar(character.utf16.first ?? 0)
+    /// The `─` glyph's thickness in the app font: the height of its outline, in points.
+    private static func dashThickness() -> CGFloat {
+        let font = CTFontCreateForString(AppFonts.body as CTFont, "─" as CFString, CFRange(location: 0, length: 1))
+        var unit = UniChar(0x2500)
         var glyph = CGGlyph()
         CTFontGetGlyphsForCharacters(font, &unit, &glyph, 1)
-        var advance = CGSize.zero
-        CTFontGetAdvancesForGlyphs(font, .horizontal, &glyph, &advance, 1)
-        let bounds = CTFontGetBoundingRectsForGlyphs(font, .horizontal, &glyph, nil, 1)
-        return (advance.width, bounds)
+        return CTFontGetBoundingRectsForGlyphs(font, .horizontal, &glyph, nil, 1).height
     }
 }
 
 enum ModalChapterRuleMetrics {
     /// The band the rule sits in, at the foot of the modal header.
     static let band: CGFloat = 20
-}
-
-/// A line's guide is its first baseline less the `─` midline, so a Text of lines and the diamond meet on the line's centre.
-private enum ChapterRuleCentre: AlignmentID {
-    static func defaultValue(in context: ViewDimensions) -> CGFloat {
-        context[VerticalAlignment.center]
-    }
-}
-
-private extension VerticalAlignment {
-    static let chapterRuleCentre = VerticalAlignment(ChapterRuleCentre.self)
 }
