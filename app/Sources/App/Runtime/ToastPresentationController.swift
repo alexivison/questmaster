@@ -92,6 +92,9 @@ private final class ToastHostingView: NSHostingView<ToastBanner> {
 
 struct ToastBanner: View {
     static let maxWidth: CGFloat = 360
+    /// The scoop's reach and its step, sized to a one-line toast (37 high) as the action bar's 13 and 3 are to its 50.
+    static let scoopRadius: CGFloat = 10
+    static let scoopStep: CGFloat = 2
     /// Room the hosting view keeps around the card for its raised shadow (`Elevation.raised.bleed`), which the view's
     /// bounds would clip.
     static let shadowMargin = Space.item
@@ -106,12 +109,13 @@ struct ToastBanner: View {
             .padding(.vertical, Space.item)
             .padding(.horizontal, Space.section)
         .frame(maxWidth: Self.maxWidth, alignment: .leading)
-        .borderedCard(
+        .scoopedPanel(
             fill: AppPalette.panel.withAlphaComponent(0.88),
-            borderColor: AppPalette.lineSoftSubtle,
-            lineWidth: ScoopedRectangle.borderWidth
+            radius: Self.scoopRadius,
+            step: Self.scoopStep,
+            ruled: false,
+            elevation: .raised
         )
-        .elevation(.raised, of: RoundedRectangle(cornerRadius: Token.Radius.card))
         .padding(Self.shadowMargin)
         .help(message)
     }
