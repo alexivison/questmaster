@@ -58,12 +58,17 @@ final class ActionBarShellView: NSView {
             hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
             hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        chrome = ScoopedLayerChrome(view: self, content: hostingView, radius: ActionBarMetrics.scoopRadius)
+        chrome = ScoopedLayerChrome(view: self, content: hostingView, radius: ActionBarMetrics.scoopRadius, step: ActionBarMetrics.scoopStep)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Only the scooped shape takes clicks: a corner scooped away passes them to what lies beneath.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        chrome.contains(convert(point, from: superview)) ? super.hitTest(point) : nil
     }
 
     override func layout() {

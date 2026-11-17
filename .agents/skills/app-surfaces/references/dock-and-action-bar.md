@@ -17,6 +17,12 @@
   and Watcher at the trailing end, `buttonSeam` apart in a group and `groupGap` between the groups; caffeinate
   `toggleGap` past them. Its empty space drags the window. Toasts sit `Space.section` above the
   window's bottom edge.
+- Scoops are stepped (`ScoopedRectangle`): a 5pt square step at each end of the scoop, its arc centred on the step's inner
+  corner. The action bar header and the tracker banner step 3 at their 13pt scoop (`ActionBarMetrics.scoopStep`); the
+  cards keep the plain scoop. Dock panels and in-window modals also carry a 1pt double rule 5pt in from the outer edge.
+  Content keeps 5 clear of that rule: the Watcher's close glyph (`ShellMetrics.dockTopBarHorizontalInset`), the Worker
+  Log's tab row (`WorkerLogTabMetrics.bottomInset`, `Space.row` past the rule) and the artifact column, which starts
+  `Space.item` in so its list's gutter clears the rule's inner edge. The toast takes no scoop (it is a rounded card).
 - The dock is two stacked scooped panels, `DockColumnLayout.panelGap` apart: Watcher on top at the fixed
   `DockColumnLayout.watcherHeight`, and
   under it the artifacts or the Worker Log. Each has its own title and close button, and either shows alone

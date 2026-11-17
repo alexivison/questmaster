@@ -149,7 +149,7 @@ final class DockShellView: NSView {
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        chrome = ScoopedLayerChrome(view: self, content: content)
+        chrome = ScoopedLayerChrome(view: self, content: content, rule: OutlineLook.ruleRest.border.color)
     }
 
     @available(*, unavailable)
@@ -162,12 +162,17 @@ final class DockShellView: NSView {
         chrome?.layout(bounds: bounds)
     }
 
+    /// Only the shape's hits count: a click in a scooped-away corner passes to what lies beneath.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        chrome.contains(convert(point, from: superview)) ? super.hitTest(point) : nil
+    }
+
     private(set) var isFocused = false
 
-    /// The 2pt frame lifts one step while the dock has keyboard focus.
+    /// The 1pt rule inside the border lifts one step while the dock has keyboard focus; the 2pt border stays put.
     func setFocused(_ focused: Bool) {
         isFocused = focused
-        chrome.setBorderColor(OutlineLook.frame(focused: focused).border.color)
+        chrome.setRuleColor(OutlineLook.rule(focused: focused).border.color)
     }
 
     func updateTabs(
