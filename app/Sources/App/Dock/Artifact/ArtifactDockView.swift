@@ -116,10 +116,6 @@ struct ArtifactDockView: View {
             }
         }
         .padding(.top, Space.section)
-        // The column starts and ends `Space.item` in, so the gutter where a row's mark and the keyboard pointer draw sits clear
-        // of the panel's 2pt border, and the rows sit centred in the column.
-        .padding(.leading, Space.item)
-        .padding(.trailing, Space.item)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.artifactListColumn.swiftUI)
     }

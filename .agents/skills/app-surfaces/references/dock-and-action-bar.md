@@ -33,8 +33,9 @@
   window's bottom edge.
 - Scoops are stepped (`ScoopedRectangle`): a 5pt square step at each end of the scoop, its arc centred on the step's inner
   corner. The action bar header and the tracker banner step 3 at their 13pt scoop (`ActionBarMetrics.scoopStep`); the
-  cards keep the plain scoop. The artifact column starts `Space.item` in, so the gutter where a row's mark and the keyboard
-  pointer draw sits clear of the panel's 2pt border. The toast is a scooped panel too, with its own size
+  cards keep the plain scoop. The artifact column has no inset of its own: its tabs, filter and rows sit `Space.section`
+  (`MenuPointerMetrics.gutter`) in on both sides, like the Quest Log and the Watcher. The row's mark and the keyboard
+  pointer draw in that gutter, 3.5pt from the panel's outer edge, 1.5pt clear of its 2pt border. The toast is a scooped panel too, with its own size
   (`ToastBanner.scoopRadius` 10, `scoopStep` 2: the action bar's proportion for a one-line toast).
 - The dock is two stacked scooped panels, `DockColumnLayout.panelGap` apart: Watcher on top at the fixed
   `DockColumnLayout.watcherHeight`, and
