@@ -3,14 +3,16 @@
 - Watcher and Worker Log start open in the first window layout, while startup resolves its session; no opening
   transition runs before the window appears. After startup, both panels hide if no session is attached, keeping their state.
 - Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are `PanelTitle`, the one title every dock and modal uses:
-  title case in `accent`, 14pt bold (`AppFonts.panelTitle`), centred in the top bar. The bar is 40 high (`ShellMetrics.dockTopBarHeight`)
+  title case in `accent`, 14pt bold (`AppFonts.panelTitle`), across the top bar. The bar is 40 high (`ShellMetrics.dockTopBarHeight`)
   and its icons centre 20 down. The title's baseline is derived, not set: its text frame ends `Space.item` above the
-  bar's bottom edge (`PanelHeaderMetrics.titleBaseline`, 25.8 in JetBrains Mono 14). Everything under the title is the
+  bar's bottom edge (`PanelHeaderMetrics.titleBaseline`, 25.8 in JetBrains Mono 14). So the cap band sits off the bar's
+  centre by the font's descent: 0.7pt low in JetBrains Mono 14, 2pt low in the system mono, which keeps the 10pt gap in each.
+  Everything under the title is the
   shared header rhythm (`SharedUI/PanelHeader.swift`): an element under the title sits on the bar's bottom edge, 10
   under the text frame; the panel's content sits 20 under its last element, or 10 under the bar when only the title is
   over it (`PanelHeaderMetrics.bodyTopInset`). An open artifact's title sits between its back arrow and its actions, and a long one truncates at the tail. The bar
   ignores the titlebar's safe area, so the top dock's title sits where it does with no titlebar
-  (`testDockTitlesStayCentredInTheirBarUnderATitlebar`). While a refresh the user asked for (`r`) is under way, Watcher's
+  (`testDockTitlesSitWhereTheirHeaderPutsThemUnderATitlebar`). While a refresh the user asked for (`r`) is under way, Watcher's
   bar shows the working spinner (`SpinnerRingView`, `WorkingSpinner.period`) on the icon line, `Space.item` past the
   title's end, a chip's size; the title stays put. Core decides it (`PullRequestStore.isRefreshing`): from the key to the
   daemon's reply (`pr.refresh` with `wait`), for at least one turn and never past 30s; a second `r` meanwhile sends

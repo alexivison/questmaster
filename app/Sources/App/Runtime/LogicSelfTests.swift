@@ -69,7 +69,7 @@ enum LogicSelfTests {
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn", testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn),
         ("testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar", testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar),
-        ("testDockTitlesStayCentredInTheirBarUnderATitlebar", testDockTitlesStayCentredInTheirBarUnderATitlebar),
+        ("testDockTitlesSitWhereTheirHeaderPutsThemUnderATitlebar", testDockTitlesSitWhereTheirHeaderPutsThemUnderATitlebar),
         ("testPanelHeaderMetricsKeepTheTitleTenAboveItsElements", testPanelHeaderMetricsKeepTheTitleTenAboveItsElements),
         ("testPanelHeadersSpaceTheirElementsTenAndTwentyUnderTheTitle", testPanelHeadersSpaceTheirElementsTenAndTwentyUnderTheTitle),
         ("testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate", testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate),
@@ -958,7 +958,7 @@ enum LogicSelfTests {
     /// titlebar check is exact to half a point. The centring allows 1.5pt, since the title's line box centres the font's own
     /// ascent and descent: the user's terminal font sits a fraction of a point high, and a runner without it (the system's
     /// monospace) sits about a point lower.
-    private static func testDockTitlesStayCentredInTheirBarUnderATitlebar() throws {
+    private static func testDockTitlesSitWhereTheirHeaderPutsThemUnderATitlebar() throws {
         let width: CGFloat = 400, height: CGFloat = 700, scale: CGFloat = 2
         let topFrame = NSRect(x: 20, y: height - 20 - 300, width: 360, height: 300)
         let bottomFrame = NSRect(x: 20, y: 20, width: 360, height: height - 40 - 300 - 20)
@@ -1033,11 +1033,15 @@ enum LogicSelfTests {
         try expect(abs(workerBottomTitled - workerBottomBare) <= 0.5, "the Worker Log title at the bottom should sit where it does with no titlebar: \(report)")
         try expect(abs(artifactsTitled - artifactsBare) <= 0.5, "the Artifacts title should sit where it does with no titlebar: \(report)")
         try expect(abs(viewerTitled - viewerBare) <= 0.5, "the open artifact's title should sit where it does with no titlebar: \(report)")
-        try expect(abs(watcherTitled) <= 1.5, "the Watcher title should be centred in its bar: \(report)")
-        try expect(abs(workerTopTitled) <= 1.5, "the Worker Log title at the top should be centred in its bar: \(report)")
-        try expect(abs(workerBottomTitled) <= 1.5, "the Worker Log title at the bottom should be centred in its bar: \(report)")
-        try expect(abs(artifactsTitled) <= 1.5, "the Artifacts title should be centred in its bar: \(report)")
-        try expect(abs(viewerTitled) <= 1.5, "the open artifact's title should be centred in its bar: \(report)")
+        // The title sits where its header puts it, not on the bar's centre: its text frame ends `elementGap` above the bar's
+        // bottom edge, so its cap band sits this far above the centre (negative is below). In JetBrains Mono 14 that is -0.7pt;
+        // a font with a deeper descent sits lower, as the system mono does. The rule keeps the gap, which the centre would not.
+        let expected = ShellMetrics.dockTopBarHeight / 2 - (PanelHeaderMetrics.titleBaseline - AppFonts.panelTitle.capHeight / 2)
+        try expect(abs(watcherTitled - expected) <= 0.75, "the Watcher title should sit \(expected) from its bar's centre, where its header puts it: \(report)")
+        try expect(abs(workerTopTitled - expected) <= 0.75, "the Worker Log title at the top should sit \(expected) from its bar's centre: \(report)")
+        try expect(abs(workerBottomTitled - expected) <= 0.75, "the Worker Log title at the bottom should sit \(expected) from its bar's centre: \(report)")
+        try expect(abs(artifactsTitled - expected) <= 0.75, "the Artifacts title should sit \(expected) from its bar's centre: \(report)")
+        try expect(abs(viewerTitled - expected) <= 0.75, "the open artifact's title should sit \(expected) from its bar's centre: \(report)")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
