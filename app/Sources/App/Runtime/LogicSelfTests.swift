@@ -69,8 +69,7 @@ enum LogicSelfTests {
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn", testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn),
         ("testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar", testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar),
-        ("testDockTitlesStayCentredOnTheirPlatesUnderATitlebar", testDockTitlesStayCentredOnTheirPlatesUnderATitlebar),
-        ("testDockTitlePlatesCentreOnThePanelBorder", testDockTitlePlatesCentreOnThePanelBorder),
+        ("testDockTitlesStayCentredInTheirBarUnderATitlebar", testDockTitlesStayCentredInTheirBarUnderATitlebar),
         ("testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate", testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
@@ -950,22 +949,23 @@ enum LogicSelfTests {
         try expect(!isFill(pixels(TrackerListMetrics.sidePadding - 1), midline), "the banner starts at the plates' leading edge")
     }
 
-    /// A dock title plate under a full-size-content titlebar, as the app's window has one: a hosting view there takes the
-    /// titlebar as a top safe area, which pushed the title down on the top dock. Measured at 2x on the cap band of the title's
-    /// first capital (its top to its baseline, so descenders don't count), counting only the title's gold ink so the grey
-    /// filter and close glyphs beside it never do. The title must sit as it does with no titlebar, and centred on its plate
-    /// for the Watcher, the Artifacts and the Worker Log at either position. The titlebar check is exact to half a point. The
-    /// centring allows 1.5pt, since the title's line box centres the font's own ascent and descent: the user's terminal font
-    /// sits 0.25pt high, and a runner without it (the system's monospace) sits about a point lower.
-    private static func testDockTitlesStayCentredOnTheirPlatesUnderATitlebar() throws {
+    /// The dock titles sit in their top bars where they do with no titlebar, and under a full-size-content titlebar too, as the
+    /// top dock has one. A hosting view there reads the titlebar as a top safe area and pushes its content down, so the bar
+    /// ignores it. Measured at 2x on the cap band of each title's first capital (its top to its baseline, so descenders don't
+    /// count), counting only the title's gold ink so the grey icons beside it never do, against the bar's own centre line. The
+    /// titlebar check is exact to half a point. The centring allows 1.5pt, since the title's line box centres the font's own
+    /// ascent and descent: the user's terminal font sits a fraction of a point high, and a runner without it (the system's
+    /// monospace) sits about a point lower.
+    private static func testDockTitlesStayCentredInTheirBarUnderATitlebar() throws {
         let width: CGFloat = 400, height: CGFloat = 700, scale: CGFloat = 2
         let topFrame = NSRect(x: 20, y: height - 20 - 300, width: 360, height: 300)
         let bottomFrame = NSRect(x: 20, y: 20, width: 360, height: height - 40 - 300 - 20)
         let watcher = DockTopBarModel.watcher
         let artifacts = DockTopBarModel.make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false)
+        let viewer = DockTopBarModel.make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: "Session Notes", logAttached: false)
         let workerLog = DockTopBarModel.make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true)
 
-        /// The offset of the first capital's cap band from its plate's centre, positive upward, in points.
+        /// The offset of the first capital's cap band from its bar's centre line, positive upward, in points.
         func offset(_ topBar: DockTopBarModel, frame: NSRect, titlebar: Bool) throws -> CGFloat {
             let styleMask: NSWindow.StyleMask = titlebar ? [.titled, .fullSizeContentView] : [.borderless]
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: styleMask, backing: .buffered, defer: false)
@@ -980,10 +980,10 @@ enum LogicSelfTests {
             container.layoutSubtreeIfNeeded()
             try pumpOneMainRunLoopTurn()
             container.layoutSubtreeIfNeeded()
-            guard let plate = descendant(DockTitlePlateHost.self, in: shell) else {
-                throw TestFailure("the dock should host its title plate")
+            guard let bar = descendant(NSHostingView<DockTopBar>.self, in: shell) else {
+                throw TestFailure("the dock should host its top bar")
             }
-            let plateRect = container.convert(plate.bounds, from: plate)
+            let barRect = container.convert(bar.bounds, from: bar)
             guard let bitmap = NSBitmapImageRep(
                 bitmapDataPlanes: nil, pixelsWide: Int(width * scale), pixelsHigh: Int(height * scale), bitsPerSample: 8, samplesPerPixel: 4,
                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
@@ -997,13 +997,13 @@ enum LogicSelfTests {
                 guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB) else { return false }
                 return pixel.redComponent - pixel.blueComponent > 0.2 && pixel.redComponent > pixel.greenComponent
             }
-            // Pixel rows of the plate's band, and the columns of the title's first capital (about 8pt wide from the first gold).
-            let rows = Int((height - plateRect.maxY) * scale)...Int((height - plateRect.minY) * scale) - 1
-            let firstColumn = (Int(plateRect.minX * scale)..<Int(plateRect.maxX * scale)).first { column in
+            // Pixel rows of the bar, and the columns of the title's first capital (about 8pt wide from the first gold).
+            let rows = Int((height - barRect.maxY) * scale)...Int((height - barRect.minY) * scale) - 1
+            let firstColumn = (Int(barRect.minX * scale)..<Int(barRect.maxX * scale)).first { column in
                 rows.contains { isGold(column, $0) }
             }
             guard let left = firstColumn else {
-                throw TestFailure("the plate should show its title's ink")
+                throw TestFailure("the bar should show its title's ink")
             }
             let capColumns = left..<(left + Int(8 * scale))
             let capRows = rows.filter { row in capColumns.contains { isGold($0, row) } }
@@ -1012,7 +1012,7 @@ enum LogicSelfTests {
             }
             let capTop = height - CGFloat(top) / scale
             let capBottom = height - CGFloat(bottom + 1) / scale
-            return (capTop + capBottom) / 2 - plateRect.midY
+            return (capTop + capBottom) / 2 - barRect.midY
         }
 
         let watcherBare = try offset(watcher, frame: topFrame, titlebar: false)
@@ -1023,77 +1023,19 @@ enum LogicSelfTests {
         let workerBottomTitled = try offset(workerLog, frame: bottomFrame, titlebar: true)
         let artifactsBare = try offset(artifacts, frame: bottomFrame, titlebar: false)
         let artifactsTitled = try offset(artifacts, frame: bottomFrame, titlebar: true)
-        let report = "cap band offsets, titled / bare: Watcher top \(watcherTitled) / \(watcherBare); Worker Log top \(workerTopTitled) / \(workerTopBare); Worker Log bottom \(workerBottomTitled) / \(workerBottomBare); Artifacts bottom \(artifactsTitled) / \(artifactsBare)"
+        let viewerBare = try offset(viewer, frame: bottomFrame, titlebar: false)
+        let viewerTitled = try offset(viewer, frame: bottomFrame, titlebar: true)
+        let report = "cap band offsets, titled / bare: Watcher top \(watcherTitled) / \(watcherBare); Worker Log top \(workerTopTitled) / \(workerTopBare); Worker Log bottom \(workerBottomTitled) / \(workerBottomBare); Artifacts bottom \(artifactsTitled) / \(artifactsBare); open artifact bottom \(viewerTitled) / \(viewerBare)"
         try expect(abs(watcherTitled - watcherBare) <= 0.5, "the Watcher title should sit where it does with no titlebar: \(report)")
         try expect(abs(workerTopTitled - workerTopBare) <= 0.5, "the Worker Log title at the top should sit where it does with no titlebar: \(report)")
         try expect(abs(workerBottomTitled - workerBottomBare) <= 0.5, "the Worker Log title at the bottom should sit where it does with no titlebar: \(report)")
         try expect(abs(artifactsTitled - artifactsBare) <= 0.5, "the Artifacts title should sit where it does with no titlebar: \(report)")
-        try expect(abs(watcherTitled) <= 1.5, "the Watcher title should be centred on its plate: \(report)")
-        try expect(abs(workerTopTitled) <= 1.5, "the Worker Log title at the top should be centred on its plate: \(report)")
-        try expect(abs(workerBottomTitled) <= 1.5, "the Worker Log title at the bottom should be centred on its plate: \(report)")
-        try expect(abs(artifactsTitled) <= 1.5, "the Artifacts title should be centred on its plate: \(report)")
-    }
-
-    /// A dock's title plate centres on its panel's top border: the border's centre line, read from the rendered pixels in a
-    /// column of the straight top edge that the plate doesn't cover. The bottom dock's plate also stays below the panel
-    /// above it, which sits `panelGap` over this panel's edge.
-    private static func testDockTitlePlatesCentreOnThePanelBorder() throws {
-        let width: CGFloat = 400, height: CGFloat = 700, scale: CGFloat = 2
-        let topFrame = NSRect(x: 20, y: height - 20 - 300, width: 360, height: 300)
-        let bottomFrame = NSRect(x: 20, y: 20, width: 360, height: height - 40 - 300 - 20)
-        let border = OutlineLook.frame(focused: false).border.color.usingColorSpace(.deviceRGB)
-        for (name, frame) in [("top", topFrame), ("bottom", bottomFrame)] {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            defer { window.close() }
-            let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-            window.contentView = container
-            let shell = DockShellView(body: NSView(), model: DockChromeModel(topBar: DockTopBarModel.watcher))
-            shell.frame = frame
-            container.addSubview(shell)
-            container.layoutSubtreeIfNeeded()
-            try pumpOneMainRunLoopTurn()
-            container.layoutSubtreeIfNeeded()
-            guard let plate = descendant(DockTitlePlateHost.self, in: shell) else {
-                throw TestFailure("the \(name) dock should host its title plate")
-            }
-            let plateRect = container.convert(plate.bounds, from: plate)
-            guard let bitmap = NSBitmapImageRep(
-                bitmapDataPlanes: nil, pixelsWide: Int(width * scale), pixelsHigh: Int(height * scale), bitsPerSample: 8, samplesPerPixel: 4,
-                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-            ) else {
-                throw TestFailure("could not make a bitmap")
-            }
-            bitmap.size = NSSize(width: width, height: height)
-            container.cacheDisplay(in: container.bounds, to: bitmap)
-            // The border is an opaque stroke of the frame colour, so its rows match that colour and nothing else in the column.
-            func isBorder(_ column: Int, _ row: Int) -> Bool {
-                guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB), let border else {
-                    return false
-                }
-                return abs(pixel.redComponent - border.redComponent) < 0.02
-                    && abs(pixel.greenComponent - border.greenComponent) < 0.02
-                    && abs(pixel.blueComponent - border.blueComponent) < 0.02
-            }
-            // One point above the panel's edge to three below it: the border's 2pt band and the panel fill beneath.
-            let column = Int((frame.minX + 40) * scale)
-            let rows = Int((height - frame.maxY - 1) * scale)..<Int((height - frame.maxY + 3) * scale)
-            let bandRows = rows.filter { isBorder(column, $0) }
-            guard let first = bandRows.first, let last = bandRows.last else {
-                throw TestFailure("the \(name) panel's top border should show in the pixels")
-            }
-            let borderTop = height - CGFloat(first) / scale
-            let borderBottom = height - CGFloat(last + 1) / scale
-            let borderCentre = (borderTop + borderBottom) / 2
-            let report = "the \(name) plate's centre is \(plateRect.midY), the border's centre \(borderCentre), the border \(borderTop - borderBottom)pt"
-            try expect(abs(borderTop - borderBottom - ScoopedRectangle.borderWidth) <= 0.5, "the panel's border should be \(ScoopedRectangle.borderWidth)pt: \(report)")
-            try expect(abs(plateRect.midY - borderCentre) <= 0.5, "the plate's centre should sit on the panel border's centre line: \(report)")
-            if name == "bottom" {
-                // The panel above's bottom edge is `panelGap` over this panel's edge; its border lies inside that edge.
-                let upperEdge = frame.maxY + DockColumnLayout.panelGap
-                try expect(plateRect.maxY < upperEdge, "the bottom plate's top should stay below the panel above's edge: \(report)")
-            }
-        }
+        try expect(abs(viewerTitled - viewerBare) <= 0.5, "the open artifact's title should sit where it does with no titlebar: \(report)")
+        try expect(abs(watcherTitled) <= 1.5, "the Watcher title should be centred in its bar: \(report)")
+        try expect(abs(workerTopTitled) <= 1.5, "the Worker Log title at the top should be centred in its bar: \(report)")
+        try expect(abs(workerBottomTitled) <= 1.5, "the Worker Log title at the bottom should be centred in its bar: \(report)")
+        try expect(abs(artifactsTitled) <= 1.5, "the Artifacts title should be centred in its bar: \(report)")
+        try expect(abs(viewerTitled) <= 1.5, "the open artifact's title should be centred in its bar: \(report)")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
@@ -3822,16 +3764,16 @@ enum LogicSelfTests {
             model.displayState = .empty(sessionID: "s")
             return ArtifactDockView(
                 model: model,
-                onSelectArtifact: { _ in }, onToggleArtifact: { _ in }, onSetFilterQuery: { _ in },
+                onSelectArtifact: { _ in }, onToggleArtifact: { _ in }, onSetScope: { _ in }, onSetFilterQuery: { _ in },
                 onRemoveFilterToken: { _ in }, onSelectFilterSuggestion: { _ in }, onFilterCommand: { _ in false }, onFilterEndEditing: {},
                 onOpenExternal: { _ in }, areaFocused: true
             )
         }
         let dock = CGSize(width: DockWidthPreference.panelWidth, height: 400)
         try expectCentred(try ink(artifacts(.viewer), size: dock), in: CGRect(origin: .zero, size: dock), "the artifact viewer")
-        // The list's top padding: the tabs sit in the top bar, not above it. The column has no inset of its own: its rows and
-        // filter take the panel's content inset on both sides.
-        let listTop = Space.section
+        // Below the tabs: the list's top padding, the tab row, and the gap between them. The column has no inset of its own:
+        // its rows and filter take the panel's content inset on both sides.
+        let listTop = Space.item + ControlHeight.compact + Space.section
         try expectCentred(
             try ink(artifacts(.list), size: dock, below: Int(listTop)),
             in: CGRect(x: 0, y: listTop, width: dock.width, height: dock.height - listTop),

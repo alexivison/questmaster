@@ -2,21 +2,16 @@
 
 - Watcher and Worker Log start open in the first window layout, while startup resolves its session; no opening
   transition runs before the window appears. After startup, both panels hide if no session is attached, keeping their state.
-- Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in `accent`, 14pt bold, on a title plate
-  (`DockTitlePlateView`) whose centre sits on the panel's top border's centre line: 30 high (`DockTitlePlateMetrics.height`),
-  rising `lift` (14, derived as `height / 2 - ScoopedRectangle.borderWidth / 2`) above the panel's edge, `Space.section`
-  either side of the title, and ending in `AngledButtonShape`, the angled buttons' own ends. Its
-  2pt border is the dock's frame look: `lineSoftSubtle`, lifting to `controlBorder` while the dock has the keys
-  (`OutlineLook.frame(focused:)`). The plate hides the panel's border behind its fill, and the top bar keeps only the
-  icons (and, on the Artifacts list, the Session/All tabs). The dock gap stays `DockColumnLayout.panelGap` (20): the lower plate's top sits 6 below the panel above's bottom
-  edge, which is also its border's nearest edge. The top dock's plate top sits 6 below the window's top edge. While a
-  refresh the user asked for (`r`) is under way, Watcher's plate takes the on look (`OnLook`, the caffeinate toggle's own
-  effect): the brass glow band inside its border at 15% (`Token.Size.glowRing` past the 2pt border), and the tracker's
-  working spinner (`SpinnerRing`, `WorkingSpinner.period`) turning round the plate's angled outline (`SpinnerOutline.shape`).
-  The plate's title stays where it is and there is no separate spinner. Core decides it (`PullRequestStore.isRefreshing`): from the key to the daemon's reply
-  (`pr.refresh` with `wait`), for at least one turn and never past 30s; a second `r` meanwhile sends nothing, and the
-  daemon's background polls never show it. It is Core Animation only, runs only while on screen, and holds still and
-  full under Reduce Motion. When the refresh ends the plate returns to its rest look. No hint or footer text.
+- Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in `accent`, 14pt bold, centred in the top
+  bar on its baseline, 25 down (`ShellMetrics.dockTopBarTitleBaseline`; the bar is 40 high and its icons centre 20 down).
+  An open artifact's title sits between its back arrow and its actions, and a long one truncates at the tail. The bar
+  ignores the titlebar's safe area, so the top dock's title sits where it does with no titlebar
+  (`testDockTitlesStayCentredInTheirBarUnderATitlebar`). While a refresh the user asked for (`r`) is under way, Watcher's
+  bar shows the working spinner (`SpinnerRingView`, `WorkingSpinner.period`) on the icon line, `Space.item` past the
+  title's end, a chip's size; the title stays put. Core decides it (`PullRequestStore.isRefreshing`): from the key to the
+  daemon's reply (`pr.refresh` with `wait`), for at least one turn and never past 30s; a second `r` meanwhile sends
+  nothing, and the daemon's background polls never show it. It is Core Animation only, runs only while on screen, and
+  holds still and full under Reduce Motion. When the refresh ends the spinner goes. No hint or footer text.
 - The action bar is a header over the terminal column (`Main Chat Header.svg`): a scooped
   panel (`ActionBarMetrics.height`, `scoopRadius`), its top level with the tracker's and the dock's (`sideCardInset` down), `Space.section` from the
   tracker's plates and the dock, or from the window's edges when they're hidden, with the terminal's text starting
@@ -27,7 +22,7 @@
   between the groups; caffeinate `toggleGap` past them. Its glyphs are `AppIcon`s, 25pt (`ActionBarMetrics.iconSide`). A raised button (its look is active or
   on: the tracker shown, a dock panel shown, caffeinate on) is an `item` tile with a `line` border and draws the filled drawing;
   a recessed one is a `well` tile with a `lineSoftSubtle` border and the line drawing. The caffeinate toggle's icon is the one
-  gold (`accent`) while it is on. Under the pointer the border steps up one rung, and a recessed button's icon lights to
+  gold (`accent`) while it is on, and it takes the on look (`OnLook`: the brass glow inside its border, with the working spinner turning round it). Under the pointer the border steps up one rung, and a recessed button's icon lights to
   `textSelected`; the states are in `interaction-states.md`.
   Its empty space drags the window. Toasts sit `Space.section` above the
   window's bottom edge.
@@ -37,14 +32,13 @@
   (20) in on both sides, and a row's delete-mark gutter is the leading one, so the marks sit in the panel's margin. The list
   ends one margin above the bottom edge, where the bottom corners' scoop reaches the margin, so its last card clears the scoop.
   The toast is a scooped panel too, with its own size (`ToastBanner.scoopRadius` 10, `scoopStep` 2: the action bar's proportion for a one-line toast).
-- The Artifacts' Session/All tabs are text tabs (`TextTabRow`, as the Worker Log's and the Quest Log's) in the list's top
-  bar, not in the list (`DockTopBarModel.artifactScope`, set only for the list route, so the viewer, the Worker Log and
-  Watcher have none). They sit in the bar's 40pt band, centred between `ArtifactScopeTabsMetrics.sideInset` on each side
-  (the bar's inset, the close button's icon and `Space.item`), with the label's baseline on the bar's bottom edge
-  (`ArtifactScopeTabsMetrics.top`). The label's top then stands 15 under the title plate's bottom edge, as the mock
-  (`artifact-tabs-mock.png`, 3x) has it (14.7, snapped 15). The list starts `Space.section` under the bar's edge, so the
-  filter (All only) and the first card sit `Space.section` under the baseline, as the mock has them. The mock draws the
-  filter under Session too; the dock shows it under All only (the user's decision).
+- The Artifacts' Session/All tabs are text tabs (`TextTabRow`, as the Worker Log's and the Quest Log's), the first thing in
+  the list (`ArtifactDockView.artifactSelector`). The row is centred on the panel `Space.item` (10) under the top bar's
+  bottom edge; its box is `TextTabMetrics.height` (25), with the label's baseline 17 down, and each diamond sits
+  `TextTabMetrics.separatorGap` (`Space.item`, 10) from the tabs either side. The filter (All only) sits `Space.section`
+  (20) under the tabs, and the first card sits `Space.section` under the filter, or under the tabs in Session. A narrow
+  dock scrolls its tabs sideways with fades, as the Worker Log's do. The mock draws the filter under Session too; the dock
+  shows it under All only (the user's decision).
 - The dock is two stacked scooped panels, `DockColumnLayout.panelGap` apart: Watcher on top at the fixed
   `DockColumnLayout.watcherHeight`, and
   under it the artifacts or the Worker Log. Each has its own title and close button, and either shows alone

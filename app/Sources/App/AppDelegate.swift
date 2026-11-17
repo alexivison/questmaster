@@ -274,7 +274,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         handles.bottomDockShell.onDismissLogFilter = { [weak self] in self?.workerChatStore.closeMenu() }
         handles.bottomDockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
-        handles.bottomDockShell.onSetArtifactScope = { [weak self] scope in self?.setArtifactScope(scope) }
         handles.bottomDockShell.onCopyArtifactPath = { [weak self] in
             guard let self else {
                 return
@@ -489,8 +488,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             mode: dockView?.currentMode ?? .artifacts,
             artifactRoute: dockView?.currentArtifactRoute ?? .list,
             artifactTitle: dockView?.currentArtifactTitle,
-            logAttached: workerChatStore.isAttached,
-            artifactScope: dockView?.currentArtifactScope ?? .session
+            logAttached: workerChatStore.isAttached
         )
     }
 

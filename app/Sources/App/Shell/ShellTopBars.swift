@@ -12,9 +12,7 @@ import SwiftUI
 @Observable
 final class DockChromeModel {
     var topBar: DockTopBarModel
-    /// Whether the dock has the keys, which lifts its title plate's border (`DockTitlePlateView`).
-    var isFocused = false
-    /// Whether the panel is refreshing what it lists, shown as the spinner beside its title. A closure, so the plate's body
+    /// Whether the panel is refreshing what it lists, shown as the spinner beside its title. A closure, so the bar's body
     /// tracks the store behind it.
     let isRefreshing: () -> Bool
 
@@ -30,6 +28,13 @@ final class DockChromeModel {
         self.topBar = topBar
         self.isRefreshing = isRefreshing
     }
+}
+
+/// Every dock's title (Artifacts, Worker Log, an open artifact's name): title case, in the one gold.
+private func dockTopBarTitle(_ title: String) -> some View {
+    BaselineText(title, font: AppFonts.dockTopBarTitle, color: AppPalette.accent, baseline: ShellMetrics.dockTopBarTitleBaseline)
+        .lineLimit(1)
+        .truncationMode(.tail)
 }
 
 private extension View {
@@ -51,8 +56,6 @@ struct DockTopBar: View {
     /// A click on the bar that isn't on one of its buttons: it ends the log filter's dropdown, as one on the feed does.
     let onDismissLogFilter: () -> Void
     let onHideDock: () -> Void
-    /// A click on one of the Artifacts' Session/All tabs.
-    var onSelectArtifactScope: (ArtifactScope) -> Void = { _ in }
 
     var body: some View {
         let topBar = model.topBar
@@ -66,45 +69,49 @@ struct DockTopBar: View {
         .padding(.horizontal, ShellMetrics.dockTopBarHorizontalInset)
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.dockTopBarHeight)
-        // The Artifacts' tabs share the band with the icons: they centre between the close button and the bar's leading edge,
-        // their label's baseline on the bar's bottom edge.
-        .overlay(alignment: .top) {
-            if let scope = topBar.artifactScope {
-                TextTabRow(
-                    titles: ArtifactScope.dockCases.map(\.title),
-                    selectedIndex: ArtifactScope.dockCases.firstIndex(of: scope) ?? -1,
-                    areaFocused: model.isFocused,
-                    onSelect: { onSelectArtifactScope(ArtifactScope.dockCases[$0]) }
-                )
-                .padding(.horizontal, ArtifactScopeTabsMetrics.sideInset)
-                .offset(y: ArtifactScopeTabsMetrics.top)
-            }
-        }
         .background(AppPalette.panel.swiftUI)
         .contentShape(Rectangle())
         .onTapGesture(perform: onDismissLogFilter)
-        // The pane sits under the full-size-content titlebar; ignore its safe area
-        // so the bar fills its 46pt frame instead of being inset downward.
+        // The pane sits under the full-size-content titlebar; ignore its safe area so the bar fills its frame instead of
+        // being inset downward. Its title is laid out in that frame, so it sits where it does with no titlebar.
         .ignoresSafeArea()
     }
 
-    /// The titles sit on the plate over the panel's top edge (`DockTitlePlateView`), so the bar holds only its icons, and the
-    /// Artifacts' tabs when the list shows them (`body`).
     private func listBar(_ topBar: DockTopBarModel) -> some View {
-        HStack(spacing: Space.item) {
-            Color.clear.frame(width: ChromeMetrics.iconWidth, height: 1)
-            Spacer(minLength: 0)
-            if topBar.showsLogFilter {
-                ChromeIconButton(
-                    glyph: .icon(.dockFilterFunnel),
-                    accessibilityLabel: "Filter Worker Log",
-                    tooltip: "Filter Worker Log (\(Keymap.badgeCharacter(for: .toggleFilterMenu) ?? ""))",
-                    action: onToggleLogFilter
-                )
+        ZStack {
+            HStack(spacing: Space.item) {
+                Color.clear.frame(width: ChromeMetrics.iconWidth, height: 1)
+                Spacer(minLength: 0)
+                if topBar.showsLogFilter {
+                    ChromeIconButton(
+                        glyph: .icon(.dockFilterFunnel),
+                        accessibilityLabel: "Filter Worker Log",
+                        tooltip: "Filter Worker Log (\(Keymap.badgeCharacter(for: .toggleFilterMenu) ?? ""))",
+                        action: onToggleLogFilter
+                    )
+                }
+                ChromeIconButton(glyph: .icon(.dockCloseCross), accessibilityLabel: "Close Dock", action: onHideDock)
             }
-            ChromeIconButton(glyph: .icon(.dockCloseCross), accessibilityLabel: "Close Dock", action: onHideDock)
+            .dockTopBarIcons()
+            if let title = topBar.title {
+                dockTopBarTitle(title)
+                    .overlay(alignment: .trailing) { refreshSpinner }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, ChromeMetrics.iconWidth + Space.item)
+                    .allowsHitTesting(false)
+            }
         }
-        .dockTopBarIcons()
+    }
+
+    /// The refresh mark: the working spinner `Space.item` past the title's end, centred on the bar's icon line, where it
+    /// takes no room, so the centred title doesn't move when it comes and goes. Nothing is drawn, or running, otherwise.
+    @ViewBuilder
+    private var refreshSpinner: some View {
+        if model.isRefreshing() {
+            SpinnerRingView(stroke: ShellMetrics.dockTopBarSpinnerStroke)
+                .frame(width: ShellMetrics.dockTopBarSpinnerSize, height: ShellMetrics.dockTopBarSpinnerSize)
+                .offset(x: ShellMetrics.dockTopBarSpinnerSize + Space.item)
+        }
     }
 
     private func viewerBar(_ topBar: DockTopBarModel, back: DockTopBarModel.Back) -> some View {
@@ -114,7 +121,11 @@ struct DockTopBar: View {
             }
             .dockTopBarIcons()
 
-            Spacer(minLength: 0)
+            if let title = topBar.title {
+                dockTopBarTitle(title)
+                    .layoutPriority(1)
+                    .frame(maxWidth: .infinity)
+            }
 
             HStack(spacing: Space.item) {
                 if topBar.showArtifactActions {
