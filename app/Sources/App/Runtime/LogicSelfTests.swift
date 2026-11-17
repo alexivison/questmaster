@@ -3821,15 +3821,15 @@ enum LogicSelfTests {
             model.displayState = .empty(sessionID: "s")
             return ArtifactDockView(
                 model: model,
-                onSelectArtifact: { _ in }, onToggleArtifact: { _ in }, onSetScope: { _ in }, onSetFilterQuery: { _ in },
+                onSelectArtifact: { _ in }, onToggleArtifact: { _ in }, onSetFilterQuery: { _ in },
                 onRemoveFilterToken: { _ in }, onSelectFilterSuggestion: { _ in }, onFilterCommand: { _ in false }, onFilterEndEditing: {},
                 onOpenExternal: { _ in }, areaFocused: true
             )
         }
         let dock = CGSize(width: DockWidthPreference.panelWidth, height: 400)
         try expectCentred(try ink(artifacts(.viewer), size: dock), in: CGRect(origin: .zero, size: dock), "the artifact viewer")
-        // The tabs' layout height (their box less what hangs under the baseline), then `Space.section` to the list.
-        let listTop = (TextTabMetrics.height - ArtifactTabsMetrics.belowBaseline) + Space.section
+        // The list's top padding: the tabs sit in the top bar, not above it.
+        let listTop = Space.section
         try expectCentred(
             try ink(artifacts(.list), size: dock, below: Int(listTop)),
             in: CGRect(x: 0, y: listTop, width: dock.width, height: dock.height - listTop),

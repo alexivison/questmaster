@@ -52,7 +52,6 @@ struct ArtifactDockView: View {
     var model: ArtifactDockModel
     var onSelectArtifact: (String) -> Void
     var onToggleArtifact: (String) -> Void
-    var onSetScope: (ArtifactScope) -> Void
     var onSetFilterQuery: (String) -> Void
     var onRemoveFilterToken: (ArtifactFilterToken) -> Void
     var onSelectFilterSuggestion: (ArtifactFilterSuggestion) -> Void
@@ -77,11 +76,10 @@ struct ArtifactDockView: View {
         }
     }
 
-    /// artifacts.svg, under the dock's top bar: the Session/All text tabs centred on the panel, the filter (All only)
-    /// `Space.section` under the tabs' baseline, and the rows `Space.section` under the filter.
+    /// artifacts.svg, under the dock's top bar: the filter (All only) 20 down, and the rows 20 under that, everything 20 in
+    /// from the panel's sides. The Session/All tabs sit in the top bar (`DockTopBar`), not here.
     private var artifactSelector: some View {
         VStack(alignment: .leading, spacing: Space.section) {
-            scopeTabs
             if model.artifactScope == .all {
                 filterBar
             }
@@ -141,44 +139,6 @@ struct ArtifactDockView: View {
 
     private func projectTitle(for artifact: ArtifactReference) -> String {
         model.projectTitlesByArtifactID[artifact.id] ?? "Unknown Project"
-    }
-
-    /// The Session/All text tabs (the Worker Log's `TextTabRow`), centred on the panel: the column's leading inset is taken
-    /// back, as the column starts `Space.item` in. The row's box runs `ArtifactTabsMetrics.belowBaseline` under its text,
-    /// and that is taken off, so the filter or the rows sit `Space.section` under the baseline.
-    private var scopeTabs: some View {
-        TextTabRow(
-            titles: ArtifactScope.dockCases.map(\.title),
-            // A scope the tabs don't show selects none, as the pill row did.
-            selectedIndex: ArtifactScope.dockCases.firstIndex(of: model.artifactScope) ?? -1,
-            areaFocused: areaFocused,
-            onSelect: { onSetScope(ArtifactScope.dockCases[$0]) }
-        )
-        .padding(.leading, -Space.item)
-        .padding(.bottom, -ArtifactTabsMetrics.belowBaseline)
-    }
-}
-
-/// The Artifacts' tab row. The dock's top bar keeps its 40pt band above the list, so the tabs start at the list's top.
-enum ArtifactTabsMetrics {
-    /// How far the tab row's box runs under its text's baseline (`TextTabMetrics.height - labelBaseline`).
-    static let belowBaseline = TextTabMetrics.height - TextTabMetrics.labelBaseline
-}
-
-private extension ArtifactScope {
-    static var dockCases: [ArtifactScope] {
-        [.session, .all]
-    }
-
-    var title: String {
-        switch self {
-        case .session:
-            return "Session"
-        case .project:
-            return "Project"
-        case .all:
-            return "All"
-        }
     }
 }
 

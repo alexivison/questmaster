@@ -270,6 +270,9 @@ enum RenderPreview {
         let framed = CGSize(width: pane.width, height: pane.height + Space.section)
         renderView(framedArtifactPane(artifactPaneView(highlight: nil), size: pane, topMargin: Space.section), size: framed, to: "\(outputDir)/artifact-pane-rest-framed.png")
         renderView(framedArtifactPane(artifactPaneView(highlight: nil, session: true), size: pane, topMargin: Space.section), size: framed, to: "\(outputDir)/artifact-pane-session-framed.png")
+        // The narrowest dock (`DockWidthPreference.minWidth`), where the tabs have the least room either side.
+        let narrow = CGSize(width: DockWidthPreference.minWidth, height: pane.height)
+        renderView(framedArtifactPane(artifactPaneView(highlight: nil, session: true), size: narrow, topMargin: Space.section), size: CGSize(width: narrow.width, height: framed.height), to: "\(outputDir)/artifact-pane-session-narrow-framed.png")
         render(artifactHoverView(), size: CGSize(width: 400, height: 260), to: "\(outputDir)/artifact-hover.png")
         renderView(artifactPaneView(highlight: 1, marked: [0, 2], missing: [1, 3]), size: pane, to: "\(outputDir)/artifact-pane-marked.png")
         renderView(artifactPaneView(highlight: nil, empty: true), size: pane, to: "\(outputDir)/artifact-pane-empty.png")
@@ -315,7 +318,7 @@ enum RenderPreview {
         splitView.addArrangedSubview(TerminalShellView(body: terminalBody))
         let dockColumn = DockColumnView(
             top: DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher)),
-            bottom: DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
+            bottom: artifactsDockShell(SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
         )
         dockColumn.setPanels(DockPanels(bottom: true))
         splitView.addArrangedSubview(dockColumn)
@@ -392,12 +395,13 @@ enum RenderPreview {
             ArtifactFilterSuggestion(mode: .command, kind: .project, value: "project", title: "@project:", detail: "filter", tokenTitle: ""),
             ArtifactFilterSuggestion(mode: .command, kind: .type, value: "type", title: "@type:", detail: "filter", tokenTitle: ""),
         ]
+        let scope: ArtifactScope = session || (empty && !allTab) ? .session : .all
         let model = ArtifactDockModel(
             currentSessionTitle: "preview",
             currentSessionID: "preview",
             artifacts: empty ? [] : artifacts,
             projectTitlesByArtifactID: Dictionary(uniqueKeysWithValues: artifacts.map { ($0.id, "questmaster") }),
-            artifactScope: session || (empty && !allTab) ? .session : .all,
+            artifactScope: scope,
             selectedArtifactID: highlight.map { artifacts[$0].id },
             selectedArtifactIDs: Set(marked.map { artifacts[$0].id }),
             route: viewer ? .viewer : .list,
@@ -411,7 +415,6 @@ enum RenderPreview {
             model: model,
             onSelectArtifact: { _ in },
             onToggleArtifact: { _ in },
-            onSetScope: { _ in },
             onSetFilterQuery: { _ in },
             onRemoveFilterToken: { _ in },
             onSelectFilterSuggestion: { _ in },
@@ -422,7 +425,10 @@ enum RenderPreview {
             previewFilterFocused: suggesting
         ))
         guard viewer else {
-            return DockShellView(body: body)
+            // The list's tabs sit in the top bar, which takes the keys' focus as the panel does.
+            let chrome = DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false, artifactScope: scope))
+            chrome.isFocused = focused
+            return DockShellView(body: body, model: chrome)
         }
         return DockShellView(body: body, model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: nil, logAttached: false)))
     }
@@ -686,7 +692,7 @@ enum RenderPreview {
         case .artifacts, nil:
             bottomShell = DockShellView(
                 body: NSHostingView(rootView: artifactListView(focused: focus == .bottom)),
-                model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false))
+                model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false, artifactScope: .session))
             )
         }
         topShell.setFocused(focus == .top)
@@ -841,10 +847,19 @@ enum RenderPreview {
         return context.makeImage()
     }
 
+    /// A dock panel showing the Artifacts list, with its top bar set as `AppDelegate.updateDockTabs` sets it: the Session tab
+    /// selected in the bar.
+    @MainActor
+    private static func artifactsDockShell(_ body: NSView) -> DockShellView {
+        let shell = DockShellView(body: body)
+        shell.updateTabs(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false, artifactScope: .session)
+        return shell
+    }
+
     /// The dock alone on the window colour, with or without keyboard focus, for its frame.
     @MainActor
     private static func dockFrameView(focused: Bool) -> NSView {
-        let dock = DockShellView(body: SwiftUIDockPane(store: trackerPreviewStore(), workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
+        let dock = artifactsDockShell(SwiftUIDockPane(store: trackerPreviewStore(), workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
         dock.setFocused(focused)
         dock.frame = NSRect(x: 20, y: 20, width: 344, height: 400)
         let container = NSView()
@@ -2287,7 +2302,6 @@ enum RenderPreview {
             model: model,
             onSelectArtifact: { _ in },
             onToggleArtifact: { _ in },
-            onSetScope: { _ in },
             onSetFilterQuery: { _ in },
             onRemoveFilterToken: { _ in },
             onSelectFilterSuggestion: { _ in },
@@ -2314,7 +2328,6 @@ enum RenderPreview {
             model: model,
             onSelectArtifact: { _ in },
             onToggleArtifact: { _ in },
-            onSetScope: { _ in },
             onSetFilterQuery: { _ in },
             onRemoveFilterToken: { _ in },
             onSelectFilterSuggestion: { _ in },
