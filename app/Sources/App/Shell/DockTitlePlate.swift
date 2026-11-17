@@ -2,14 +2,16 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The dock's title plate (the title tab): a nameplate centred on each dock panel's top edge, `lift` above it, so it breaks the
-/// panel's 2pt border and hides it behind its panel fill. Its ends are `AngledButtonShape`, the angled buttons' own, and its
+/// The dock's title plate (the title tab): a nameplate whose centre sits on each dock panel's top border, so it breaks the
+/// border and hides it behind its panel fill. Its ends are `AngledButtonShape`, the angled buttons' own, and its
 /// 2pt border lifts to `controlBorder` with the panel's frame while the dock has the keys. While a refresh the user asked for
 /// runs, it takes the on look (`OnLook`): the brass glow band inside its border and the spinner round it.
 enum DockTitlePlateMetrics {
     static let height: CGFloat = 30
-    /// How far the plate rises above the panel's top edge: the window's gap above the dock, less the plate's own headroom.
-    static let lift = Space.item
+    /// How far the plate rises above the panel's top edge. The panel's border lies inside its outline, so its centre line is
+    /// `ScoopedRectangle.borderWidth / 2` below the edge, and the plate's centre sits `height / 2 - lift` below the edge. Setting
+    /// the two equal gives `lift = height / 2 - borderWidth / 2`: 14 for this 30pt plate and the 2pt border.
+    static let lift = height / 2 - ScoopedRectangle.borderWidth / 2
     /// The plate's padding either side of the title.
     static let titleInset = Space.section
     /// The plate's border, 2pt inside its outline: a stroke twice as wide, clipped to the shape.

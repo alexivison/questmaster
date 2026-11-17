@@ -3,11 +3,13 @@
 - Watcher and Worker Log start open in the first window layout, while startup resolves its session; no opening
   transition runs before the window appears. After startup, both panels hide if no session is attached, keeping their state.
 - Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in `accent`, 14pt bold, on a title plate
-  (`DockTitlePlateView`) centred on the panel's top edge: 30 high (`DockTitlePlateMetrics.height`), rising `lift` (10) above
-  the panel, `Space.section` either side of the title, and ending in `AngledButtonShape`, the angled buttons' own ends. Its
+  (`DockTitlePlateView`) whose centre sits on the panel's top border's centre line: 30 high (`DockTitlePlateMetrics.height`),
+  rising `lift` (14, derived as `height / 2 - ScoopedRectangle.borderWidth / 2`) above the panel's edge, `Space.section`
+  either side of the title, and ending in `AngledButtonShape`, the angled buttons' own ends. Its
   2pt border is the dock's frame look: `lineSoftSubtle`, lifting to `controlBorder` while the dock has the keys
   (`OutlineLook.frame(focused:)`). The plate hides the panel's border behind its fill, and the top bar keeps only the
-  icons. The dock gap stays `DockColumnLayout.panelGap` (20): the lower plate's top sits 10 below the panel above. While a
+  icons. The dock gap stays `DockColumnLayout.panelGap` (20): the lower plate's top sits 6 below the panel above's bottom
+  edge, which is also its border's nearest edge. The top dock's plate top sits 6 below the window's top edge. While a
   refresh the user asked for (`r`) is under way, Watcher's plate takes the on look (`OnLook`, the caffeinate toggle's own
   effect): the brass glow band inside its border at 15% (`Token.Size.glowRing` past the 2pt border), and the tracker's
   working spinner (`SpinnerRing`, `WorkingSpinner.period`) turning round the plate's angled outline (`SpinnerOutline.shape`).
