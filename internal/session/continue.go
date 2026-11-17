@@ -233,7 +233,7 @@ func (s *Service) respawnDeadAgent(ctx context.Context, m state.Manifest, pane t
 	if err := s.installPiExtension(launch.agents); err != nil {
 		return err
 	}
-	if m.RuntimeDir == "" && launch.agents[agent.RoleAgent].Name() == "codex" && os.Getenv(agent.CodexNativeEnv) == "1" {
+	if m.RuntimeDir == "" && launch.agents[agent.RoleAgent].Name() == "codex" {
 		// Native ownership needs a private runtime even when the exited agent
 		// predates recorded runtime directories. Leave its old /tmp path alone.
 		m.RuntimeDir = state.NewRuntimeDir(s.Store.Root(), m.SessionID)
@@ -343,7 +343,6 @@ func (s *Service) continueLaunchFor(m state.Manifest) (continueLaunch, error) {
 			Continuing:      true,
 			Model:           agentState.Model,
 			ReasoningEffort: agentState.ReasoningEffort,
-			CodexNative:     os.Getenv(agent.CodexNativeEnv) == "1",
 			LauncherBinary:  os.Getenv("QUESTMASTER_BIN"),
 		})
 		if resumeID != "" {

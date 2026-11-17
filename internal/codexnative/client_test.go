@@ -30,8 +30,12 @@ func runtimeFixture(t *testing.T) string {
 
 type peerOptions struct {
 	status, rejection string
+	rejectionCode     int
 	drop              bool
 	alias             bool
+	queueRejection    string
+	queueDrop         bool
+	queueEmpty        bool
 }
 
 func mockPeer(t *testing.T, dir string, opts peerOptions) <-chan map[string]any {
@@ -52,7 +56,7 @@ func mockPeer(t *testing.T, dir string, opts peerOptions) <-chan map[string]any 
 			t.Fatal(err)
 		}
 	}
-	submissions := make(chan map[string]any, 1)
+	submissions := make(chan map[string]any, 2)
 	server := &http.Server{ReadHeaderTimeout: time.Second}
 	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
@@ -100,13 +104,32 @@ func mockPeer(t *testing.T, dir string, opts peerOptions) <-chan map[string]any 
 					return
 				}
 				if opts.rejection != "" {
-					response, _ := json.Marshal(map[string]any{"id": req.ID, "error": map[string]any{"code": -32600, "message": opts.rejection}})
+					code := opts.rejectionCode
+					if code == 0 {
+						code = -32600
+					}
+					response, _ := json.Marshal(map[string]any{"id": req.ID, "error": map[string]any{"code": code, "message": opts.rejection}})
 					_ = conn.Write(ctx, websocket.MessageText, response)
-					return
+					continue
 				}
 				// A server request (including a string ID) must be left to the TUI.
 				_ = conn.Write(ctx, websocket.MessageText, []byte(`{"id":"approval","method":"item/commandExecution/requestApproval","params":{}}`))
 				result = map[string]any{"turn": map[string]string{"id": "example-turn"}}
+			case "thread/queue/add":
+				submissions <- map[string]any{"method": req.Method, "params": req.Params}
+				if opts.queueDrop {
+					return
+				}
+				if opts.queueRejection != "" {
+					response, _ := json.Marshal(map[string]any{"id": req.ID, "error": map[string]any{"code": -32601, "message": opts.queueRejection}})
+					_ = conn.Write(ctx, websocket.MessageText, response)
+					continue
+				}
+				id := "example-submission"
+				if opts.queueEmpty {
+					id = ""
+				}
+				result = map[string]any{"queuedSubmission": map[string]string{"id": id}}
 			default:
 				t.Errorf("unexpected RPC %s", req.Method)
 				return
@@ -170,6 +193,81 @@ func TestSend(t *testing.T) {
 			select {
 			case extra := <-submissions:
 				t.Fatalf("duplicate submission: %v", extra)
+			default:
+			}
+		})
+	}
+}
+
+func TestSendThroughLongRuntimeAlias(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(runtimeFixture(t), strings.Repeat("r", 110))
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, MarkerName), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	submissions := mockPeer(t, dir, peerOptions{status: "idle", alias: true})
+	if err := Send(t.Context(), dir, "example-thread", "long runtime test"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-submissions:
+	case <-time.After(time.Second):
+		t.Fatal("no submission through the long runtime alias")
+	}
+}
+
+func TestSendQueuesOnlyRejectedCompaction(t *testing.T) {
+	t.Parallel()
+	const rejection = "failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }"
+	for _, tc := range []struct {
+		name, rejection, queueRejection, wantErr string
+		code                                     int
+		queueDrop, queueEmpty, wantQueue         bool
+	}{
+		{name: "compaction", code: -32603, rejection: rejection, wantQueue: true},
+		{name: "other rejection", code: -32603, rejection: "turn changed", wantErr: "rejected: turn changed"},
+		{name: "different error code", code: -32600, rejection: rejection, wantErr: "rejected:"},
+		{name: "unsupported queue", code: -32603, rejection: rejection, queueRejection: "unknown method", wantQueue: true, wantErr: "queue/add rejected: unknown method"},
+		{name: "lost queue receipt", code: -32603, rejection: rejection, queueDrop: true, wantQueue: true, wantErr: "delivery uncertain"},
+		{name: "empty queue receipt", code: -32603, rejection: rejection, queueEmpty: true, wantQueue: true, wantErr: "no submission identity"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := runtimeFixture(t)
+			submissions := mockPeer(t, dir, peerOptions{
+				status: "active", rejection: tc.rejection, rejectionCode: tc.code,
+				queueRejection: tc.queueRejection, queueDrop: tc.queueDrop, queueEmpty: tc.queueEmpty,
+			})
+			err := Send(t.Context(), dir, "example-thread", "preserve this instruction")
+			if tc.wantErr == "" && err != nil || tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("error = %v, want %q", err, tc.wantErr)
+			}
+			wantCount := 1
+			if tc.wantQueue {
+				wantCount++
+			}
+			if len(submissions) != wantCount {
+				t.Fatalf("submission count = %d, want %d", len(submissions), wantCount)
+			}
+			if msg := <-submissions; msg["method"] != "turn/start" {
+				t.Fatalf("first submission = %v", msg)
+			}
+			if tc.wantQueue {
+				msg := <-submissions
+				params := msg["params"].(map[string]any)
+				id, _ := params["clientUserMessageId"].(string)
+				if msg["method"] != "thread/queue/add" || params["threadId"] != "example-thread" ||
+					!strings.Contains(string(mustJSON(t, params["input"])), "preserve this instruction") ||
+					!strings.HasPrefix(id, "questmaster-") {
+					t.Fatalf("queued submission = %v", msg)
+				}
+			}
+			select {
+			case extra := <-submissions:
+				t.Fatalf("unexpected submission: %v", extra)
 			default:
 			}
 		})

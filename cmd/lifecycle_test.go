@@ -288,7 +288,7 @@ func TestStartCmd_ModelAndReasoningEffortReachAgent(t *testing.T) {
 	runCmd(t, store, runner, "start", "--cwd", cwd, "--agent", "codex", "--model", "gpt-6-luna", "--reasoning-effort", "max")
 
 	launch := strings.Join(calls, "\n")
-	for _, want := range []string{"--model 'gpt-6-luna'", `model_reasoning_effort="max"`} {
+	for _, want := range []string{`--config 'model="gpt-6-luna"'`, `model_reasoning_effort="max"`} {
 		if !strings.Contains(launch, want) {
 			t.Fatalf("start launch missing %q in:\n%s", want, launch)
 		}

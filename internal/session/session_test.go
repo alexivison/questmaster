@@ -3096,7 +3096,7 @@ func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
 			t.Fatalf("Start(default Codex, %s): %v", effort, err)
 		}
 		launch := findLaunchArgContaining(runner, task)
-		if !strings.Contains(launch, "--model 'gpt-5.6-terra'") || !strings.Contains(launch, `model_reasoning_effort="`+effort+`"`) {
+		if !strings.Contains(launch, `--config 'model="gpt-5.6-terra"'`) || !strings.Contains(launch, `model_reasoning_effort="`+effort+`"`) {
 			t.Fatalf("Codex %s launch = %q", effort, launch)
 		}
 		if !runner.sessions[result.SessionID] {
@@ -3416,7 +3416,7 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 			continue
 		}
 		cmd := call.args[len(call.args)-1]
-		if strings.Contains(cmd, codexCLI) && strings.Contains(cmd, "--dangerously-bypass-approvals-and-sandbox") {
+		if strings.Contains(cmd, codexCLI) && strings.Contains(cmd, "agent codex --binary") {
 			sawCodexAgent = true
 		}
 	}

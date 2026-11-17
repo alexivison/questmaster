@@ -155,7 +155,7 @@ func TestClassVoiceHarnessPromptRoutes(t *testing.T) {
 			masterPrompt: func() string { return NewCodex(AgentConfig{}).MasterPrompt() },
 			workerPrompt: func() string { return NewCodex(AgentConfig{}).WorkerPrompt() },
 			wantRoute: func(prompt string) string {
-				return "-c " + configShellQuote("developer_instructions="+strconv.Quote(prompt))
+				return "--config " + configShellQuote("developer_instructions="+strconv.Quote(prompt))
 			},
 		},
 		{
@@ -530,7 +530,7 @@ func TestCodexBuildCmd(t *testing.T) {
 		Role:      RoleWorker,
 	})
 	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()))
-	if !strings.Contains(withoutResume, "-c "+wantConfig) {
+	if !strings.Contains(withoutResume, "--config "+wantConfig) {
 		t.Fatalf("BuildCmd(no resume) missing worker developer_instructions: %q", withoutResume)
 	}
 	if strings.Contains(withoutResume, " resume ") {
@@ -556,18 +556,17 @@ func TestCodexBuildCmd_ExtendedReasoningEffort(t *testing.T) {
 			Model:           tt.model,
 			ReasoningEffort: tt.effort,
 		})
-		want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model '" + tt.model + "' -c " +
-			configShellQuote("model_reasoning_effort="+strconv.Quote(tt.effort)) + " -c " +
-			configShellQuote("developer_instructions="+strconv.Quote(codex.WorkerPrompt()))
-		if got != want {
-			t.Fatalf("BuildCmd(%s) = %q, want %q", tt.effort, got, want)
+		for _, setting := range []string{"model=" + strconv.Quote(tt.model), "model_reasoning_effort=" + strconv.Quote(tt.effort)} {
+			if !strings.Contains(got, "--config "+configShellQuote(setting)) {
+				t.Fatalf("BuildCmd(%s) missing %q", tt.effort, setting)
+			}
 		}
 	}
 }
 
 // TestCodexBuildCmd_ModelAndReasoningOverride guards the two things that
-// matter now that there is no hardcoded per-role default: no --model or
-// -c model_reasoning_effort= flag at all when nothing is configured, for any
+// matter now that there is no hardcoded per-role default: no model or
+// model_reasoning_effort override when nothing is configured, for any
 // role, and explicit overrides always winning.
 func TestCodexBuildCmd_ModelAndReasoningOverride(t *testing.T) {
 	t.Parallel()
@@ -577,7 +576,7 @@ func TestCodexBuildCmd_ModelAndReasoningOverride(t *testing.T) {
 
 	for _, role := range []SessionRole{RoleWorker, RoleMaster} {
 		got := codex.BuildCmd(withRole(base, role))
-		if strings.Contains(got, "--model '") {
+		if strings.Contains(got, "--config 'model=") {
 			t.Fatalf("codex role %v with no override should omit --model: %q", role, got)
 		}
 		if strings.Contains(got, "model_reasoning_effort") {
@@ -588,7 +587,7 @@ func TestCodexBuildCmd_ModelAndReasoningOverride(t *testing.T) {
 	override := base
 	override.Role = RoleWorker
 	override.Model = "gpt-custom"
-	if got := codex.BuildCmd(override); !strings.Contains(got, "--model 'gpt-custom'") {
+	if got := codex.BuildCmd(override); !strings.Contains(got, `--config 'model="gpt-custom"'`) {
 		t.Fatalf("explicit override should win for codex: %q", got)
 	}
 }
@@ -621,8 +620,8 @@ func TestCodexBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 		Role:        RoleWorker,
 	})
 	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()+"\n\n"+brief))
-	if !strings.Contains(got, "-c "+wantConfig) {
-		t.Fatalf("BuildCmd() missing %q in %q", "-c "+wantConfig, got)
+	if !strings.Contains(got, "--config "+wantConfig) {
+		t.Fatalf("BuildCmd() missing %q in %q", "--config "+wantConfig, got)
 	}
 	if !strings.HasSuffix(got, " -- 'tell the joke'") {
 		t.Fatalf("BuildCmd() should keep the worker task as positional user turn: %q", got)
@@ -639,11 +638,10 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox -c " +
-		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
-		" -- 'triage the backlog'"
-	if got != want {
-		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
+	if !strings.Contains(got, "agent codex --binary '/opt/homebrew/bin/codex'") ||
+		!strings.Contains(got, "--config "+configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt()))) ||
+		!strings.HasSuffix(got, " -- -- 'triage the backlog'") {
+		t.Fatalf("BuildCmd(master) lost launcher, role or prompt: %q", got)
 	}
 	if strings.Contains(got, "Task: triage the backlog") {
 		t.Fatalf("BuildCmd(master) should not rewrite user prompt: %q", got)

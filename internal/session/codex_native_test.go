@@ -11,46 +11,47 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
-func TestCodexNativeRuntimeFollowsLaunchOptIn(t *testing.T) {
+func TestCodexNativeRuntimeFollowsProvider(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("/tmp", "qm-native-runtime-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	lc := launchConfig{runtimeDir: dir, agents: map[agent.Role]agent.Agent{agent.RoleAgent: agent.NewCodex(agent.AgentConfig{})}}
-	t.Setenv(agent.CodexNativeEnv, "1")
 	if err := prepareCodexNativeRuntime(lc); err != nil {
 		t.Fatal(err)
 	}
 	if enabled, err := codexnative.Enabled(dir); err != nil || !enabled {
 		t.Fatalf("enabled=%v error=%v", enabled, err)
 	}
-	t.Setenv(agent.CodexNativeEnv, "")
+	lc.agents[agent.RoleAgent] = agent.NewClaude(agent.AgentConfig{})
 	if err := prepareCodexNativeRuntime(lc); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, codexnative.MarkerName)); !os.IsNotExist(err) {
-		t.Fatalf("opt-out retained marker: %v", err)
+		t.Fatalf("non-Codex provider retained marker: %v", err)
 	}
 }
 
-func TestContinueCodexTransportChangesOnlyWhenRespawning(t *testing.T) {
+func TestContinueCodexMigratesOnlyWhenRespawning(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name           string
-		before, after  string
+		legacy         bool
 		dead           bool
 		oldRuntime     bool
 		missingRuntime bool
 	}{
-		{name: "enable", before: "0", after: "1", dead: true},
-		{name: "disable", before: "1", after: "0", dead: true},
-		{name: "enable old manifest", before: "0", after: "1", dead: true, oldRuntime: true},
-		{name: "recreate runtime", before: "1", after: "1", dead: true, missingRuntime: true},
-		{name: "live legacy", before: "0", after: "1"},
-		{name: "live native", before: "1", after: "0"},
+		{name: "legacy dead pane", legacy: true, dead: true},
+		{name: "native dead pane", dead: true},
+		{name: "old manifest", legacy: true, dead: true, oldRuntime: true},
+		{name: "recreate runtime", dead: true, missingRuntime: true},
+		{name: "live legacy", legacy: true},
+		{name: "live native"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(agent.CodexNativeEnv, tc.before)
+			t.Parallel()
 			svc, runner := setupService(t)
 			svc.Now = uniqueSessionClock()
 			registry, err := agent.NewRegistry(&agent.Config{
@@ -66,6 +67,11 @@ func TestContinueCodexTransportChangesOnlyWhenRespawning(t *testing.T) {
 				t.Fatal(err)
 			}
 			pane := runner.sessionPane(started.SessionID)
+			if tc.legacy {
+				if err := os.Remove(filepath.Join(started.RuntimeDir, codexnative.MarkerName)); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tc.oldRuntime {
 				if err := svc.Store.Update(started.SessionID, func(m *state.Manifest) { m.RuntimeDir = "" }); err != nil {
 					t.Fatal(err)
@@ -80,7 +86,6 @@ func TestContinueCodexTransportChangesOnlyWhenRespawning(t *testing.T) {
 				runner.deadPanes[pane] = "17"
 			}
 			before := len(runner.calls)
-			t.Setenv(agent.CodexNativeEnv, tc.after)
 			continued, err := svc.Continue(t.Context(), started.SessionID)
 			if err != nil {
 				t.Fatal(err)
@@ -95,9 +100,8 @@ func TestContinueCodexTransportChangesOnlyWhenRespawning(t *testing.T) {
 			if m.RuntimeDir != started.RuntimeDir || runner.envVars[started.SessionID+":"+state.RuntimeDirEnv] != m.RuntimeDir {
 				t.Fatalf("runtime manifest=%q environment=%q, want %q", m.RuntimeDir, runner.envVars[started.SessionID+":"+state.RuntimeDirEnv], started.RuntimeDir)
 			}
-			wantNative := tc.before == "1"
+			wantNative := !tc.legacy || tc.dead
 			if tc.dead {
-				wantNative = tc.after == "1"
 				respawns := callsAfter(runner, before, "respawn-pane")
 				if len(respawns) != 1 || strings.Contains(respawns[0][len(respawns[0])-1], " agent codex ") != wantNative {
 					t.Fatalf("respawn commands=%v, want native=%v", respawns, wantNative)

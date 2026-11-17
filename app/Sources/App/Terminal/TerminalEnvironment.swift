@@ -74,8 +74,6 @@ func appChildProcessEnvironment(
     for (key, value) in loginEnvironment ?? loginShellEnvironment() {
         env[key] = value
     }
-    // Experimental transport selection belongs to the original app launch.
-    env["QUESTMASTER_CODEX_APP_SERVER"] = environment["QUESTMASTER_CODEX_APP_SERVER"] == "1" ? "1" : "0"
     env.removeValue(forKey: "QUESTMASTER_HOME")
     env.removeValue(forKey: "QUESTMASTER_QM")
     env.removeValue(forKey: "QUESTMASTER_SERVE_SOCKET")

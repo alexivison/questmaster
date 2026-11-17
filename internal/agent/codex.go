@@ -8,9 +8,6 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
-// CodexNativeEnv opts new/continued sessions into the experimental transport.
-const CodexNativeEnv = "QUESTMASTER_CODEX_APP_SERVER"
-
 var codexSpec = Spec{
 	Name:           "codex",
 	DisplayName:    "Codex",
@@ -43,32 +40,6 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 	if binary == "" {
 		binary = c.Binary()
 	}
-	if opts.CodexNative {
-		return c.nativeCmd(opts, binary)
-	}
-
-	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox",
-		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
-	if opts.Model != "" {
-		cmd += " --model " + config.ShellQuote(opts.Model)
-	}
-	if opts.ReasoningEffort != "" {
-		cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(opts.ReasoningEffort))
-	}
-	systemPrompt := systemPromptForRole(opts.Role, opts.Class, c.MasterPrompt(), c.WorkerPrompt(), opts.SystemBrief)
-	if systemPrompt != "" {
-		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(systemPrompt))
-	}
-	if opts.ResumeID != "" {
-		cmd += " resume " + config.ShellQuote(opts.ResumeID)
-	}
-	if opts.Prompt != "" {
-		cmd += " -- " + config.ShellQuote(opts.Prompt)
-	}
-	return cmd
-}
-
-func (c *Codex) nativeCmd(opts CmdOpts, binary string) string {
 	launcher := opts.LauncherBinary
 	if launcher == "" {
 		launcher, _ = os.Executable()

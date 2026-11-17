@@ -6,6 +6,7 @@ package codexnative
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,7 +58,8 @@ func Enabled(dir string) (bool, error) {
 	return true, nil
 }
 
-// SocketPath validates the private directory and the macOS Unix path limit.
+// SocketPath validates the private directory. Codex publishes a filesystem alias
+// here and binds its actual socket in a short, private per-user directory.
 func SocketPath(dir string) (string, error) {
 	if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
 		return "", errors.New("Codex runtime directory must be an absolute clean path")
@@ -72,11 +74,7 @@ func SocketPath(dir string) (string, error) {
 	if err := privateFile(info, true); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, SocketName)
-	if len(path) > 103 {
-		return "", errors.New("Codex socket path exceeds 103 bytes; use a shorter Questmaster state root")
-	}
-	return path, nil
+	return filepath.Join(dir, SocketName), nil
 }
 
 func privateFile(info os.FileInfo, directory bool) error {
@@ -195,7 +193,26 @@ func Send(ctx context.Context, dir, threadID, text string) error {
 		} `json:"turn"`
 	}
 	if err := rpc.call(ctx, "turn/start", params, &reply); err != nil {
-		return err
+		var rejection *rpcRejection
+		if !errors.As(err, &rejection) || rejection.code != -32603 ||
+			rejection.message != "failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }" {
+			return err
+		}
+		// A manual compaction explicitly refuses input. Queue it on the same
+		// owner instead; never enqueue after an uncertain turn/start receipt.
+		params["clientUserMessageId"] = "questmaster-" + rand.Text()
+		var queued struct {
+			QueuedSubmission struct {
+				ID string `json:"id"`
+			} `json:"queuedSubmission"`
+		}
+		if err := rpc.call(ctx, "thread/queue/add", params, &queued); err != nil {
+			return err
+		}
+		if queued.QueuedSubmission.ID == "" {
+			return errors.New("Codex queue returned no submission identity (delivery uncertain)")
+		}
+		return nil
 	}
 	if reply.Turn.ID == "" {
 		return errors.New("Codex input returned no turn identity (delivery uncertain)")
@@ -206,6 +223,15 @@ func Send(ctx context.Context, dir, threadID, text string) error {
 type rpcClient struct {
 	conn *websocket.Conn
 	id   int
+}
+
+type rpcRejection struct {
+	method, message string
+	code            int
+}
+
+func (e *rpcRejection) Error() string {
+	return fmt.Sprintf("Codex %s rejected: %s", e.method, e.message)
 }
 
 func (c *rpcClient) write(ctx context.Context, value any) error {
@@ -231,6 +257,7 @@ func (c *rpcClient) call(ctx context.Context, method string, params, result any)
 			Method string          `json:"method"`
 			Result json.RawMessage `json:"result"`
 			Error  *struct {
+				Code    int    `json:"code"`
 				Message string `json:"message"`
 			} `json:"error"`
 		}
@@ -243,7 +270,7 @@ func (c *rpcClient) call(ctx context.Context, method string, params, result any)
 			continue
 		}
 		if frame.Error != nil {
-			return fmt.Errorf("Codex %s rejected: %s", method, frame.Error.Message)
+			return &rpcRejection{method: method, code: frame.Error.Code, message: frame.Error.Message}
 		}
 		if len(frame.Result) == 0 {
 			return fmt.Errorf("Codex %s returned no result (delivery uncertain)", method)

@@ -209,14 +209,6 @@ func (s *Service) refreshAppOwnedSessionEnvironment(ctx context.Context, session
 	if err := s.Client.UnsetEnvironment(ctx, sessionID, "QUESTMASTER_HOME"); err != nil {
 		return err
 	}
-	flag := "0"
-	if os.Getenv(agent.CodexNativeEnv) == "1" {
-		flag = "1"
-	}
-	if err := s.Client.SetEnvironment(ctx, sessionID, agent.CodexNativeEnv, flag); err != nil {
-		return err
-	}
-
 	// Propagate the resolved state root so hooks installed in the
 	// agent's config dir know where to write state.json / state.jsonl.
 	if root := state.StateRoot(); root != "" {
@@ -243,7 +235,7 @@ func prepareCodexNativeRuntime(lc launchConfig) error {
 		return nil
 	}
 	provider := lc.agents[agent.RoleAgent]
-	if provider != nil && provider.Name() == "codex" && os.Getenv(agent.CodexNativeEnv) == "1" {
+	if provider != nil && provider.Name() == "codex" {
 		if _, err := codexnative.SocketPath(lc.runtimeDir); err != nil {
 			return err
 		}
