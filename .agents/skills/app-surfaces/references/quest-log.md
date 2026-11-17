@@ -10,6 +10,13 @@
   chips (size first, then types in `QuestTags` order) on the left and the project name on the right in the project's
   colour, or the row's meta colour without one. Tags stay on one line and clip within their share of the row; the full
   set is in their tooltip. The project name truncates when needed. A quest without a project says "No project".
+- **The left column has one gutter.** `QuestLogMetrics.columnGutter` (`Space.section`) is the room left of the leading edge
+  that the project tabs, the filter and the cards share (`QuestLogLayout.columnLeadingX`). The tabs and the filter are
+  one gutter in; the list's scroll view starts at the column's outer edge and pads its cards by the same gutter, so the
+  scroll clip holds the gutter. The trailing edges of all three stay flush with the column's right edge.
+- **The selected quest is the keyboard cursor.** Its card keeps its fill and bold title and draws the menu pointer in
+  that gutter, outside the card's leading edge (`RowLook.cardLasting`), not an outline. The pointer hangs alone to the
+  left of the tabs, the filter and the cards.
 - **The Quest Log's size** is fixed at `QuestLogMetrics.sheetSize`. A smaller window shrinks the modal through
   the shared fit in `ModalScaleView`, as other modals do. `QuestLogLayout` places the parts: the page keeps its proportions
   and takes the height, the left column takes the width.

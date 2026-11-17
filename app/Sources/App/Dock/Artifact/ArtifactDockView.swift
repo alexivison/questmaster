@@ -99,7 +99,11 @@ struct ArtifactDockView: View {
                             artifact: artifact,
                             projectTitle: projectTitle(for: artifact),
                             projectColor: model.projectColorsByID[artifact.projectID] ?? "",
-                            look: RowLook.pick(highlighted: artifact.id == model.selectedArtifactID, areaFocused: areaFocused),
+                            look: RowLook.cardPick(
+                                highlighted: artifact.id == model.selectedArtifactID,
+                                areaFocused: areaFocused,
+                                marksInGutter: !model.selectedArtifactIDs.isEmpty
+                            ),
                             marked: model.selectedArtifactIDs.contains(artifact.id),
                             selectMode: !model.selectedArtifactIDs.isEmpty,
                             onToggle: { onToggleArtifact(artifact.id) },
