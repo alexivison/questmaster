@@ -14,7 +14,7 @@ struct StatusMessagePane: View {
     var backgroundColor: NSColor?
     var detailSelectable = false
 
-    /// A control's height: the glyph's square, as the SF Symbol it replaces was.
+    /// The glyph's square: the compact control height.
     private static let glyphSide = ControlHeight.compact
 
     var body: some View {
@@ -48,13 +48,6 @@ struct StatusMessagePane: View {
 
     private func glyphImage(_ glyph: AppGlyph) -> NSImage? {
         switch glyph {
-        case .symbol(let name):
-            return AppSymbolStyle.image(
-                name: name,
-                pointSize: Self.glyphSide,
-                color: AppPalette.muted,
-                canvasSize: NSSize(width: Self.glyphSide, height: Self.glyphSide)
-            )
         case .icon(let icon):
             return icon.image(glyphSide: Self.glyphSide, tint: AppPalette.muted)
         }

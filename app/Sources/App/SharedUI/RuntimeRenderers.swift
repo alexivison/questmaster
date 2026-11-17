@@ -1,51 +1,7 @@
 import AppKit
 
 enum AppSymbolStyle {
-    static let pointSize: CGFloat = 12
-    static let weight: NSFont.Weight = .regular
-
-    private static let symbolCache = NSCache<NSString, NSImage>()
     private static let resourceCache = NSCache<NSString, NSImage>()
-
-    static func image(
-        name: String,
-        pointSize: CGFloat = AppSymbolStyle.pointSize,
-        weight: NSFont.Weight = AppSymbolStyle.weight,
-        color: NSColor,
-        canvasSize: NSSize? = nil
-    ) -> NSImage? {
-        let cacheKey = "\(name)|\(pointSize)|\(weight.rawValue)|\(color.hashValue)|\(canvasSize?.width ?? -1)x\(canvasSize?.height ?? -1)" as NSString
-        if let cached = symbolCache.object(forKey: cacheKey) {
-            return cached
-        }
-
-        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: pointSize, weight: weight)) else {
-            return nil
-        }
-
-        let size = canvasSize ?? integralSize(base.size)
-        let tinted = NSImage(size: size, flipped: false) { rect in
-            let scale = currentBackingScale()
-            let drawRect = pixelAligned(aspectFitRect(for: base.size, in: rect), scale: scale)
-            base.draw(
-                in: drawRect,
-                from: NSRect(origin: .zero, size: base.size),
-                operation: .sourceOver,
-                fraction: 1,
-                respectFlipped: true,
-                hints: [.interpolation: NSImageInterpolation.high]
-            )
-            color.setFill()
-            drawRect.fill(using: .sourceAtop)
-            return true
-        }
-        tinted.isTemplate = false
-        tinted.cacheMode = .never
-        tinted.alignmentRect = alignmentRect(for: base, in: size)
-        symbolCache.setObject(tinted, forKey: cacheKey)
-        return tinted
-    }
 
     /// A bundled file drawn aspect-fit on a canvas, tinted when `tintColor` is set. The result is cached by file, canvas
     /// and tint, so a view that asks for it on every redraw (a list row's logo) reads the file and parses the SVG once.
@@ -140,10 +96,6 @@ enum AppSymbolStyle {
         return image
     }
 
-    private static func integralSize(_ size: NSSize) -> NSSize {
-        NSSize(width: ceil(size.width), height: ceil(size.height))
-    }
-
     private static func aspectFitRect(for sourceSize: NSSize, in rect: NSRect) -> NSRect {
         guard sourceSize.width > 0, sourceSize.height > 0, rect.width > 0, rect.height > 0 else {
             return rect
@@ -155,24 +107,6 @@ enum AppSymbolStyle {
             y: rect.midY - size.height / 2,
             width: size.width,
             height: size.height
-        )
-    }
-
-    private static func alignmentRect(for image: NSImage, in canvasSize: NSSize) -> NSRect {
-        let drawRect = aspectFitRect(
-            for: image.size,
-            in: NSRect(origin: .zero, size: canvasSize)
-        )
-        guard image.size.width > 0, image.size.height > 0 else {
-            return drawRect
-        }
-        let scaleX = drawRect.width / image.size.width
-        let scaleY = drawRect.height / image.size.height
-        return NSRect(
-            x: drawRect.minX + image.alignmentRect.minX * scaleX,
-            y: drawRect.minY + image.alignmentRect.minY * scaleY,
-            width: image.alignmentRect.width * scaleX,
-            height: image.alignmentRect.height * scaleY
         )
     }
 

@@ -1,9 +1,7 @@
 import AppKit
 
-/// A glyph the app draws: a decided icon, or an SF Symbol for a place no icon has been decided for yet. Each caller draws an
-/// SF Symbol at the size it always has.
+/// A glyph the app draws: one of the decided icons, at the side its surface sets. A status pane or a chrome button takes one.
 enum AppGlyph {
-    case symbol(String)
     case icon(AppIcon)
 }
 
