@@ -244,16 +244,28 @@ public struct OnLook: Equatable, Sendable {
     }
 }
 
-/// An action-bar button. Its icon is `textMeta` at rest, `textBody` while the panel it opens shows (active) and
-/// `textSelected` under the pointer. A toggle that is on (caffeinate) keeps its icon and takes the `OnLook`. No state
-/// changes a button's `line` border.
+/// An action-bar button, in one state. A button whose panel shows (`active`) or whose toggle is on (caffeinate) is raised:
+/// an `item` tile, a `line` border and the filled glyph. Any other button is recessed in `well`, with a `lineSoftSubtle`
+/// border and the line glyph. Under the pointer the border steps up one rung (`lineSoftSubtle` to `line`, `line` to
+/// `controlBorder`) and a recessed button's icon lights to `textSelected`. A raised button's icon keeps its own colour:
+/// `textSelected` when active, and `accent`, the one gold, when a toggle is on. The `OnLook` rides on top of a toggle that is on.
 public struct ActionBarButtonLook: Equatable, Sendable {
+    public let fill: StateColor
+    public let border: StateColor
     public let icon: StateColor
+    /// The filled glyph (the raised look) or the line glyph.
+    public let filled: Bool
     public let on: OnLook
 
     public static func of(active: Bool, on: Bool, hovered: Bool) -> ActionBarButtonLook {
-        let icon: StateColor = hovered ? .textSelected : active ? .textBody : .textMeta
-        return ActionBarButtonLook(icon: icon, on: OnLook.of(on))
+        guard active || on else {
+            return ActionBarButtonLook(
+                fill: .well, border: hovered ? .line : .lineSoftSubtle, icon: hovered ? .textSelected : .textMeta, filled: false, on: .off
+            )
+        }
+        return ActionBarButtonLook(
+            fill: .item, border: hovered ? .controlBorder : .line, icon: on ? .accent : .textSelected, filled: true, on: OnLook.of(on)
+        )
     }
 }
 

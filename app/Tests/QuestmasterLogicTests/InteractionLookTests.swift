@@ -76,11 +76,15 @@ struct InteractionLookTests {
         expect(OutlineLook.tabSelected.recessed && OutlineLook.tabSelectedUnfocused.recessed, "a selected tab's disc is recessed")
         expect(!OutlineLook.tabRest.recessed, "a resting tab's disc is not recessed")
         let button = { (active: Bool, on: Bool, hovered: Bool) in ActionBarButtonLook.of(active: active, on: on, hovered: hovered) }
-        expect(button(false, false, false).icon == .textMeta, "a resting action-bar icon is meta")
-        expect(button(true, false, false).icon == .textBody, "an active action-bar icon (its panel shows) brightens to body")
-        expect(button(false, false, true).icon == .textSelected && button(true, false, true).icon == .textSelected, "the pointer brightens either to selected")
-        expect(button(false, true, false).icon == .textMeta, "a toggle that is on keeps its resting icon")
-        expect(button(false, true, false).on.spins && button(false, true, false).on.glowOpacity > 0, "a toggle that is on glows and spins")
+        let recessed = button(false, false, false), raised = button(true, false, false), on = button(false, true, false)
+        expect(recessed.fill == .well && recessed.border == .lineSoftSubtle && recessed.icon == .textMeta && !recessed.filled, "a resting action-bar button is a recessed well with a soft border and a meta line glyph")
+        expect(raised.fill == .item && raised.border == .line && raised.icon == .textSelected && raised.filled, "an active action-bar button (its panel shows) is raised, with the filled glyph in selected text")
+        expect(button(false, false, true).icon == .textSelected && button(false, false, true).border == .line && button(false, false, true).fill == .well, "the pointer lights a recessed button's icon and lifts its border one step")
+        expect(button(true, false, true).border == .controlBorder && button(true, false, true).icon == .textSelected && button(true, false, true).fill == .item, "the pointer lifts a raised button's border one step and keeps its fill and icon")
+        expect(on.fill == .item && on.border == .line && on.icon == .accent && on.filled, "a toggle that is on is raised, with the one gold icon")
+        expect(button(true, true, false).icon == .accent, "an on toggle keeps its gold icon while its panel shows")
+        expect([recessed, button(false, false, true), raised, button(true, false, true)].allSatisfy { $0.icon != .accent }, "the gold icon is for an on toggle only, never active or under the pointer")
+        expect(on.on.spins && on.on.glowOpacity > 0, "a toggle that is on glows and spins")
         expect(OnLook.of(true) == .on && OnLook.of(false) == .off, "a refresh or a toggle that is on takes the on look")
         expect(PlateBand.color(showsCursor: false, pointerOver: false, recoloring: false) == nil, "a plain plate has no band")
         expect(PlateBand.color(showsCursor: true, pointerOver: true, recoloring: true) == .accent, "the recolour band wins over the cursor and hover")
@@ -116,6 +120,11 @@ struct InteractionLookTests {
         expect(OutlineLook.fieldFocused != .fieldRest, "a focused field should not look at rest")
         expect(OutlineLook.frameFocused != .frameRest, "a focused dock frame should not look at rest")
         expect(ActionBarButtonLook.of(active: false, on: true, hovered: false) != .of(active: false, on: false, hovered: false), "an on toggle should not look off")
+        // The pointer lights a recessed button, and lifts a raised one's border; neither may read as the other's active look.
+        let recessedHovered = ActionBarButtonLook.of(active: false, on: false, hovered: true)
+        let raisedRest = ActionBarButtonLook.of(active: true, on: false, hovered: false)
+        expect(recessedHovered.fill != raisedRest.fill && recessedHovered.filled != raisedRest.filled, "a recessed button under the pointer should not look active")
+        expect(ActionBarButtonLook.of(active: true, on: false, hovered: true) != raisedRest, "a raised button under the pointer should differ from its rest")
     }
 
     private static func eachStateStepIsBrighterThanTheOneBelow() {
@@ -126,7 +135,12 @@ struct InteractionLookTests {
         expectBrighter([OutlineLook.tabRest, .tabSelectedUnfocused, .tabSelected].map(levels), "tabs")
         expectBrighter([OutlineLook.fieldRest, .fieldFocused].map(levels), "fields")
         expectBrighter([OutlineLook.frameRest, .frameFocused].map(levels), "dock frames")
-        expectBrighter([(false, false), (true, false), (false, true)].map { [ActionBarButtonLook.of(active: $0.0, on: false, hovered: $0.1).icon.luminance] }, "action-bar icons: rest, active, under the pointer")
+        let button = { (active: Bool, hovered: Bool) in ActionBarButtonLook.of(active: active, on: false, hovered: hovered) }
+        expectBrighter([button(false, false), button(true, false)].map { [$0.fill.luminance] }, "action-bar fills: the recessed well, then the raised tile")
+        expectBrighter([button(false, false), button(false, true)].map { [$0.border.luminance] }, "action-bar borders: recessed rest, then under the pointer")
+        expectBrighter([button(true, false), button(true, true)].map { [$0.border.luminance] }, "action-bar borders: raised rest, then under the pointer")
+        expectBrighter([button(false, false), button(false, true)].map { [$0.icon.luminance] }, "action-bar icons: recessed rest, then under the pointer")
+        expectBrighter([button(false, false), button(true, false)].map { [$0.icon.luminance] }, "action-bar icons: recessed rest, then active")
         let band = { (cursor: Bool, pointer: Bool) in PlateBand.color(showsCursor: cursor, pointerOver: pointer, recoloring: false)?.luminance ?? 0 }
         expectBrighter([[0], [band(false, true)], [band(true, false)]], "plate bands: none, hover, cursor")
         expectBrighter([StateColor.textMeta, .textMetaHighlighted, .textBody, .textSelected].map { [$0.luminance] }, "text steps")

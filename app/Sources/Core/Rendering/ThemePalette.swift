@@ -31,13 +31,15 @@ public enum ThemePalette {
 
 /// The colours used by interaction-state looks.
 public enum StateColor: UInt32, CaseIterable, Sendable {
-    /// Panel and dock frames at rest.
+    /// Panel and dock frames at rest, and an inactive action-bar button's border.
     case lineSoftSubtle = 0x3a414a
-    /// Outlines at rest, and every divider inside a row.
+    /// Outlines at rest, every divider inside a row, and a raised action-bar button's border.
     case line = 0x474f59
-    /// A highlighted or selected row's fill.
+    /// A highlighted or selected row's fill, and a raised action-bar button's fill (active or on).
     case item = 0x30363e
-    /// A highlighted or selected outline, and a focused field's border.
+    /// An inactive action-bar button's recessed fill: the window colour, a step darker than the bar.
+    case well = 0x1c2128
+    /// A highlighted or selected outline, a focused field's border, and a raised action-bar button's border under the pointer.
     case controlBorder = 0x768390
     /// Meta text at rest (dates, projects, placeholders, hints). The terminal theme's white (ANSI 7).
     case textMeta = 0x8d9aa8
@@ -48,7 +50,7 @@ public enum StateColor: UInt32, CaseIterable, Sendable {
     /// Text on a highlighted or selected item. Bold on top of it means selected, in a lasting-selection list only.
     /// The terminal theme's bright white (ANSI 15).
     case textSelected = 0xc4d0dc
-    /// The one gold: titles, project headers and marks.
+    /// The one gold: titles, project headers and marks, and the icon of a toggle that is on (the caffeinate bolt). Never selection or focus.
     case accent = 0xd7b13d
     /// "On", for toggles only (the action bar's inner glow).
     case brassActive = 0xa58961
