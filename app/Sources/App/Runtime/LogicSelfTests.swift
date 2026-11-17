@@ -140,6 +140,7 @@ enum LogicSelfTests {
         ("testFilterBarTextSitsOnOneBaselineRestingAndFocused", testFilterBarTextSitsOnOneBaselineRestingAndFocused),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
+        ("testScoopedPanelsStepIntoTheirCorners", testScoopedPanelsStepIntoTheirCorners),
         ("testChromeShadowsReachPastTheirClips", testChromeShadowsReachPastTheirClips),
         ("testShellRowsKeepTheMocksGeometry", testShellRowsKeepTheMocksGeometry),
         ("testTheShellSectionIsPinnedToTheTrackersBottom", testTheShellSectionIsPinnedToTheTrackersBottom),
@@ -3678,7 +3679,7 @@ enum LogicSelfTests {
         let listTop = Space.section + ControlHeight.compact + Space.section
         try expectCentred(
             try ink(artifacts(.list), size: dock, below: Int(listTop)),
-            in: CGRect(x: 0, y: listTop, width: dock.width, height: dock.height - listTop),
+            in: CGRect(x: Space.item, y: listTop, width: dock.width - Space.item, height: dock.height - listTop),
             "the artifact list under its tabs"
         )
     }
@@ -5782,6 +5783,22 @@ enum LogicSelfTests {
     /// internals. The artifact cards sit on a 55pt pitch (a 50pt row and 5), with 40pt tiles; a form's first field
     /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
     /// in one pixel column.
+    /// A panel's scoop: the top edge ends 25 from the corner, drops a 5pt step, and its arc (centred 5 in) cuts the corner.
+    /// The double rule's centre line sits 5.5 in, so its 1pt stroke covers the band from 5 to 6.
+    private static func testScoopedPanelsStepIntoTheirCorners() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 200, height: 200)
+        let outline = ScoopedRectangle.cgPath(in: bounds)
+        try expect(outline.contains(CGPoint(x: 26, y: 2)), "the top edge should run on to x 25, the step's face is inside past it")
+        try expect(!outline.contains(CGPoint(x: 24, y: 2)), "the corner the step leaves should be scooped away")
+        try expect(outline.contains(CGPoint(x: 26, y: 6)), "the step's face should run down 5 from the top edge")
+        try expect(!outline.contains(CGPoint(x: 10, y: 10)), "the arc should cut the corner")
+        try expect(outline.contains(CGPoint(x: 100, y: 0.5)) && outline.contains(CGPoint(x: 0.5, y: 100)), "the straight edges should be the panel's own")
+        let rule = ScoopedRectangle.ruleCGPath(in: bounds).copy(strokingWithWidth: ScoopedRectangle.ruleStrokeWidth, lineCap: .butt, lineJoin: .miter, miterLimit: 10)
+        try expect(rule.contains(CGPoint(x: 100, y: 5.5)) && rule.contains(CGPoint(x: 5.5, y: 100)), "the double rule should run 5 in, centred on 5.5")
+        try expect(!rule.contains(CGPoint(x: 100, y: 4.5)) && !rule.contains(CGPoint(x: 100, y: 6.5)), "the double rule should be 1pt wide")
+        try expect(!rule.contains(CGPoint(x: 100, y: 100)), "the double rule should not reach the centre")
+    }
+
     private static func testRenderedSpacingStaysOnTheScale() throws {
         func borderRows(_ view: NSView, size: CGSize, x: Int, startingAt startY: Int = 0, atLeast count: Int) throws -> [Int] {
             view.frame = NSRect(origin: .zero, size: size)
@@ -5819,12 +5836,15 @@ enum LogicSelfTests {
             return rendered.filter { $0 >= startY }
         }
 
-        // Inside the tile, past its 5pt corner and clear of its glyph: the gutter, the tile's inset, and 6.
-        let tileColumn = Int(Space.section + ListItemMetrics.textInset) + 6
+        // Inside the tile, past its 5pt corner and clear of its glyph: the column's inset, the gutter, the tile's inset, and 6.
+        let tileColumn = Int(Space.item + Space.section + ListItemMetrics.textInset) + 6
         let pane = CGSize(width: DockWidthPreference.panelWidth, height: 1015)
         let paneRows = try borderRows(RenderPreview.artifactPaneView(highlight: nil), size: pane, x: tileColumn, atLeast: 44)
+        // The dock's double rule is drawn in the same `line` colour across the top and bottom, 5pt in; the cards lie inside it.
+        let rule = Int(ScoopedRectangle.ruleInset + ScoopedRectangle.ruleStrokeWidth)
+        let insideRule = paneRows.filter { $0 >= rule && $0 < Int(pane.height) - rule }
         // Each of the eleven cards has four border pixels here: card top, tile top, tile bottom, card bottom.
-        let cards = Array(paneRows.suffix(44))
+        let cards = Array(insideRule.suffix(44))
         try expect(cards.count == 44, "the artifact cards and tiles should show in the column, got rows \(paneRows)")
         let tops = stride(from: 0, to: cards.count, by: 4).map { cards[$0] }
         for index in stride(from: 0, to: cards.count, by: 4) {

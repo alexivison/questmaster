@@ -144,9 +144,10 @@ public struct OutlineLook: Equatable, Sendable {
     public static let tabSelectedUnfocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: true)
     public static let fieldRest = OutlineLook(border: .line, label: .textBody, recessed: false)
     public static let fieldFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
-    /// A dock's 2pt frame: it lifts one step while the dock has keyboard focus.
-    public static let frameRest = OutlineLook(border: .lineSoftSubtle, label: .textBody, recessed: false)
-    public static let frameFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
+    /// A dock panel's double rule: the 1pt line inside its 2pt border (which stays `lineSoftSubtle`). It lifts one step
+    /// while the dock has keyboard focus; a modal's rule is always at rest.
+    public static let ruleRest = OutlineLook(border: .line, label: .textBody, recessed: false)
+    public static let ruleFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
 
     /// The keys and a click move a tab row's selection; an unfocused row dims it one step. A pill tab is already
     /// `item` filled, so the pointer adds no hover look.
@@ -159,8 +160,17 @@ public struct OutlineLook: Equatable, Sendable {
         focused ? .fieldFocused : .fieldRest
     }
 
-    public static func frame(focused: Bool) -> OutlineLook {
-        focused ? .frameFocused : .frameRest
+    public static func rule(focused: Bool) -> OutlineLook {
+        focused ? .ruleFocused : .ruleRest
+    }
+
+    /// A dock title's plate: its 2pt border is `lineSoftSubtle`, and it lifts to `controlBorder` with the rule while the dock
+    /// has the keys.
+    public static let plateRest = OutlineLook(border: .lineSoftSubtle, label: .textBody, recessed: false)
+    public static let plateFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
+
+    public static func plate(focused: Bool) -> OutlineLook {
+        focused ? .plateFocused : .plateRest
     }
 }
 
@@ -190,19 +200,34 @@ public enum MarkLook {
     }
 }
 
+/// The "on" look, shared by a toggle that is on (caffeinate) and a dock title plate while its refresh runs: the brass inner
+/// glow band inside the edge, with the working spinner turning round the edge. Nothing else about the control changes.
+public struct OnLook: Equatable, Sendable {
+    /// The glow's colour, drawn at `glowOpacity`.
+    public let glow: StateColor
+    /// The glow's opacity; 0 draws none.
+    public let glowOpacity: Double
+    /// Whether the working spinner turns round the edge.
+    public let spins: Bool
+
+    public static let off = OnLook(glow: .brassActive, glowOpacity: 0, spins: false)
+    public static let on = OnLook(glow: .brassActive, glowOpacity: 0.15, spins: true)
+
+    public static func of(_ isOn: Bool) -> OnLook {
+        isOn ? .on : .off
+    }
+}
+
 /// An action-bar button. Its icon is `textMeta` at rest, `textBody` while the panel it opens shows (active) and
-/// `textSelected` under the pointer. A toggle that is on (caffeinate) keeps its icon and adds the brass inner glow,
-/// with the working spinner turning round its edge. No state changes a button's `line` border.
+/// `textSelected` under the pointer. A toggle that is on (caffeinate) keeps its icon and takes the `OnLook`. No state
+/// changes a button's `line` border.
 public struct ActionBarButtonLook: Equatable, Sendable {
     public let icon: StateColor
-    /// The brass inner glow's opacity; 0 draws none.
-    public let glowOpacity: Double
-    /// Whether the working spinner turns round the button's edge.
-    public let spins: Bool
+    public let on: OnLook
 
     public static func of(active: Bool, on: Bool, hovered: Bool) -> ActionBarButtonLook {
         let icon: StateColor = hovered ? .textSelected : active ? .textBody : .textMeta
-        return ActionBarButtonLook(icon: icon, glowOpacity: on ? 0.15 : 0, spins: on)
+        return ActionBarButtonLook(icon: icon, on: OnLook.of(on))
     }
 }
 

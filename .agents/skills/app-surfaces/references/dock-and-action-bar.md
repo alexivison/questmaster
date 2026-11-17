@@ -2,12 +2,19 @@
 
 - Watcher and Worker Log start open in the first window layout, while startup resolves its session; no opening
   transition runs before the window appears. After startup, both panels hide if no session is attached, keeping their state.
-- Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in
-  `accent`, 14pt bold, on `ShellMetrics.dockTopBarTitleBaseline`. While a refresh the user asked for (`r`) is under way, Watcher's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a ring
-  (`ShellMetrics.dockTopBarSpinnerSize`) `Space.item` past the title, on the icon line, taking no room so the centred title never moves. Core decides it
-  (`PullRequestStore.isRefreshing`): from the key to the daemon's reply (`pr.refresh` with `wait`), for at least one turn
-  and never past 30s; a second `r` meanwhile sends nothing, and the daemon's background polls never show it. It is Core
-  Animation only, runs only while on screen, and holds still and full under Reduce Motion. No hint or footer text.
+- Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in `accent`, 14pt bold, on a title plate
+  (`DockTitlePlateView`) centred on the panel's top edge: 30 high (`DockTitlePlateMetrics.height`), rising `lift` (10) above
+  the panel, `Space.section` either side of the title, and ending in `AngledButtonShape`, the angled buttons' own ends. Its
+  2pt border is `lineSoftSubtle` and lifts to `controlBorder` with the double rule while the dock has the keys
+  (`OutlineLook.plate(focused:)`). The plate hides the border and the rule behind its fill, and the top bar keeps only the
+  icons. The dock gap stays `DockColumnLayout.panelGap` (20): the lower plate's top sits 10 below the panel above. While a
+  refresh the user asked for (`r`) is under way, Watcher's plate takes the on look (`OnLook`, the caffeinate toggle's own
+  effect): the brass glow band inside its border at 15% (`Token.Size.glowRing` past the 2pt border), and the tracker's
+  working spinner (`SpinnerRing`, `WorkingSpinner.period`) turning round the plate's angled outline (`SpinnerOutline.shape`).
+  The plate's title stays where it is and there is no separate spinner. Core decides it (`PullRequestStore.isRefreshing`): from the key to the daemon's reply
+  (`pr.refresh` with `wait`), for at least one turn and never past 30s; a second `r` meanwhile sends nothing, and the
+  daemon's background polls never show it. It is Core Animation only, runs only while on screen, and holds still and
+  full under Reduce Motion. When the refresh ends the plate returns to its rest look. No hint or footer text.
 - The action bar is a header over the terminal column (`Main Chat Header.svg`): a scooped
   panel (`ActionBarMetrics.height`, `scoopRadius`), its top level with the tracker's and the dock's (`sideCardInset` down), `Space.section` from the
   tracker's plates and the dock, or from the window's edges when they're hidden, with the terminal's text starting
@@ -17,6 +24,13 @@
   and Watcher at the trailing end, `buttonSeam` apart in a group and `groupGap` between the groups; caffeinate
   `toggleGap` past them. Its empty space drags the window. Toasts sit `Space.section` above the
   window's bottom edge.
+- Scoops are stepped (`ScoopedRectangle`): a 5pt square step at each end of the scoop, its arc centred on the step's inner
+  corner. The action bar header and the tracker banner step 3 at their 13pt scoop (`ActionBarMetrics.scoopStep`); the
+  cards keep the plain scoop. Dock panels and in-window modals also carry a 1pt double rule 5pt in from the outer edge.
+  Content keeps 5 clear of that rule: the Watcher's close glyph (`ShellMetrics.dockTopBarHorizontalInset`), the Worker
+  Log's tab row (`WorkerLogTabMetrics.bottomInset`, `Space.row` past the rule) and the artifact column, which starts
+  `Space.item` in so its list's gutter clears the rule's inner edge. The toast is a scooped panel too, with its own
+  size (`ToastBanner.scoopRadius` 10, `scoopStep` 2: the action bar's proportion for a one-line toast) and no rule.
 - The dock is two stacked scooped panels, `DockColumnLayout.panelGap` apart: Watcher on top at the fixed
   `DockColumnLayout.watcherHeight`, and
   under it the artifacts or the Worker Log. Each has its own title and close button, and either shows alone

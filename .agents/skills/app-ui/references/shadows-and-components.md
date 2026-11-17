@@ -3,8 +3,10 @@
 - Bold means selected and appears only in a lasting-selection list, a text tab row's selected tab or a selection chip's value. Artifacts
   have no selected state: picking one opens it.
 - Dividers inside rows are `line` in every state.
-- Brass and glow mean "on", for toggles only. One gold, `accent` #D7B13D, for
-  titles, project headers and marks; never for selection or focus.
+- Brass and glow mean "on": a toggle that is on (caffeinate), and a dock title plate while a refresh the user asked for is
+  under way. Both take the one shared on look (`OnLook` in Core, drawn by `OnLookGlow` and `OnLookSpinner`): the brass band
+  inside the edge at 15%, and the working spinner turning round the outline. Nothing else takes it. One gold, `accent`
+  #D7B13D, for titles, project headers and marks; never for selection or focus.
 - Shadows come only from an elevation token (`Elevation` in `SharedUI/Theme.swift`), never numbers at the call site;
   each is a black drop shadow, and a shadow drawn inside a clip is a bug (draw it outside, as `scoopedPanel` and
   `ScoopedLayerChrome` do). The look stays flat, so everything at panel level takes the one tight shadow, `raised`
@@ -13,10 +15,11 @@
   `raised.bleed` (7.5) of room past its shape (the plates' `TrackerPlateDesign.silhouetteMargin` and the toast's
   `ToastBanner.shadowMargin` are 10). `modal` (45%, blur 30, 10 down): every in-window modal, the Quest Log included. An inner shadow, the one kind that belongs inside
   its clip, is a `Recess` token in the same file (`portrait`: 3 deep, blur 1, black 20%, the sheets' portrait discs).
-  Panel, dock and toast borders are 2pt
-  `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). A dock panel's frame lifts to
-  `controlBorder` while it has keyboard focus and no modal is drawn, and only the focused panel's does
-  (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`). Pressed is
+  Panel and dock borders are 2pt `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). Every dock panel and in-window modal
+  also draws a 1pt double rule 5pt in from the outer edge (`ScoopedRectangle.ruleInset`, measured between outer edges),
+  at `line`. A dock's rule lifts to `controlBorder` while it has keyboard focus and no modal is drawn, and only the
+  focused panel's does (`OutlineLook.rule(focused:)`, `ShellFocusCoordinator.updateRegionKeys`); the border stays put. The
+  toast and the short bars (action bar, tracker banner) take no rule. Pressed is
   0.8 opacity; disabled is window fill with `item` border and label (the shared
   button styles).
 - Use the shared components: `stateRow` for rows (`ListRow` for the tracker's

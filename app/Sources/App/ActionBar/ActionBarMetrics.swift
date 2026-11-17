@@ -9,6 +9,8 @@ enum ActionBarMetrics {
     static let height = ControlHeight.row
     /// The scooped corners' radius: the dock panels' 25 would round off a 50pt bar's whole ends.
     static let scoopRadius: CGFloat = 13
+    /// The square step at each end of that scoop: the panels' 5 scaled to 13, rounded to a whole point.
+    static let scoopStep: CGFloat = 3
     static let buttonSize = ControlHeight.control
     static let buttonRadius = Token.Radius.hairline
     /// The header's top and bottom to its buttons: they sit centred.
@@ -18,8 +20,6 @@ enum ActionBarMetrics {
     static let buttonSeam: CGFloat = 1
     static let groupGap = Space.item
     static let toggleGap = Space.section
-    /// The design's brass inner glow on a toggle that is on: a hard band inside its border.
-    static let glowRing: CGFloat = 2
     /// The working spinner traces the button's 1pt border.
     static let spinnerStroke: CGFloat = 1
 

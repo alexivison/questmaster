@@ -36,6 +36,8 @@ enum Token {
         static let hairline: CGFloat = 2
         /// The empty state's icon (`EmptyState`): one box for every panel, as tall as the dock's top bar.
         static let emptyIcon: CGFloat = 40
+        /// The brass inner glow's band on an "on" look (`OnLookGlow`): a hard band inside the edge.
+        static let glowRing: CGFloat = 2
     }
 }
 

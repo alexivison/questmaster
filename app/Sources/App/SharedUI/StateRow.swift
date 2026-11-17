@@ -66,7 +66,8 @@ private struct StateRowModifier: ViewModifier {
             .background {
                 if let scoopRadius {
                     let shown = look.listItem(underPointer: pointerOver)
-                    let shape = ScoopedRectangle(scoopRadius: scoopRadius)
+                    // A card's scoop is too small for a stepped one: its step would be a fraction of a point.
+                    let shape = ScoopedRectangle(scoopRadius: scoopRadius, step: 0)
                     if let fill = shown.fill {
                         shape.fill(fill.color.swiftUI)
                     }
