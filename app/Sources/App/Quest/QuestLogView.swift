@@ -30,6 +30,9 @@ enum QuestLogMetrics {
     static let rowBaseline: CGFloat = 17
     static let projectBaseline: CGFloat = 16
     static let rowTextInset = ListItemMetrics.textInset
+    /// The list's leading inset, outside the cards: the menu pointer's 12pt frame and its clearance (17pt) rounded up to the
+    /// 5s. The scroll view clips at its edge, so this room keeps the arrow inside the clip. The trailing edge keeps none.
+    static let listLeadingInset = Space.section
     static let markSize: CGFloat = 5
     /// Page: the design's 473 wide page, its parchment clipped to the top 594.
     static let svgPageWidth: CGFloat = 473
@@ -242,6 +245,7 @@ private struct QuestLogList: View {
                         row(quest).id(quest.id)
                     }
                 }
+                .padding(.leading, QuestLogMetrics.listLeadingInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(ScrollerHider())
             }
@@ -265,7 +269,7 @@ private struct QuestLogList: View {
     }
 
     private func row(_ quest: QuestItem) -> some View {
-        let look = RowLook.lasting(selected: quest.id == store.selectedID)
+        let look = RowLook.cardLasting(selected: quest.id == store.selectedID)
         let chips = QuestDisplayState.tagChipNames(for: quest)
         return VStack(alignment: .leading, spacing: 0) {
             BaselineText(
