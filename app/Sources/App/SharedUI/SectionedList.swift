@@ -15,6 +15,9 @@ struct SectionedList<Content: View>: View {
     var scrollOnAppear = false
     var scrollOnSelectionChange = true
     var scrollTarget: ScrollTarget?
+    /// The list's scroll indicator. `.never` takes it out of the layout; a hidden one still takes its width from an
+    /// overflowing list's rows, which then stop short on the right while it scrolls. A panel's list passes `.never`.
+    var indicators: ScrollIndicatorVisibility = .hidden
     private let content: () -> Content
     @State private var scrollDebounceTask: Task<Void, Never>?
 
@@ -23,12 +26,14 @@ struct SectionedList<Content: View>: View {
         scrollOnAppear: Bool = false,
         scrollOnSelectionChange: Bool = true,
         scrollTarget: ScrollTarget? = nil,
+        indicators: ScrollIndicatorVisibility = .hidden,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.selectedID = selectedID
         self.scrollOnAppear = scrollOnAppear
         self.scrollOnSelectionChange = scrollOnSelectionChange
         self.scrollTarget = scrollTarget
+        self.indicators = indicators
         self.content = content
     }
 
@@ -42,7 +47,7 @@ struct SectionedList<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(ScrollerHider())
             }
-            .scrollIndicators(.hidden)
+            .scrollIndicators(indicators)
             .onAppear {
                 guard scrollOnAppear else {
                     return

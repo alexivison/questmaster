@@ -42,7 +42,7 @@ struct SettingsSheetPresentation: Identifiable {
 /// section on the right (x 290-880): the agent tabs, then a "Master" and a "Worker" section, each a bold
 /// title over a vine-ended rule and separate searchable model and reasoning fields.
 enum SettingsMetrics {
-    static let inset = Space.section
+    static let inset = PanelMetrics.contentInset
     static let sidebarWidth: CGFloat = 250
     static let columnSpacing = Space.section
     static let columnWidth = SettingsSheetModel.sheetSize.width - 2 * inset - sidebarWidth - columnSpacing

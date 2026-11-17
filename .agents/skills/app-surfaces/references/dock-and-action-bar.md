@@ -33,10 +33,10 @@
   window's bottom edge.
 - Scoops are stepped (`ScoopedRectangle`): a 5pt square step at each end of the scoop, its arc centred on the step's inner
   corner. The action bar header and the tracker banner step 3 at their 13pt scoop (`ActionBarMetrics.scoopStep`); the
-  cards keep the plain scoop. The artifact column has no inset of its own: its filter and rows sit `Space.section`
-  (`MenuPointerMetrics.gutter`) in on both sides, like the Quest Log and the Watcher (its tabs are in the top bar, below). The row's mark and the keyboard
-  pointer draw in that gutter, 3.5pt from the panel's outer edge, 1.5pt clear of its 2pt border. The toast is a scooped panel too, with its own size
-  (`ToastBanner.scoopRadius` 10, `scoopStep` 2: the action bar's proportion for a one-line toast).
+  cards keep the plain scoop. The artifact column has no inset of its own: its filter and rows sit `PanelMetrics.contentInset`
+  (20) in on both sides, and a row's delete-mark gutter is the leading one, so the marks sit in the panel's margin. The list
+  ends one margin above the bottom edge, where the bottom corners' scoop reaches the margin, so its last card clears the scoop.
+  The toast is a scooped panel too, with its own size (`ToastBanner.scoopRadius` 10, `scoopStep` 2: the action bar's proportion for a one-line toast).
 - The Artifacts' Session/All tabs are text tabs (`TextTabRow`, as the Worker Log's and the Quest Log's) in the list's top
   bar, not in the list (`DockTopBarModel.artifactScope`, set only for the list route, so the viewer, the Worker Log and
   Watcher have none). They sit in the bar's 40pt band, centred between `ArtifactScopeTabsMetrics.sideInset` on each side

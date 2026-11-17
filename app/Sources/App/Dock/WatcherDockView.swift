@@ -5,8 +5,7 @@ import SwiftUI
 /// The watcher rows' geometry, from `pr-item-v2.png`: 45 tall, 5 in from the row's edges, two 15pt lines 5 apart, and
 /// 5 under the second. Text is centred on its line, so its baseline is 11.8 below the line's top.
 enum WatcherMetrics {
-    /// The rows' inset on both sides: the leading gutter the keyboard pointer hangs in, and the same trailing inset.
-    static let inset = MenuPointerMetrics.gutter
+    static let inset = PanelMetrics.contentInset
     static let rowHeight = ControlHeight.bar + Space.row
     static let rowInset = Space.row
     static let lineHeight = ControlHeight.chip
@@ -67,7 +66,7 @@ struct WatcherList: View {
         if isUnwatched {
             EmptyState()
         } else {
-            SectionedList(selectedID: cursorKey, scrollOnAppear: true) {
+            SectionedList(selectedID: cursorKey, scrollOnAppear: true, indicators: .never) {
                 ForEach(rows, id: \.pullRequest.key) { row in
                     WatcherRow(
                         row: row,

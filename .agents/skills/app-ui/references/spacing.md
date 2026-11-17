@@ -9,6 +9,7 @@ is a multiple of 5, and spacing takes one of four steps (`Space` in
 | `Space.row` | 5 | rows of one list control; a field and its dropdown; collapsed circles; the cast row under its disc |
 | `Space.item` | 10 | sibling items (plates, tabs, buttons, chat entries, bar icons); icon → text; text inset inside a control; header band → content |
 | `Space.section` | 20 | the shell gap (`ShellMetrics.gap`); every panel's edge margin; blocks inside a panel |
+| `PanelMetrics.contentInset` | 20 (`Space.section`) | a dock panel's or a modal's outer side margin, on both sides: rows, cards, fields, tab rows, footer rules. Every panel and modal reads this one token; a panel's list that scrolls keeps it: its indicator is `.never` (`SectionedList(indicators:)`; a hidden one still takes its width from the rows). The tracker's list keeps `.hidden`. Where a bottom corner's scoop reaches in, the inset is the scoop's (the Worker Log tab row, 35) |
 | `Space.group` | 40 | between groups of blocks: the plate list → the avatar slot |
 
 Control heights are one family (`ControlHeight`): `chip` 15, `compact` 25

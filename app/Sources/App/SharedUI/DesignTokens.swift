@@ -54,6 +54,13 @@ enum Space {
     static let group: CGFloat = 40
 }
 
+/// The margin between a dock panel's or a modal's outer edge and its content (rows, cards, fields, tab rows, footer
+/// rules), on both sides. Every panel and modal takes this one value, whether or not its list scrolls, except where a
+/// bottom corner's scoop reaches in (the Worker Log's tab row, `WorkerLogTabMetrics`).
+enum PanelMetrics {
+    static let contentInset = Space.section
+}
+
 /// The control heights, one family on the 5pt rhythm (.agents/skills/app-ui/references/spacing.md).
 enum ControlHeight {
     /// Filter chips.

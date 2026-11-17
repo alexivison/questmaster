@@ -19,7 +19,7 @@ struct ArtifactMarkdownView: View {
                     .font(AppFonts.body.swiftUI)
                     .foregroundStyle(AppPalette.warn.swiftUI)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(Space.section)
+                    .padding(PanelMetrics.contentInset)
                     .background(ScrollerHider(onApply: Self.styleScroll))
                     .textSelection(.enabled)
             } else {
@@ -35,12 +35,13 @@ struct ArtifactMarkdownView: View {
                     .markdownImageProvider(LocalMarkdownImageProvider())
                     .markdownInlineImageProvider(LocalMarkdownInlineImageProvider())
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(Space.section)
+                    .padding(PanelMetrics.contentInset)
                     .background(ScrollerHider(onApply: Self.styleScroll))
                     .textSelection(.enabled)
             }
         }
-        .scrollIndicators(.hidden)
+        // `.never`, as `SectionedList` has it: a hidden indicator would take its width from a long document's margins.
+        .scrollIndicators(.never)
         .background(AppPalette.artifactViewerBackground.swiftUI)
         .onAppear(perform: start)
         .onDisappear { watcher.stop() }

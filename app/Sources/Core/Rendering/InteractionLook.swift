@@ -28,9 +28,6 @@ public struct RowLook: Equatable, Sendable {
     public let bold: Bool
     /// The outline a resting row of this look shows under the pointer: `line`, but brighter on a raised surface.
     public let hoverOutline: StateColor
-    /// The keyboard cursor's menu pointer, drawn outside a card's leading edge in place of the card's outline. Only a
-    /// card cursor has one (`cardPick`, `cardLasting`); menus, the tracker and every other look have none.
-    public let pointer: StateColor?
 
     public init(
         fill: StateColor?,
@@ -40,8 +37,7 @@ public struct RowLook: Equatable, Sendable {
         icon: StateColor,
         iconBorder: StateColor,
         bold: Bool,
-        hoverOutline: StateColor = .line,
-        pointer: StateColor? = nil
+        hoverOutline: StateColor = .line
     ) {
         self.fill = fill
         self.outline = outline
@@ -51,7 +47,6 @@ public struct RowLook: Equatable, Sendable {
         self.iconBorder = iconBorder
         self.bold = bold
         self.hoverOutline = hoverOutline
-        self.pointer = pointer
     }
 
     public static let rest = RowLook(fill: nil, outline: nil, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
@@ -80,18 +75,15 @@ public struct RowLook: Equatable, Sendable {
 
     /// The same look with its icon warning, in every state.
     public var warned: RowLook {
-        RowLook(fill: fill, outline: outline, text: text, meta: meta, icon: .warn, iconBorder: iconBorder, bold: bold, hoverOutline: hoverOutline, pointer: pointer)
+        RowLook(fill: fill, outline: outline, text: text, meta: meta, icon: .warn, iconBorder: iconBorder, bold: bold, hoverOutline: hoverOutline)
     }
 
     /// The same look for a row whose file is missing: its icon warns in every state.
     public var missingFile: RowLook { warned }
 
-    /// The same look for a row whose data is out of date: its text and icon drop to the meta step, and so does its pointer.
+    /// The same look for a row whose data is out of date: its text and icon drop to the meta step.
     public var dimmed: RowLook {
-        RowLook(
-            fill: fill, outline: outline, text: meta, meta: meta, icon: meta, iconBorder: iconBorder, bold: bold, hoverOutline: hoverOutline,
-            pointer: pointer == nil ? nil : meta
-        )
+        RowLook(fill: fill, outline: outline, text: meta, meta: meta, icon: meta, iconBorder: iconBorder, bold: bold, hoverOutline: hoverOutline)
     }
 
     /// A pick-to-open row (artifacts, dropdowns, filter suggestions): picking it opens it, so it is never selected.
@@ -111,40 +103,10 @@ public struct RowLook: Equatable, Sendable {
         selected ? .selected : .rest
     }
 
-    /// The keyboard cursor on an artifact card: `pick`, with the menu pointer in place of its outline. While the delete
-    /// marks take the gutter (`marksInGutter`, the artifact list's select mode) the pointer yields to them, and the cursor
-    /// keeps its outline as it did before the pointer.
-    public static func cardPick(highlighted: Bool, areaFocused: Bool, marksInGutter: Bool) -> RowLook {
-        let look = pick(highlighted: highlighted, areaFocused: areaFocused)
-        return marksInGutter ? look : withPointer(look)
-    }
-
-    /// The lasting selection on a Quest Log card, with the menu pointer in place of its outline.
-    public static func cardLasting(selected: Bool) -> RowLook {
-        withPointer(lasting(selected: selected))
-    }
-
-    /// A cursor look with the menu pointer, coloured as its text. A resting row has no cursor, so it has no pointer.
-    private static func withPointer(_ look: RowLook) -> RowLook {
-        guard look.fill != nil else {
-            return look
-        }
-        return RowLook(
-            fill: look.fill, outline: look.outline, text: look.text, meta: look.meta, icon: look.icon, iconBorder: look.iconBorder,
-            bold: look.bold, hoverOutline: look.hoverOutline, pointer: look.text
-        )
-    }
-
     /// A pure cursor row, with no lasting selection and no designed unfocused state (the tracker's, Watcher's):
     /// it shows only while its area has the keys, and its cursor shows again where it was when they come back.
     public static func cursor(highlighted: Bool, areaFocused: Bool) -> RowLook {
         PlateBand.showsCursor(highlighted: highlighted, areaFocused: areaFocused) ? .highlighted : .rest
-    }
-
-    /// The Watcher's keyboard cursor: `cursor`, with the menu pointer in place of nothing else. It hides with the keys like
-    /// `cursor`; a row with a cursor is filled, so hover adds no outline to it.
-    public static func pointedCursor(highlighted: Bool, areaFocused: Bool) -> RowLook {
-        withPointer(cursor(highlighted: highlighted, areaFocused: areaFocused))
     }
 
     /// This look with the pointer over the row: an unfilled, unoutlined (resting) row gains its hover outline (`line`, or
@@ -159,16 +121,12 @@ public struct RowLook: Equatable, Sendable {
 
     /// The artifact, quest and project cards keep their fill and border at rest. Hover only lifts the border;
     /// the cursor and selection also keep their own brighter text and icon, and only a lasting selection is bold.
-    /// A card with a menu pointer drops its controlBorder outline: the pointer marks the cursor, its border stays
-    /// `line`, and hover leaves it alone, as it does every cursor and selection.
     public func listItem(underPointer: Bool) -> RowLook {
-        let outlined = pointer == nil && (outline != nil || fill != nil || underPointer)
-        return RowLook(
+        RowLook(
             fill: .item,
-            outline: outlined ? .controlBorder : .line,
+            outline: outline != nil || fill != nil || underPointer ? .controlBorder : .line,
             text: text, meta: meta, icon: icon, iconBorder: iconBorder, bold: bold,
-            hoverOutline: .controlBorder,
-            pointer: pointer
+            hoverOutline: .controlBorder
         )
     }
 }

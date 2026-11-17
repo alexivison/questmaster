@@ -19,16 +19,6 @@ a cursor the pointer moved, and drops a key scroll still queued
 (`PointerCursor`). A pill tab is already `item`
 filled, so tabs have no hover look.
 
-A list's keyboard cursor (the artifact cards, the Quest Log's selected card, the Watcher's rows) draws the menu
-pointer instead of its outline: an antialiased arrowhead path in a 12 by 14pt frame, with a 1.5pt round-joined stroke
-(`MenuPointer` in Core, `MenuPointerView` in App). The default is the solid arrowhead (`MenuPointer.Shape.arrowhead`); a
-chevron and a notched arrowhead are kept for the user to pick. The frame sits `Space.row` clear of the row's leading
-edge and centred on it, in `textSelected` (`textBody` while the area has no keys). A card's border is the resting
-`line`. Hover leaves the cursor row alone. Each list keeps `MenuPointerMetrics.gutter` (`Space.section`) on both sides,
-so its rows sit centred in the column: the leading gutter holds the arrow inside the scroll clip. Menus (SuggestionDropdown,
-the Worker Log filter) keep their band and draw no pointer. While the artifact delete marks take the gutter, the cursor
-keeps its `controlBorder` outline and no pointer.
-
 A region has the keys while it's focused and no modal is drawn
 (`NavigationStore.hasKeys`); its focus looks follow that. Inside the dock only
 the focused panel has them (`NavigationStore.hasKeys(_: DockPanel)`). When the
@@ -48,12 +38,11 @@ again where it was when the keys come back.
 | Plain row | under the pointer (`RowLook.hovered`) | 1pt `line` outline, no fill; text, icon and meta as at rest |
 | Scooped list card (artifacts, quests, projects and unlisted folders, via `RowLook.listItem`) | rest | `item` fill, 1pt `line` border, resting text and icon |
 | | under the pointer | `controlBorder` border; fill, text, icon and weight unchanged; no cursor or selection change |
-| | highlighted or selected, a card cursor (`RowLook.cardPick`, marks not in the gutter) | `line` border, not `controlBorder`; the menu pointer outside the leading edge (`textSelected`, `textBody` unfocused); the underlying look's brighter text and icon; unfocused artifact highlights keep the dimmer text step |
-| | highlighted, with the delete marks in the gutter (`cardPick(marksInGutter: true)`) | `controlBorder` border as before, no pointer |
+| | highlighted or selected | `controlBorder` border and the underlying look's brighter text and icon; unfocused artifact highlights keep the dimmer text step; only a lasting selection is bold |
 | Row on a raised surface (the Worker Log filter's dropdown, drawn in `item`) | rest (`RowLook.raisedRest`) | no fill, `textBody`, icon and meta as at rest |
 | | highlighted (`RowLook.raisedHighlighted`) | `line` fill, one step above the surface (an `item` fill would vanish on it), `textSelected`, meta `textMetaHighlighted` |
 | | under the pointer | 1pt `controlBorder` outline, no fill; text, icon and meta as at rest |
-| Lasting-selection row | selected (`RowLook.selected`) | `item` fill, **bold** `textSelected`; the Quest Log's card (`RowLook.cardLasting`) has the menu pointer and the resting `line` border, not `controlBorder` |
+| Lasting-selection row | selected (`RowLook.selected`) | `item` fill, **bold** `textSelected`; the Quest Log's card also keeps its `controlBorder` border |
 | Tab (agent tabs, Settings sidebar) | rest (`OutlineLook.tabRest`) | `line` outline, `textBody` |
 | | selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
 | | selected, area unfocused (`.tabSelectedUnfocused`) | `controlBorder` outline, `textBody` |
