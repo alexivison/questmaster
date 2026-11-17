@@ -12,7 +12,7 @@ is a multiple of 5, and spacing takes one of four steps (`Space` in
 | `Space.group` | 40 | between groups of blocks: the plate list → the avatar slot |
 
 Control heights are one family (`ControlHeight`): `chip` 15, `compact` 25
-(pill tabs, Quest Log title lines), `control` 30 (buttons, dropdown rows), `field` 35
+(pill tabs, text tab rows, Quest Log title lines), `control` 30 (buttons, dropdown rows), `field` 35
 (fields, filters, the Settings picker), `bar` 40 (the dock top bar), `row` 50
 (artifact, quest and project cards). A shape drawn from a design at another height keeps its path's
 own height as an `svg…` constant and scales to the control's.

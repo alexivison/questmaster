@@ -52,7 +52,6 @@ struct ArtifactDockView: View {
     var model: ArtifactDockModel
     var onSelectArtifact: (String) -> Void
     var onToggleArtifact: (String) -> Void
-    var onSetScope: (ArtifactScope) -> Void
     var onSetFilterQuery: (String) -> Void
     var onRemoveFilterToken: (ArtifactFilterToken) -> Void
     var onSelectFilterSuggestion: (ArtifactFilterSuggestion) -> Void
@@ -77,11 +76,10 @@ struct ArtifactDockView: View {
         }
     }
 
-    /// artifacts.svg, under the dock's top bar: the Session/All tabs (10 apart) 20 down, the filter (All only) 20 under
-    /// them, and the rows 20 under that, everything 20 in from the panel's sides.
+    /// artifacts.svg, under the dock's top bar: the filter (All only) 20 down, and the rows 20 under that, everything 20 in
+    /// from the panel's sides. The Session/All tabs sit in the top bar (`DockTopBar`), not here.
     private var artifactSelector: some View {
         VStack(alignment: .leading, spacing: Space.section) {
-            scopeTabs
             if model.artifactScope == .all {
                 filterBar
             }
@@ -141,35 +139,6 @@ struct ArtifactDockView: View {
 
     private func projectTitle(for artifact: ArtifactReference) -> String {
         model.projectTitlesByArtifactID[artifact.id] ?? "Unknown Project"
-    }
-
-    private var scopeTabs: some View {
-        PillTabRow(
-            tabs: ArtifactScope.dockCases.map {
-                .init(id: $0, title: $0.title, icon: nil, help: "Show \($0.title.lowercased()) artifacts", accessibilityLabel: "Artifact scope \($0.title)")
-            },
-            selectedID: model.artifactScope,
-            focused: areaFocused,
-            onSelect: onSetScope
-        )
-        .padding(.horizontal, Space.section)
-    }
-}
-
-private extension ArtifactScope {
-    static var dockCases: [ArtifactScope] {
-        [.session, .all]
-    }
-
-    var title: String {
-        switch self {
-        case .session:
-            return "Session"
-        case .project:
-            return "Project"
-        case .all:
-            return "All"
-        }
     }
 }
 

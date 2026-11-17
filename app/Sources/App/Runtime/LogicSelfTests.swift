@@ -3821,14 +3821,15 @@ enum LogicSelfTests {
             model.displayState = .empty(sessionID: "s")
             return ArtifactDockView(
                 model: model,
-                onSelectArtifact: { _ in }, onToggleArtifact: { _ in }, onSetScope: { _ in }, onSetFilterQuery: { _ in },
+                onSelectArtifact: { _ in }, onToggleArtifact: { _ in }, onSetFilterQuery: { _ in },
                 onRemoveFilterToken: { _ in }, onSelectFilterSuggestion: { _ in }, onFilterCommand: { _ in false }, onFilterEndEditing: {},
                 onOpenExternal: { _ in }, areaFocused: true
             )
         }
         let dock = CGSize(width: DockWidthPreference.panelWidth, height: 400)
         try expectCentred(try ink(artifacts(.viewer), size: dock), in: CGRect(origin: .zero, size: dock), "the artifact viewer")
-        let listTop = Space.section + ControlHeight.compact + Space.section
+        // The list's top padding: the tabs sit in the top bar, not above it.
+        let listTop = Space.section
         try expectCentred(
             try ink(artifacts(.list), size: dock, below: Int(listTop)),
             in: CGRect(x: 0, y: listTop, width: dock.width, height: dock.height - listTop),
@@ -9293,7 +9294,7 @@ enum LogicSelfTests {
         let line = (font.ascender - font.descender + font.leading).rounded(.up)
         try expect(TextTabMetrics.height >= line, "the row should hold a line of its text (\(line)), got \(TextTabMetrics.height) high")
         try expect(TextTabMetrics.labelBaseline - font.ascender >= 0 && TextTabMetrics.labelBaseline - font.descender <= TextTabMetrics.height, "and the baseline should keep the whole line inside it")
-        try expect(TextTabMetrics.separatorGap == Space.row, "a tab should sit a `Space.row` from its diamond")
+        try expect(TextTabMetrics.separatorGap == Space.item, "a tab should sit a `Space.item` from its diamond")
 
         // The ink measurements need the design font: a fallback's advance is fractional (the system monospaced face's is
         // 7.418), so the text's edges land between pixels and the ink gaps read up to a point short (CI has no JetBrains Mono).

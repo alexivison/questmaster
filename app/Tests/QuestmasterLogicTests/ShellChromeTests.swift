@@ -7,7 +7,22 @@ struct ShellChromeTests {
         dockTopBarArtifactViewerShowsBackTitleAndActions()
         dockTopBarWorkerChatShowsItsTitle()
         dockTopBarWatcherShowsItsTitle()
+        dockTopBarOnlyTheArtifactListShowsScopeTabs()
         print("ShellChromeTests: all tests passed")
+    }
+
+    /// The Session/All tabs sit in the artifact list's top bar and nowhere else: not in the viewer's bar, the Worker Log's,
+    /// or Watcher's, so those bars keep their 40pt band as before.
+    private static func dockTopBarOnlyTheArtifactListShowsScopeTabs() {
+        let list = DockTopBarModel.make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false, artifactScope: .all)
+        expect(list.artifactScope == .all, "the artifact list's top bar should show the tabs, with the scope selected")
+        let viewer = DockTopBarModel.make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: "report.html", logAttached: false, artifactScope: .all)
+        expect(viewer.artifactScope == nil, "the artifact viewer's top bar should show no tabs")
+        let workerLog = DockTopBarModel.make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true, artifactScope: .all)
+        expect(workerLog.artifactScope == nil, "the Worker Log's top bar should show no tabs")
+        expect(DockTopBarModel.watcher.artifactScope == nil, "Watcher's top bar should show no tabs")
+        let unset = DockTopBarModel.make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false)
+        expect(unset.artifactScope == nil, "a list with no scope given should show no tabs")
     }
 
     private static func dockTopBarArtifactListHasNoBackOrActions() {

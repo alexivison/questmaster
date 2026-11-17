@@ -51,6 +51,8 @@ struct DockTopBar: View {
     /// A click on the bar that isn't on one of its buttons: it ends the log filter's dropdown, as one on the feed does.
     let onDismissLogFilter: () -> Void
     let onHideDock: () -> Void
+    /// A click on one of the Artifacts' Session/All tabs.
+    var onSelectArtifactScope: (ArtifactScope) -> Void = { _ in }
 
     var body: some View {
         let topBar = model.topBar
@@ -64,6 +66,20 @@ struct DockTopBar: View {
         .padding(.horizontal, ShellMetrics.dockTopBarHorizontalInset)
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.dockTopBarHeight)
+        // The Artifacts' tabs share the band with the icons: they centre between the close button and the bar's leading edge,
+        // their label's baseline on the bar's bottom edge.
+        .overlay(alignment: .top) {
+            if let scope = topBar.artifactScope {
+                TextTabRow(
+                    titles: ArtifactScope.dockCases.map(\.title),
+                    selectedIndex: ArtifactScope.dockCases.firstIndex(of: scope) ?? -1,
+                    areaFocused: model.isFocused,
+                    onSelect: { onSelectArtifactScope(ArtifactScope.dockCases[$0]) }
+                )
+                .padding(.horizontal, ArtifactScopeTabsMetrics.sideInset)
+                .offset(y: ArtifactScopeTabsMetrics.top)
+            }
+        }
         .background(AppPalette.panel.swiftUI)
         .contentShape(Rectangle())
         .onTapGesture(perform: onDismissLogFilter)
@@ -72,7 +88,8 @@ struct DockTopBar: View {
         .ignoresSafeArea()
     }
 
-    /// The titles sit on the plate over the panel's top edge (`DockTitlePlateView`), so the bar holds only its icons.
+    /// The titles sit on the plate over the panel's top edge (`DockTitlePlateView`), so the bar holds only its icons, and the
+    /// Artifacts' tabs when the list shows them (`body`).
     private func listBar(_ topBar: DockTopBarModel) -> some View {
         HStack(spacing: Space.item) {
             Color.clear.frame(width: ChromeMetrics.iconWidth, height: 1)

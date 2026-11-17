@@ -338,6 +338,10 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         model.currentArtifactRoute
     }
 
+    var currentArtifactScope: ArtifactScope {
+        model.artifactScope
+    }
+
     var currentArtifactTitle: String? {
         model.currentArtifactTitle
     }
@@ -368,7 +372,6 @@ struct DockRootView: View {
                     model: model.artifactModel,
                     onSelectArtifact: model.openArtifact(_:),
                     onToggleArtifact: model.toggleArtifactSelection(_:),
-                    onSetScope: model.setArtifactScope(_:),
                     onSetFilterQuery: model.setArtifactFilterQuery(_:),
                     onRemoveFilterToken: model.removeArtifactFilterToken(_:),
                     onSelectFilterSuggestion: { _ = model.acceptArtifactFilterSuggestion($0) },

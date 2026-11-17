@@ -8,7 +8,7 @@
   either side of the title, and ending in `AngledButtonShape`, the angled buttons' own ends. Its
   2pt border is the dock's frame look: `lineSoftSubtle`, lifting to `controlBorder` while the dock has the keys
   (`OutlineLook.frame(focused:)`). The plate hides the panel's border behind its fill, and the top bar keeps only the
-  icons. The dock gap stays `DockColumnLayout.panelGap` (20): the lower plate's top sits 6 below the panel above's bottom
+  icons (and, on the Artifacts list, the Session/All tabs). The dock gap stays `DockColumnLayout.panelGap` (20): the lower plate's top sits 6 below the panel above's bottom
   edge, which is also its border's nearest edge. The top dock's plate top sits 6 below the window's top edge. While a
   refresh the user asked for (`r`) is under way, Watcher's plate takes the on look (`OnLook`, the caffeinate toggle's own
   effect): the brass glow band inside its border at 15% (`Token.Size.glowRing` past the 2pt border), and the tracker's
@@ -33,10 +33,18 @@
   window's bottom edge.
 - Scoops are stepped (`ScoopedRectangle`): a 5pt square step at each end of the scoop, its arc centred on the step's inner
   corner. The action bar header and the tracker banner step 3 at their 13pt scoop (`ActionBarMetrics.scoopStep`); the
-  cards keep the plain scoop. The artifact column has no inset of its own: its tabs, filter and rows sit `Space.section`
-  (`MenuPointerMetrics.gutter`) in on both sides, like the Quest Log and the Watcher. The row's mark and the keyboard
+  cards keep the plain scoop. The artifact column has no inset of its own: its filter and rows sit `Space.section`
+  (`MenuPointerMetrics.gutter`) in on both sides, like the Quest Log and the Watcher (its tabs are in the top bar, below). The row's mark and the keyboard
   pointer draw in that gutter, 3.5pt from the panel's outer edge, 1.5pt clear of its 2pt border. The toast is a scooped panel too, with its own size
   (`ToastBanner.scoopRadius` 10, `scoopStep` 2: the action bar's proportion for a one-line toast).
+- The Artifacts' Session/All tabs are text tabs (`TextTabRow`, as the Worker Log's and the Quest Log's) in the list's top
+  bar, not in the list (`DockTopBarModel.artifactScope`, set only for the list route, so the viewer, the Worker Log and
+  Watcher have none). They sit in the bar's 40pt band, centred between `ArtifactScopeTabsMetrics.sideInset` on each side
+  (the bar's inset, the close button's icon and `Space.item`), with the label's baseline on the bar's bottom edge
+  (`ArtifactScopeTabsMetrics.top`). The label's top then stands 15 under the title plate's bottom edge, as the mock
+  (`artifact-tabs-mock.png`, 3x) has it (14.7, snapped 15). The list starts `Space.section` under the bar's edge, so the
+  filter (All only) and the first card sit `Space.section` under the baseline, as the mock has them. The mock draws the
+  filter under Session too; the dock shows it under All only (the user's decision).
 - The dock is two stacked scooped panels, `DockColumnLayout.panelGap` apart: Watcher on top at the fixed
   `DockColumnLayout.watcherHeight`, and
   under it the artifacts or the Worker Log. Each has its own title and close button, and either shows alone

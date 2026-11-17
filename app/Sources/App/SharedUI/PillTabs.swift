@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Pill tabs (new-session.svg's agent tabs, settings-models.svg's agent tabs and sidebar): a 25-high pill
 /// with scalloped ends, a 30pt disc holding the icon 10 in, and the 10pt label on a baseline 16.5 down,
-/// 45 in. A tab without an icon (artifacts.svg's Session/All) has no disc: the pill alone, its label centred on
+/// 45 in. A tab without an icon has no disc: the pill alone, its label centred on
 /// the same baseline. It draws its `OutlineLook`: the outline and disc ring in its border colour, the label in its
 /// label colour, and a highlighted or selected tab's disc recessed to the panel colour. It is one accessibility
 /// element: its label, "Selected" as the value while selected, and its help.

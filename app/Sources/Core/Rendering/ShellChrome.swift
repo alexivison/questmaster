@@ -29,17 +29,21 @@ public struct DockTopBarModel: Equatable {
     public let title: String?
     public let showArtifactActions: Bool
     public let showsLogFilter: Bool
+    /// The Artifacts list's Session/All tabs, with the scope they show as selected; nil where the bar has no tabs.
+    public let artifactScope: ArtifactScope?
 
     public init(
         back: Back?,
         title: String?,
         showArtifactActions: Bool,
-        showsLogFilter: Bool
+        showsLogFilter: Bool,
+        artifactScope: ArtifactScope? = nil
     ) {
         self.back = back
         self.title = title
         self.showArtifactActions = showArtifactActions
         self.showsLogFilter = showsLogFilter
+        self.artifactScope = artifactScope
     }
 
     /// The top panel's bar: its title and the close button, nothing else.
@@ -49,14 +53,17 @@ public struct DockTopBarModel: Equatable {
         mode: DockContentMode,
         artifactRoute: ArtifactDockRoute,
         artifactTitle: String?,
-        logAttached: Bool
+        logAttached: Bool,
+        artifactScope: ArtifactScope? = nil
     ) -> DockTopBarModel {
         let viewingArtifact = mode == .artifacts && artifactRoute == .viewer
+        let listingArtifacts = mode == .artifacts && artifactRoute == .list
         return DockTopBarModel(
             back: viewingArtifact ? .artifactList : nil,
             title: title(mode: mode, viewingArtifact: viewingArtifact, artifactTitle: artifactTitle),
             showArtifactActions: viewingArtifact,
-            showsLogFilter: mode == .workerChat && logAttached
+            showsLogFilter: mode == .workerChat && logAttached,
+            artifactScope: listingArtifacts ? artifactScope : nil
         )
     }
 

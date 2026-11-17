@@ -54,12 +54,12 @@ again where it was when the keys come back.
 | | highlighted (`RowLook.raisedHighlighted`) | `line` fill, one step above the surface (an `item` fill would vanish on it), `textSelected`, meta `textMetaHighlighted` |
 | | under the pointer | 1pt `controlBorder` outline, no fill; text, icon and meta as at rest |
 | Lasting-selection row | selected (`RowLook.selected`) | `item` fill, **bold** `textSelected`; the Quest Log's card (`RowLook.cardLasting`) has the menu pointer and the resting `line` border, not `controlBorder` |
-| Tab (agent tabs, Session/All, Settings sidebar) | rest (`OutlineLook.tabRest`) | `line` outline, `textBody` |
+| Tab (agent tabs, Settings sidebar) | rest (`OutlineLook.tabRest`) | `line` outline, `textBody` |
 | | selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
 | | selected, area unfocused (`.tabSelectedUnfocused`) | `controlBorder` outline, `textBody` |
-| Text tab (the Worker Log's worker tabs) | rest (`TextTabLook.rest`) | no outline or fill, `textMeta`, regular |
+| Text tab (the Worker Log's worker tabs, the Quest Log's project tabs, the Artifacts' Session/All) | rest (`TextTabLook.rest`) | no outline or fill, `textMeta`, regular |
 | | under the pointer (`.hovered`) | `textBody`, regular |
-| | selected (`TextTabLook.tab`) | **bold**, the selected pill tab's label colour: `textSelected` while the panel has the keys, `textBody` without them; the pointer adds nothing |
+| | selected (`TextTabLook.tab`) | **bold**, the selected tab's label colour: `textSelected` while the panel has the keys, `textBody` without them; the pointer adds nothing |
 | Field | rest / focused (`.fieldRest` / `.fieldFocused`) | `line` / `controlBorder` border (`fieldChrome`) |
 | Dock panel frame | rest / focused (`OutlineLook.frameRest` / `.frameFocused`) | 2pt `lineSoftSubtle` / `controlBorder` |
 | Icon button (dock top bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |

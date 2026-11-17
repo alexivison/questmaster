@@ -117,12 +117,13 @@ final class DockShellView: NSView {
     var onRefreshArtifact: (() -> Void)?
     var onToggleLogFilter: (() -> Void)?
     var onDismissLogFilter: (() -> Void)?
+    var onSetArtifactScope: ((ArtifactScope) -> Void)?
 
     init(body: NSView, model: DockChromeModel = DockChromeModel()) {
         self.model = model
         titlePlate = DockTitlePlateHost(rootView: DockTitlePlateView(model: model))
         super.init(frame: .zero)
-        let topBar = FirstMouseHostingView(rootView: DockTopBar(
+        var topBarView = DockTopBar(
             model: model,
             onBack: { [weak self] back in
                 switch back {
@@ -134,7 +135,9 @@ final class DockShellView: NSView {
             onToggleLogFilter: { [weak self] in self?.onToggleLogFilter?() },
             onDismissLogFilter: { [weak self] in self?.onDismissLogFilter?() },
             onHideDock: { [weak self] in self?.onHideDock?() }
-        ))
+        )
+        topBarView.onSelectArtifactScope = { [weak self] scope in self?.onSetArtifactScope?(scope) }
+        let topBar = FirstMouseHostingView(rootView: topBarView)
         let content = NSView()
         content.translatesAutoresizingMaskIntoConstraints = false
         layoutTopBarAndBody(
@@ -193,13 +196,15 @@ final class DockShellView: NSView {
         mode: DockContentMode,
         artifactRoute: ArtifactDockRoute,
         artifactTitle: String?,
-        logAttached: Bool
+        logAttached: Bool,
+        artifactScope: ArtifactScope
     ) {
         let next = DockTopBarModel.make(
             mode: mode,
             artifactRoute: artifactRoute,
             artifactTitle: artifactTitle,
-            logAttached: logAttached
+            logAttached: logAttached,
+            artifactScope: artifactScope
         )
         guard model.topBar != next else {
             return
