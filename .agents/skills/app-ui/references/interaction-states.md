@@ -23,8 +23,8 @@ A card list's keyboard cursor (the artifact cards, the Quest Log's selected card
 instead of its outline: a 6x7 pixel arrow at 2pt per pixel (`MenuPointer` in Core, `MenuPointerView` in App), outside
 the card's leading edge with its frame `Space.row` clear of the card and centred on it, in `textSelected` (`textBody`
 while the area has no keys). The card's border is the resting `line`. Hover leaves the cursor card alone. The list
-leaves room for the arrow inside its scroll clip (the Quest Log's `listLeadingInset`, `Space.section`); the artifact
-cards' 20pt mark gutter already does. Menus (SuggestionDropdown, the Worker Log filter) keep their band and draw no
+leaves room for the arrow inside its scroll clip: the Quest Log's column gutter (`QuestLogMetrics.columnGutter`,
+`Space.section`, shared by its tabs, filter and cards), and the artifact cards' 20pt mark gutter. Menus (SuggestionDropdown, the Worker Log filter) keep their band and draw no
 pointer. While the artifact delete marks take the gutter, the cursor keeps its `controlBorder` outline and no pointer.
 
 A region has the keys while it's focused and no modal is drawn
