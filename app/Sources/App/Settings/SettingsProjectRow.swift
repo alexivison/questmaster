@@ -14,7 +14,6 @@ enum ProjectRowMetrics {
     static let arrangedTextInset = arrowColumnWidth + Space.item
     static let dividerTop: CGFloat = 5
     static let dividerHeight = ListItemMetrics.height - Space.item
-    static let arrowPointSize: CGFloat = 11
     static let arrowFrameHeight: CGFloat = 15
     static let arrowUpTop: CGFloat = 5
     static let arrowDownTop: CGFloat = 30
@@ -22,8 +21,6 @@ enum ProjectRowMetrics {
     /// hit square. The quill at rest and the folder row's `+` sit in it.
     static let glyphSide = SettingsMetrics.sectionIconSide
     static let trailingInset = ListItemMetrics.textInset
-    /// The folder row's `+` sits in the same square, drawn at this point size.
-    static let addPointSize: CGFloat = 13
     /// The session count clears the `+`'s square and a `Space.item` gap.
     static let folderCountTrailingInset = trailingInset + glyphSide + Space.item
 }
@@ -97,9 +94,9 @@ struct SettingsProjectRow: View {
 
     private var arrowColumn: some View {
         ZStack(alignment: .topLeading) {
-            arrowButton(symbolName: "arrow.up", delta: -1)
+            arrowButton(icon: .rowMoveUp, delta: -1)
                 .offset(y: ProjectRowMetrics.arrowUpTop)
-            arrowButton(symbolName: "arrow.down", delta: 1)
+            arrowButton(icon: .rowMoveDown, delta: 1)
                 .offset(y: ProjectRowMetrics.arrowDownTop)
             Rectangle()
                 .fill(AppPalette.line.swiftUI)
@@ -109,15 +106,17 @@ struct SettingsProjectRow: View {
         .frame(width: ProjectRowMetrics.arrowColumnWidth, height: ProjectRowMetrics.height, alignment: .topLeading)
     }
 
-    private func arrowButton(symbolName: String, delta: Int) -> some View {
+    private func arrowButton(icon: AppIcon, delta: Int) -> some View {
         Button {
             onMove(delta)
         } label: {
-            Image(systemName: symbolName)
-                .font(.system(size: ProjectRowMetrics.arrowPointSize, weight: .regular))
-                .foregroundStyle(look.icon.color.swiftUI)
-                .frame(width: ProjectRowMetrics.arrowColumnWidth, height: ProjectRowMetrics.arrowFrameHeight)
-                .contentShape(Rectangle())
+            Group {
+                if let image = icon.image(glyphSide: ProjectRowMetrics.glyphSide, tint: look.icon.color) {
+                    Image(nsImage: image)
+                }
+            }
+            .frame(width: ProjectRowMetrics.arrowColumnWidth, height: ProjectRowMetrics.arrowFrameHeight)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(delta < 0 ? "Move \(project.name) up" : "Move \(project.name) down")
@@ -136,7 +135,7 @@ struct SettingsFolderRow: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             nameAndPath
-            ProjectAddGlyph(color: look.icon.color)
+            ProjectRowGlyph(icon: .settingsAddPlus, color: look.icon.color)
                 .onTapGesture(perform: onAdd)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                 .padding(.trailing, ProjectRowMetrics.trailingInset)
@@ -164,18 +163,5 @@ struct SettingsFolderRow: View {
         }
         .padding(.leading, ProjectRowMetrics.textInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-/// The folder row's `+`, drawn in the glyph's square so the two rows line up.
-struct ProjectAddGlyph: View {
-    let color: NSColor
-
-    var body: some View {
-        Image(systemName: "plus")
-            .font(.system(size: ProjectRowMetrics.addPointSize, weight: .regular))
-            .foregroundStyle(color.swiftUI)
-            .frame(width: ProjectRowMetrics.glyphSide, height: ProjectRowMetrics.glyphSide)
-            .contentShape(Rectangle())
     }
 }
