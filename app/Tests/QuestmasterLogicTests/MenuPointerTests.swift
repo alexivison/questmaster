@@ -1,38 +1,53 @@
 import Foundation
 import QuestmasterCore
 
-/// The keyboard cursor's menu pointer: the 6 by 7 arrow, its ink, its frame at a pixel size, and where it sits beside a card.
+/// The keyboard cursor's menu pointer: its frame, its three outlines and where it sits beside a row.
 struct MenuPointerTests {
     static func run() {
-        theArrowIsSixBySevenWithItsInkInFourColumns()
-        theFrameIsWholePointsPerPixel()
-        theArrowSitsOutsideTheCardAndCentred()
+        theFrameIsTwelveByFourteenPoints()
+        everyOutlineStaysInsideTheFrame()
+        onlyTheChevronIsOpen()
+        theNotchCutsTheBackEdge()
+        theArrowSitsOutsideTheRowAndCentred()
         print("MenuPointerTests: all tests passed")
     }
 
-    private static func theArrowIsSixBySevenWithItsInkInFourColumns() {
-        expect(MenuPointer.columns == 6 && MenuPointer.rows == 7, "the arrow should be 6 by 7 pixels")
-        let drawn = (0..<MenuPointer.rows).map { row in
-            (0..<MenuPointer.columns).map { MenuPointer.isOn(column: $0, row: row) ? "#" : "." }.joined()
+    private static func theFrameIsTwelveByFourteenPoints() {
+        expect(MenuPointer.width == 12 && MenuPointer.height == 14, "the pointer's frame should be 12 by 14 points, the old arrow's footprint")
+    }
+
+    /// The stroke is 1.5pt, so an outline point sits at least 0.75pt inside the frame on every side.
+    private static func everyOutlineStaysInsideTheFrame() {
+        let inset = 0.75
+        for shape in MenuPointer.Shape.allCases {
+            for point in MenuPointer.outline(shape) {
+                expect(point.x >= inset && point.x <= Double(MenuPointer.width) - inset, "\(shape) should keep x inside the frame, got \(point.x)")
+                expect(point.y >= inset && point.y <= Double(MenuPointer.height) - inset, "\(shape) should keep y inside the frame, got \(point.y)")
+            }
         }
-        expect(drawn == ["#.....", "##....", "###...", "####..", "###...", "##....", "#....."], "the arrow's pixels should be the menu pointer, got \(drawn)")
-        expect(MenuPointer.inkColumns == 4, "the arrow's ink should be 4 columns wide, the rest blank")
-        expect(!MenuPointer.isOn(column: 6, row: 0) && !MenuPointer.isOn(column: 0, row: 7) && !MenuPointer.isOn(column: -1, row: 0), "pixels off the arrow should be off")
     }
 
-    private static func theFrameIsWholePointsPerPixel() {
-        let small = MenuPointer.frame(pixel: 1)
-        expect(small.width == 6 && small.height == 7, "a 1pt pixel should frame the arrow at 6 by 7, got \(small)")
-        let large = MenuPointer.frame(pixel: 2)
-        expect(large.width == 12 && large.height == 14, "a 2pt pixel should frame the arrow at 12 by 14, got \(large)")
+    private static func onlyTheChevronIsOpen() {
+        expect(MenuPointer.isFilled(.arrowhead), "the arrowhead should be a filled outline")
+        expect(MenuPointer.isFilled(.notched), "the notched arrowhead should be a filled outline")
+        expect(!MenuPointer.isFilled(.chevron), "the chevron should be an open line, stroked only")
     }
 
-    private static func theArrowSitsOutsideTheCardAndCentred() {
-        expect(MenuPointer.leadingOffset(gap: 5, pixel: 2) == -17, "a 2pt arrow's frame should end 5 outside the card: -17 from its leading edge")
-        expect(MenuPointer.leadingOffset(gap: 5, pixel: 1) == -11, "a 1pt arrow's frame should end 5 outside the card")
-        expect(MenuPointer.topOffset(rowHeight: 50, pixel: 2) == 18, "a 2pt arrow should centre on a 50pt row")
-        expect(MenuPointer.topOffset(rowHeight: 50, pixel: 1) == 21, "a 1pt arrow's centring should stay on whole points (43 / 2 = 21)")
-        expect(MenuPointer.topOffset(rowHeight: 30, pixel: 2) == 8, "a 2pt arrow should centre on a 30pt row")
+    /// The notch is a point inside the back edge, which sits at the outline's leftmost x.
+    private static func theNotchCutsTheBackEdge() {
+        let notched = MenuPointer.outline(.notched)
+        let back = notched[0].x
+        let notch = notched[3]
+        expect(notched.count == 4, "the notched arrowhead should have four points, got \(notched.count)")
+        expect(notch.x > back && notch.x < notched[1].x, "the notch should sit between the back edge and the tip")
+        expect(notch.y == notched[1].y, "the notch should sit on the centre line, level with the tip")
+    }
+
+    private static func theArrowSitsOutsideTheRowAndCentred() {
+        expect(MenuPointer.leadingOffset(gap: 5) == -17, "the frame should end 5 outside the row: -17 from its leading edge")
+        expect(MenuPointer.topOffset(rowHeight: 50) == 18, "the pointer should centre on a 50pt row")
+        expect(MenuPointer.topOffset(rowHeight: 45) == 15, "the pointer should centre on a 45pt row")
+        expect(MenuPointer.topOffset(rowHeight: 30) == 8, "the pointer should centre on a 30pt row")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

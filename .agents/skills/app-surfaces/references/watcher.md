@@ -22,3 +22,7 @@
   is a skeleton until the first poll: ghost bars for the git glyph, the number and the title, then for the review glyph and
   the counters. Nothing real shows, not even the number or the watchers, so the row doesn't fill in piece by piece. The bars breathe
   in `SkeletonPulse` (`WatcherMetrics.skeleton*`). An inaccessible PR has a status and is never loading.
+- The keyboard cursor on a row is the menu pointer in the rows' leading gutter, not an outline (`RowLook.pointedCursor`).
+  It shows only while the panel has the keys and hides with them, like the cursor's fill. A pointed row takes no hover
+  outline; a row that isn't the cursor keeps its hover outline. The rows keep `WatcherMetrics.inset`, which is
+  `MenuPointerMetrics.gutter` (`Space.section`), on both sides, so the arrow hangs in the leading gutter clear of the row.
