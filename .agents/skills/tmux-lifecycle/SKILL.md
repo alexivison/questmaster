@@ -88,6 +88,32 @@ The always-needed tmux rules (name the server and the exact session on every cal
   updated/live/already-set/failed counts,
   and keep it idempotent.
 
+## Codex app-server ownership
+
+Every new or continued Codex process uses native messaging through a session-owned
+app-server. Existing plain TUI processes keep tmux delivery until relaunched;
+live reattachment does not replace their transport.
+
+The pane runs `qm agent codex`, supervising one session-owned app-server and its
+foreground remote TUI. The server inherits that session's environment and role
+configuration; it never starts the shared Codex daemon. Either process exiting,
+or the launcher receiving a termination signal, stops the other process.
+On resume, approval and sandbox overrides stay on the owning app-server; the
+remote TUI rejects those overrides. Its model, effort and role overrides remain.
+The private runtime carries `codex-native`, `cx.sock` (Codex's guarded alias to
+an owner-only Unix socket), and a log capped at 1 MiB. Both the alias owner and
+resolved socket's private parent/ownership are validated before connecting.
+Session close/delete/prune owns runtime-directory removal.
+Native sends rejoin only the recorded, already-loaded thread on that socket,
+use `turn/start`, which atomically steers an active turn or starts an idle one
+without a history query. Only an explicit refusal during manual compaction uses
+`thread/queue/add` on that same owner; Codex consumes it after compaction. A missing
+queue API is an error. They never answer server approval/input requests or cold-resume a missing
+TUI. Once the marker exists, delivery errors do not fall back to tmux or retry an
+uncertain RPC. The marker follows the transport on every relaunch, including a
+dead-pane Continue; live reattachment preserves it. Restarting an exited Codex
+agent with a legacy runtime allocates a private recorded runtime.
+
 ## Shared tmux theme
 
 `internal/palette/palette.json` is the app/tmux colour source. Run

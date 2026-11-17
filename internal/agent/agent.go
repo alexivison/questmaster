@@ -70,6 +70,8 @@ type CmdOpts struct {
 	// no reasoning-effort flag is passed and the harness applies its own
 	// behavior.
 	ReasoningEffort string
+	// LauncherBinary is the Questmaster executable supervising that launcher.
+	LauncherBinary string
 }
 
 func joinSystemPrompt(base, brief string) string {

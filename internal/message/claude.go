@@ -59,6 +59,8 @@ func (s *Service) nativeDeliver(ctx context.Context, client *tmux.Client, m stat
 		return s.deliverClaude(ctx, client, target, message)
 	case "pi":
 		return s.deliverPi(ctx, m, message)
+	case "codex":
+		return s.deliverCodex(ctx, m, message)
 	default:
 		return errNativeUnavailable
 	}

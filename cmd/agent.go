@@ -13,6 +13,7 @@ func newAgentCmd() *cobra.Command {
 		Short: "Query configured agents",
 	}
 	cmd.AddCommand(newAgentQueryCmd())
+	cmd.AddCommand(newAgentCodexCmd())
 	return cmd
 }
 

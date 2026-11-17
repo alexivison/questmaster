@@ -2,10 +2,13 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/codexnative"
 	"github.com/alexivison/questmaster/internal/hooks"
 	"github.com/alexivison/questmaster/internal/sessiontheme"
 	"github.com/alexivison/questmaster/internal/state"
@@ -96,6 +99,9 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 			return err
 		}
 		return nil
+	}
+	if err := prepareCodexNativeRuntime(lc); err != nil {
+		return err
 	}
 
 	if lc.agentCmds[agent.RoleAgent] == "" {
@@ -203,7 +209,6 @@ func (s *Service) refreshAppOwnedSessionEnvironment(ctx context.Context, session
 	if err := s.Client.UnsetEnvironment(ctx, sessionID, "QUESTMASTER_HOME"); err != nil {
 		return err
 	}
-
 	// Propagate the resolved state root so hooks installed in the
 	// agent's config dir know where to write state.json / state.jsonl.
 	if root := state.StateRoot(); root != "" {
@@ -223,4 +228,22 @@ func (s *Service) refreshAppOwnedSessionEnvironment(ctx context.Context, session
 		}
 	}
 	return nil
+}
+
+func prepareCodexNativeRuntime(lc launchConfig) error {
+	if lc.runtimeDir == "" {
+		return nil
+	}
+	provider := lc.agents[agent.RoleAgent]
+	if provider != nil && provider.Name() == "codex" {
+		if _, err := codexnative.SocketPath(lc.runtimeDir); err != nil {
+			return err
+		}
+		return state.WriteRuntimeFile(lc.runtimeDir, codexnative.MarkerName, []byte("1\n"))
+	}
+	err := os.Remove(filepath.Join(lc.runtimeDir, codexnative.MarkerName))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }

@@ -1318,10 +1318,6 @@ enum LogicSelfTests {
         func views(under view: NSView) -> [NSView] { [view] + view.subviews.flatMap { views(under: $0) } }
         func icons(in view: NSView) -> [IconFadeView] { views(under: view).compactMap { $0 as? IconFadeView } }
         func fades(in view: NSView) -> [CABasicAnimation] { icons(in: view).compactMap(\.fadeAnimation) }
-        /// The clearest an animating icon layer is right now, as Core Animation shows it: 1 when none is animating.
-        func shownOpacity(in view: NSView) -> Float {
-            icons(in: view).filter { $0.fadeAnimation != nil }.compactMap { $0.layer?.presentation()?.opacity }.min() ?? 1
-        }
         func host(_ initial: SelectedSessionPanelContent) throws -> (model: SelectedSessionPanelFadeModel, view: NSView, window: HeadlessWindow) {
             let model = SelectedSessionPanelFadeModel(initial)
             let size = SelectedSessionPanel.canvasSize
@@ -1384,13 +1380,21 @@ enum LogicSelfTests {
         let mounted = views(under: view).map(ObjectIdentifier.init)
 
         /// Switches to `next` from a clean slate (a finished fade stays on its layer until Core Animation's next commit) and
-        /// returns how many icon layers have an installed fade.
+        /// returns how many icon layers have an installed fade. Hold their clocks so a slow host cannot miss the fade.
         func fadeCount(after next: SelectedSessionPanelContent, _ what: String) throws -> Int {
-            icons(in: view).forEach { $0.layer?.removeAllAnimations() }
+            icons(in: view).forEach {
+                holdMotion($0, true)
+                $0.layer?.removeAllAnimations()
+            }
             model.content = next
             // The presentation layer can be absent until Core Animation commits its first frame; the installed animation is stable evidence.
             try expect(waitUntil { fades(in: view).count == 1 }, "\(what) should install one fade on its icon layer")
             return fades(in: view).count
+        }
+        func finishFade(_ message: String) throws {
+            icons(in: view).forEach { holdMotion($0, false) }
+            try expect(waitUntil { fades(in: view).isEmpty }, message)
+            try expect(icons(in: view).allSatisfy { $0.layer?.opacity == 1 }, "a finished fade should leave the icon fully opaque")
         }
         /// Switches to `next` from a clean slate and, once `landed`, expects nothing to fade.
         func expectNoFade(after next: SelectedSessionPanelContent, landed: () -> Bool, _ what: String) throws {
@@ -1412,7 +1416,7 @@ enum LogicSelfTests {
             },
             "it is one Core Animation opacity fade from clear to full over the standard step, once, on the shared easing"
         )
-        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the fade should end on its own, on full opacity")
+        try finishFade("the fade should end on its own, on full opacity")
         try expect(icons(in: view).allSatisfy { $0.layer?.opacity == 1 }, "and leave the icon layer fully opaque")
         try expect(views(under: view).map(ObjectIdentifier.init) == mounted, "the icon's views should be the same ones, not re-created")
         try expect(waitUntil { isDrawnAs(view, wizardSettled) }, "the fade should end on the new icon as drawn fresh")
@@ -1422,12 +1426,12 @@ enum LogicSelfTests {
 
         // A shell's glyph fades in as a class's portrait does, one fade a switch; so does the portrait after it.
         try expect(try fadeCount(after: shell, "a shell after a class") == 1, "a class-to-shell switch should fade one icon")
-        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the glyph's fade should end on its own")
+        try finishFade("the glyph's fade should end on its own")
         try expect(waitUntil { !isDrawnAs(view, wizardSettled) }, "the glyph should replace the portrait")
         try expect(try fadeCount(after: otherShell, "another shell") == 1, "a shell-to-shell switch should fade one icon")
-        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the second glyph's fade should end on its own")
+        try finishFade("the second glyph's fade should end on its own")
         try expect(try fadeCount(after: paladin, "a class after a shell") == 1, "a shell-to-class switch should fade one icon")
-        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the portrait's fade should end on its own")
+        try finishFade("the portrait's fade should end on its own")
         try expect(waitUntil { isDrawnAs(view, paladinSettled) }, "the class's portrait should end as drawn fresh")
 
         // An empty disc (no class, or nothing attached) has no icon to fade: going to it drops the old icon at once, and
@@ -1435,7 +1439,7 @@ enum LogicSelfTests {
         try expectNoFade(after: empty, landed: { !isDrawnAs(view, paladinSettled) }, "a class-to-empty-disc switch")
         try expectNoFade(after: otherEmpty, landed: { true }, "an empty-disc-to-empty-disc switch")
         try expect(try fadeCount(after: wizard, "a class after an empty disc") == 1, "an empty-disc-to-class switch should fade one icon")
-        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the portrait's fade should end on its own")
+        try finishFade("the portrait's fade should end on its own")
         try expect(views(under: view).map(ObjectIdentifier.init) == mounted, "no switch should re-create the icon's views")
         try expect(waitUntil { isDrawnAs(view, wizardSettled) }, "the class's portrait should end as drawn fresh")
 
@@ -1444,6 +1448,7 @@ enum LogicSelfTests {
         try expect(try fadeCount(after: paladin, "a class before an empty disc") == 1, "a class after a class should fade one icon")
         model.content = empty
         try expect(waitUntil { fades(in: view).isEmpty }, "a switch to an empty disc should drop the fade still running")
+        icons(in: view).forEach { holdMotion($0, false) }
 
         // Reduce Motion: the new icon is there at once, with nothing to run.
         icons(in: view).forEach { $0.layer?.removeAllAnimations() }
