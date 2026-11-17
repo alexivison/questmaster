@@ -2,8 +2,7 @@ import QuestmasterCore
 import SwiftUI
 
 /// The brass inner glow of an "on" look (`OnLook`): a band `band` wide inside `shape`'s edge, clipped to it. A border drawn
-/// over it covers its outer part, so the band shows only inside. A toggle that is on and a dock title plate with its
-/// refresh running both draw it.
+/// over it covers its outer part, so the band shows only inside. The caffeinate toggle draws it while it is on.
 struct OnLookGlow: View {
     let look: OnLook
     let shape: AnyShape
@@ -18,15 +17,15 @@ struct OnLookGlow: View {
     }
 }
 
-/// The working spinner turning round an "on" look's outline while it spins (`OnLook.spins`). Nothing is drawn otherwise.
+/// The working spinner turning round an "on" look's rounded square while it spins (`OnLook.spins`). Nothing is drawn otherwise.
 struct OnLookSpinner: View {
     let look: OnLook
-    let outline: SpinnerOutline
+    let cornerRadius: CGFloat
     let stroke: CGFloat
 
     var body: some View {
         if look.spins {
-            SpinnerRingView(stroke: stroke, outline: outline)
+            SpinnerRingView(stroke: stroke, cornerRadius: cornerRadius)
         }
     }
 }

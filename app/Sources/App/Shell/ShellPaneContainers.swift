@@ -117,13 +117,11 @@ final class DockShellView: NSView {
     var onRefreshArtifact: (() -> Void)?
     var onToggleLogFilter: (() -> Void)?
     var onDismissLogFilter: (() -> Void)?
-    var onSetArtifactScope: ((ArtifactScope) -> Void)?
 
     init(body: NSView, model: DockChromeModel = DockChromeModel()) {
         self.model = model
-        titlePlate = DockTitlePlateHost(rootView: DockTitlePlateView(model: model))
         super.init(frame: .zero)
-        var topBarView = DockTopBar(
+        let topBar = FirstMouseHostingView(rootView: DockTopBar(
             model: model,
             onBack: { [weak self] back in
                 switch back {
@@ -135,9 +133,7 @@ final class DockShellView: NSView {
             onToggleLogFilter: { [weak self] in self?.onToggleLogFilter?() },
             onDismissLogFilter: { [weak self] in self?.onDismissLogFilter?() },
             onHideDock: { [weak self] in self?.onHideDock?() }
-        )
-        topBarView.onSelectArtifactScope = { [weak self] scope in self?.onSetArtifactScope?(scope) }
-        let topBar = FirstMouseHostingView(rootView: topBarView)
+        ))
         let content = NSView()
         content.translatesAutoresizingMaskIntoConstraints = false
         layoutTopBarAndBody(
@@ -154,8 +150,6 @@ final class DockShellView: NSView {
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         chrome = ScoopedLayerChrome(view: self, content: content)
-        // The title plate rises above the top edge, outside the masked content, so it is this view's own subview.
-        addSubview(titlePlate)
     }
 
     @available(*, unavailable)
@@ -166,15 +160,6 @@ final class DockShellView: NSView {
     override func layout() {
         super.layout()
         chrome?.layout(bounds: bounds)
-        // The plate spans the panel's top edge: its bottom `height - lift` below it and its top `lift` above. Its width is kept
-        // clear of the icons at either end, as the top bar's title was.
-        let inset = ShellMetrics.dockTopBarHorizontalInset + ChromeMetrics.iconWidth + Space.item
-        titlePlate.frame = NSRect(
-            x: inset,
-            y: bounds.maxY - (DockTitlePlateMetrics.height - DockTitlePlateMetrics.lift),
-            width: max(0, bounds.width - 2 * inset),
-            height: DockTitlePlateMetrics.height
-        )
     }
 
     /// Only the shape's hits count: a click in a scooped-away corner passes to what lies beneath.
@@ -183,12 +168,10 @@ final class DockShellView: NSView {
     }
 
     private(set) var isFocused = false
-    private let titlePlate: DockTitlePlateHost
 
-    /// The 2pt frame lifts one step while the dock has keyboard focus, and the title plate's border lifts with it.
+    /// The 2pt frame lifts one step while the dock has keyboard focus.
     func setFocused(_ focused: Bool) {
         isFocused = focused
-        model.isFocused = focused
         chrome.setBorderColor(OutlineLook.frame(focused: focused).border.color)
     }
 
@@ -196,15 +179,13 @@ final class DockShellView: NSView {
         mode: DockContentMode,
         artifactRoute: ArtifactDockRoute,
         artifactTitle: String?,
-        logAttached: Bool,
-        artifactScope: ArtifactScope
+        logAttached: Bool
     ) {
         let next = DockTopBarModel.make(
             mode: mode,
             artifactRoute: artifactRoute,
             artifactTitle: artifactTitle,
-            logAttached: logAttached,
-            artifactScope: artifactScope
+            logAttached: logAttached
         )
         guard model.topBar != next else {
             return

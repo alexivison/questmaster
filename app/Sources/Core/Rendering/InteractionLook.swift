@@ -144,7 +144,7 @@ public struct OutlineLook: Equatable, Sendable {
     public static let tabSelectedUnfocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: true)
     public static let fieldRest = OutlineLook(border: .line, label: .textBody, recessed: false)
     public static let fieldFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
-    /// A dock's 2pt frame: it lifts one step while the dock has keyboard focus. A dock title's plate takes the same look.
+    /// A dock's 2pt frame: it lifts one step while the dock has keyboard focus.
     public static let frameRest = OutlineLook(border: .lineSoftSubtle, label: .textBody, recessed: false)
     public static let frameFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
 
@@ -190,8 +190,8 @@ public enum MarkLook {
     }
 }
 
-/// The "on" look, shared by a toggle that is on (caffeinate) and a dock title plate while its refresh runs: the brass inner
-/// glow band inside the edge, with the working spinner turning round the edge. Nothing else about the control changes.
+/// The "on" look of a toggle that is on (caffeinate): the brass inner glow band inside the edge, with the working spinner
+/// turning round the edge. Nothing else about the control changes.
 public struct OnLook: Equatable, Sendable {
     /// The glow's colour, drawn at `glowOpacity`.
     public let glow: StateColor

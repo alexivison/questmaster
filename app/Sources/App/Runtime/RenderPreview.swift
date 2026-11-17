@@ -135,9 +135,9 @@ enum RenderPreview {
         )
         render(actionBarButtonStatesView(), size: CGSize(width: actionBarButtonStatesWidth, height: ActionBarMetrics.height), to: "\(outputDir)/action-bar-states.png")
         // The Watcher panel as the Session Detail Dock draws it, and a row of it as the Pull Request Item draws it.
-        renderView(watcherPanelView(), size: CGSize(width: 482, height: 315), to: "\(outputDir)/watcher-panel.png")
-        renderView(watcherPanelView(state: .empty), size: CGSize(width: 482, height: 315), to: "\(outputDir)/watcher-panel-empty.png")
-        renderView(watcherPanelView(state: .notice), size: CGSize(width: 482, height: 315), to: "\(outputDir)/watcher-panel-notice.png")
+        renderView(watcherPanelView(), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel.png")
+        renderView(watcherPanelView(state: .empty), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel-empty.png")
+        renderView(watcherPanelView(state: .notice), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel-notice.png")
         render(watcherRowsView(highlight: 1, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design.png")
         render(watcherRowsView(highlight: nil, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design-rest.png")
         render(watcherRowsView(highlight: nil, rows: watcherCountRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-counts.png")
@@ -267,13 +267,9 @@ enum RenderPreview {
         renderView(artifactPaneView(highlight: 4, focused: false), size: pane, to: "\(outputDir)/artifact-pane-unfocused.png")
         renderView(artifactPaneView(highlight: nil), size: pane, to: "\(outputDir)/artifact-pane-rest.png")
         renderView(artifactPaneView(highlight: nil, session: true), size: pane, to: "\(outputDir)/artifact-pane-session.png")
-        // The same two panes with a margin above, for the comparison with the mock, where the plate's top shows.
-        let framed = CGSize(width: pane.width, height: pane.height + Space.section)
-        renderView(framedArtifactPane(artifactPaneView(highlight: nil), size: pane, topMargin: Space.section), size: framed, to: "\(outputDir)/artifact-pane-rest-framed.png")
-        renderView(framedArtifactPane(artifactPaneView(highlight: nil, session: true), size: pane, topMargin: Space.section), size: framed, to: "\(outputDir)/artifact-pane-session-framed.png")
         // The narrowest dock (`DockWidthPreference.minWidth`), where the tabs have the least room either side.
         let narrow = CGSize(width: DockWidthPreference.minWidth, height: pane.height)
-        renderView(framedArtifactPane(artifactPaneView(highlight: nil, session: true), size: narrow, topMargin: Space.section), size: CGSize(width: narrow.width, height: framed.height), to: "\(outputDir)/artifact-pane-session-narrow-framed.png")
+        renderView(artifactPaneView(highlight: nil, session: true), size: narrow, to: "\(outputDir)/artifact-pane-session-narrow.png")
         render(artifactHoverView(), size: CGSize(width: 400, height: 260), to: "\(outputDir)/artifact-hover.png")
         renderView(artifactPaneView(highlight: 1, marked: [0, 2], missing: [1, 3]), size: pane, to: "\(outputDir)/artifact-pane-marked.png")
         renderView(artifactPaneView(highlight: nil, empty: true), size: pane, to: "\(outputDir)/artifact-pane-empty.png")
@@ -319,7 +315,7 @@ enum RenderPreview {
         splitView.addArrangedSubview(TerminalShellView(body: terminalBody))
         let dockColumn = DockColumnView(
             top: DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher)),
-            bottom: artifactsDockShell(SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
+            bottom: DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
         )
         dockColumn.setPanels(DockPanels(bottom: true))
         splitView.addArrangedSubview(dockColumn)
@@ -364,14 +360,6 @@ enum RenderPreview {
     /// in the delete selection and `missing` ones lost their file; `empty` shows the Session tab, or the All tab (`allTab`),
     /// with nothing in it, or the viewer (`viewer`) with no artifact to show.
     @MainActor
-    /// The pane on a canvas `topMargin` taller, so its title plate shows whole: a pane's own canvas starts at the panel's top edge.
-    static func framedArtifactPane(_ pane: NSView, size: CGSize, topMargin: CGFloat) -> NSView {
-        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: size.width, height: size.height + topMargin))
-        pane.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
-        canvas.addSubview(pane)
-        return canvas
-    }
-
     static func artifactPaneView(
         highlight: Int?,
         focused: Bool = true,
@@ -416,6 +404,7 @@ enum RenderPreview {
             model: model,
             onSelectArtifact: { _ in },
             onToggleArtifact: { _ in },
+            onSetScope: { _ in },
             onSetFilterQuery: { _ in },
             onRemoveFilterToken: { _ in },
             onSelectFilterSuggestion: { _ in },
@@ -426,10 +415,7 @@ enum RenderPreview {
             previewFilterFocused: suggesting
         ))
         guard viewer else {
-            // The list's tabs sit in the top bar, which takes the keys' focus as the panel does.
-            let chrome = DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false, artifactScope: scope))
-            chrome.isFocused = focused
-            return DockShellView(body: body, model: chrome)
+            return DockShellView(body: body)
         }
         return DockShellView(body: body, model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: nil, logAttached: false)))
     }
@@ -646,8 +632,7 @@ enum RenderPreview {
             model: DockChromeModel(topBar: .watcher, isRefreshing: isRefreshing)
         )
         panel.frame = NSRect(x: 1, y: 5, width: 480, height: 300)
-        // The panel sits 5 up from the canvas floor; its title plate rises 10 past the panel top, so the canvas keeps that headroom.
-        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 482, height: 315))
+        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 482, height: 305))
         canvas.wantsLayer = true
         canvas.layer?.backgroundColor = AppPalette.window.cgColor
         canvas.addSubview(panel)
@@ -681,7 +666,7 @@ enum RenderPreview {
         case .artifacts, nil:
             bottomShell = DockShellView(
                 body: NSHostingView(rootView: artifactListView(focused: focus == .bottom)),
-                model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false, artifactScope: .session))
+                model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false))
             )
         }
         topShell.setFocused(focus == .top)
@@ -738,7 +723,7 @@ enum RenderPreview {
     }
 
 
-    /// The Watcher title plate at rest and while a refresh spins its mark: the presentation layers sampled over one
+    /// The Watcher title bar at rest and while a refresh spins its mark: the presentation layers sampled over one
     /// turn of the spinner (the offscreen snapshot can't see Core Animation's own animation), as a contact sheet in slow
     /// motion and a GIF at real speed. Only runs when RENDER_ONLY names `watcher-refresh-spinner`.
     @MainActor
@@ -752,15 +737,15 @@ enum RenderPreview {
         let store = PullRequestStore()
         let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
         _ = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true)
-        let size = CGSize(width: 482, height: 315)
+        let size = CGSize(width: 482, height: 305)
         let canvas = watcherPanelView(isRefreshing: { store.isRefreshing })
         canvas.frame = NSRect(origin: .zero, size: size)
         let window = HeadlessWindow(size: size, scale: scale)
         window.contentView = canvas
         window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
-        // The title plate, from the top left: its top meets the canvas's top, and the spinner hangs past its end.
-        let header = CGRect(x: 121, y: 0, width: 240, height: 40)
+        // The title and the mark beside it, from the top left.
+        let header = CGRect(x: 121, y: 5, width: 240, height: 40)
         RingPreview.write(captureLayers(of: canvas, scale: scale, rect: header), to: "\(dir)/watcher-header-rest.png")
 
         _ = store.handle(.refresh)
@@ -836,19 +821,10 @@ enum RenderPreview {
         return context.makeImage()
     }
 
-    /// A dock panel showing the Artifacts list, with its top bar set as `AppDelegate.updateDockTabs` sets it: the Session tab
-    /// selected in the bar.
-    @MainActor
-    private static func artifactsDockShell(_ body: NSView) -> DockShellView {
-        let shell = DockShellView(body: body)
-        shell.updateTabs(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false, artifactScope: .session)
-        return shell
-    }
-
     /// The dock alone on the window colour, with or without keyboard focus, for its frame.
     @MainActor
     private static func dockFrameView(focused: Bool) -> NSView {
-        let dock = artifactsDockShell(SwiftUIDockPane(store: trackerPreviewStore(), workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
+        let dock = DockShellView(body: SwiftUIDockPane(store: trackerPreviewStore(), workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
         dock.setFocused(focused)
         dock.frame = NSRect(x: 20, y: 20, width: 344, height: 400)
         let container = NSView()
@@ -2291,6 +2267,7 @@ enum RenderPreview {
             model: model,
             onSelectArtifact: { _ in },
             onToggleArtifact: { _ in },
+            onSetScope: { _ in },
             onSetFilterQuery: { _ in },
             onRemoveFilterToken: { _ in },
             onSelectFilterSuggestion: { _ in },
@@ -2317,6 +2294,7 @@ enum RenderPreview {
             model: model,
             onSelectArtifact: { _ in },
             onToggleArtifact: { _ in },
+            onSetScope: { _ in },
             onSetFilterQuery: { _ in },
             onRemoveFilterToken: { _ in },
             onSelectFilterSuggestion: { _ in },

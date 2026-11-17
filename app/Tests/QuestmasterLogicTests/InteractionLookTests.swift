@@ -60,7 +60,7 @@ struct InteractionLookTests {
         expect(button(true, true, false).icon == .accent, "an on toggle keeps its gold icon while its panel shows")
         expect([recessed, button(false, false, true), raised, button(true, false, true)].allSatisfy { $0.icon != .accent }, "the gold icon is for an on toggle only, never active or under the pointer")
         expect(on.on.spins && on.on.glowOpacity > 0, "a toggle that is on glows and spins")
-        expect(OnLook.of(true) == .on && OnLook.of(false) == .off, "a refresh or a toggle that is on takes the on look")
+        expect(OnLook.of(true) == .on && OnLook.of(false) == .off, "a toggle that is on takes the on look")
         expect(PlateBand.color(showsCursor: false, pointerOver: false, recoloring: false) == nil, "a plain plate has no band")
         expect(PlateBand.color(showsCursor: true, pointerOver: true, recoloring: true) == .accent, "the recolour band wins over the cursor and hover")
         expect(PlateBand.showsCursor(highlighted: true, areaFocused: true), "the cursor shows while the tracker has keys")

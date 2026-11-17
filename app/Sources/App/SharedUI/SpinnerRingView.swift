@@ -2,42 +2,23 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The outline the working spinner turns round: a circle, a rounded rectangle (an action-bar toggle's border), or any
-/// shape's own path (a dock title plate's angled ends).
-enum SpinnerOutline {
-    case circle
-    case roundedRect(cornerRadius: CGFloat)
-    case shape(AnyShape)
-
-    /// The outline's centre line inside `rect`, the view's bounds inset by half the stroke.
-    func path(in rect: CGRect, inset: CGFloat) -> CGPath {
-        switch self {
-        case .circle:
-            return CGPath(ellipseIn: rect, transform: nil)
-        case .roundedRect(let cornerRadius):
-            return CGPath(roundedRect: rect, cornerWidth: cornerRadius - inset, cornerHeight: cornerRadius - inset, transform: nil)
-        case .shape(let shape):
-            return shape.path(in: rect).cgPath
-        }
-    }
-}
-
 /// The working spinner for SwiftUI chrome, at the size SwiftUI gives it: a `SpinnerRing` that turns while the view is in
 /// a window and is gone with it, so the thing it marks (a refresh) is the only thing that keeps it alive. Under Reduce
-/// Motion it holds still and full, as the tracker's spinning ring does. `outline` sets the ring it turns round.
+/// Motion it holds still and full, as the tracker's spinning ring does. With a `cornerRadius` it traces a rounded square
+/// (an action-bar toggle's border) instead of a circle.
 struct SpinnerRingView: View {
     let stroke: CGFloat
-    var outline: SpinnerOutline = .circle
+    var cornerRadius: CGFloat?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Representable(stroke: stroke, outline: outline, reduceMotion: reduceMotion)
+        Representable(stroke: stroke, cornerRadius: cornerRadius, reduceMotion: reduceMotion)
             .allowsHitTesting(false)
     }
 
     private struct Representable: NSViewRepresentable {
         let stroke: CGFloat
-        let outline: SpinnerOutline
+        let cornerRadius: CGFloat?
         let reduceMotion: Bool
 
         func makeNSView(context: Context) -> SpinnerRingNSView {
@@ -45,20 +26,20 @@ struct SpinnerRingView: View {
         }
 
         func updateNSView(_ view: SpinnerRingNSView, context: Context) {
-            view.configure(stroke: stroke, outline: outline, reduceMotion: reduceMotion)
+            view.configure(stroke: stroke, cornerRadius: cornerRadius, reduceMotion: reduceMotion)
         }
     }
 }
 
 /// The ring as an AppKit view: all Core Animation, built when its size, stroke, motion setting or window change, and
-/// animating only while it is in a window. The outline is fixed for a call site, so it is set, not compared, on update.
+/// animating only while it is in a window.
 final class SpinnerRingNSView: NSView {
     private let spinner = SpinnerRing()
     private let still = CAShapeLayer()
     private var stroke: CGFloat = 0
-    private var outline: SpinnerOutline = .circle
+    private var cornerRadius: CGFloat?
     private var reduceMotion = false
-    private var built: (width: CGFloat, height: CGFloat, stroke: CGFloat, reduceMotion: Bool, inWindow: Bool)?
+    private var built: (side: CGFloat, stroke: CGFloat, cornerRadius: CGFloat?, reduceMotion: Bool, inWindow: Bool)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -79,9 +60,9 @@ final class SpinnerRingNSView: NSView {
     /// Whether the ring holds still and full (Reduce Motion) instead of turning.
     var holdsStill: Bool { !still.isHidden }
 
-    func configure(stroke: CGFloat, outline: SpinnerOutline = .circle, reduceMotion: Bool) {
+    func configure(stroke: CGFloat, cornerRadius: CGFloat? = nil, reduceMotion: Bool) {
         self.stroke = stroke
-        self.outline = outline
+        self.cornerRadius = cornerRadius
         self.reduceMotion = reduceMotion
         rebuild()
     }
@@ -112,25 +93,18 @@ final class SpinnerRingNSView: NSView {
     }
 
     private func rebuild() {
-        let width = bounds.width, height = bounds.height
-        // The arc turns in the square that covers the view, so a wide view (the title plate) keeps its whole outline in it.
-        let side = max(width, height)
-        let next = (width: width, height: height, stroke: stroke, reduceMotion: reduceMotion, inWindow: window != nil)
-        guard side > 0, built?.width != next.width || built?.height != next.height || built?.stroke != next.stroke
+        let side = min(bounds.width, bounds.height)
+        let next = (side: side, stroke: stroke, cornerRadius: cornerRadius, reduceMotion: reduceMotion, inWindow: window != nil)
+        guard side > 0, built?.side != next.side || built?.stroke != next.stroke || built?.cornerRadius != next.cornerRadius
                 || built?.reduceMotion != next.reduceMotion || built?.inWindow != next.inWindow else {
             return
         }
         built = next
         let middle = CGPoint(x: bounds.midX, y: bounds.midY)
         let inset = stroke / 2
-        // The outline in the square's own coordinates, with the view centred in the square.
-        let ringRect = CGRect(
-            x: (side - width) / 2 + inset,
-            y: (side - height) / 2 + inset,
-            width: width - stroke,
-            height: height - stroke
-        )
-        let ring = outline.path(in: ringRect, inset: inset)
+        let ringRect = CGRect(x: inset, y: inset, width: side - stroke, height: side - stroke)
+        let ring = cornerRadius.map { CGPath(roundedRect: ringRect, cornerWidth: $0 - inset, cornerHeight: $0 - inset, transform: nil) }
+            ?? CGPath(ellipseIn: ringRect, transform: nil)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         spinner.stopSpinning()

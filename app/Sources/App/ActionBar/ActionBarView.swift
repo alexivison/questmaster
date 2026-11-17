@@ -137,7 +137,7 @@ struct ActionBarButton: View {
                 .overlay { OnLookGlow(look: look.on, shape: AnyShape(shape), band: Token.Size.glowRing) }
                 .overlay(shape.strokeBorder(look.border.color.swiftUI, lineWidth: 1))
                 .overlay {
-                    OnLookSpinner(look: look.on, outline: .roundedRect(cornerRadius: ActionBarMetrics.buttonRadius), stroke: ActionBarMetrics.spinnerStroke)
+                    OnLookSpinner(look: look.on, cornerRadius: ActionBarMetrics.buttonRadius, stroke: ActionBarMetrics.spinnerStroke)
                 }
                 .overlay {
                     if let image = spec.icon.image(

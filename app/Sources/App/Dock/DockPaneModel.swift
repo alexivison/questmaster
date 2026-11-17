@@ -42,7 +42,7 @@ final class DockPaneModel: ObservableObject {
     private var preferredArtifactSessionID: String?
     private var selectedArtifactID: String?
     private var selectedArtifactIDs: Set<String> = []
-    private(set) var artifactScope: ArtifactScope = .session
+    private var artifactScope: ArtifactScope = .session
     private var artifactFilterQuery = ""
     private var artifactFilterTokens: [ArtifactFilterToken] = []
     private var artifactFilterSuggestionIndex = 0

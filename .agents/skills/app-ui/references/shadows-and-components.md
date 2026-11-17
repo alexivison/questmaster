@@ -3,10 +3,10 @@
 - Bold means selected and appears only in a lasting-selection list, a text tab row's selected tab or a selection chip's value. Artifacts
   have no selected state: picking one opens it.
 - Dividers inside rows are `line` in every state.
-- Brass and glow mean "on": a toggle that is on (caffeinate), and a dock title plate while a refresh the user asked for is
-  under way. Both take the one shared on look (`OnLook` in Core, drawn by `OnLookGlow` and `OnLookSpinner`): the brass band
-  inside the edge at 15%, and the working spinner turning round the outline. Nothing else takes it. A toggle that is on
-  also takes the gold icon (`accent`, the caffeinate bolt): on toggles only, never an active button, a selection or a focus.
+- Brass and glow mean "on": a toggle that is on (caffeinate). It takes the one shared on look (`OnLook` in Core, drawn by
+  `OnLookGlow` and `OnLookSpinner`): the brass band inside the edge at 15%, and the working spinner turning round the
+  outline. Nothing else takes it; a dock's refresh spinner beside its title is not an on look. A toggle that is on also
+  takes the gold icon (`accent`, the caffeinate bolt): on toggles only, never an active button, a selection or a focus.
   One gold, `accent`
   #D7B13D, for titles, project headers and marks; never for selection or focus.
 - Shadows come only from an elevation token (`Elevation` in `SharedUI/Theme.swift`), never numbers at the call site;
@@ -19,7 +19,7 @@
   its clip, is a `Recess` token in the same file (`portrait`: 3 deep, blur 1, black 20%, the sheets' portrait discs).
   Panel and dock borders are 2pt `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). A dock panel's frame lifts to
   `controlBorder` while it has keyboard focus and no modal is drawn, and only the focused panel's does
-  (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`); a dock title's plate border lifts with it. Pressed is
+  (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`). Pressed is
   0.8 opacity; disabled is window fill with `item` border and label (the shared
   button styles).
 - Use the shared components: `stateRow` for rows (`ListRow` for the tracker's

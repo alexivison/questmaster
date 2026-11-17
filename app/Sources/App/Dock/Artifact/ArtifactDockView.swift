@@ -52,6 +52,7 @@ struct ArtifactDockView: View {
     var model: ArtifactDockModel
     var onSelectArtifact: (String) -> Void
     var onToggleArtifact: (String) -> Void
+    var onSetScope: (ArtifactScope) -> Void
     var onSetFilterQuery: (String) -> Void
     var onRemoveFilterToken: (ArtifactFilterToken) -> Void
     var onSelectFilterSuggestion: (ArtifactFilterSuggestion) -> Void
@@ -76,10 +77,11 @@ struct ArtifactDockView: View {
         }
     }
 
-    /// artifacts.svg, under the dock's top bar: the filter (All only) 20 down, and the rows 20 under that, everything 20 in
-    /// from the panel's sides. The Session/All tabs sit in the top bar (`DockTopBar`), not here.
+    /// artifacts.svg, under the dock's top bar: the Session/All tabs `Space.item` down and centred on the panel, the filter
+    /// (All only) 20 under them, and the rows 20 under that. The filter and rows sit 20 in from the panel's sides.
     private var artifactSelector: some View {
         VStack(alignment: .leading, spacing: Space.section) {
+            scopeTabs
             if model.artifactScope == .all {
                 filterBar
             }
@@ -113,9 +115,20 @@ struct ArtifactDockView: View {
                 .accessibilityLabel("Artifact list")
             }
         }
-        .padding(.top, Space.section)
+        .padding(.top, Space.item)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.artifactListColumn.swiftUI)
+    }
+
+    /// The Session/All tabs: a text tab row (`TextTabRow`), centred on the panel, which scrolls sideways in a narrow dock.
+    private var scopeTabs: some View {
+        TextTabRow(
+            titles: ArtifactScope.dockCases.map(\.title),
+            selectedIndex: ArtifactScope.dockCases.firstIndex(of: model.artifactScope) ?? -1,
+            areaFocused: areaFocused,
+            onSelect: { onSetScope(ArtifactScope.dockCases[$0]) }
+        )
+        .frame(maxWidth: .infinity)
     }
 
     private var filterBar: some View {
@@ -139,6 +152,23 @@ struct ArtifactDockView: View {
 
     private func projectTitle(for artifact: ArtifactReference) -> String {
         model.projectTitlesByArtifactID[artifact.id] ?? "Unknown Project"
+    }
+}
+
+private extension ArtifactScope {
+    static var dockCases: [ArtifactScope] {
+        [.session, .all]
+    }
+
+    var title: String {
+        switch self {
+        case .session:
+            return "Session"
+        case .project:
+            return "Project"
+        case .all:
+            return "All"
+        }
     }
 }
 
