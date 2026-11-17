@@ -150,6 +150,7 @@ enum RenderPreview {
         renderView(dockSplitView(bottom: .workerChat, focus: nil), size: splitCanvas, to: "\(outputDir)/dock-split-worker-chat.png")
         renderView(dockSplitView(bottom: nil, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-only-watcher.png")
         renderView(dockSplitView(bottom: .artifacts, top: false, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-only-bottom.png")
+        renderView(dockSplitView(bottom: .workerLog(), top: false, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-only-worker-log.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-focused-top.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-focused-bottom.png")
         // The Worker Log filter in the split: its chip, open dropdown and worker tabs in the bottom panel under Watcher.

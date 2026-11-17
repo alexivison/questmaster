@@ -17,9 +17,6 @@ enum DockTitlePlateMetrics {
     static let borderStrokeWidth = 2 * borderWidth
     /// The glow band's width from the outline: past the border, so the band shows inside it.
     static let glowBand = borderWidth + Token.Size.glowRing
-    /// An optical nudge down that centres the title's ink: a line box centres the glyphs' full height, so a title with tall
-    /// ascenders (Artifacts' f and t) sits about 0.75 high, and this brings every title within 0.25 of the plate's centre.
-    static let glyphNudge: CGFloat = 0.5
 }
 
 /// The title on its plate. The glow and the spinner come from the shared on look, drawn with the plate's own outline.
@@ -33,7 +30,6 @@ struct DockTitlePlateView: View {
             Text(title)
                 .font(AppFonts.dockTopBarTitle.swiftUI)
                 .foregroundStyle(AppPalette.accent.swiftUI)
-                .offset(y: DockTitlePlateMetrics.glyphNudge)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .padding(.horizontal, DockTitlePlateMetrics.titleInset)

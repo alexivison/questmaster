@@ -949,16 +949,19 @@ enum LogicSelfTests {
     }
 
     /// A dock title plate under a full-size-content titlebar, as the app's window has one: a hosting view there takes the
-    /// titlebar as a top safe area, which pushed the title down on the top dock. Measured on the title's own ink at 2x, the
-    /// title must sit as it does in a window with no titlebar, and centred on its plate for the top and bottom docks.
+    /// titlebar as a top safe area, which pushed the title down on the top dock. Measured at 2x on the cap band of the title's
+    /// first capital (its top to its baseline, so descenders don't count), counting only the title's gold ink so the grey
+    /// filter and close glyphs beside it never do. The title must sit as it does with no titlebar, and centred on its plate
+    /// for the Watcher, the Artifacts and the Worker Log at either position.
     private static func testDockTitlesStayCentredOnTheirPlatesUnderATitlebar() throws {
         let width: CGFloat = 400, height: CGFloat = 700, scale: CGFloat = 2
         let topFrame = NSRect(x: 20, y: height - 20 - 300, width: 360, height: 300)
         let bottomFrame = NSRect(x: 20, y: 20, width: 360, height: height - 40 - 300 - 20)
+        let watcher = DockTopBarModel.watcher
         let artifacts = DockTopBarModel.make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false)
         let workerLog = DockTopBarModel.make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true)
 
-        /// The offset of the title's ink from its plate's centre, positive upward, in points.
+        /// The offset of the first capital's cap band from its plate's centre, positive upward, in points.
         func offset(_ topBar: DockTopBarModel, frame: NSRect, titlebar: Bool) throws -> CGFloat {
             let styleMask: NSWindow.StyleMask = titlebar ? [.titled, .fullSizeContentView] : [.borderless]
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: styleMask, backing: .buffered, defer: false)
@@ -985,44 +988,45 @@ enum LogicSelfTests {
             }
             bitmap.size = NSSize(width: width, height: height)
             container.cacheDisplay(in: container.bounds, to: bitmap)
-            guard let fill = AppPalette.panel.usingColorSpace(.deviceRGB), let gold = AppPalette.accent.usingColorSpace(.deviceRGB) else {
-                throw TestFailure("could not read the plate's colours")
+            // The gold leans red over blue by at least a fifth, so an antialiased edge half-covered by gold still counts.
+            func isGold(_ column: Int, _ row: Int) -> Bool {
+                guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB) else { return false }
+                return pixel.redComponent - pixel.blueComponent > 0.2 && pixel.redComponent > pixel.greenComponent
             }
-            func luminance(_ colour: NSColor) -> CGFloat {
-                0.3 * colour.redComponent + 0.59 * colour.greenComponent + 0.11 * colour.blueComponent
+            // Pixel rows of the plate's band, and the columns of the title's first capital (about 8pt wide from the first gold).
+            let rows = Int((height - plateRect.maxY) * scale)...Int((height - plateRect.minY) * scale) - 1
+            let firstColumn = (Int(plateRect.minX * scale)..<Int(plateRect.maxX * scale)).first { column in
+                rows.contains { isGold(column, $0) }
             }
-            // Ink is any pixel halfway (in luminance) from the plate's fill to the gold, so antialiased edges count half.
-            let threshold = (luminance(fill) + luminance(gold)) / 2
-            var topRow: Int?, bottomRow: Int?
-            for row in 0..<Int(height * scale) {
-                let y = height - (CGFloat(row) + 0.5) / scale
-                guard y >= plateRect.minY, y <= plateRect.maxY else { continue }
-                for column in Int(plateRect.minX * scale)..<Int(plateRect.maxX * scale) {
-                    guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB), luminance(pixel) > threshold else { continue }
-                    topRow = min(topRow ?? row, row)
-                    bottomRow = max(bottomRow ?? row, row)
-                    break
-                }
-            }
-            guard let top = topRow, let bottom = bottomRow else {
+            guard let left = firstColumn else {
                 throw TestFailure("the plate should show its title's ink")
             }
-            let inkTop = height - CGFloat(top) / scale
-            let inkBottom = height - CGFloat(bottom + 1) / scale
-            return (inkTop + inkBottom) / 2 - plateRect.midY
+            let capColumns = left..<(left + Int(8 * scale))
+            let capRows = rows.filter { row in capColumns.contains { isGold($0, row) } }
+            guard let top = capRows.first, let bottom = capRows.last else {
+                throw TestFailure("the first capital should show ink")
+            }
+            let capTop = height - CGFloat(top) / scale
+            let capBottom = height - CGFloat(bottom + 1) / scale
+            return (capTop + capBottom) / 2 - plateRect.midY
         }
 
-        let watcherBare = try offset(.watcher, frame: topFrame, titlebar: false)
-        let watcherTitled = try offset(.watcher, frame: topFrame, titlebar: true)
+        let watcherBare = try offset(watcher, frame: topFrame, titlebar: false)
+        let watcherTitled = try offset(watcher, frame: topFrame, titlebar: true)
+        let workerTopBare = try offset(workerLog, frame: topFrame, titlebar: false)
+        let workerTopTitled = try offset(workerLog, frame: topFrame, titlebar: true)
+        let workerBottomBare = try offset(workerLog, frame: bottomFrame, titlebar: false)
+        let workerBottomTitled = try offset(workerLog, frame: bottomFrame, titlebar: true)
         let artifactsBare = try offset(artifacts, frame: bottomFrame, titlebar: false)
         let artifactsTitled = try offset(artifacts, frame: bottomFrame, titlebar: true)
-        let workerBare = try offset(workerLog, frame: topFrame, titlebar: false)
-        let workerTitled = try offset(workerLog, frame: topFrame, titlebar: true)
-        let report = "Watcher \(watcherTitled) titled, \(watcherBare) bare; Artifacts \(artifactsTitled) titled, \(artifactsBare) bare; Worker Log alone \(workerTitled) titled, \(workerBare) bare"
+        let report = "cap band offsets, titled / bare: Watcher top \(watcherTitled) / \(watcherBare); Worker Log top \(workerTopTitled) / \(workerTopBare); Worker Log bottom \(workerBottomTitled) / \(workerBottomBare); Artifacts bottom \(artifactsTitled) / \(artifactsBare)"
         try expect(abs(watcherTitled - watcherBare) <= 0.5, "the Watcher title should sit where it does with no titlebar: \(report)")
-        try expect(abs(workerTitled - workerBare) <= 0.5, "the Worker Log title alone at the top should sit where it does with no titlebar: \(report)")
+        try expect(abs(workerTopTitled - workerTopBare) <= 0.5, "the Worker Log title at the top should sit where it does with no titlebar: \(report)")
+        try expect(abs(workerBottomTitled - workerBottomBare) <= 0.5, "the Worker Log title at the bottom should sit where it does with no titlebar: \(report)")
         try expect(abs(artifactsTitled - artifactsBare) <= 0.5, "the Artifacts title should sit where it does with no titlebar: \(report)")
         try expect(abs(watcherTitled) <= 0.5, "the Watcher title should be centred on its plate: \(report)")
+        try expect(abs(workerTopTitled) <= 0.5, "the Worker Log title at the top should be centred on its plate: \(report)")
+        try expect(abs(workerBottomTitled) <= 0.5, "the Worker Log title at the bottom should be centred on its plate: \(report)")
         try expect(abs(artifactsTitled) <= 0.5, "the Artifacts title should be centred on its plate: \(report)")
     }
 
