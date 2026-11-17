@@ -5815,7 +5815,8 @@ enum LogicSelfTests {
                 rendered = capture() ?? []
                 return rendered.filter { $0 >= startY }.count >= count
             }, "at least \(count) spacing border pixels should render at x \(x) from row \(startY)")
-            return rendered
+            // A row above `startY` is another element (the modal's chapter rule shares the line colour), not this one's border.
+            return rendered.filter { $0 >= startY }
         }
 
         // Inside the tile, past its 5pt corner and clear of its glyph: the gutter, the tile's inset, and 6.
