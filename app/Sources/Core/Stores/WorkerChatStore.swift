@@ -146,6 +146,14 @@ public final class WorkerChatStore {
         refilter()
     }
 
+    /// Return opens the selected worker's session. The Action dropdown keeps Return for ticking its rows.
+    public func workerSessionIDToAttach(for command: ListCommand?) -> String? {
+        guard command == .open, isAttached, !menu.isOpen else {
+            return nil
+        }
+        return filter.workerID
+    }
+
     /// Whether the key was the Worker Log's: the dropdown's keys are only while it is open, and the tab keys only while
     /// there is a tab row, so they pass through otherwise (the dropdown stays open when they switch the tab).
     public func handle(_ key: WorkerLogFilterKey) -> Bool {

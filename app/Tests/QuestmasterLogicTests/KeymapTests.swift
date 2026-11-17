@@ -325,6 +325,7 @@ controlPageAndHalfPageChords()
             Keymap.Command.newQuest,
             Keymap.Command.newTerminal,
             Keymap.Command.newMasterSession,
+            Keymap.Command.returnToMaster,
             Keymap.Command.editFocusedSession,
             Keymap.Command.editFocusedRepo,
             Keymap.Command.deleteFocusedSession,

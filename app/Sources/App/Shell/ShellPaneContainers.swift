@@ -64,9 +64,14 @@ final class TrackerShellView: NSView {
 
 final class TerminalShellView: NSView {
     private let messageOverlay: NSHostingView<TerminalEndedOverlay>
+    private let returnButton: FirstMouseHostingView<ReturnToMasterButton>
+    private var returnToMasterVisible = false
+    private var returnButtonAnimationGeneration = 0
+    var onReturnToMaster: (() -> Void)?
 
     init(body: NSView) {
         messageOverlay = NSHostingView(rootView: TerminalEndedOverlay())
+        returnButton = FirstMouseHostingView(rootView: ReturnToMasterButton(onReturn: {}))
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = AppPalette.terminal.cgColor
@@ -89,6 +94,18 @@ final class TerminalShellView: NSView {
             messageOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
             messageOverlay.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        returnButton.rootView = ReturnToMasterButton { [weak self] in self?.onReturnToMaster?() }
+        returnButton.translatesAutoresizingMaskIntoConstraints = false
+        returnButton.wantsLayer = true
+        returnButton.isHidden = true
+        addSubview(returnButton)
+        NSLayoutConstraint.activate([
+            returnButton.topAnchor.constraint(equalTo: topAnchor),
+            returnButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+            returnButton.widthAnchor.constraint(equalToConstant: ReturnToMasterMetrics.width),
+            returnButton.heightAnchor.constraint(equalToConstant: ControlHeight.control),
+        ])
     }
 
     @available(*, unavailable)
@@ -105,6 +122,74 @@ final class TerminalShellView: NSView {
 
     func clearEnded() {
         messageOverlay.isHidden = true
+    }
+
+    func setReturnToMasterVisible(_ visible: Bool) {
+        guard returnToMasterVisible != visible else {
+            return
+        }
+        returnToMasterVisible = visible
+        returnButtonAnimationGeneration += 1
+        let generation = returnButtonAnimationGeneration
+        guard let layer = returnButton.layer else {
+            returnButton.isHidden = !visible
+            return
+        }
+        let presentation = returnButton.isHidden ? nil : layer.presentation()
+        let opacity = presentation?.opacity ?? (visible ? 0 : 1)
+        let translation = presentation?.transform.m42 ?? (visible ? ControlHeight.control : 0)
+        layer.removeAnimation(forKey: ReturnToMasterMetrics.animationKey)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.opacity = visible ? 1 : 0
+        guard window?.isVisible == true, !Motion.reducesMotion() else {
+            returnButton.isHidden = !visible
+            CATransaction.commit()
+            return
+        }
+        returnButton.isHidden = false
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, self.returnButtonAnimationGeneration == generation else {
+                return
+            }
+            self.returnButton.isHidden = !visible
+        }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = opacity
+        fade.toValue = visible ? 1 : 0
+        let slide = CABasicAnimation(keyPath: "transform.translation.y")
+        slide.fromValue = translation
+        slide.toValue = visible ? 0 : ControlHeight.control
+        let animation = CAAnimationGroup()
+        animation.animations = [fade, slide]
+        animation.duration = Motion.duration(.standard)
+        animation.timingFunction = Motion.timingFunction
+        layer.add(animation, forKey: ReturnToMasterMetrics.animationKey)
+        CATransaction.commit()
+    }
+}
+
+enum ReturnToMasterMetrics {
+    static let animationKey = "return-to-master"
+    static let width: CGFloat = 200
+    static let iconSide = Space.section
+}
+
+/// The floating return control beneath the chat header, shown while a worker with an existing master is attached.
+struct ReturnToMasterButton: View {
+    let onReturn: () -> Void
+
+    var body: some View {
+        Button(action: onReturn) {
+            HStack(spacing: Space.item) {
+                if let icon = AppIcon.dockBackArrow.image(glyphSide: ReturnToMasterMetrics.iconSide, tint: AppPalette.textMeta) {
+                    Image(nsImage: icon)
+                }
+                Text("Return To Master")
+            }
+        }
+        .buttonStyle(OutlineButtonStyle(width: ReturnToMasterMetrics.width))
+        .help("\(Keymap.Command.returnToMaster.title)  \(Keymap.Command.returnToMaster.displayGlyph)")
     }
 }
 

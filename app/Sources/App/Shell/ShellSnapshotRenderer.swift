@@ -39,6 +39,7 @@ final class ShellSnapshotRenderer {
     /// viewed session's artifacts and workers) changes.
     func render(animateDockVisibility: Bool = false, animateDockLayout: Bool = false) {
         let viewedSessionID = runtimeStore.currentTerminalSessionID
+        terminalShell()?.setReturnToMasterVisible(runtimeStore.returnToMasterSessionID != nil)
         var shouldAnimateDockVisibility = animateDockVisibility
         var shouldAnimateDockLayout = animateDockLayout
         var panels = dockPanels()
