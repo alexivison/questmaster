@@ -219,9 +219,10 @@ public struct PullRequestDisplayRow: Equatable {
     }
 
     /// The row's look: the cursor's while the panel has the keys, else the resting look, dimmed while stale and warned when
-    /// inaccessible. The cursor hides with the keys (`RowLook.cursor`); the list remembers where it was.
+    /// inaccessible. The cursor hides with the keys (`RowLook.pointedCursor`, with the menu pointer); the list remembers where
+    /// it was.
     public func look(isCursor: Bool, areaFocused: Bool) -> RowLook {
-        let base = RowLook.cursor(highlighted: isCursor, areaFocused: areaFocused)
+        let base = RowLook.pointedCursor(highlighted: isCursor, areaFocused: areaFocused)
         switch rowLook {
         case .normal: return base
         case .stale: return base.dimmed

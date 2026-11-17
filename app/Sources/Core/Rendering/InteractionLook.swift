@@ -141,6 +141,12 @@ public struct RowLook: Equatable, Sendable {
         PlateBand.showsCursor(highlighted: highlighted, areaFocused: areaFocused) ? .highlighted : .rest
     }
 
+    /// The Watcher's keyboard cursor: `cursor`, with the menu pointer in place of nothing else. It hides with the keys like
+    /// `cursor`; a row with a cursor is filled, so hover adds no outline to it.
+    public static func pointedCursor(highlighted: Bool, areaFocused: Bool) -> RowLook {
+        withPointer(cursor(highlighted: highlighted, areaFocused: areaFocused))
+    }
+
     /// This look with the pointer over the row: an unfilled, unoutlined (resting) row gains its hover outline (`line`, or
     /// `controlBorder` on a raised surface) and keeps its own colours, a missing file's warning icon included; a
     /// highlighted, selected or already outlined one (a shell's cursor) keeps its look.

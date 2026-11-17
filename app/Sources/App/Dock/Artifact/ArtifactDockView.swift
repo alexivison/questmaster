@@ -116,9 +116,10 @@ struct ArtifactDockView: View {
             }
         }
         .padding(.top, Space.section)
-        // The column starts `Space.item` in, so the gutter where a row's mark and the keyboard pointer draw sits clear of the
-        // panel's 2pt border.
+        // The column starts and ends `Space.item` in, so the gutter where a row's mark and the keyboard pointer draw sits clear
+        // of the panel's 2pt border, and the rows sit centred in the column.
         .padding(.leading, Space.item)
+        .padding(.trailing, Space.item)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.artifactListColumn.swiftUI)
     }
@@ -192,7 +193,7 @@ struct ArtifactRow: View {
         static let height = ListItemMetrics.height
         static let spacing = ListItemMetrics.spacing
         static let cornerRadius: CGFloat = 5
-        static let gutter = Space.section
+        static let gutter = MenuPointerMetrics.gutter
         static let tileOrigin = CGPoint(x: ListItemMetrics.textInset, y: Space.row)
         static let tileSide = ControlHeight.bar
         /// The kind's glyph in its 40pt tile. At 30 the keylined html and markdown measure 20 x 25 against the SF symbols' 19 x 24,
