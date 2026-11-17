@@ -131,12 +131,10 @@ struct ActionBarButton: View {
         let shape = RoundedRectangle(cornerRadius: ActionBarMetrics.buttonRadius)
         Button(action: spec.action) {
             shape.fill(AppPalette.item.swiftUI)
-                .overlay(shape.strokeBorder(AppPalette.brassActive.swiftUI.opacity(look.glowOpacity), lineWidth: ActionBarMetrics.glowRing))
+                .overlay { OnLookGlow(look: look.on, shape: AnyShape(shape), band: Token.Size.glowRing) }
                 .overlay(shape.strokeBorder(AppPalette.line.swiftUI, lineWidth: 1))
                 .overlay {
-                    if look.spins {
-                        SpinnerRingView(stroke: ActionBarMetrics.spinnerStroke, cornerRadius: ActionBarMetrics.buttonRadius)
-                    }
+                    OnLookSpinner(look: look.on, outline: .roundedRect(cornerRadius: ActionBarMetrics.buttonRadius), stroke: ActionBarMetrics.spinnerStroke)
                 }
                 .overlay { icon.foregroundStyle(look.icon.color.swiftUI) }
         }

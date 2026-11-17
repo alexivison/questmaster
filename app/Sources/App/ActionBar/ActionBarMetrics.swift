@@ -20,8 +20,6 @@ enum ActionBarMetrics {
     static let buttonSeam: CGFloat = 1
     static let groupGap = Space.item
     static let toggleGap = Space.section
-    /// The design's brass inner glow on a toggle that is on: a hard band inside its border.
-    static let glowRing: CGFloat = 2
     /// The working spinner traces the button's 1pt border.
     static let spinnerStroke: CGFloat = 1
 

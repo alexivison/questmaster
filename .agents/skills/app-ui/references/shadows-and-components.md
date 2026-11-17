@@ -3,8 +3,10 @@
 - Bold means selected and appears only in a lasting-selection list, a text tab row's selected tab or a selection chip's value. Artifacts
   have no selected state: picking one opens it.
 - Dividers inside rows are `line` in every state.
-- Brass and glow mean "on", for toggles only. One gold, `accent` #D7B13D, for
-  titles, project headers and marks; never for selection or focus.
+- Brass and glow mean "on": a toggle that is on (caffeinate), and a dock title plate while a refresh the user asked for is
+  under way. Both take the one shared on look (`OnLook` in Core, drawn by `OnLookGlow` and `OnLookSpinner`): the brass band
+  inside the edge at 15%, and the working spinner turning round the outline. Nothing else takes it. One gold, `accent`
+  #D7B13D, for titles, project headers and marks; never for selection or focus.
 - Shadows come only from an elevation token (`Elevation` in `SharedUI/Theme.swift`), never numbers at the call site;
   each is a black drop shadow, and a shadow drawn inside a clip is a bug (draw it outside, as `scoopedPanel` and
   `ScoopedLayerChrome` do). The look stays flat, so everything at panel level takes the one tight shadow, `raised`

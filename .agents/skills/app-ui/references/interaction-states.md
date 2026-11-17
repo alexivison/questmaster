@@ -53,7 +53,8 @@ again where it was when the keys come back.
 | Dock double rule | rest / focused (`OutlineLook.ruleRest` / `.ruleFocused`) | 1pt `line` / `controlBorder` (the 2pt border stays `lineSoftSubtle`) |
 | Icon button (dock top bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
 | Action bar button (`ActionBarButtonLook`) | rest / active (the tracker or the dock panel it opens shows) / under the pointer | `item` fill and `line` border in every state; icon `textMeta` / `textBody` / `textSelected` |
-| | toggle on (caffeinate) | icon unchanged; a 2pt `brassActive` inner glow at 15% and the tracker's working spinner (`SpinnerRingView`) turning round the 1pt border |
+| | toggle on (caffeinate) | icon unchanged; the on look (`OnLook`): a 2pt `brassActive` inner glow at 15% and the working spinner (`SpinnerRingView`) turning round the 1pt border |
+| Dock title plate (`DockTitlePlateView`) | rest / refresh running (`PullRequestStore.isRefreshing`) | `panel` fill, 2pt `lineSoftSubtle` border (`controlBorder` when the dock has the keys); refresh running: the on look, a 4pt brass band (the border's 2pt plus the glow's 2) at 15% and the spinner turning round the plate's angled outline |
 | Tracker plate | cursor, while the tracker has the keys (`PlateBand.showsCursor`) / under the pointer / recolouring | `textSelected` / `controlBorder` / `accent` band; no band otherwise |
 | | attached: the session open in the terminal (`TrackerAttachedDot`) | a 5pt dot (`Space.row`) in the project colour (`TrackerNameplateColor.barLightness`, the project name's and side diamonds'), its centre `Space.item` left of the disc's left edge and level with the disc's centre; no shadow, no band, hit shape, layout or number change |
 | Shell row (the tracker's shell rows) | rest (`RowLook.shellRest`) | no fill, title and glyph `textMeta`, glyph disc `item` rim (a filled row's disc takes the look's own rim) |
@@ -65,6 +66,6 @@ again where it was when the keys come back.
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
 fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`
-outside the token layer, `brassActive` or `ActionBarButtonLook` outside the action bar, a
+outside the token layer, `brassActive` or `ActionBarButtonLook` outside the action bar (the on look is `OnLook`, which the title plate uses), a
 view picking a colour by a state flag, and a hand-rolled dropdown or field. It
 must find no breaks.

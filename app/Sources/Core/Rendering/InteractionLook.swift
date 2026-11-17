@@ -200,19 +200,34 @@ public enum MarkLook {
     }
 }
 
+/// The "on" look, shared by a toggle that is on (caffeinate) and a dock title plate while its refresh runs: the brass inner
+/// glow band inside the edge, with the working spinner turning round the edge. Nothing else about the control changes.
+public struct OnLook: Equatable, Sendable {
+    /// The glow's colour, drawn at `glowOpacity`.
+    public let glow: StateColor
+    /// The glow's opacity; 0 draws none.
+    public let glowOpacity: Double
+    /// Whether the working spinner turns round the edge.
+    public let spins: Bool
+
+    public static let off = OnLook(glow: .brassActive, glowOpacity: 0, spins: false)
+    public static let on = OnLook(glow: .brassActive, glowOpacity: 0.15, spins: true)
+
+    public static func of(_ isOn: Bool) -> OnLook {
+        isOn ? .on : .off
+    }
+}
+
 /// An action-bar button. Its icon is `textMeta` at rest, `textBody` while the panel it opens shows (active) and
-/// `textSelected` under the pointer. A toggle that is on (caffeinate) keeps its icon and adds the brass inner glow,
-/// with the working spinner turning round its edge. No state changes a button's `line` border.
+/// `textSelected` under the pointer. A toggle that is on (caffeinate) keeps its icon and takes the `OnLook`. No state
+/// changes a button's `line` border.
 public struct ActionBarButtonLook: Equatable, Sendable {
     public let icon: StateColor
-    /// The brass inner glow's opacity; 0 draws none.
-    public let glowOpacity: Double
-    /// Whether the working spinner turns round the button's edge.
-    public let spins: Bool
+    public let on: OnLook
 
     public static func of(active: Bool, on: Bool, hovered: Bool) -> ActionBarButtonLook {
         let icon: StateColor = hovered ? .textSelected : active ? .textBody : .textMeta
-        return ActionBarButtonLook(icon: icon, glowOpacity: on ? 0.15 : 0, spins: on)
+        return ActionBarButtonLook(icon: icon, on: OnLook.of(on))
     }
 }
 

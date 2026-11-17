@@ -56,7 +56,8 @@ struct InteractionLookTests {
         expect(button(true, false, false).icon == .textBody, "an active action-bar icon (its panel shows) brightens to body")
         expect(button(false, false, true).icon == .textSelected && button(true, false, true).icon == .textSelected, "the pointer brightens either to selected")
         expect(button(false, true, false).icon == .textMeta, "a toggle that is on keeps its resting icon")
-        expect(button(false, true, false).spins && button(false, true, false).glowOpacity > 0, "a toggle that is on glows and spins")
+        expect(button(false, true, false).on.spins && button(false, true, false).on.glowOpacity > 0, "a toggle that is on glows and spins")
+        expect(OnLook.of(true) == .on && OnLook.of(false) == .off, "a refresh or a toggle that is on takes the on look")
         expect(PlateBand.color(showsCursor: false, pointerOver: false, recoloring: false) == nil, "a plain plate has no band")
         expect(PlateBand.color(showsCursor: true, pointerOver: true, recoloring: true) == .accent, "the recolour band wins over the cursor and hover")
         expect(PlateBand.showsCursor(highlighted: true, areaFocused: true), "the cursor shows while the tracker has keys")
@@ -118,7 +119,7 @@ struct InteractionLookTests {
             expect(color != .accent && color != .brassActive, "rows, tabs and fields carry no gold or brass, got \(color)")
         }
         let off = ActionBarButtonLook.of(active: true, on: false, hovered: true)
-        expect(off.glowOpacity == 0 && !off.spins, "an off toggle carries no brass and no spinner")
+        expect(off.on.glowOpacity == 0 && !off.on.spins, "an off toggle carries no brass and no spinner")
     }
 
     /// The pointer only shows the hover look on a resting row; a highlighted or selected row keeps its look.
