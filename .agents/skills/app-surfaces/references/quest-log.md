@@ -13,9 +13,7 @@
 - **The left column has one gutter.** `QuestLogMetrics.columnGutter` (`Space.section`) is the room left of the leading edge
   that the project tabs, the filter and the cards share (`QuestLogLayout.columnLeadingX`). The tabs and the filter are
   one gutter in; the list's scroll view starts at the column's outer edge and pads its cards by the same gutter, so the
-  scroll clip holds the gutter. The column's right side keeps the same gutter (`QuestLogLayout.columnContentWidth` is the
-  list's width less one on each side), so the tabs, the filter and the cards sit centred in the column. Both gutters
-  read `MenuPointerMetrics.gutter`, the one metric every list shares (`Space.section`).
+  scroll clip holds the gutter. The trailing edges of all three stay flush with the column's right edge.
 - **The selected quest is the keyboard cursor.** Its card keeps its fill and bold title and draws the menu pointer in
   that gutter, outside the card's leading edge (`RowLook.cardLasting`), not an outline. The pointer hangs alone to the
   left of the tabs, the filter and the cards.

@@ -139,7 +139,6 @@ enum RenderPreview {
         renderView(watcherPanelView(state: .empty), size: CGSize(width: 482, height: 315), to: "\(outputDir)/watcher-panel-empty.png")
         renderView(watcherPanelView(state: .notice), size: CGSize(width: 482, height: 315), to: "\(outputDir)/watcher-panel-notice.png")
         render(watcherRowsView(highlight: 1, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design.png")
-        render(pointerShapesView(), size: CGSize(width: 160, height: 60), to: "\(outputDir)/menu-pointer-shapes.png")
         render(watcherRowsView(highlight: nil, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design-rest.png")
         render(watcherRowsView(highlight: nil, rows: watcherCountRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-counts.png")
         render(watcherRowsView(highlight: nil, rows: watcherReviewRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-reviews.png")
@@ -577,18 +576,6 @@ enum RenderPreview {
 
     /// The design's rows at the panel's list width (480), `highlight` (an index) on the cursor, for diffing against the SVG.
     @MainActor
-    /// The three menu pointer shapes side by side at their real size, in the selected text colour: the default first.
-    private static func pointerShapesView() -> some View {
-        HStack(spacing: Space.item) {
-            ForEach(MenuPointer.Shape.allCases, id: \.self) { shape in
-                MenuPointerView(color: StateColor.textSelected.color.swiftUI, shape: shape)
-            }
-        }
-        .padding(Space.section)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background(AppPalette.panel.swiftUI)
-    }
-
     private static func watcherRowsView(highlight: Int?, rows: [PullRequestDisplayRow]) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in

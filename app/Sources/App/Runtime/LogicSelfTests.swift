@@ -3832,7 +3832,7 @@ enum LogicSelfTests {
         let listTop = Space.section
         try expectCentred(
             try ink(artifacts(.list), size: dock, below: Int(listTop)),
-            in: CGRect(x: 0, y: listTop, width: dock.width, height: dock.height - listTop),
+            in: CGRect(x: Space.item, y: listTop, width: dock.width - Space.item, height: dock.height - listTop),
             "the artifact list under its tabs"
         )
     }

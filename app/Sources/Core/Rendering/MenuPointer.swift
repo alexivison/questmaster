@@ -1,59 +1,48 @@
 import Foundation
 
-/// The keyboard cursor's menu pointer: an arrowhead drawn outside a card's or a row's leading edge (`RowLook.pointer`).
-/// The App draws each outline as a path, antialiased, with a round-joined stroke (`MenuPointerView`). The geometry is
-/// whole points in Int, and the outlines are points in the frame, so the App makes the one conversion to CGFloat.
+/// The keyboard cursor's menu pointer: a 1-bit arrow of 6 by 7 pixels, drawn outside a card's leading edge (`RowLook.pointer`).
+/// The App draws it as whole-point squares, one per on pixel (`MenuPointerView`). The geometry is whole points in Int, so
+/// the frame and its offsets stay exact; the App makes the one conversion to CGFloat.
 public enum MenuPointer {
-    /// The frame in whole points: the footprint of the earlier 6 by 7 pixel arrow at 2pt per pixel.
-    public static let width = 12
-    public static let height = 14
+    public static let columns = 6
+    public static let rows = 7
 
-    /// The arrow's shape. `arrowhead` ships; the other two are kept so the user can pick (`RenderPreview` draws all three).
-    public enum Shape: CaseIterable, Sendable {
-        /// A solid right-pointing triangle; its corners are softened by the round join of the stroke.
-        case arrowhead
-        /// An open line chevron, stroked only.
-        case chevron
-        /// A solid triangle with a shallow notch cut into its back edge.
-        case notched
-    }
+    /// One string per pixel row, `#` for an on pixel.
+    static let bitmap: [String] = [
+        "#.....",
+        "##....",
+        "###...",
+        "####..",
+        "###...",
+        "##....",
+        "#.....",
+    ]
 
-    /// A point in the frame, in points, with y pointing down.
-    public struct Point: Equatable, Sendable {
-        public let x: Double
-        public let y: Double
-
-        public init(_ x: Double, _ y: Double) {
-            self.x = x
-            self.y = y
+    public static func isOn(column: Int, row: Int) -> Bool {
+        guard bitmap.indices.contains(row) else {
+            return false
         }
+        let line = Array(bitmap[row])
+        return line.indices.contains(column) && line[column] == "#"
     }
 
-    /// The outline's points in the frame. The points sit half a 1.5pt stroke inside the frame's edges (0.75pt), so the
-    /// stroke's ink stays inside it.
-    public static func outline(_ shape: Shape) -> [Point] {
-        switch shape {
-        case .arrowhead:
-            return [Point(1.25, 1.25), Point(8.75, 7), Point(1.25, 12.75)]
-        case .chevron:
-            return [Point(2.25, 1.25), Point(8.75, 7), Point(2.25, 12.75)]
-        case .notched:
-            return [Point(1.25, 1.25), Point(8.75, 7), Point(1.25, 12.75), Point(4.25, 7)]
-        }
+    /// The arrow's ink width in pixels: its rightmost on pixel. The columns past it are blank in every row.
+    public static var inkColumns: Int {
+        bitmap.map { line in Array(line).lastIndex(of: "#").map { $0 + 1 } ?? 0 }.max() ?? 0
     }
 
-    /// Whether the shape is a closed, filled outline. A chevron is an open line, stroked only.
-    public static func isFilled(_ shape: Shape) -> Bool {
-        shape != .chevron
+    /// The pointer's frame in points, for a pixel of `pixel` points.
+    public static func frame(pixel: Int) -> (width: Int, height: Int) {
+        (width: columns * pixel, height: rows * pixel)
     }
 
     /// The frame's leading edge, relative to a card's leading edge: the frame's trailing edge sits `gap` points outside it.
-    public static func leadingOffset(gap: Int) -> Int {
-        -(gap + width)
+    public static func leadingOffset(gap: Int, pixel: Int) -> Int {
+        -(gap + frame(pixel: pixel).width)
     }
 
     /// The frame's top, relative to a row's top: centred on the row, on whole points. The row is at least as tall as the frame.
-    public static func topOffset(rowHeight: Int) -> Int {
-        (rowHeight - height) / 2
+    public static func topOffset(rowHeight: Int, pixel: Int) -> Int {
+        (rowHeight - frame(pixel: pixel).height) / 2
     }
 }

@@ -33,9 +33,8 @@ enum QuestLogMetrics {
     static let rowTextInset = ListItemMetrics.textInset
     /// The left column's gutter: the room left of the shared leading edge of the tabs, the filter and the cards. The menu
     /// pointer hangs in it (its 12pt frame and 5pt clearance, 17pt, rounded up to the 5s), and the list's scroll view clips
-    /// at the column's outer edge, so the arrow stays inside the clip. The trailing edges keep the same gutter, so the
-    /// column is centred.
-    static let columnGutter = MenuPointerMetrics.gutter
+    /// at the column's outer edge, so the arrow stays inside the clip. The trailing edges keep none.
+    static let columnGutter = Space.section
     static let markSize: CGFloat = 5
     /// Page: the design's 473 wide page, its parchment clipped to the top 594.
     static let svgPageWidth: CGFloat = 473
@@ -108,8 +107,8 @@ struct QuestLogLayout: Equatable {
     }
     /// The shared leading edge of the tabs, the filter and the cards: one column gutter in from the column's outer edge.
     var columnLeadingX: CGFloat { QuestLogMetrics.inset + QuestLogMetrics.columnGutter }
-    /// The width the tabs, the filter and the cards share: the list's width less a gutter on each side, so they are centred.
-    var columnContentWidth: CGFloat { listWidth - 2 * QuestLogMetrics.columnGutter }
+    /// The width the tabs, the filter and the cards share: the list's width less the gutter. Its trailing edge is the list's.
+    var columnContentWidth: CGFloat { listWidth - QuestLogMetrics.columnGutter }
     var tabsOrigin: CGPoint { CGPoint(x: columnLeadingX, y: QuestLogMetrics.contentTop) }
     var filterOrigin: CGPoint {
         CGPoint(x: columnLeadingX, y: tabsOrigin.y + QuestLogMetrics.tabsHeight + QuestLogMetrics.columnGap)
@@ -254,7 +253,6 @@ private struct QuestLogList: View {
                     }
                 }
                 .padding(.leading, QuestLogMetrics.columnGutter)
-                .padding(.trailing, QuestLogMetrics.columnGutter)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(ScrollerHider())
             }

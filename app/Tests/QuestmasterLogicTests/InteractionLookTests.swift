@@ -15,20 +15,8 @@ struct InteractionLookTests {
         rowsOnARaisedSurfaceStepUpFromItsFill()
         scoopedListItemsKeepHoverApartFromTheCursor()
         cardCursorsPointOutsideTheirCard()
-        watcherCursorPointsOnlyWhileTheKeysAreThere()
         textTabsFollowThePillTabsAndLightUnderThePointer()
         print("InteractionLookTests: all tests passed")
-    }
-
-    /// The Watcher's cursor points while the panel has the keys and hides with them; a pointed row takes no hover outline,
-    /// and a row that isn't the cursor keeps its hover look.
-    private static func watcherCursorPointsOnlyWhileTheKeysAreThere() {
-        let cursor = RowLook.pointedCursor(highlighted: true, areaFocused: true)
-        expect(cursor.pointer == .textSelected && cursor.fill == .item, "the Watcher's focused cursor should point in selected text on its fill")
-        expect(RowLook.pointedCursor(highlighted: true, areaFocused: false) == .rest, "the Watcher's pointer should hide with the keys")
-        expect(RowLook.pointedCursor(highlighted: false, areaFocused: true) == .rest, "a row that isn't the Watcher's cursor should rest, with no pointer")
-        expect(cursor.underPointer(true) == cursor, "a pointed row should take no hover outline")
-        expect(RowLook.rest.underPointer(true).outline == .line, "a resting Watcher row should keep its hover outline")
     }
 
     /// The card cursor's pointer, and what keeps it: menus, the tracker and the projects list never draw one.

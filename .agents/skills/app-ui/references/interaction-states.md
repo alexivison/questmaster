@@ -19,15 +19,13 @@ a cursor the pointer moved, and drops a key scroll still queued
 (`PointerCursor`). A pill tab is already `item`
 filled, so tabs have no hover look.
 
-A list's keyboard cursor (the artifact cards, the Quest Log's selected card, the Watcher's rows) draws the menu
-pointer instead of its outline: an antialiased arrowhead path in a 12 by 14pt frame, with a 1.5pt round-joined stroke
-(`MenuPointer` in Core, `MenuPointerView` in App). The default is the solid arrowhead (`MenuPointer.Shape.arrowhead`); a
-chevron and a notched arrowhead are kept for the user to pick. The frame sits `Space.row` clear of the row's leading
-edge and centred on it, in `textSelected` (`textBody` while the area has no keys). A card's border is the resting
-`line`. Hover leaves the cursor row alone. Each list keeps `MenuPointerMetrics.gutter` (`Space.section`) on both sides,
-so its rows sit centred in the column: the leading gutter holds the arrow inside the scroll clip. Menus (SuggestionDropdown,
-the Worker Log filter) keep their band and draw no pointer. While the artifact delete marks take the gutter, the cursor
-keeps its `controlBorder` outline and no pointer.
+A card list's keyboard cursor (the artifact cards, the Quest Log's selected card) draws the menu pointer
+instead of its outline: a 6x7 pixel arrow at 2pt per pixel (`MenuPointer` in Core, `MenuPointerView` in App), outside
+the card's leading edge with its frame `Space.row` clear of the card and centred on it, in `textSelected` (`textBody`
+while the area has no keys). The card's border is the resting `line`. Hover leaves the cursor card alone. The list
+leaves room for the arrow inside its scroll clip: the Quest Log's column gutter (`QuestLogMetrics.columnGutter`,
+`Space.section`, shared by its tabs, filter and cards), and the artifact cards' 20pt mark gutter. Menus (SuggestionDropdown, the Worker Log filter) keep their band and draw no
+pointer. While the artifact delete marks take the gutter, the cursor keeps its `controlBorder` outline and no pointer.
 
 A region has the keys while it's focused and no modal is drawn
 (`NavigationStore.hasKeys`); its focus looks follow that. Inside the dock only
