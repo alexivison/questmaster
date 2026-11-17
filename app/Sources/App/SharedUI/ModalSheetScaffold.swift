@@ -46,7 +46,7 @@ struct ModalSheetScaffold<Content: View>: View {
     }
 
     private var footer: some View {
-        FlankedOrnamentRule(style: .simple) {
+        FlankedRule {
             HStack(spacing: Space.item) {
                 if let cancelLabel, let onCancel {
                     Button(cancelLabel, action: onCancel)
@@ -70,7 +70,7 @@ struct ModalSheetScaffold<Content: View>: View {
 }
 
 /// Every modal's title over the chapter rule, from user-quests-modal-v3.svg: the title's baseline 39 down and the
-/// rule's 18pt band ending 70 down, so the content starts `Space.item` under it, 80 down.
+/// rule's band ending 70 down, so the content starts `Space.item` under it, 80 down.
 struct ModalSheetHeader: View {
     static let height: CGFloat = 70
     static let titleBaseline: CGFloat = 39
