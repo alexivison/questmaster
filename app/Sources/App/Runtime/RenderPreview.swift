@@ -132,6 +132,7 @@ enum RenderPreview {
             size: CGSize(width: 631, height: ActionBarMetrics.height),
             to: "\(outputDir)/action-bar-rest.png"
         )
+        render(actionBarButtonStatesView(), size: CGSize(width: actionBarButtonStatesWidth, height: ActionBarMetrics.height), to: "\(outputDir)/action-bar-states.png")
         // The Watcher panel as the Session Detail Dock draws it, and a row of it as the Pull Request Item draws it.
         renderView(watcherPanelView(), size: CGSize(width: 482, height: 315), to: "\(outputDir)/watcher-panel.png")
         renderView(watcherPanelView(state: .empty), size: CGSize(width: 482, height: 315), to: "\(outputDir)/watcher-panel-empty.png")
@@ -841,6 +842,28 @@ enum RenderPreview {
         splitView.setDockVisible(dockVisible, animated: false)
         splitView.applyCanonicalLayout()
         return ShellRootContainerView(splitView: splitView)
+    }
+
+    /// Six buttons in a row, each state at rest and under the pointer: a recessed button, an active (raised) one and a toggle
+    /// that is on. The pointer comes from `startsHovered`, as a render has no mouse.
+    private static let actionBarButtonStatesWidth = 6 * ActionBarMetrics.buttonSize + 5 * ActionBarMetrics.groupGap + 2 * ActionBarMetrics.endInset
+
+    @MainActor
+    private static func actionBarButtonStatesView() -> some View {
+        let recessed = ActionBarButtonSpec(icon: .questLogScroll, tooltip: "", action: {})
+        let active = ActionBarButtonSpec(icon: .workerLogConversation, tooltip: "", isActive: true, action: {})
+        let on = ActionBarButtonSpec(icon: .keepAwakeBolt, tooltip: "", isOn: true, action: {})
+        return HStack(spacing: ActionBarMetrics.groupGap) {
+            ActionBarButton(spec: recessed)
+            ActionBarButton(spec: recessed, startsHovered: true)
+            ActionBarButton(spec: active)
+            ActionBarButton(spec: active, startsHovered: true)
+            ActionBarButton(spec: on)
+            ActionBarButton(spec: on, startsHovered: true)
+        }
+        .padding(.horizontal, ActionBarMetrics.endInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppPalette.panel.swiftUI)
     }
 
     /// The header alone, filling its frame as the split view gives it one.

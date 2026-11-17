@@ -11,22 +11,27 @@
     {
       "name": "lineSoftSubtle",
       "hex": "#3a414a",
-      "description": "Panel and dock frames at rest."
+      "description": "Panel and dock frames at rest, and an inactive action-bar button's border."
     },
     {
       "name": "line",
       "hex": "#474f59",
-      "description": "Outlines at rest, and every divider inside a row."
+      "description": "Outlines at rest, every divider inside a row, and a raised action-bar button's border."
     },
     {
       "name": "item",
       "hex": "#30363e",
-      "description": "A highlighted or selected row's fill."
+      "description": "A highlighted or selected row's fill, and a raised action-bar button's fill (active or on)."
+    },
+    {
+      "name": "well",
+      "hex": "#1c2128",
+      "description": "An inactive action-bar button's recessed fill: the window colour, a step darker than the bar."
     },
     {
       "name": "controlBorder",
       "hex": "#768390",
-      "description": "A highlighted or selected outline, and a focused field's border."
+      "description": "A highlighted or selected outline, a focused field's border, and a raised action-bar button's border under the pointer."
     },
     {
       "name": "textMeta",
@@ -51,7 +56,7 @@
     {
       "name": "accent",
       "hex": "#d7b13d",
-      "description": "The one gold: titles, project headers and marks."
+      "description": "The one gold: titles, project headers and marks, and the icon of a toggle that is on (the caffeinate bolt). Never selection or focus."
     },
     {
       "name": "brassActive",

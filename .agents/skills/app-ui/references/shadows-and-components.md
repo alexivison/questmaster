@@ -5,7 +5,9 @@
 - Dividers inside rows are `line` in every state.
 - Brass and glow mean "on": a toggle that is on (caffeinate), and a dock title plate while a refresh the user asked for is
   under way. Both take the one shared on look (`OnLook` in Core, drawn by `OnLookGlow` and `OnLookSpinner`): the brass band
-  inside the edge at 15%, and the working spinner turning round the outline. Nothing else takes it. One gold, `accent`
+  inside the edge at 15%, and the working spinner turning round the outline. Nothing else takes it. A toggle that is on
+  also takes the gold icon (`accent`, the caffeinate bolt): on toggles only, never an active button, a selection or a focus.
+  One gold, `accent`
   #D7B13D, for titles, project headers and marks; never for selection or focus.
 - Shadows come only from an elevation token (`Elevation` in `SharedUI/Theme.swift`), never numbers at the call site;
   each is a black drop shadow, and a shadow drawn inside a clip is a bug (draw it outside, as `scoopedPanel` and

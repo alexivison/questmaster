@@ -116,28 +116,34 @@ struct ActionBarButtonSpec {
     let action: () -> Void
 }
 
-/// One button, per the design: an `item` square with a `line` border, its icon in the look's colour, and on a toggle
-/// that is on, the brass inner glow with the working spinner turning round the border.
+/// One button, drawn from its `ActionBarButtonLook`: the look's fill and border, its icon in the look's colour and drawing,
+/// and on a toggle that is on, the brass inner glow with the working spinner turning round the border. The view only
+/// tracks the pointer; the look decides what each state shows.
 struct ActionBarButton: View {
     let spec: ActionBarButtonSpec
-    @State private var isHovered = false
+    @State private var isHovered: Bool
+
+    /// `startsHovered` lets a render fixture draw a button under the pointer without a mouse.
+    init(spec: ActionBarButtonSpec, startsHovered: Bool = false) {
+        self.spec = spec
+        _isHovered = State(initialValue: startsHovered)
+    }
 
     var body: some View {
         let look = ActionBarButtonLook.of(active: spec.isActive, on: spec.isOn, hovered: isHovered)
         let shape = RoundedRectangle(cornerRadius: ActionBarMetrics.buttonRadius)
         Button(action: spec.action) {
-            shape.fill(AppPalette.item.swiftUI)
+            shape.fill(look.fill.color.swiftUI)
                 .overlay { OnLookGlow(look: look.on, shape: AnyShape(shape), band: Token.Size.glowRing) }
-                .overlay(shape.strokeBorder(AppPalette.line.swiftUI, lineWidth: 1))
+                .overlay(shape.strokeBorder(look.border.color.swiftUI, lineWidth: 1))
                 .overlay {
                     OnLookSpinner(look: look.on, outline: .roundedRect(cornerRadius: ActionBarMetrics.buttonRadius), stroke: ActionBarMetrics.spinnerStroke)
                 }
                 .overlay {
-                    // A button that is on, or whose panel shows, draws the filled glyph; line-only glyphs stay line.
                     if let image = spec.icon.image(
                         glyphSide: ActionBarMetrics.iconSide,
                         tint: look.icon.color,
-                        filled: spec.isActive || spec.isOn
+                        filled: look.filled
                     ) {
                         Image(nsImage: image)
                     }
