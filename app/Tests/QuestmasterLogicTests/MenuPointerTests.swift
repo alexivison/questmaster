@@ -21,15 +21,17 @@ struct MenuPointerTests {
     }
 
     private static func theFrameIsWholePointsPerPixel() {
-        expect(MenuPointer.size(pixel: 1) == CGSize(width: 6, height: 7), "a 1pt pixel should frame the arrow at 6 by 7")
-        expect(MenuPointer.size(pixel: 2) == CGSize(width: 12, height: 14), "a 2pt pixel should frame the arrow at 12 by 14")
+        let small = MenuPointer.frame(pixel: 1)
+        expect(small.width == 6 && small.height == 7, "a 1pt pixel should frame the arrow at 6 by 7, got \(small)")
+        let large = MenuPointer.frame(pixel: 2)
+        expect(large.width == 12 && large.height == 14, "a 2pt pixel should frame the arrow at 12 by 14, got \(large)")
     }
 
     private static func theArrowSitsOutsideTheCardAndCentred() {
         expect(MenuPointer.leadingOffset(gap: 5, pixel: 2) == -17, "a 2pt arrow's frame should end 5 outside the card: -17 from its leading edge")
         expect(MenuPointer.leadingOffset(gap: 5, pixel: 1) == -11, "a 1pt arrow's frame should end 5 outside the card")
         expect(MenuPointer.topOffset(rowHeight: 50, pixel: 2) == 18, "a 2pt arrow should centre on a 50pt row")
-        expect(MenuPointer.topOffset(rowHeight: 50, pixel: 1) == 21, "a 1pt arrow's centring should stay on whole points (21.5 rounds down)")
+        expect(MenuPointer.topOffset(rowHeight: 50, pixel: 1) == 21, "a 1pt arrow's centring should stay on whole points (43 / 2 = 21)")
         expect(MenuPointer.topOffset(rowHeight: 30, pixel: 2) == 8, "a 2pt arrow should centre on a 30pt row")
     }
 
