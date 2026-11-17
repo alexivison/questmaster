@@ -49,8 +49,7 @@ extension View {
     }
 
     /// A row in its state look. Scooped cards keep a resting fill and border; plain rows show the list's surface.
-    /// Hover adds only the look's border cue. The pointer moves no cursor here: a click acts. A look with a menu pointer
-    /// (a card cursor) draws the arrow outside the row's leading edge (`menuPointer`).
+    /// Hover adds only the look's border cue. The pointer moves no cursor here: a click acts.
     func stateRow(_ look: RowLook, cornerRadius: CGFloat = 0, scoopRadius: CGFloat? = nil) -> some View {
         modifier(StateRowModifier(look: look, cornerRadius: cornerRadius, scoopRadius: scoopRadius))
     }
@@ -86,7 +85,6 @@ private struct StateRowModifier: ViewModifier {
                     }
                 }
             }
-            .menuPointer(look.pointer.map { $0.color.swiftUI })
             .contentShape(Rectangle())
             .onHover { pointerOver = $0 }
     }

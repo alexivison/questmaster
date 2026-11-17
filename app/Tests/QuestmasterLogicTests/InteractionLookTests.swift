@@ -14,33 +14,8 @@ struct InteractionLookTests {
         missingFilesAndMarksKeepTheirColours()
         rowsOnARaisedSurfaceStepUpFromItsFill()
         scoopedListItemsKeepHoverApartFromTheCursor()
-        cardCursorsPointOutsideTheirCard()
         textTabsFollowThePillTabsAndLightUnderThePointer()
         print("InteractionLookTests: all tests passed")
-    }
-
-    /// The card cursor's pointer, and what keeps it: menus, the tracker and the projects list never draw one.
-    private static func cardCursorsPointOutsideTheirCard() {
-        let cursor = RowLook.cardPick(highlighted: true, areaFocused: true, marksInGutter: false)
-        expect(cursor.pointer == .textSelected && cursor.text == .textSelected, "a focused card cursor should point in textSelected")
-        expect(cursor.listItem(underPointer: false).outline == .line, "a pointed card cursor should drop its controlBorder outline for the resting border")
-        expect(cursor.listItem(underPointer: true) == cursor.listItem(underPointer: false), "hover should leave a pointed card cursor alone")
-        let unfocused = RowLook.cardPick(highlighted: true, areaFocused: false, marksInGutter: false)
-        expect(unfocused.pointer == .textBody && unfocused.text == .textBody, "an unfocused card cursor's pointer should dim to body text")
-        expect(RowLook.cardPick(highlighted: false, areaFocused: true, marksInGutter: false) == .rest, "a card that isn't the cursor should rest, with no pointer")
-        let marks = RowLook.cardPick(highlighted: true, areaFocused: true, marksInGutter: true)
-        expect(marks.pointer == nil && marks.listItem(underPointer: false).outline == .controlBorder, "while the delete marks take the gutter the cursor keeps its outline and no pointer")
-        let selected = RowLook.cardLasting(selected: true)
-        expect(selected.pointer == .textSelected && selected.bold, "a Quest Log selection should point and stay bold")
-        expect(selected.listItem(underPointer: false).outline == .line, "a Quest Log selection should drop its controlBorder outline too")
-        expect(RowLook.cardLasting(selected: false) == .rest, "an unselected Quest Log card should rest")
-        expect(cursor.dimmed.pointer == cursor.dimmed.text && cursor.dimmed.text == cursor.meta, "an out-of-date card's pointer should dim with its text, to meta")
-        expect(cursor.warned.pointer == .textSelected, "a missing file's card keeps its pointer")
-        for menu in [RowLook.pick(highlighted: true, areaFocused: true), .pick(highlighted: true, areaFocused: false), .raisedPick(highlighted: true)] {
-            expect(menu.pointer == nil, "a menu row should never draw the pointer")
-        }
-        expect(RowLook.cursor(highlighted: true, areaFocused: true).pointer == nil, "the tracker's cursor should never draw the pointer")
-        expect(RowLook.projectCursor.pointer == nil, "the projects cursor should keep its own outline and no pointer")
     }
 
     private static func rowsPickTheirLook() {

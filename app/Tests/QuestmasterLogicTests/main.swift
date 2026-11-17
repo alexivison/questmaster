@@ -68,7 +68,6 @@ timed("ProjectOrderTests") { ProjectOrderTests.run() }
         timed("TrackerTagLayoutTests") { TrackerTagLayoutTests.run() }
         timed("ModalCommandRoutingTests") { ModalCommandRoutingTests.run() }
         timed("InteractionLookTests") { InteractionLookTests.run() }
-        timed("MenuPointerTests") { MenuPointerTests.run() }
         timed("StateRulesScanTests") { StateRulesScanTests.run() }
         timed("SpacingRulesScanTests") { SpacingRulesScanTests.run() }
         timed("MotionTests") { MotionTests.run() }

@@ -336,7 +336,7 @@ enum RenderPreview {
         let cases: [(String, RowLook, Bool)] = [
             ("Rest", .rest, false),
             ("Under the pointer", RowLook.rest.underPointer(true), false),
-            ("Keyboard cursor", RowLook.cardPick(highlighted: true, areaFocused: true, marksInGutter: false), false),
+            ("Keyboard cursor", .highlighted, false),
             ("Missing, under the pointer", RowLook.rest.underPointer(true), true),
         ]
         return VStack(spacing: 5) {

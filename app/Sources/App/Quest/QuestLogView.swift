@@ -15,8 +15,7 @@ enum QuestLogMetrics {
     }
     /// The tabs and the page start `ModalFormMetrics.contentTop` down, under the shared header.
     static let contentTop = ModalFormMetrics.contentTop
-    /// The left column, top to bottom: the tabs, the filter, the list. Columns are `columnGap` apart. The tabs, the filter and
-    /// the cards share one leading edge, `columnGutter` in from the column's outer edge.
+    /// The left column, top to bottom: the tabs, the filter, the list. Columns are `columnGap` apart.
     static let filterHeight = FilterBarMetrics.height
     static let tabsHeight = TextTabMetrics.height
     static let columnGap = Space.item
@@ -31,10 +30,6 @@ enum QuestLogMetrics {
     static let rowBaseline: CGFloat = 17
     static let projectBaseline: CGFloat = 16
     static let rowTextInset = ListItemMetrics.textInset
-    /// The left column's gutter: the room left of the shared leading edge of the tabs, the filter and the cards. The menu
-    /// pointer hangs in it (its 12pt frame and 5pt clearance, 17pt, rounded up to the 5s), and the list's scroll view clips
-    /// at the column's outer edge, so the arrow stays inside the clip. The trailing edges keep none.
-    static let columnGutter = Space.section
     static let markSize: CGFloat = 5
     /// Page: the design's 473 wide page, its parchment clipped to the top 594.
     static let svgPageWidth: CGFloat = 473
@@ -105,15 +100,10 @@ struct QuestLogLayout: Equatable {
     var pageOrigin: CGPoint {
         CGPoint(x: sheetSize.width - QuestLogMetrics.inset - pageSize.width, y: QuestLogMetrics.contentTop)
     }
-    /// The shared leading edge of the tabs, the filter and the cards: one column gutter in from the column's outer edge.
-    var columnLeadingX: CGFloat { QuestLogMetrics.inset + QuestLogMetrics.columnGutter }
-    /// The width the tabs, the filter and the cards share: the list's width less the gutter. Its trailing edge is the list's.
-    var columnContentWidth: CGFloat { listWidth - QuestLogMetrics.columnGutter }
-    var tabsOrigin: CGPoint { CGPoint(x: columnLeadingX, y: QuestLogMetrics.contentTop) }
+    var tabsOrigin: CGPoint { CGPoint(x: QuestLogMetrics.inset, y: QuestLogMetrics.contentTop) }
     var filterOrigin: CGPoint {
-        CGPoint(x: columnLeadingX, y: tabsOrigin.y + QuestLogMetrics.tabsHeight + QuestLogMetrics.columnGap)
+        CGPoint(x: QuestLogMetrics.inset, y: tabsOrigin.y + QuestLogMetrics.tabsHeight + QuestLogMetrics.columnGap)
     }
-    /// The list's scroll view starts at the column's outer edge, so the gutter is inside its clip, where the pointer hangs.
     var listOrigin: CGPoint {
         CGPoint(x: QuestLogMetrics.inset, y: filterOrigin.y + QuestLogMetrics.filterHeight + QuestLogMetrics.columnGap)
     }
@@ -135,7 +125,7 @@ struct QuestLogView: View {
             ModalSheetHeader(title: "Quest Log")
                 .frame(width: layout.sheetSize.width)
             TextTabRow(titles: store.tabTitles, selectedIndex: store.selectedTabIndex, areaFocused: true, onSelect: store.selectTab)
-                .frame(width: layout.columnContentWidth)
+                .frame(width: layout.listWidth)
                 .offset(x: layout.tabsOrigin.x, y: layout.tabsOrigin.y)
             QuestLogList(store: store)
                 .frame(width: layout.listWidth, height: layout.listHeight, alignment: .top)
@@ -157,7 +147,7 @@ struct QuestLogView: View {
                 onRemoveToken: { filter.removeToken($0) },
                 onSelectSuggestion: { filter.acceptSuggestion($0) }
             )
-            .frame(width: layout.columnContentWidth)
+            .frame(width: layout.listWidth)
             .offset(x: layout.filterOrigin.x, y: layout.filterOrigin.y)
             buttons
                 .frame(width: layout.sheetSize.width)
@@ -252,7 +242,6 @@ private struct QuestLogList: View {
                         row(quest).id(quest.id)
                     }
                 }
-                .padding(.leading, QuestLogMetrics.columnGutter)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(ScrollerHider())
             }
@@ -276,7 +265,7 @@ private struct QuestLogList: View {
     }
 
     private func row(_ quest: QuestItem) -> some View {
-        let look = RowLook.cardLasting(selected: quest.id == store.selectedID)
+        let look = RowLook.lasting(selected: quest.id == store.selectedID)
         let chips = QuestDisplayState.tagChipNames(for: quest)
         return VStack(alignment: .leading, spacing: 0) {
             BaselineText(
