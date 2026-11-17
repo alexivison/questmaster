@@ -69,6 +69,7 @@ enum LogicSelfTests {
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn", testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn),
         ("testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar", testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar),
+        ("testDockTitlesStayCentredOnTheirPlatesUnderATitlebar", testDockTitlesStayCentredOnTheirPlatesUnderATitlebar),
         ("testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate", testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
@@ -945,6 +946,84 @@ enum LogicSelfTests {
         try expect(isFill(pixels(rightEnd - ActionBarMetrics.scoopRadius), midline), "the banner's fill reaches the badge column's right edge")
         try expect(!isFill(pixels(rightEnd + 1), midline), "the banner stops at the badge column's right edge")
         try expect(!isFill(pixels(TrackerListMetrics.sidePadding - 1), midline), "the banner starts at the plates' leading edge")
+    }
+
+    /// A dock title plate under a full-size-content titlebar, as the app's window has one: a hosting view there takes the
+    /// titlebar as a top safe area, which pushed the title down on the top dock. Measured on the title's own ink at 2x, the
+    /// title must sit as it does in a window with no titlebar, and centred on its plate for the top and bottom docks.
+    private static func testDockTitlesStayCentredOnTheirPlatesUnderATitlebar() throws {
+        let width: CGFloat = 400, height: CGFloat = 700, scale: CGFloat = 2
+        let topFrame = NSRect(x: 20, y: height - 20 - 300, width: 360, height: 300)
+        let bottomFrame = NSRect(x: 20, y: 20, width: 360, height: height - 40 - 300 - 20)
+        let artifacts = DockTopBarModel.make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false)
+        let workerLog = DockTopBarModel.make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true)
+
+        /// The offset of the title's ink from its plate's centre, positive upward, in points.
+        func offset(_ topBar: DockTopBarModel, frame: NSRect, titlebar: Bool) throws -> CGFloat {
+            let styleMask: NSWindow.StyleMask = titlebar ? [.titled, .fullSizeContentView] : [.borderless]
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: styleMask, backing: .buffered, defer: false)
+            window.titlebarAppearsTransparent = titlebar
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+            window.contentView = container
+            let shell = DockShellView(body: NSView(), model: DockChromeModel(topBar: topBar))
+            shell.frame = frame
+            container.addSubview(shell)
+            container.layoutSubtreeIfNeeded()
+            try pumpOneMainRunLoopTurn()
+            container.layoutSubtreeIfNeeded()
+            guard let plate = descendant(DockTitlePlateHost.self, in: shell) else {
+                throw TestFailure("the dock should host its title plate")
+            }
+            let plateRect = container.convert(plate.bounds, from: plate)
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(width * scale), pixelsHigh: Int(height * scale), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ) else {
+                throw TestFailure("could not make a bitmap")
+            }
+            bitmap.size = NSSize(width: width, height: height)
+            container.cacheDisplay(in: container.bounds, to: bitmap)
+            guard let fill = AppPalette.panel.usingColorSpace(.deviceRGB), let gold = AppPalette.accent.usingColorSpace(.deviceRGB) else {
+                throw TestFailure("could not read the plate's colours")
+            }
+            func luminance(_ colour: NSColor) -> CGFloat {
+                0.3 * colour.redComponent + 0.59 * colour.greenComponent + 0.11 * colour.blueComponent
+            }
+            // Ink is any pixel halfway (in luminance) from the plate's fill to the gold, so antialiased edges count half.
+            let threshold = (luminance(fill) + luminance(gold)) / 2
+            var topRow: Int?, bottomRow: Int?
+            for row in 0..<Int(height * scale) {
+                let y = height - (CGFloat(row) + 0.5) / scale
+                guard y >= plateRect.minY, y <= plateRect.maxY else { continue }
+                for column in Int(plateRect.minX * scale)..<Int(plateRect.maxX * scale) {
+                    guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB), luminance(pixel) > threshold else { continue }
+                    topRow = min(topRow ?? row, row)
+                    bottomRow = max(bottomRow ?? row, row)
+                    break
+                }
+            }
+            guard let top = topRow, let bottom = bottomRow else {
+                throw TestFailure("the plate should show its title's ink")
+            }
+            let inkTop = height - CGFloat(top) / scale
+            let inkBottom = height - CGFloat(bottom + 1) / scale
+            return (inkTop + inkBottom) / 2 - plateRect.midY
+        }
+
+        let watcherBare = try offset(.watcher, frame: topFrame, titlebar: false)
+        let watcherTitled = try offset(.watcher, frame: topFrame, titlebar: true)
+        let artifactsBare = try offset(artifacts, frame: bottomFrame, titlebar: false)
+        let artifactsTitled = try offset(artifacts, frame: bottomFrame, titlebar: true)
+        let workerBare = try offset(workerLog, frame: topFrame, titlebar: false)
+        let workerTitled = try offset(workerLog, frame: topFrame, titlebar: true)
+        let report = "Watcher \(watcherTitled) titled, \(watcherBare) bare; Artifacts \(artifactsTitled) titled, \(artifactsBare) bare; Worker Log alone \(workerTitled) titled, \(workerBare) bare"
+        try expect(abs(watcherTitled - watcherBare) <= 0.5, "the Watcher title should sit where it does with no titlebar: \(report)")
+        try expect(abs(workerTitled - workerBare) <= 0.5, "the Worker Log title alone at the top should sit where it does with no titlebar: \(report)")
+        try expect(abs(artifactsTitled - artifactsBare) <= 0.5, "the Artifacts title should sit where it does with no titlebar: \(report)")
+        try expect(abs(watcherTitled) <= 0.5, "the Watcher title should be centred on its plate: \(report)")
+        try expect(abs(artifactsTitled) <= 0.5, "the Artifacts title should be centred on its plate: \(report)")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
