@@ -46,9 +46,9 @@ enum Token {
 enum Space {
     /// Between rows of one list control; a field and its dropdown; collapsed circles; the cast row.
     static let row: CGFloat = 5
-    /// Between sibling items; icon → text; text inset inside a control; header band → content.
+    /// Between sibling items; icon → text; text inset inside a control; a panel title → the next element of its header.
     static let item: CGFloat = 10
-    /// The shell gap, every panel's edge margin, blocks inside a panel.
+    /// The shell gap, every panel's edge margin, blocks inside a panel; a panel's header → its content (`PanelHeaderMetrics`).
     static let section: CGFloat = 20
     /// Between groups of blocks: the selected-session panel → the list.
     static let group: CGFloat = 40

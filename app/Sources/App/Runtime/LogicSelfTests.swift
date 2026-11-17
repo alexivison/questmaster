@@ -69,7 +69,9 @@ enum LogicSelfTests {
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn", testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn),
         ("testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar", testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar),
-        ("testDockTitlesStayCentredInTheirBarUnderATitlebar", testDockTitlesStayCentredInTheirBarUnderATitlebar),
+        ("testDockTitlesSitWhereTheirHeaderPutsThemUnderATitlebar", testDockTitlesSitWhereTheirHeaderPutsThemUnderATitlebar),
+        ("testPanelHeaderMetricsKeepTheTitleTenAboveItsElements", testPanelHeaderMetricsKeepTheTitleTenAboveItsElements),
+        ("testPanelHeadersSpaceTheirElementsTenAndTwentyUnderTheTitle", testPanelHeadersSpaceTheirElementsTenAndTwentyUnderTheTitle),
         ("testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate", testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
@@ -956,7 +958,7 @@ enum LogicSelfTests {
     /// titlebar check is exact to half a point. The centring allows 1.5pt, since the title's line box centres the font's own
     /// ascent and descent: the user's terminal font sits a fraction of a point high, and a runner without it (the system's
     /// monospace) sits about a point lower.
-    private static func testDockTitlesStayCentredInTheirBarUnderATitlebar() throws {
+    private static func testDockTitlesSitWhereTheirHeaderPutsThemUnderATitlebar() throws {
         let width: CGFloat = 400, height: CGFloat = 700, scale: CGFloat = 2
         let topFrame = NSRect(x: 20, y: height - 20 - 300, width: 360, height: 300)
         let bottomFrame = NSRect(x: 20, y: 20, width: 360, height: height - 40 - 300 - 20)
@@ -1031,11 +1033,15 @@ enum LogicSelfTests {
         try expect(abs(workerBottomTitled - workerBottomBare) <= 0.5, "the Worker Log title at the bottom should sit where it does with no titlebar: \(report)")
         try expect(abs(artifactsTitled - artifactsBare) <= 0.5, "the Artifacts title should sit where it does with no titlebar: \(report)")
         try expect(abs(viewerTitled - viewerBare) <= 0.5, "the open artifact's title should sit where it does with no titlebar: \(report)")
-        try expect(abs(watcherTitled) <= 1.5, "the Watcher title should be centred in its bar: \(report)")
-        try expect(abs(workerTopTitled) <= 1.5, "the Worker Log title at the top should be centred in its bar: \(report)")
-        try expect(abs(workerBottomTitled) <= 1.5, "the Worker Log title at the bottom should be centred in its bar: \(report)")
-        try expect(abs(artifactsTitled) <= 1.5, "the Artifacts title should be centred in its bar: \(report)")
-        try expect(abs(viewerTitled) <= 1.5, "the open artifact's title should be centred in its bar: \(report)")
+        // The title sits where its header puts it, not on the bar's centre: its text frame ends `elementGap` above the bar's
+        // bottom edge, so its cap band sits this far above the centre (negative is below). In JetBrains Mono 14 that is -0.7pt;
+        // a font with a deeper descent sits lower, as the system mono does. The rule keeps the gap, which the centre would not.
+        let expected = ShellMetrics.dockTopBarHeight / 2 - (PanelHeaderMetrics.titleBaseline - AppFonts.panelTitle.capHeight / 2)
+        try expect(abs(watcherTitled - expected) <= 0.75, "the Watcher title should sit \(expected) from its bar's centre, where its header puts it: \(report)")
+        try expect(abs(workerTopTitled - expected) <= 0.75, "the Worker Log title at the top should sit \(expected) from its bar's centre: \(report)")
+        try expect(abs(workerBottomTitled - expected) <= 0.75, "the Worker Log title at the bottom should sit \(expected) from its bar's centre: \(report)")
+        try expect(abs(artifactsTitled - expected) <= 0.75, "the Artifacts title should sit \(expected) from its bar's centre: \(report)")
+        try expect(abs(viewerTitled - expected) <= 0.75, "the open artifact's title should sit \(expected) from its bar's centre: \(report)")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
@@ -3771,9 +3777,9 @@ enum LogicSelfTests {
         }
         let dock = CGSize(width: DockWidthPreference.panelWidth, height: 400)
         try expectCentred(try ink(artifacts(.viewer), size: dock), in: CGRect(origin: .zero, size: dock), "the artifact viewer")
-        // Below the tabs: the list's top padding, the tab row, and the gap between them. The column has no inset of its own:
-        // its rows and filter take the panel's content inset on both sides.
-        let listTop = Space.item + ControlHeight.compact + Space.section
+        // Below the tabs: the tab row on the bar's bottom edge (the body's top here), then the header's gap to the list. The
+        // column has no inset of its own: its rows and filter take the panel's content inset on both sides.
+        let listTop = TextTabMetrics.height + PanelHeaderMetrics.contentGap
         try expectCentred(
             try ink(artifacts(.list), size: dock, below: Int(listTop)),
             in: CGRect(x: 0, y: listTop, width: dock.width, height: dock.height - listTop),
@@ -5925,6 +5931,128 @@ enum LogicSelfTests {
         try expect(outline.contains(CGPoint(x: 100, y: 0.5)) && outline.contains(CGPoint(x: 0.5, y: 100)), "the straight edges should be the panel's own")
     }
 
+    /// The header's numbers (`PanelHeaderMetrics`): the title's text frame ends `elementGap` above the dock bar's bottom edge,
+    /// the bar keeps its height, and a modal's content sits `contentGap` under its header.
+    private static func testPanelHeaderMetricsKeepTheTitleTenAboveItsElements() throws {
+        let titleFrameBottom = PanelHeaderMetrics.titleBaseline - AppFonts.panelTitle.descender
+        try expect(abs(titleFrameBottom + PanelHeaderMetrics.elementGap - ShellMetrics.dockTopBarHeight) < 0.001, "the title's text frame should end 10 above the bar's bottom edge, got \(titleFrameBottom)")
+        try expect(abs(titleFrameBottom - PanelHeaderMetrics.titleRowHeight) < 0.001, "the title row should be the text frame, got \(PanelHeaderMetrics.titleRowHeight) for \(titleFrameBottom)")
+        try expect(abs(AppFonts.panelTitle.pointSize - 14) < 0.001, "the dock and modal title should be 14pt")
+        try expect(PanelHeaderMetrics.elementGap == Space.item && PanelHeaderMetrics.contentGap == Space.section, "the header gaps should be the 10 and 20 steps")
+        try expect(abs(PanelHeaderMetrics.bodyTopInset - Space.item) < 0.001, "a dock with only its title over it should start 10 under the bar, got \(PanelHeaderMetrics.bodyTopInset)")
+        try expect(ModalSheetHeader.height == PanelHeaderMetrics.titleRowHeight + PanelHeaderMetrics.elementGap + ModalChapterRuleMetrics.band, "the modal header should be the title row, a 10 gap and the rule's band, got \(ModalSheetHeader.height)")
+        try expect(ModalFormMetrics.contentTop == ModalSheetHeader.height + PanelHeaderMetrics.contentGap, "a form should start 20 under the modal header, got \(ModalFormMetrics.contentTop)")
+        print("PanelHeader font \(AppFonts.panelTitle.fontName) \(AppFonts.panelTitle.pointSize)pt, ascender \(AppFonts.panelTitle.ascender), descender \(AppFonts.panelTitle.descender), baseline \(PanelHeaderMetrics.titleBaseline), title frame \(PanelHeaderMetrics.titleRowHeight)")
+    }
+
+    /// The runs of rows, in points from the bitmap's top, where the pixels in `column` (points) differ from `background`.
+    private static func inkRuns(_ bitmap: NSBitmapImageRep, scale: CGFloat, column: Range<Int>, rows: Range<Int>, over background: NSColor) -> [Range<CGFloat>] {
+        guard let base = background.usingColorSpace(.deviceRGB) else {
+            return []
+        }
+        let factor = Int(scale)
+        func inked(_ y: Int) -> Bool {
+            (column.lowerBound * factor..<column.upperBound * factor).contains { x in
+                guard let pixel = bitmap.colorAt(x: x, y: y) else {
+                    return false
+                }
+                return abs(pixel.redComponent - base.redComponent) + abs(pixel.greenComponent - base.greenComponent)
+                    + abs(pixel.blueComponent - base.blueComponent) > 0.15
+            }
+        }
+        var runs: [Range<CGFloat>] = []
+        var start: Int?
+        for y in rows.lowerBound * factor..<rows.upperBound * factor {
+            if inked(y) {
+                start = start ?? y
+            } else if let first = start {
+                runs.append(CGFloat(first) / scale..<CGFloat(y) / scale)
+                start = nil
+            }
+        }
+        if let first = start {
+            runs.append(CGFloat(first) / scale..<CGFloat(rows.upperBound * factor) / scale)
+        }
+        return runs
+    }
+
+    /// `view` laid out in a headless window at `size`, and captured at `scale`.
+    private static func rendered(_ view: NSView, size: CGSize, scale: CGFloat) throws -> NSBitmapImageRep {
+        view.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size)
+        window.contentView = view
+        window.show()
+        defer { window.close() }
+        try pumpOneMainRunLoopTurn()
+        view.layoutSubtreeIfNeeded()
+        try pumpOneMainRunLoopTurn()
+        return try snapshot(view, size: size, scale: scale)
+    }
+
+    /// The rendered gaps match the header's numbers, in three panels: a dock with the Session/All tabs and the filter (All),
+    /// a dock with its title alone (the Watcher), and a modal form. Each element's edge is a pixel row, so the check is on
+    /// the backing pixels at 2x; a line box is the text frame `PanelHeaderMetrics` computes from the title font.
+    private static func testPanelHeadersSpaceTheirElementsTenAndTwentyUnderTheTitle() throws {
+        let scale: CGFloat = 2
+        let bar = PanelHeaderMetrics.barHeight
+        let frameBottom = PanelHeaderMetrics.titleRowHeight
+        let tolerance: CGFloat = 0.5
+        // A title's lowest ink is its baseline plus the round letters' overshoot and a half point of antialiasing, so its
+        // bottom edge is read with a point of slack; the rules and edges are straight rows and keep `tolerance`.
+        let titleTolerance: CGFloat = 1
+
+        // The Artifacts dock in All: the tabs' box sits on the bar's bottom edge, the filter 10 under the box, the first card 20
+        // under the filter. The title's ink ends on its baseline.
+        let dock = DockWidthPreference.panelWidth
+        let allTabs = try rendered(RenderPreview.artifactPaneView(highlight: nil), size: CGSize(width: dock, height: 400), scale: scale)
+        let titleInk = inkEdges(allTabs, scale: scale, columns: 100..<240, rows: 3..<40, over: AppPalette.panel)
+        try expect(titleInk.map { abs($0.bottom - PanelHeaderMetrics.titleBaseline) <= titleTolerance } == true, "the dock title's ink should end on its baseline \(PanelHeaderMetrics.titleBaseline), got \(String(describing: titleInk))")
+        let tabsBottom = bar + TextTabMetrics.height
+        // Column 300 is clear of the tab labels and of the cards' corners, and a card's top edge is drawn across it.
+        let inAll = inkRuns(allTabs, scale: scale, column: 300..<306, rows: Int(bar)..<400, over: AppPalette.artifactListColumn)
+        let filterTop = tabsBottom + PanelHeaderMetrics.elementGap
+        try expect(inAll.contains { abs($0.lowerBound - filterTop) <= tolerance }, "the filter should sit 10 under the tabs, at \(filterTop); ink runs \(inAll)")
+        let cardTop = filterTop + FilterBarMetrics.height + PanelHeaderMetrics.contentGap
+        try expect(inAll.contains { abs($0.lowerBound - cardTop) <= tolerance }, "the first card should sit 20 under the filter, at \(cardTop); ink runs \(inAll)")
+        try expect(abs(filterTop - frameBottom - 45) <= tolerance, "the filter should sit 45 under the title's frame (the 25 tab box and two 10 gaps), got \(filterTop - frameBottom)")
+
+        // The Session tabs: no filter, so the first card sits 20 under the tabs' box.
+        let session = try rendered(RenderPreview.artifactPaneView(highlight: nil, session: true), size: CGSize(width: dock, height: 400), scale: scale)
+        let inSession = inkRuns(session, scale: scale, column: 300..<306, rows: Int(bar)..<400, over: AppPalette.artifactListColumn)
+        try expect(inSession.contains { abs($0.lowerBound - (tabsBottom + PanelHeaderMetrics.contentGap)) <= tolerance }, "in Session the first card should sit 20 under the tabs, at \(tabsBottom + PanelHeaderMetrics.contentGap); ink runs \(inSession)")
+
+        // The Watcher, which has no tabs: its list starts 20 under the title's frame, 10 under the bar. Its rows draw no edge at
+        // rest, so the list's frame is what is measured, in the panel's own coordinates.
+        let watcherCanvas = RenderPreview.watcherPanelView()
+        let watcher = try rendered(watcherCanvas, size: CGSize(width: 482, height: 305), scale: scale)
+        let watcherTitle = inkEdges(watcher, scale: scale, columns: 150..<330, rows: 3..<40, over: AppPalette.panel)
+        try expect(watcherTitle.map { abs($0.bottom - PanelHeaderMetrics.titleBaseline) <= titleTolerance } == true, "the Watcher title's ink should end on its baseline, got \(String(describing: watcherTitle))")
+        guard let panel = descendant(DockShellView.self, in: watcherCanvas), let list = descendant(NSScrollView.self, in: panel) else {
+            throw TestFailure("the Watcher panel should hold its list")
+        }
+        let listTop = panel.frame.maxY - watcherCanvas.convert(list.bounds, from: list).maxY
+        try expect(abs(listTop - (frameBottom + PanelHeaderMetrics.contentGap)) <= tolerance, "the Watcher's list should start 20 under the title's frame, at \(frameBottom + PanelHeaderMetrics.contentGap) from the panel's top; it starts at \(listTop)")
+
+        // A modal form: the chapter rule's band sits 10 under the title's frame, the first field 20 under the band.
+        let formSize = CGSize(width: 460, height: ModalFormMetrics.height(fields: 2))
+        let form = NSHostingView(rootView: ModalFormSheet(title: "Session", errorMessage: nil, primaryLabel: "Save", canSubmit: true, size: formSize, onCancel: {}, onPrimary: {}) {
+            VStack(spacing: ModalFormMetrics.fieldSpacing) {
+                FormTextField(text: .constant(""), placeholder: "First", focusNonce: 0, focused: false)
+                FormTextField(text: .constant(""), placeholder: "Second", focusNonce: 0, focused: false)
+            }
+        }.background(AppPalette.panel.swiftUI))
+        let formPixels = try rendered(form, size: formSize, scale: scale)
+        let titleForm = inkEdges(formPixels, scale: scale, columns: 200..<260, rows: 3..<36, over: AppPalette.panel)
+        try expect(titleForm.map { abs($0.bottom - PanelHeaderMetrics.titleBaseline) <= titleTolerance } == true, "the modal title's ink should end on its baseline, got \(String(describing: titleForm))")
+        // The rule's hairline runs through the band's middle, clear of the diamond; the band starts 10 under the title's frame.
+        let rule = inkRuns(formPixels, scale: scale, column: 250..<252, rows: 40..<70, over: AppPalette.panel)
+        let bandTop = frameBottom + PanelHeaderMetrics.elementGap
+        try expect(rule.contains { abs($0.lowerBound - (bandTop + ModalChapterRuleMetrics.band / 2)) <= tolerance }, "the chapter rule should sit 10 under the title's frame, band at \(bandTop); ink runs \(rule)")
+        let fieldRuns = inkRuns(formPixels, scale: scale, column: 300..<302, rows: 60..<120, over: AppPalette.panel)
+        let fieldTop = ModalSheetHeader.height + PanelHeaderMetrics.contentGap
+        try expect(fieldRuns.contains { abs($0.lowerBound - fieldTop) <= tolerance }, "the first field should sit 20 under the header, at \(fieldTop); ink runs \(fieldRuns)")
+    }
+
     private static func testRenderedSpacingStaysOnTheScale() throws {
         func borderRows(_ view: NSView, size: CGSize, x: Int, startingAt startY: Int = 0, atLeast count: Int) throws -> [Int] {
             view.frame = NSRect(origin: .zero, size: size)
@@ -5987,7 +6115,7 @@ enum LogicSelfTests {
             }
         }.background(AppPalette.panel.swiftUI))
         let fieldEdges = try borderRows(form, size: formSize, x: fieldColumn, startingAt: Int(ModalSheetHeader.height), atLeast: 2)
-        try expect(fieldEdges.first == Int(ModalSheetHeader.height + Space.item), "the first field should start 10 under the header's band, got rows \(fieldEdges)")
+        try expect(fieldEdges.first == Int(ModalSheetHeader.height + PanelHeaderMetrics.contentGap), "the first field should start 20 under the header's band, got rows \(fieldEdges)")
         let secondTop = Int(ModalFormMetrics.contentTop + FormFieldMetrics.height + ModalFormMetrics.fieldSpacing)
         try expect(fieldEdges.contains(secondTop) && !fieldEdges.contains(secondTop - 1), "the second field should start 20 under the first, got rows \(fieldEdges)")
 
@@ -8885,7 +9013,7 @@ enum LogicSelfTests {
 
         let chipRow = WorkerLogChipRow(summary: "Status", onClear: {})
         let chipSize = try fittingSize(of: chipRow.frame(width: DockWidthPreference.panelWidth))
-        try expect(chipSize.height == Space.row + ControlHeight.compact, "a chip row should be 5 over a 25-high chip, got \(chipSize.height)")
+        try expect(chipSize.height == ControlHeight.compact, "a chip row should be the 25-high chip on the bar's edge, got \(chipSize.height)")
     }
 
     /// A click on the dock's top bar that isn't on a button (blank space, the title) ends the filter's dropdown, as one on
@@ -9099,7 +9227,7 @@ enum LogicSelfTests {
         }
     }
 
-    /// The lines scrolled up under the header fade in over the feed's top `topFadeHeight`, from nothing at its edge, instead
+    /// The lines scrolled up under the header fade in over the feed's top `topInset`, from nothing at its edge, instead
     /// of being cut there. Solid blocks make each ink row's coverage the mask's alpha.
     private static func testWorkerChatFeedFadesInUnderItsHeader() throws {
         let lines = (0..<40).map { index in
@@ -9138,7 +9266,7 @@ enum LogicSelfTests {
                     + abs(pixel.blueComponent - base.blueComponent)
             }.max() ?? 0
         }
-        let fade = Int(WorkerChatMetrics.topFadeHeight * 2)
+        let fade = Int(WorkerChatMetrics.inset * 2)
         let full = (fade + 20..<fade + 60).map(difference).max() ?? 0
         try expect(full > 0.3, "the feed's lines should show in full below the fade, got \(full)")
         let coverage = (0..<fade).map { difference(atRow: $0) / full }

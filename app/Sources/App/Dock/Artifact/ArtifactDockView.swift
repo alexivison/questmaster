@@ -77,17 +77,20 @@ struct ArtifactDockView: View {
         }
     }
 
-    /// artifacts.svg, under the dock's top bar: the Session/All tabs `Space.item` down and centred on the panel, the filter
-    /// (All only) 20 under them, and the rows 20 under that. The filter and rows sit 20 in from the panel's sides.
+    /// artifacts.svg under the dock's title (`PanelHeaderMetrics`): the Session/All tabs on the top bar's bottom edge, the
+    /// filter (All only) `elementGap` under them, and the rows `contentGap` under the header. The filter and rows sit
+    /// `PanelMetrics.contentInset` in from the panel's sides.
     private var artifactSelector: some View {
-        VStack(alignment: .leading, spacing: Space.section) {
+        VStack(alignment: .leading, spacing: 0) {
             scopeTabs
             if model.artifactScope == .all {
                 filterBar
+                    .padding(.top, PanelHeaderMetrics.elementGap)
             }
             switch model.displayState {
             case .noCurrentSession, .empty:
                 EmptyState(reason: model.emptyReason)
+                    .padding(.top, PanelHeaderMetrics.contentGap)
             case .missing, .unsupported, .viewing:
                 SectionedList(
                     selectedID: model.selectedArtifactID,
@@ -111,11 +114,11 @@ struct ArtifactDockView: View {
                 }
                 // The bottom corners' scoop reaches the panel's margin about 20pt up, so the list stops a margin above the edge: its
                 // last card scrolls clear of the scoop, as the Watcher's rows do.
+                .padding(.top, PanelHeaderMetrics.contentGap)
                 .padding(.bottom, PanelMetrics.contentInset)
                 .accessibilityLabel("Artifact list")
             }
         }
-        .padding(.top, Space.item)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.artifactListColumn.swiftUI)
     }
@@ -397,6 +400,8 @@ struct ArtifactViewerPane: View {
                         ruleListCompiler: ruleListCompiler
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // The page starts `contentGap` under the title, as a dock's list does (the band above it is the viewer's background).
+                    .padding(.top, PanelHeaderMetrics.bodyTopInset)
                     .overlay { if htmlLoading { htmlLoadingSkeleton } }
                     .onAppear { htmlLoading = true }
                     .onChange(of: artifact.path) { _, _ in htmlLoading = true }
@@ -404,8 +409,10 @@ struct ArtifactViewerPane: View {
                 }
             case .markdown:
                 ArtifactMarkdownView(artifact: artifact, reloadNonce: reloadNonce)
+                    .padding(.top, PanelHeaderMetrics.bodyTopInset)
             case .image:
                 ArtifactImageView(artifact: artifact, reloadNonce: reloadNonce)
+                    .padding(.top, PanelHeaderMetrics.bodyTopInset)
             case .unsupported:
                 ArtifactStatusPane(
                     glyph: .icon(.artifactUnsupportedQuestion),

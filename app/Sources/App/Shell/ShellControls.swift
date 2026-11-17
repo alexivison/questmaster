@@ -6,11 +6,10 @@ import QuestmasterCore
 /// `ShellStatusViews.swift`.
 
 enum ShellMetrics {
-    /// The dock top bar of every dock panel, as `Session Detail Dock.svg` draws it: the title's baseline 25 down, and its
-    /// icon buttons centred 20 down, the close button 40 in from the right edge (30 to its 20pt button frame), clear of
-    /// the scooped corner.
+    /// The dock top bar of every dock panel, as `Session Detail Dock.svg` draws it: its icon buttons centred 20 down, the
+    /// close button 40 in from the right edge (30 to its 20pt button frame), clear of the scooped corner. Its title sits on
+    /// `PanelHeaderMetrics` (the title's text frame ends `elementGap` above the bar's bottom edge).
     static let dockTopBarHeight = ControlHeight.bar
-    static let dockTopBarTitleBaseline: CGFloat = 25
     static let dockTopBarIconCentre: CGFloat = 20
     /// The refresh spinner beside a dock title: a chip's size, on the icon line.
     static let dockTopBarSpinnerSize = ControlHeight.chip

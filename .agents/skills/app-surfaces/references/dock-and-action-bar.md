@@ -2,11 +2,17 @@
 
 - Watcher and Worker Log start open in the first window layout, while startup resolves its session; no opening
   transition runs before the window appears. After startup, both panels hide if no session is attached, keeping their state.
-- Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in `accent`, 14pt bold, centred in the top
-  bar on its baseline, 25 down (`ShellMetrics.dockTopBarTitleBaseline`; the bar is 40 high and its icons centre 20 down).
-  An open artifact's title sits between its back arrow and its actions, and a long one truncates at the tail. The bar
+- Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are `PanelTitle`, the one title every dock and modal uses:
+  title case in `accent`, 14pt bold (`AppFonts.panelTitle`), across the top bar. The bar is 40 high (`ShellMetrics.dockTopBarHeight`)
+  and its icons centre 20 down. The title's baseline is derived, not set: its text frame ends `Space.item` above the
+  bar's bottom edge (`PanelHeaderMetrics.titleBaseline`, 25.8 in JetBrains Mono 14). So the cap band sits off the bar's
+  centre by the font's descent: 0.7pt low in JetBrains Mono 14, 2pt low in the system mono, which keeps the 10pt gap in each.
+  Everything under the title is the
+  shared header rhythm (`SharedUI/PanelHeader.swift`): an element under the title sits on the bar's bottom edge, 10
+  under the text frame; the panel's content sits 20 under its last element, or 10 under the bar when only the title is
+  over it (`PanelHeaderMetrics.bodyTopInset`). An open artifact's title sits between its back arrow and its actions, and a long one truncates at the tail. The bar
   ignores the titlebar's safe area, so the top dock's title sits where it does with no titlebar
-  (`testDockTitlesStayCentredInTheirBarUnderATitlebar`). While a refresh the user asked for (`r`) is under way, Watcher's
+  (`testDockTitlesSitWhereTheirHeaderPutsThemUnderATitlebar`). While a refresh the user asked for (`r`) is under way, Watcher's
   bar shows the working spinner (`SpinnerRingView`, `WorkingSpinner.period`) on the icon line, `Space.item` past the
   title's end, a chip's size; the title stays put. Core decides it (`PullRequestStore.isRefreshing`): from the key to the
   daemon's reply (`pr.refresh` with `wait`), for at least one turn and never past 30s; a second `r` meanwhile sends
@@ -33,10 +39,11 @@
   ends one margin above the bottom edge, where the bottom corners' scoop reaches the margin, so its last card clears the scoop.
   The toast is a scooped panel too, with its own size (`ToastBanner.scoopRadius` 10, `scoopStep` 2: the action bar's proportion for a one-line toast).
 - The Artifacts' Session/All tabs are text tabs (`TextTabRow`, as the Worker Log's and the Quest Log's), the first thing in
-  the list (`ArtifactDockView.artifactSelector`). The row is centred on the panel `Space.item` (10) under the top bar's
-  bottom edge; its box is `TextTabMetrics.height` (25), with the label's baseline 17 down, and each diamond sits
-  `TextTabMetrics.separatorGap` (`Space.item`, 10) from the tabs either side. The filter (All only) sits `Space.section`
-  (20) under the tabs, and the first card sits `Space.section` under the filter, or under the tabs in Session. A narrow
+  the header (`ArtifactDockView.artifactSelector`). The row is centred on the panel and sits on the top bar's bottom edge,
+  `Space.item` (10) under the title's text frame (`PanelHeaderMetrics.elementGap`); its box is `TextTabMetrics.height`
+  (25), with the label's baseline 17 down, and each diamond sits `TextTabMetrics.separatorGap` (`Space.item`, 10) from the
+  tabs either side. The filter (All only) sits `Space.item` (10) under the tabs, and the first card sits
+  `PanelHeaderMetrics.contentGap` (`Space.section`, 20) under the filter, or under the tabs in Session. A narrow
   dock scrolls its tabs sideways with fades, as the Worker Log's do. The mock draws the filter under Session too; the dock
   shows it under All only (the user's decision).
 - The dock is two stacked scooped panels, `DockColumnLayout.panelGap` apart: Watcher on top at the fixed

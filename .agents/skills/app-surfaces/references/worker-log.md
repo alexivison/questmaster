@@ -18,12 +18,11 @@
   `textMetaHighlighted` at regular weight, then the ticked names in `textBody` **bold** (the
   current selection is what bold means), comma-separated in the dropdown's order, which is
   alphabetical (Cast, Item, Message, Status, Summon; `WorkerLogAction`, `WorkerLogFilter.actionSummary`), and grows with them; with nothing attached the log is
-  blank, chip included. It sits under
-  the top bar and stays there whatever the feed is doing (first read pending or
-  failed, empty, lines). The feed fades in under its header, the bar and the
-  chip when there is one, over `WorkerChatMetrics.topFadeHeight` (the Quest Log's
-  overflow mask), so lines scrolled up under it are never cut
-  hard, and a feed at its top starts its first line where the fade ends, with or without the chip.
+  blank, chip included. It sits on the top bar's bottom edge, `Space.item` under the title (`PanelHeaderMetrics`), and
+  stays there whatever the feed is doing (first read pending or failed, empty, lines). The feed fades in under its header,
+  the bar and the chip when there is one, over its `topInset` (the Quest Log's overflow mask), so lines scrolled up under
+  it are never cut hard. A feed's first line sits `PanelHeaderMetrics.contentGap` (20) under the chip, or
+  `PanelHeaderMetrics.bodyTopInset` (10) under the bar with no chip, and the fade covers that band.
 - The Worker Log's worker tabs (`WorkerLogTabRow`, from `Tabs (Simple).svg`) are pinned to the bottom of the panel: All, then
   one text tab per worker of the attached master in tracker order (`WorkerChatStore.workers`), the feed's chat
   font (`AppFonts.workerTab`), a diamond (the `line` colour) between them (`TextTabMetrics.separatorGap` on each side). They take a `TextTabLook`. One tab is

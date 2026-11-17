@@ -7,8 +7,8 @@ is a multiple of 5, and spacing takes one of four steps (`Space` in
 | Step | Value | Role |
 |---|---|---|
 | `Space.row` | 5 | rows of one list control; a field and its dropdown; collapsed circles; the cast row under its disc |
-| `Space.item` | 10 | sibling items (plates, tabs, buttons, chat entries, bar icons); icon → text; text inset inside a control; header band → content |
-| `Space.section` | 20 | the shell gap (`ShellMetrics.gap`); every panel's edge margin; blocks inside a panel |
+| `Space.item` | 10 | sibling items (plates, tabs, buttons, chat entries, bar icons); icon → text; text inset inside a control; a panel title's text frame → the next element of its header, and between two elements of one header (`PanelHeaderMetrics.elementGap`) |
+| `Space.section` | 20 | the shell gap (`ShellMetrics.gap`); every panel's edge margin; blocks inside a panel; a panel's header → its content (`PanelHeaderMetrics.contentGap`) |
 | `PanelMetrics.contentInset` | 20 (`Space.section`) | a dock panel's or a modal's outer side margin, on both sides: rows, cards, fields, tab rows, footer rules. Every panel and modal reads this one token; a panel's list that scrolls keeps it: its indicator is `.never` (`SectionedList(indicators:)`; a hidden one still takes its width from the rows). The tracker's list keeps `.hidden`. Where a bottom corner's scoop reaches in, the inset is the scoop's (the Worker Log tab row, 35) |
 | `Space.group` | 40 | between groups of blocks: the plate list → the avatar slot |
 
@@ -48,6 +48,9 @@ breaks:
 
 The scan reads lines, so `testRenderedSpacingStaysOnTheScale` (a
 `--run-logic-tests` self-test) measures rendered pixels for what it can't see:
-the artifact cards' 55pt pitch, their 40pt icon tiles, and a form's fields 10 under the header band and
-20 apart.
+the artifact cards' 55pt pitch, their 40pt icon tiles, and a form's fields 20 under the modal header and
+20 apart. `testPanelHeadersSpaceTheirElementsTenAndTwentyUnderTheTitle` measures the headers the same way: the
+Artifacts tabs' filter 10 under the tabs and the first card 20 under the filter, the Watcher's first row 20 under the
+title, and a modal's chapter rule 10 under the title. The header's own rhythm is in `PanelHeaderMetrics`
+(`SharedUI/PanelHeader.swift`); the header's elements and the dock titles are in `app-surfaces`.
 
