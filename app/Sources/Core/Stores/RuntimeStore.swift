@@ -40,6 +40,18 @@ public final class RuntimeStore {
         snapshot.tracker.quests
     }
 
+    /// The attached worker's master, including when its worker rows are collapsed. A missing parent has no target.
+    public var returnToMasterSessionID: String? {
+        let sessions = snapshot.tracker.repos.lazy.flatMap(\.sessions)
+        guard let worker = sessions.first(where: { $0.id == currentTerminalSessionID }),
+              SessionRoleKind(role: worker.role) == .worker,
+              let master = sessions.first(where: { $0.id == worker.parentID }),
+              SessionRoleKind(role: master.role) == .master else {
+            return nil
+        }
+        return master.id
+    }
+
     /// Registers a change observer. The returned token unsubscribes on `cancel()` or when it is
     /// released, so observers should retain the token for as long as they want notifications.
     public func observe(_ block: @escaping () -> Void) -> RuntimeStoreObservation {

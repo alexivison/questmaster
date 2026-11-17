@@ -30,6 +30,7 @@ final class MenuController {
             sessionMenu.addItem(item)
         }
         sessionMenu.addItem(NSMenuItem.separator())
+        sessionMenu.addItem(commandMenuItem(Keymap.Command.returnToMaster, action: actions.returnToMaster, target: target))
         sessionMenu.addItem(commandMenuItem(Keymap.Command.editFocusedSession, action: actions.editFocusedSession, target: target))
         sessionMenu.addItem(commandMenuItem(Keymap.Command.editFocusedRepo, action: actions.editFocusedRepo, target: target))
         sessionMenu.addItem(commandMenuItem(Keymap.Command.deleteFocusedSession, action: actions.deleteFocusedSession, target: target))
@@ -155,6 +156,7 @@ struct CommandKeyActions {
     let focusDockTop: CommandKeyAction
     let focusDockBottom: CommandKeyAction
     let toggleWatcherDock: CommandKeyAction
+    let returnToMaster: CommandKeyAction
 
     var table: [(binding: Keymap.CommandBinding, action: CommandKeyAction)] {
         [
@@ -163,6 +165,7 @@ struct CommandKeyActions {
             (Keymap.Command.focusDockTop, focusDockTop),
             (Keymap.Command.focusDockBottom, focusDockBottom),
             (Keymap.Command.toggleWatcherDock, toggleWatcherDock),
+            (Keymap.Command.returnToMaster, returnToMaster),
         ]
     }
 }
@@ -178,6 +181,7 @@ struct MenuActions {
     let editFocusedRepo: Selector
     let deleteFocusedSession: Selector
     let selectSession: Selector
+    let returnToMaster: Selector
     let toggleTracker: Selector
     let focusTerminal: Selector
     let toggleDock: Selector

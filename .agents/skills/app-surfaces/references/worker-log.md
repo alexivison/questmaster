@@ -39,3 +39,11 @@
   panel scroll sideways with no scroller, in a view inset by `WorkerLogTabMetrics.sideInset` (the
   bottom corners' scoop radius plus `Space.item`), so every tab, clipped or not, stays clear of the scoop; a side
   with hidden tabs fades out over `TextTabMetrics.fadeWidth`, as the feed's top does. A change of selection scrolls it to the middle. The empty state stays centred in the room above the row.
+- With the Worker Log focused and its Action dropdown closed, Return or keypad Enter attaches the selected worker tab's
+  session and focuses the terminal, using the tracker's activation path (including continue for a stopped session).
+  All has no attachment target. With the dropdown open, Return still ticks its Action row. `⇧⌘U` (Session → Return to
+  Master), or the floating Return To Master button centred beneath the chat header, attaches the current worker's master
+  from any region; the shortcut is disabled without an existing master and while a
+  modal is open. Returning restores that master's selected worker tab and the app-wide Action ticks.
+  The button enters from above with a fade and leaves the same way, like expanding and collapsing tracker workers,
+  over `MotionStep.standard`; startup and Reduce Motion skip the transition.

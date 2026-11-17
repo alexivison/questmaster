@@ -90,7 +90,7 @@ public struct ListCapabilities: OptionSet, Equatable, Sendable {
     public static let questLog: ListCapabilities = [.modalMoves, .filter, .mark, .delete, .edit, .start, .closes, .tabs]
     /// The Worker Log's dropdown: Return and Space tick a row, Esc closes it, and the tab keys still step the tabs.
     public static let workerLogMenu: ListCapabilities = [.tabs, .opensOnReturn, .mark, .closes]
-    public static let workerLogFeed: ListCapabilities = [.tabs]
+    public static let workerLogFeed: ListCapabilities = [.tabs, .opensOnReturn]
 }
 
 /// Resolves a press into a `ListCommand` for the surface that has the keys. It holds the `gg` chord, so each surface keeps

@@ -169,6 +169,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 editFocusedRepo: #selector(editFocusedRepo),
                 deleteFocusedSession: #selector(deleteFocusedSession),
                 selectSession: #selector(selectTrackerSession(_:)),
+                returnToMaster: #selector(returnToMaster),
                 toggleTracker: #selector(toggleTracker),
                 focusTerminal: #selector(focusTerminal),
                 toggleDock: #selector(toggleDock),
@@ -197,7 +198,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             ),
             focusDockTop: dockPanelKeyAction(.top),
             focusDockBottom: dockPanelKeyAction(.bottom),
-            toggleWatcherDock: .anywhere { [weak self] in self?.toggleWatcherDock() }
+            toggleWatcherDock: .anywhere { [weak self] in self?.toggleWatcherDock() },
+            returnToMaster: .anywhere { [weak self] in self?.returnToMaster() }
         ))
         let serveMutationClient = UnixSocketMutationClient(connection: daemonConnection)
         terminalSessionController.setRouteClient(serveMutationClient)
@@ -286,6 +288,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.bottomDockShell.onRefreshArtifact = { [weak self] in self?.shellHandles?.dockView.refreshCurrentArtifact() }
         handles.dockView.onShowArtifactListIntent = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockView.onOpenArtifactIntent = { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
+        handles.dockView.onAttachSession = { [weak self] sessionID in self?.attachSession(sessionID) }
+        handles.terminalShell.onReturnToMaster = { [weak self] in self?.returnToMaster() }
         handles.dockView.onOpenArtifactExternal = { [weak self] artifact in self?.openArtifactExternally(artifact) }
         handles.dockView.onSetArtifactScope = { [weak self] scope in self?.setArtifactScope(scope) }
         handles.dockView.onSelectedArtifactChange = { [weak self] artifactID in
@@ -518,6 +522,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func focusTerminal() {
         focusCoordinator.focusTerminal()
+    }
+
+    @objc private func returnToMaster() {
+        guard navigation.appCommandRoute(.app) == .allowed,
+              let sessionID = runtimeStore.returnToMasterSessionID else {
+            return
+        }
+        attachSession(sessionID)
     }
 
     // Also reached from MenuController's key monitor, which runs before menu validation.
@@ -1198,6 +1210,9 @@ extension AppDelegate: NSMenuItemValidation {
         )
         guard route != .blockedByModal else {
             return false
+        }
+        if action == #selector(returnToMaster) {
+            return runtimeStore.returnToMasterSessionID != nil
         }
         // The panel focus keys are the dock's alone, as in the key monitor: a disabled item's shortcut does nothing.
         if action == #selector(focusDockTopPanel) {

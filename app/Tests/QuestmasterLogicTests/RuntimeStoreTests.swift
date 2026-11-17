@@ -7,6 +7,7 @@ struct RuntimeStoreTests {
         applyMergesUpdateAndNotifies()
         identicalApplyDoesNotNotifyOrTick()
         terminalSessionNotifiesOnlyOnChange()
+        returnToMasterFollowsOnlyAnAttachedWorkersExistingMaster()
         acknowledgedDeletionUpdatesSnapshot()
         cancelledObserverStopsReceivingNotifications()
         toggleWorkersCollapsedFlipsMembershipAndNotifies()
@@ -80,6 +81,31 @@ struct RuntimeStoreTests {
         expect(store.snapshot.tracker.repos[0].sessions[0].artifacts.isEmpty, "acknowledged artifact should leave its session")
         expect(store.snapshot.tracker.repos[0].sessions[1].artifacts == [retainedArtifact], "shared artifact should leave every session")
         expect(store.snapshot.tracker.quests == [retainedQuest], "acknowledged quest should leave the list")
+    }
+
+    private static func returnToMasterFollowsOnlyAnAttachedWorkersExistingMaster() {
+        let master = TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")
+        let worker = TrackerSession(id: "w", title: "Worker", repoName: "Repo", role: "worker", parentID: "m")
+        let other = TrackerSession(id: "other", title: "Other", repoName: "Repo", role: "master")
+        let store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: "w")
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", sessions: [other, master, worker])])))
+        expect(store.returnToMasterSessionID == "m", "the target is the worker's own master even with its rows collapsed")
+        store.toggleWorkersCollapsed(for: "m")
+        expect(store.returnToMasterSessionID == "m", "expansion does not affect the target")
+        for id: String? in [nil, "missing", "m", "other"] {
+            store.setCurrentTerminalSessionID(id)
+            expect(store.returnToMasterSessionID == nil, "only an attached worker can return to its master")
+        }
+        store.setCurrentTerminalSessionID("w")
+        for sessions in [
+            [worker],
+            [TrackerSession(id: "m", title: "Shell", repoName: "Repo", role: "shell"), worker],
+            [master, TrackerSession(id: "w", title: "Shell", repoName: "Repo", role: "shell", parentID: "m")],
+            [master, TrackerSession(id: "w", title: "Orphan", repoName: "Repo", role: "orphan", parentID: "m")],
+        ] {
+            store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", sessions: sessions)])))
+            expect(store.returnToMasterSessionID == nil, "missing parents and non-worker roles cannot return to a master")
+        }
     }
 
     private static func cancelledObserverStopsReceivingNotifications() {

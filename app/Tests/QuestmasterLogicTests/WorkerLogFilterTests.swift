@@ -33,6 +33,8 @@ struct WorkerLogFilterTests {
         keysDriveTheMenu()
         tabKeysSwitchTabsWithTheMenuOpenOrClosed()
         filterKeysResolveOnlyWhatTheMenuStateAllows()
+        returnAttachesOnlyTheSelectedWorkerOutsideTheMenu()
+        returningToTheMasterRestoresItsWorkerTab()
         filterKeepsCastRunsFolded()
         hiddenLinesStillCountTowardsTheLineTrim()
         filterChangesAreNeitherAppendsNorArrivals()
@@ -441,6 +443,38 @@ struct WorkerLogFilterTests {
     }
 
     // MARK: - Feed behaviour
+
+    private static func returnAttachesOnlyTheSelectedWorkerOutsideTheMenu() {
+        let (store, _) = openStore(entries: [])
+        expect(store.workerSessionIDToAttach(for: .open) == nil, "All has no worker to attach")
+        store.selectWorker("w2")
+        for keyCode: UInt16 in [36, 76] {
+            var keys = ListKeyResolver()
+            let command = keys.command(for: Keymap.KeyPress(keyCode: keyCode, character: nil), in: .workerLogFeed)
+            expect(store.workerSessionIDToAttach(for: command) == "w2", "Return and keypad Enter attach the selected worker even with no feed lines")
+            for modifier in Keymap.Modifier.allCases {
+                let modified = keys.command(for: Keymap.KeyPress(keyCode: keyCode, character: nil, modifiers: [modifier]), in: .workerLogFeed)
+                expect(store.workerSessionIDToAttach(for: modified) == nil, "modified Return is not an attachment key")
+            }
+        }
+        expect(store.workerSessionIDToAttach(for: .nextTab) == nil, "tab keys only change the filter")
+        store.toggleMenu()
+        expect(store.workerSessionIDToAttach(for: .open) == nil, "an open Action dropdown keeps Return for its checkbox")
+        store.closeMenu()
+        _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 1), isVisible: true)
+        expect(store.workerSessionIDToAttach(for: .open) == nil, "removing the selected worker clears the attachment target")
+    }
+
+    private static func returningToTheMasterRestoresItsWorkerTab() {
+        let (store, _) = openStore(entries: sampleEntries)
+        store.selectWorker("w2")
+        store.toggleAction(at: row(.status))
+        _ = store.sync(selectedSessionID: "w2", sessions: tracker(workers: 2), isVisible: true)
+        expect(!store.isAttached && store.workerSessionIDToAttach(for: .open) == nil, "while viewing a worker the log has no attachment target")
+        _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 2), isVisible: true)
+        expect(store.filter.workerID == "w2" && store.filter.actions == [.status], "returning to the master restores its tab and Action ticks")
+        expect(store.workerSessionIDToAttach(for: .open) == "w2", "Return can revisit that worker")
+    }
 
     /// Hidden lines don't change what folds: a Cast run is cut by a same-worker message the filter hides, as it is unfiltered.
     private static func filterKeepsCastRunsFolded() {

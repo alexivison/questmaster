@@ -128,6 +128,8 @@ enum RenderPreview {
         // caffeinate on), and everything at rest.
         render(appIconSheetView(), size: CGSize(width: 620, height: 1680), to: "\(outputDir)/app-icon-sheet.png")
         renderView(actionBarHeaderView(), size: CGSize(width: 631, height: ActionBarMetrics.height), to: "\(outputDir)/action-bar.png")
+        renderView(workerReturnHeaderView(), size: CGSize(width: 631, height: 110), to: "\(outputDir)/worker-return-header.png")
+        recordWorkerReturnMotion(to: outputDir)
         renderView(
             actionBarHeaderView(trackerVisible: false, caffeineActive: false, dockPanels: DockPanels()),
             size: CGSize(width: 631, height: ActionBarMetrics.height),
@@ -925,6 +927,52 @@ enum RenderPreview {
         )
         header.updateCaffeine(caffeineActive)
         return header
+    }
+
+    @MainActor
+    private static func workerReturnHeaderView() -> NSView {
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = AppPalette.window.cgColor
+        let header = actionBarHeaderView()
+        let terminal = TerminalShellView(body: NSView())
+        terminal.setReturnToMasterVisible(true)
+        // As in MainSplitView, the header covers anything sliding up behind it.
+        for view in [terminal, header] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: container.topAnchor),
+            header.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            header.heightAnchor.constraint(equalToConstant: ActionBarMetrics.height),
+            terminal.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Space.item),
+            terminal.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            terminal.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            terminal.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        return container
+    }
+
+    @MainActor
+    private static func recordWorkerReturnMotion(to outputDir: String) {
+        let name = "worker-return-motion"
+        guard ProcessInfo.processInfo.environment["RENDER_ONLY"]?.split(separator: ",").contains(Substring(name)) == true else {
+            return
+        }
+        let root = workerReturnHeaderView()
+        guard let terminal = root.subviews.compactMap({ $0 as? TerminalShellView }).first else {
+            return
+        }
+        terminal.setReturnToMasterVisible(false)
+        let size = CGSize(width: 631, height: 110)
+        recordAnimation(name, root: root, size: size, crop: CGRect(origin: .zero, size: size), duration: 4 * Motion.duration(.standard), capturesLayers: true, to: outputDir) {
+            terminal.setReturnToMasterVisible(true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2 * Motion.duration(.standard)) {
+                terminal.setReturnToMasterVisible(false)
+            }
+        }
     }
 
     @MainActor

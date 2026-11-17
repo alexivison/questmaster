@@ -3948,7 +3948,7 @@ enum LogicSelfTests {
     }
 
     /// The terminal consumes command-key chords as key equivalents before the menu sees them, so the chords that must work
-    /// from it (⇧⌘H/L, ⇧⌘R) run from `MenuController`'s key monitor, which comes first; ⇧⌘K/J do too, but only in the
+    /// from it (⇧⌘H/L, ⇧⌘R, ⇧⌘U) run from `MenuController`'s key monitor, which comes first; ⇧⌘K/J do too, but only in the
     /// dock's scope (⇧⌘J is also Ghostty's own write_screen_file:paste, shadowed only there), and the monitor returns them
     /// untouched elsewhere. A stand-in for the terminal consumes every key equivalent; an in-process key event for each
     /// chord must reach its action once, never the stand-in (so the menu can't run it a second time), and a held key must
@@ -3981,13 +3981,14 @@ enum LogicSelfTests {
             }
             NSApp.sendEvent(event)
         }
-        // keyCodes: K 40, J 38, H 4, L 37, R 15. Shift gives the capital character.
+        // keyCodes: K 40, J 38, H 4, L 37, R 15, U 32. Shift gives the capital character.
         let chords: [(name: String, characters: String, plain: String, keyCode: UInt16, flags: NSEvent.ModifierFlags)] = [
             ("⇧⌘K", "K", "K", 40, [.command, .shift]),
             ("⇧⌘J", "J", "J", 38, [.command, .shift]),
             ("⇧⌘R", "R", "R", 15, [.command, .shift]),
             ("⇧⌘H", "H", "H", 4, [.command, .shift]),
             ("⇧⌘L", "L", "L", 37, [.command, .shift]),
+            ("⇧⌘U", "U", "U", 32, [.command, .shift]),
         ]
 
         // The premise: the view hierarchy sees a key equivalent before the menu, and the terminal consumes it, so a menu item
@@ -4011,7 +4012,8 @@ enum LogicSelfTests {
             focusRegionRight: .anywhere { ran.append("⇧⌘L") },
             focusDockTop: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘K") }),
             focusDockBottom: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘J") }),
-            toggleWatcherDock: .anywhere { ran.append("⇧⌘R") }
+            toggleWatcherDock: .anywhere { ran.append("⇧⌘R") },
+            returnToMaster: .anywhere { ran.append("⇧⌘U") }
         )
         let menu = MenuController()
         menu.installCommandKeyMonitor(actions)
@@ -4065,7 +4067,7 @@ enum LogicSelfTests {
                 try expect(result == nil, "\(chord.name) works from every region")
             }
         }
-        try expect(ran == ["⇧⌘R", "⇧⌘H", "⇧⌘L"], "only the global chords ran outside the dock, got \(ran)")
+        try expect(ran == ["⇧⌘R", "⇧⌘H", "⇧⌘L", "⇧⌘U"], "only the global chords ran outside the dock, got \(ran)")
         ran.removeAll()
         try send("K", "K", keyCode: 40, [.command, .shift], isARepeat: true)
         try expect(ran.isEmpty, "a held dock chord outside the dock runs nothing either")
@@ -8841,9 +8843,13 @@ enum LogicSelfTests {
         ]
         _ = chat.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
         let dock = SwiftUIDockPane(store: RuntimeStore(sourceLabel: "test"), workerChatStore: chat, newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())
+        var attachments: [String] = []
+        dock.onAttachSession = { attachments.append($0) }
         let snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         dock.apply(DockState(bottomVisible: true, dockContent: .workerChat), snapshot: snapshot)
 
+        try dock.keyDown(with: keyEvent("\r", keyCode: 36))
+        try expect(attachments.isEmpty, "Return on All has no worker to attach")
         try dock.keyDown(with: keyEvent("j", keyCode: 38))
         try expect(!chat.menu.isOpen && chat.menu.cursor == 0, "j scrolls the feed while the filter is closed")
         try dock.keyDown(with: keyEvent("f", keyCode: 3))
@@ -8867,9 +8873,16 @@ enum LogicSelfTests {
         try expect(chat.filter.workerID == "w2", "[ from All should wrap to the last tab, got \(String(describing: chat.filter.workerID))")
         try dock.keyDown(with: keyEvent("]", keyCode: 30, modifierFlags: .command))
         try expect(chat.filter.workerID == "w2", "a ⌘ chord is not the tabs'")
+        try dock.keyDown(with: keyEvent("\r", keyCode: 36, modifierFlags: .shift))
+        try expect(attachments.isEmpty, "modified Return must not attach a worker")
+        try dock.keyDown(with: keyEvent("\r", keyCode: 36))
+        try dock.keyDown(with: keyEvent("\r", keyCode: 76))
+        try expect(attachments == ["w2", "w2"], "Return and keypad Enter should attach the selected worker")
         try dock.keyDown(with: keyEvent("f", keyCode: 3))
         try dock.keyDown(with: keyEvent("[", keyCode: 33))
         try expect(chat.filter.workerID == "w1" && chat.menu.isOpen, "[ should step the tabs with the dropdown open, and leave it open")
+        try dock.keyDown(with: keyEvent("\r", keyCode: 36))
+        try expect(attachments == ["w2", "w2"] && chat.filter.actions == [.item, .cast], "Return in the dropdown should tick its row without attaching")
         try dock.keyDown(with: keyEvent("\u{1b}", keyCode: 53))
 
         try dock.keyDown(with: keyEvent("f", keyCode: 3))

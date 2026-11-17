@@ -10,6 +10,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private let settingsPresenter: SettingsSheetPresenter
     private let workerChatStore: WorkerChatStore
     private var keys = ListKeyResolver()
+    var onAttachSession: ((String) -> Void)?
 
     init(
         store: RuntimeStore,
@@ -99,7 +100,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     /// one `g` is one step of `gg` however many of the handlers below take the press.
     private func handleDockKey(_ event: NSEvent) -> Bool {
         let command = keys.command(for: event.keymapPress, in: listCapabilities)
-        return handleWorkerLogFilter(event, command: command)
+        return handleWorkerLogKey(event, command: command)
             || model.handleKeyDown(event, command: command, snapshot: store.snapshot)
             || handleReadSurfaceScroll(command)
     }
@@ -116,15 +117,20 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     }
 
     /// The Worker Log's own keys, ahead of the feed's: while the filter's dropdown is open j/k and the arrows move its
-    /// cursor instead of scrolling, and `[` and `]` step the worker tabs whether it is open or not.
-    private func handleWorkerLogFilter(_ event: NSEvent, command: ListCommand?) -> Bool {
+    /// cursor instead of scrolling, and `[` and `]` step the worker tabs whether it is open or not. With the dropdown
+    /// closed, Return attaches the selected worker.
+    private func handleWorkerLogKey(_ event: NSEvent, command: ListCommand?) -> Bool {
         guard model.currentMode == .workerChat else {
             return false
         }
-        guard let key = WorkerLogFilterKey.resolve(event.keymapPress, command: command, menuIsOpen: workerChatStore.menu.isOpen) else {
+        if let key = WorkerLogFilterKey.resolve(event.keymapPress, command: command, menuIsOpen: workerChatStore.menu.isOpen) {
+            return workerChatStore.handle(key)
+        }
+        guard let sessionID = workerChatStore.workerSessionIDToAttach(for: command) else {
             return false
         }
-        return workerChatStore.handle(key)
+        onAttachSession?(sessionID)
+        return true
     }
 
     private var textInputOwnsFocus: Bool {

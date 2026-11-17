@@ -101,6 +101,7 @@ public enum Keymap {
         public static let newQuest = CommandBinding(title: "New Quest", keyEquivalent: "t")
         public static let newTerminal = CommandBinding(title: "New Terminal", keyEquivalent: "s")
         public static let newMasterSession = CommandBinding(title: "New Master Session", keyEquivalent: "m")
+        public static let returnToMaster = CommandBinding(title: "Return to Master", keyEquivalent: "u", modifiers: [.command, .shift])
         public static let editFocusedSession = CommandBinding(title: "Edit Focused Session", keyEquivalent: "e")
         public static let editFocusedRepo = CommandBinding(title: "Edit Focused Repo", keyEquivalent: "e", modifiers: [.command, .shift])
         public static let deleteFocusedSession = CommandBinding(title: "Delete Focused Session", keyEquivalent: "d", modifiers: [.command, .shift])
