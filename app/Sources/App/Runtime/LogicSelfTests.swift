@@ -70,6 +70,7 @@ enum LogicSelfTests {
         ("testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn", testTrackerHeaderIsAStaticBannerSpanningThePlatesAndBadgeColumn),
         ("testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar", testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar),
         ("testDockTitlesStayCentredOnTheirPlatesUnderATitlebar", testDockTitlesStayCentredOnTheirPlatesUnderATitlebar),
+        ("testDockTitlePlatesCentreOnThePanelBorder", testDockTitlePlatesCentreOnThePanelBorder),
         ("testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate", testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
@@ -1030,6 +1031,68 @@ enum LogicSelfTests {
         try expect(abs(workerTopTitled) <= 1.5, "the Worker Log title at the top should be centred on its plate: \(report)")
         try expect(abs(workerBottomTitled) <= 1.5, "the Worker Log title at the bottom should be centred on its plate: \(report)")
         try expect(abs(artifactsTitled) <= 1.5, "the Artifacts title should be centred on its plate: \(report)")
+    }
+
+    /// A dock's title plate centres on its panel's top border: the border's centre line, read from the rendered pixels in a
+    /// column of the straight top edge that the plate doesn't cover. The bottom dock's plate also stays below the panel
+    /// above it, which sits `panelGap` over this panel's edge.
+    private static func testDockTitlePlatesCentreOnThePanelBorder() throws {
+        let width: CGFloat = 400, height: CGFloat = 700, scale: CGFloat = 2
+        let topFrame = NSRect(x: 20, y: height - 20 - 300, width: 360, height: 300)
+        let bottomFrame = NSRect(x: 20, y: 20, width: 360, height: height - 40 - 300 - 20)
+        let border = OutlineLook.frame(focused: false).border.color.usingColorSpace(.deviceRGB)
+        for (name, frame) in [("top", topFrame), ("bottom", bottomFrame)] {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+            window.contentView = container
+            let shell = DockShellView(body: NSView(), model: DockChromeModel(topBar: DockTopBarModel.watcher))
+            shell.frame = frame
+            container.addSubview(shell)
+            container.layoutSubtreeIfNeeded()
+            try pumpOneMainRunLoopTurn()
+            container.layoutSubtreeIfNeeded()
+            guard let plate = descendant(DockTitlePlateHost.self, in: shell) else {
+                throw TestFailure("the \(name) dock should host its title plate")
+            }
+            let plateRect = container.convert(plate.bounds, from: plate)
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(width * scale), pixelsHigh: Int(height * scale), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ) else {
+                throw TestFailure("could not make a bitmap")
+            }
+            bitmap.size = NSSize(width: width, height: height)
+            container.cacheDisplay(in: container.bounds, to: bitmap)
+            // The border is an opaque stroke of the frame colour, so its rows match that colour and nothing else in the column.
+            func isBorder(_ column: Int, _ row: Int) -> Bool {
+                guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB), let border else {
+                    return false
+                }
+                return abs(pixel.redComponent - border.redComponent) < 0.02
+                    && abs(pixel.greenComponent - border.greenComponent) < 0.02
+                    && abs(pixel.blueComponent - border.blueComponent) < 0.02
+            }
+            // One point above the panel's edge to three below it: the border's 2pt band and the panel fill beneath.
+            let column = Int((frame.minX + 40) * scale)
+            let rows = Int((height - frame.maxY - 1) * scale)..<Int((height - frame.maxY + 3) * scale)
+            let bandRows = rows.filter { isBorder(column, $0) }
+            guard let first = bandRows.first, let last = bandRows.last else {
+                throw TestFailure("the \(name) panel's top border should show in the pixels")
+            }
+            let borderTop = height - CGFloat(first) / scale
+            let borderBottom = height - CGFloat(last + 1) / scale
+            let borderCentre = (borderTop + borderBottom) / 2
+            let report = "the \(name) plate's centre is \(plateRect.midY), the border's centre \(borderCentre), the border \(borderTop - borderBottom)pt"
+            try expect(abs(borderTop - borderBottom - ScoopedRectangle.borderWidth) <= 0.5, "the panel's border should be \(ScoopedRectangle.borderWidth)pt: \(report)")
+            try expect(abs(plateRect.midY - borderCentre) <= 0.5, "the plate's centre should sit on the panel border's centre line: \(report)")
+            if name == "bottom" {
+                // The panel above's bottom edge is `panelGap` over this panel's edge; its border lies inside that edge.
+                let upperEdge = frame.maxY + DockColumnLayout.panelGap
+                try expect(plateRect.maxY < upperEdge, "the bottom plate's top should stay below the panel above's edge: \(report)")
+            }
+        }
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
