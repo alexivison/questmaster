@@ -22,3 +22,5 @@
   is a skeleton until the first poll: ghost bars for the git glyph, the number and the title, then for the review glyph and
   the counters. Nothing real shows, not even the number or the watchers, so the row doesn't fill in piece by piece. The bars breathe
   in `SkeletonPulse` (`WatcherMetrics.skeleton*`). An inaccessible PR has a status and is never loading.
+- **Margins.** A row sits `WatcherMetrics.inset` (`PanelMetrics.contentInset`, 20) in from the panel's edges on both sides. The
+  list passes `SectionedList(indicators: .never)`, not the default `.hidden`, so its rows keep that width while it scrolls, as they do when it doesn't overflow.

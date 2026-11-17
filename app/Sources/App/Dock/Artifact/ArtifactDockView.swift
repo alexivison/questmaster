@@ -90,7 +90,8 @@ struct ArtifactDockView: View {
                 SectionedList(
                     selectedID: model.selectedArtifactID,
                     scrollOnAppear: true,
-                    scrollTarget: model.selectedArtifactID.map { ScrollTarget(id: $0, nonce: model.scrollNonce) }
+                    scrollTarget: model.selectedArtifactID.map { ScrollTarget(id: $0, nonce: model.scrollNonce) },
+                    indicators: .never
                 ) {
                     ForEach(model.artifacts) { artifact in
                         ArtifactRow(
@@ -106,13 +107,13 @@ struct ArtifactDockView: View {
                         .id(artifact.id)
                     }
                 }
+                // The bottom corners' scoop reaches the panel's margin about 20pt up, so the list stops a margin above the edge: its
+                // last card scrolls clear of the scoop, as the Watcher's rows do.
+                .padding(.bottom, PanelMetrics.contentInset)
                 .accessibilityLabel("Artifact list")
             }
         }
         .padding(.top, Space.section)
-        // The column starts `Space.item` in, so the gutter where a row's mark and the keyboard pointer draw sits clear of the
-        // panel's 2pt border.
-        .padding(.leading, Space.item)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.artifactListColumn.swiftUI)
     }
@@ -132,7 +133,7 @@ struct ArtifactDockView: View {
             onRemoveToken: onRemoveFilterToken,
             onSelectSuggestion: onSelectFilterSuggestion
         )
-        .padding(.horizontal, Space.section)
+        .padding(.horizontal, PanelMetrics.contentInset)
         .zIndex(2)
     }
 
@@ -157,7 +158,9 @@ struct ArtifactRow: View {
         static let height = ListItemMetrics.height
         static let spacing = ListItemMetrics.spacing
         static let cornerRadius: CGFloat = 5
-        static let gutter = Space.section
+        /// The mark gutter on the leading side, and the same room on the trailing side: the panel's content inset, so a card sits
+        /// `PanelMetrics.contentInset` in from the panel's edges, as the filter does.
+        static let gutter = PanelMetrics.contentInset
         static let tileOrigin = CGPoint(x: ListItemMetrics.textInset, y: Space.row)
         static let tileSide = ControlHeight.bar
         /// The kind's glyph in its 40pt tile. At 30 the keylined html and markdown measure 20 x 25 against the SF symbols' 19 x 24,
@@ -409,7 +412,7 @@ struct ArtifactViewerPane: View {
                     SkeletonBar(width: width)
                 }
             }
-            .padding(Space.section)
+            .padding(PanelMetrics.contentInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .background(AppPalette.artifactViewerBackground.swiftUI)

@@ -156,6 +156,7 @@ enum LogicSelfTests {
         ("testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow", testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow),
         ("testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion", testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion),
         ("testEveryEmptyPanelDrawsTheOneIconCentredInItsSection", testEveryEmptyPanelDrawsTheOneIconCentredInItsSection),
+        ("testAnOverflowingListKeepsItsRowsAtItsFullWidth", testAnOverflowingListKeepsItsRowsAtItsFullWidth),
         ("testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
         ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
         ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
@@ -3828,13 +3829,46 @@ enum LogicSelfTests {
         }
         let dock = CGSize(width: DockWidthPreference.panelWidth, height: 400)
         try expectCentred(try ink(artifacts(.viewer), size: dock), in: CGRect(origin: .zero, size: dock), "the artifact viewer")
-        // The list's top padding: the tabs sit in the top bar, not above it.
+        // The list's top padding: the tabs sit in the top bar, not above it. The column has no inset of its own: its rows and
+        // filter take the panel's content inset on both sides.
         let listTop = Space.section
         try expectCentred(
             try ink(artifacts(.list), size: dock, below: Int(listTop)),
-            in: CGRect(x: Space.item, y: listTop, width: dock.width - Space.item, height: dock.height - listTop),
+            in: CGRect(x: 0, y: listTop, width: dock.width, height: dock.height - listTop),
             "the artifact list under its tabs"
         )
+    }
+
+    /// A panel's list that overflows keeps its rows at its full width while it scrolls. SwiftUI reserves a hidden indicator's
+    /// width from an overflowing scroll view's content, which narrowed the rows on the right alone, so panels pass `.never`.
+    private static func testAnOverflowingListKeepsItsRowsAtItsFullWidth() throws {
+        // The cursor starts far down, as a panel's list does: the scroll to it is what shows the indicator.
+        let list = SectionedList(selectedID: "30", scrollOnAppear: true, indicators: .never) {
+            ForEach(0..<40, id: \.self) { index in
+                Text("Row \(index)")
+                    .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                    .id(String(index))
+            }
+        }
+        .frame(width: 300, height: 200)
+        let hosting = NSHostingView(rootView: list)
+        // Hosted as a frame-based container's subview, as RenderPreview hosts a fixture: a content view's constraints would
+        // size the window instead, and the list would not overflow the way a panel's does.
+        hosting.frame = NSRect(origin: .zero, size: CGSize(width: 300, height: 200))
+        let container = NSView(frame: hosting.frame)
+        container.addSubview(hosting)
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
+        window.contentView = container
+        window.show()
+        defer { window.close() }
+        try expect(waitUntil { descendant(NSScrollView.self, in: hosting)?.documentView != nil }, "a list should host a scroll view with a document")
+        // SwiftUI sizes an overflowing document on a later layout pass, so let the list settle before reading its width.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        guard let scrollView = descendant(NSScrollView.self, in: hosting), let documentView = scrollView.documentView else {
+            throw TestFailure("the list should host a scroll view with a document")
+        }
+        let clipWidth = scrollView.contentView.bounds.width
+        try expect(abs(documentView.frame.width - clipWidth) < 0.5, "a scrolling list's rows should fill its width, got \(documentView.frame.width) of \(clipWidth)")
     }
 
     /// The refresh mark is the tracker's spinner, not a lookalike (one `SpinnerRing`): the same turn, once every

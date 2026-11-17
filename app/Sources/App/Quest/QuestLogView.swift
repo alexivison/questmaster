@@ -20,7 +20,7 @@ enum QuestLogMetrics {
     static let tabsHeight = TextTabMetrics.height
     static let columnGap = Space.item
     /// Between the page and the outer edges, and between the list and the page.
-    static let inset = Space.section
+    static let inset = PanelMetrics.contentInset
     /// Below the page: `inset` to the buttons, which are `ControlHeight.control` high, then `Space.item` under them.
     static let buttonBandHeight = Space.section + ControlHeight.control + Space.item * 2
     /// Every card keeps the same height, including quests without tags. Its lower line holds tags and the project.
@@ -245,7 +245,8 @@ private struct QuestLogList: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(ScrollerHider())
             }
-            .scrollIndicators(.hidden)
+            // `.never`, as `SectionedList` has it: a hidden indicator would narrow the cards on the right while the list scrolls.
+            .scrollIndicators(.never)
             // The view is rebuilt per opening, so the kept selection is scrolled to as it appears.
             .onAppear { scroll(proxy, to: store.selectedID) }
             .onChange(of: store.selectedID) { _, id in

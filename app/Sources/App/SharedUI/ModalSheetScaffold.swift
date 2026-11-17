@@ -4,7 +4,7 @@ import SwiftUI
 struct ModalSheetScaffold<Content: View>: View {
     let title: String
     let errorMessage: String?
-    var horizontalInset = Space.section
+    var horizontalInset = PanelMetrics.contentInset
     var errorHeight: CGFloat = 45
     /// The one departure from the shared gold chrome: a destructive sheet's
     /// title stays semantic red so its danger signal survives the theme.
@@ -77,7 +77,7 @@ struct ModalSheetHeader: View {
 
     let title: String
     var titleColor: NSColor = AppPalette.accent
-    var horizontalInset = Space.section
+    var horizontalInset = PanelMetrics.contentInset
 
     var body: some View {
         VStack(spacing: 0) {

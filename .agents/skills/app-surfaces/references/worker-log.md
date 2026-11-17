@@ -36,6 +36,7 @@
   and work only while the bottom panel has the keys and the row shows (otherwise they pass through). The feed ends where
   the row begins; the row's height, baseline and bottom inset are `TextTabMetrics` and `WorkerLogTabMetrics` (`reserved`,
   `bottomInset`). Tabs too many for the
-  panel scroll sideways with no scroller, in a view inset by `WorkerLogTabMetrics.sideInset` (the
-  bottom corners' scoop radius plus `Space.item`), so every tab, clipped or not, stays clear of the scoop; a side
+  panel scroll sideways with no scroller, in a view inset by `WorkerLogTabMetrics.sideInset` (the bottom corners' scoop
+  radius plus `Space.item`, 35, a scoop exception to `PanelMetrics.contentInset`): the scoop reaches about 25 in along the
+  row's bottom edge, so every tab, clipped or not, stays 10 clear of it; a side
   with hidden tabs fades out over `TextTabMetrics.fadeWidth`, as the feed's top does. A change of selection scrolls it to the middle. The empty state stays centred in the room above the row.

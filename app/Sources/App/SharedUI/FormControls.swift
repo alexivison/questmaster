@@ -361,7 +361,7 @@ enum ModalFormMetrics {
     static let size = CGSize(width: 540, height: 620)
     /// The shared header leaves the content this far down.
     static let contentTop = ModalSheetHeader.height + Space.item
-    static let inset = Space.section
+    static let inset = PanelMetrics.contentInset
     static let fieldSpacing = Space.section
     /// Between the fields and the buttons (holding the error), and under the buttons.
     static let bandHeight = Space.section

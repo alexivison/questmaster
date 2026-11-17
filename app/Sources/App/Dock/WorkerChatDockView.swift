@@ -8,7 +8,7 @@ import SwiftUI
 /// in from the item's left edge, so they run under the time. Items sit 10pt apart (the design's 9 on the
 /// 5pt rhythm), 20pt from the card edge on every side.
 enum WorkerChatMetrics {
-    static let inset = Space.section
+    static let inset = PanelMetrics.contentInset
     /// How far the lines fade in under the header (the top bar, and the filter's chips when there are any): the feed's own
     /// top inset, so a feed scrolled to its top starts with its first line where the fade ends.
     static let topFadeHeight = inset

@@ -1,12 +1,13 @@
 import QuestmasterCore
 import SwiftUI
 
-/// The Worker Log's tab row insets: the row ends `bottomInset` above the panel's bottom edge, and the bottom corners'
-/// scoop reaches its radius in beside the row, so the tabs keep `Space.item` clear of it.
+/// The Worker Log's tab row insets: the row ends `bottomInset` above the panel's bottom edge. The bottom corners' scoop
+/// reaches about 25pt in along that row's bottom edge, so the tabs sit clear of it: a scoop exception to `PanelMetrics`.
 enum WorkerLogTabMetrics {
     static let bottomInset = Space.item
     /// What the row takes from the panel's bottom: the row and the inset under it.
     static let reserved = TextTabMetrics.height + bottomInset
+    /// The scoop radius plus `Space.item`: the scoop's edge sits 25pt in, 10 up, so the tabs keep 10pt clear of it.
     static let sideInset = ScoopedRectangle.radius + Space.item
 }
 
