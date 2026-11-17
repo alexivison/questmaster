@@ -2,13 +2,15 @@ import QuestmasterCore
 import AppKit
 import SwiftUI
 
-/// Geometry of a text tab row (`Tabs (Simple).svg`): JetBrains Mono 12pt, and `Space.row` on each side of the 2 x 2
+/// Geometry of a text tab row (`Tabs (Simple).svg`): JetBrains Mono 12pt, and `Space.item` on each side of the 2 x 2
 /// square turned 45° between the tabs. A 12pt line is 16 high, more than `ControlHeight.chip` holds, so the row is
 /// `ControlHeight.compact` high with the line centred: its baseline 17 down. Measured from the user's mock (at 10pt),
 /// the separator's centre sits 4.8 over the baseline.
 enum TextTabMetrics {
     static let height = ControlHeight.compact
-    static let separatorGap = Space.row
+    /// Each side of the separator. The user asked for 10 (`Space.item`) in place of the design's 5 (2026-11-17), in every text
+    /// tab row: the Worker Log's, the Quest Log's and the Artifacts'.
+    static let separatorGap = Space.item
     static let labelBaseline: CGFloat = 17
     /// The separator's 2 x 2 square is 2.83 across once turned, its centre 4.8 over the baseline: the design's 4 at 10pt,
     /// scaled to 12.
