@@ -44,7 +44,8 @@ struct WatcherDockView: View {
 }
 
 /// The panel's content for the rows it is given: the list, scrolling inside the panel, ending 20 above its bottom edge,
-/// or the empty state, with a muted notice under either.
+/// or the empty state, with a muted notice under either. The list starts `contentGap` under the title (`bodyTopInset`
+/// under the bar).
 struct WatcherList: View {
     let rows: [PullRequestDisplayRow]
     let cursorKey: String?
@@ -76,6 +77,7 @@ struct WatcherList: View {
                     .id(row.pullRequest.key)
                 }
             }
+            .padding(.top, PanelHeaderMetrics.bodyTopInset)
             .padding(.bottom, WatcherMetrics.inset)
             .accessibilityLabel("Pull request list")
         }

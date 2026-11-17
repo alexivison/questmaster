@@ -233,8 +233,8 @@ enum AppFonts {
 
     static let body = monospaced(size: 13)
     static let bodyBold = monospaced(size: 13, weight: .semibold)
-    /// Sheet/modal titles.
-    static let title = monospaced(size: 18, weight: .bold)
+    /// Every dock and modal title (`PanelTitle`), as artifacts.svg sets the dock's: 14pt bold, title case, in the one gold.
+    static let panelTitle = monospaced(size: 14, weight: .bold)
     /// Small caps-style modal field labels (e.g. "Path", "Agent").
     static let modalLabel = monospaced(size: 10, weight: .semibold)
     /// Italic flavor/helper text next to modal fields.
@@ -244,8 +244,6 @@ enum AppFonts {
     /// Artifact row titles at 12pt, as artifact-item-v2.svg sets them; never bold (bold means selected).
     static let artifactTitle = monospaced(size: 12)
     static let dockTabTitle = monospaced(size: 12, weight: .semibold)
-    /// The dock top bar's title ("Artifacts", "Worker Log"), as artifacts.svg sets it: 14pt bold, title case.
-    static let dockTopBarTitle = monospaced(size: 14, weight: .bold)
     static let modalButtonLabel = monospaced(size: 12.5, weight: .semibold)
     /// Sectioned-list group titles (e.g. the repo name above a Tracker group).
     static let sectionTitle = monospaced(size: 11, weight: .semibold)

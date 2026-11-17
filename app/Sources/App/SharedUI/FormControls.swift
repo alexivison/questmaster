@@ -359,8 +359,8 @@ struct ModalFormSheet<Content: View>: View {
 
 enum ModalFormMetrics {
     static let size = CGSize(width: 540, height: 620)
-    /// The shared header leaves the content this far down.
-    static let contentTop = ModalSheetHeader.height + Space.item
+    /// The shared header leaves the content this far down: `contentGap` under its chapter rule.
+    static let contentTop = ModalSheetHeader.height + PanelHeaderMetrics.contentGap
     static let inset = PanelMetrics.contentInset
     static let fieldSpacing = Space.section
     /// Between the fields and the buttons (holding the error), and under the buttons.

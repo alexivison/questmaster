@@ -9,7 +9,8 @@ enum WorkerLogFilterMetrics {
     static let rowHeight = ControlHeight.control
 }
 
-/// The Action chip under the dock's top bar: the ticked names in bold, and its x clears the ticks. It grows with them.
+/// The Action chip under the dock's title (`PanelHeaderMetrics`): the ticked names in bold, and its x clears the ticks. It
+/// grows with them. It sits `elementGap` under the title, on the top bar's bottom edge.
 struct WorkerLogChipRow: View {
     let summary: String
     let onClear: () -> Void
@@ -22,7 +23,6 @@ struct WorkerLogChipRow: View {
                 .lineLimit(1)
         }
         .padding(.horizontal, WorkerChatMetrics.inset)
-        .padding(.top, Space.row)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

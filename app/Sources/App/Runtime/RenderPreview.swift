@@ -628,7 +628,7 @@ enum RenderPreview {
 
     /// The Watcher panel on its own, 480 x 300 at the Session Detail Dock's offset in its 482 x 305 canvas.
     @MainActor
-    private static func watcherPanelView(state: WatcherPanelState = .design, isRefreshing: @escaping () -> Bool = { false }) -> NSView {
+    static func watcherPanelView(state: WatcherPanelState = .design, isRefreshing: @escaping () -> Bool = { false }) -> NSView {
         let panel = DockShellView(
             body: NSHostingView(rootView: watcherContent(state)),
             model: DockChromeModel(topBar: .watcher, isRefreshing: isRefreshing)

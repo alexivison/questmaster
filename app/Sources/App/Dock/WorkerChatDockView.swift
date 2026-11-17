@@ -9,9 +9,6 @@ import SwiftUI
 /// 5pt rhythm), 20pt from the card edge on every side.
 enum WorkerChatMetrics {
     static let inset = PanelMetrics.contentInset
-    /// How far the lines fade in under the header (the top bar, and the filter's chips when there are any): the feed's own
-    /// top inset, so a feed scrolled to its top starts with its first line where the fade ends.
-    static let topFadeHeight = inset
     /// The font's line, typography rather than spacing: JetBrains Mono 12's 15.84 ceiled.
     static let lineHeight: CGFloat = 16
     static let itemGap = Space.item
@@ -82,10 +79,11 @@ struct WorkerChatDockView: View {
     let areaFocused: Bool
 
     var body: some View {
+        // The ticks outlive the attached master, but a log with nothing attached is blank.
+        let chipSummary = store.isAttached ? store.filter.actionSummary : nil
         VStack(alignment: .leading, spacing: 0) {
-            // The ticks outlive the attached master, but a log with nothing attached is blank.
-            if store.isAttached, let summary = store.filter.actionSummary {
-                WorkerLogChipRow(summary: summary, onClear: store.clearActions)
+            if let chipSummary {
+                WorkerLogChipRow(summary: chipSummary, onClear: store.clearActions)
             }
             // Greedy, so the chip stays under the top bar when nothing under it is (a first read still pending or
             // failed): a lone notice sits in the middle of what is left, as it does with no chip.
@@ -93,7 +91,14 @@ struct WorkerChatDockView: View {
                 if store.isKnownEmpty {
                     EmptyState(reason: store.emptyReason)
                 } else if !store.lines.isEmpty {
-                    WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
+                    // The first line sits `contentGap` under the chip, or under the bar when there is no chip (`bodyTopInset`).
+                    WorkerChatFeedView(
+                        lines: store.lines,
+                        revision: store.revision,
+                        trimCount: store.trimCount,
+                        appended: store.lastUpdateAppended,
+                        topInset: chipSummary == nil ? PanelHeaderMetrics.bodyTopInset : PanelHeaderMetrics.contentGap
+                    )
                 }
                 readNotice
             }
@@ -159,6 +164,8 @@ struct WorkerChatFeedView: View {
     let revision: Int
     let trimCount: Int
     let appended: Bool
+    /// How far the first line sits under the feed's top edge: `contentGap` under a chip, `bodyTopInset` under the bar.
+    var topInset: CGFloat = WorkerChatMetrics.inset
 
     var body: some View {
         GeometryReader { viewport in
@@ -169,18 +176,20 @@ struct WorkerChatFeedView: View {
                 // The follower sits on the rows, not the padded frame: a short feed's frame keeps the viewport's
                 // height, so only the rows' own frame shows an arrival.
                 .background(WorkerChatBottomFollower(revision: revision, trimCount: trimCount, appended: appended))
-                .padding(WorkerChatMetrics.inset)
+                .padding(.horizontal, WorkerChatMetrics.inset)
+                .padding(.top, topInset)
+                .padding(.bottom, WorkerChatMetrics.inset)
                 .frame(minHeight: viewport.size.height, alignment: .bottom)
                 .background(ScrollerHider())
             }
             .scrollIndicators(.hidden)
         }
         // The Quest Log page's overflow cue, at the top only: the lines scrolled up under the header fade out over the
-        // feed's first `topFadeHeight` instead of being cut at its edge.
+        // feed's first `topInset` instead of being cut at its edge.
         .mask {
             VStack(spacing: 0) {
                 LinearGradient(colors: [.clear, AppPalette.mask.swiftUI], startPoint: .top, endPoint: .bottom)
-                    .frame(height: WorkerChatMetrics.topFadeHeight)
+                    .frame(height: topInset)
                 AppPalette.mask.swiftUI
             }
         }

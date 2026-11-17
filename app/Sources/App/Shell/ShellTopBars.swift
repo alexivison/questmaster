@@ -30,13 +30,6 @@ final class DockChromeModel {
     }
 }
 
-/// Every dock's title (Artifacts, Worker Log, an open artifact's name): title case, in the one gold.
-private func dockTopBarTitle(_ title: String) -> some View {
-    BaselineText(title, font: AppFonts.dockTopBarTitle, color: AppPalette.accent, baseline: ShellMetrics.dockTopBarTitleBaseline)
-        .lineLimit(1)
-        .truncationMode(.tail)
-}
-
 private extension View {
     /// Centres the bar's icon buttons on the line artifacts.svg draws them on. An offset, not padding: the buttons
     /// would otherwise reach past the bar's bottom and make it taller.
@@ -94,7 +87,7 @@ struct DockTopBar: View {
             }
             .dockTopBarIcons()
             if let title = topBar.title {
-                dockTopBarTitle(title)
+                PanelTitle(text: title)
                     .overlay(alignment: .trailing) { refreshSpinner }
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, ChromeMetrics.iconWidth + Space.item)
@@ -122,7 +115,7 @@ struct DockTopBar: View {
             .dockTopBarIcons()
 
             if let title = topBar.title {
-                dockTopBarTitle(title)
+                PanelTitle(text: title)
                     .layoutPriority(1)
                     .frame(maxWidth: .infinity)
             }

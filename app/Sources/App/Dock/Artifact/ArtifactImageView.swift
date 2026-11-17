@@ -18,7 +18,8 @@ struct ArtifactImageView: View {
                     .interpolation(.high)
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(PanelMetrics.contentInset)
+                    .padding(.horizontal, PanelMetrics.contentInset)
+                    .padding(.bottom, PanelMetrics.contentInset)
             } else {
                 ArtifactStatusPane(
                     glyph: .icon(.artifactImagePortrait),

@@ -69,25 +69,24 @@ struct ModalSheetScaffold<Content: View>: View {
     }
 }
 
-/// Every modal's title over the chapter rule, from user-quests-modal-v3.svg: the title's baseline 39 down and the
-/// rule's band ending 70 down, so the content starts `Space.item` under it, 80 down.
+/// Every modal's header (`PanelHeaderMetrics`): the shared `PanelTitle`, `elementGap` above the chapter rule's band, and the
+/// panel's content `contentGap` under the band. The title sits where a dock's does.
 struct ModalSheetHeader: View {
-    static let height: CGFloat = 70
-    static let titleBaseline: CGFloat = 39
+    /// The title's text frame, the gap, and the rule's band: where the header's own elements end.
+    static let height = PanelHeaderMetrics.titleRowHeight + PanelHeaderMetrics.elementGap + ModalChapterRuleMetrics.band
 
     let title: String
     var titleColor: NSColor = AppPalette.accent
     var horizontalInset = PanelMetrics.contentInset
 
     var body: some View {
-        VStack(spacing: 0) {
-            BaselineText(title, font: AppFonts.title, color: titleColor, baseline: Self.titleBaseline)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, horizontalInset)
+        VStack(spacing: PanelHeaderMetrics.elementGap) {
+            PanelTitle(text: title, color: titleColor)
+                .frame(height: PanelHeaderMetrics.titleRowHeight)
             ModalChapterRule()
-                .padding(.horizontal, horizontalInset)
         }
+        .padding(.horizontal, horizontalInset)
         .frame(height: Self.height)
-        .padding(.bottom, Space.item)
+        .padding(.bottom, PanelHeaderMetrics.contentGap)
     }
 }
