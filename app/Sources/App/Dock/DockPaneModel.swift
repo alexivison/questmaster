@@ -625,7 +625,8 @@ final class DockPaneModel: ObservableObject {
             typeFilterOptions: typeOptions,
             filterFocusNonce: artifactFilterFocusNonce,
             reloadNonce: artifactReloadNonce,
-            scrollNonce: artifactScrollNonce
+            scrollNonce: artifactScrollNonce,
+            emptyReason: ListEmptyReason.of(total: sourceArtifacts.count, shown: update.artifacts.count)
         )
         if artifactModel != nextModel {
             artifactModel = nextModel

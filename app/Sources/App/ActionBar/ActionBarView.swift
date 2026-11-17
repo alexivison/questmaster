@@ -38,6 +38,7 @@ struct ActionBarView: View {
     let onHideTracker: () -> Void
     let onOpenArtifacts: () -> Void
     let onOpenQuests: () -> Void
+    let onOpenNewQuest: () -> Void
     let onOpenWorkerChat: () -> Void
     let onOpenWatcher: () -> Void
     let onToggleCaffeine: () -> Void
@@ -49,7 +50,7 @@ struct ActionBarView: View {
         let workerChatOpen = model.dockPanels.bottom && model.dockContentMode == .workerChat
         HStack(spacing: 0) {
             ActionBarButton(spec: ActionBarButtonSpec(
-                icon: .symbol("sidebar.left"),
+                icon: .trackerBanner,
                 tooltip: tooltip(navState.trackerVisible ? "Hide Tracker" : "Show Tracker", Keymap.Command.toggleTracker),
                 isActive: navState.trackerVisible,
                 action: navState.trackerVisible ? onHideTracker : onShowTracker
@@ -57,25 +58,26 @@ struct ActionBarView: View {
             Spacer(minLength: 0)
             HStack(spacing: ActionBarMetrics.groupGap) {
                 group([
-                    ActionBarButtonSpec(icon: .symbol("plus.rectangle"), tooltip: tooltip("New Session", Keymap.Command.newSession), action: onNewSession),
-                    ActionBarButtonSpec(icon: .symbol("checklist"), tooltip: tooltip("Quest Log", Keymap.Command.toggleQuestLog), action: onOpenQuests),
-                    ActionBarButtonSpec(icon: .symbol("gearshape"), tooltip: tooltip("Settings", Keymap.Command.settings), action: onOpenSettings),
+                    ActionBarButtonSpec(icon: .newSessionHelm, tooltip: tooltip("New Session", Keymap.Command.newSession), action: onNewSession),
+                    ActionBarButtonSpec(icon: .questLogScroll, tooltip: tooltip("Quest Log", Keymap.Command.toggleQuestLog), action: onOpenQuests),
+                    ActionBarButtonSpec(icon: .newQuestScrollQuill, tooltip: tooltip("New Quest", Keymap.Command.newQuest), action: onOpenNewQuest),
+                    ActionBarButtonSpec(icon: .settingsCog, tooltip: tooltip("Settings", Keymap.Command.settings), action: onOpenSettings),
                 ])
                 group([
                     ActionBarButtonSpec(
-                        icon: .symbol("doc.richtext"),
+                        icon: .artifactsBedrollPack,
                         tooltip: tooltip("Open Artifacts", Keymap.Command.toggleDock),
                         isActive: artifactsOpen,
                         action: onOpenArtifacts
                     ),
                     ActionBarButtonSpec(
-                        icon: .symbol("text.bubble"),
+                        icon: .workerLogConversation,
                         tooltip: tooltip("Open Worker Log", Keymap.Command.toggleWorkerChatDock),
                         isActive: workerChatOpen,
                         action: onOpenWorkerChat
                     ),
                     ActionBarButtonSpec(
-                        icon: .pullRequest,
+                        icon: .watcherEye,
                         tooltip: tooltip("Open Watcher", Keymap.Command.toggleWatcherDock),
                         isActive: model.dockPanels.top,
                         action: onOpenWatcher
@@ -83,7 +85,7 @@ struct ActionBarView: View {
                 ])
             }
             ActionBarButton(spec: ActionBarButtonSpec(
-                icon: .symbol("cup.and.saucer"),
+                icon: .keepAwakeBolt,
                 tooltip: tooltip("Caffeinate", Keymap.Command.toggleCaffeine),
                 isOn: model.caffeineActive,
                 action: onToggleCaffeine
@@ -104,14 +106,8 @@ struct ActionBarView: View {
     }
 }
 
-enum ActionBarIcon {
-    case symbol(String)
-    /// The design's own pull-request glyph: SF Symbols' `arrow.triangle.pull` draws a different mark.
-    case pullRequest
-}
-
 struct ActionBarButtonSpec {
-    let icon: ActionBarIcon
+    let icon: AppIcon
     let tooltip: String
     /// What it opens shows (the tracker, a dock panel).
     var isActive = false
@@ -136,53 +132,21 @@ struct ActionBarButton: View {
                 .overlay {
                     OnLookSpinner(look: look.on, outline: .roundedRect(cornerRadius: ActionBarMetrics.buttonRadius), stroke: ActionBarMetrics.spinnerStroke)
                 }
-                .overlay { icon.foregroundStyle(look.icon.color.swiftUI) }
+                .overlay {
+                    // A button that is on, or whose panel shows, draws the filled glyph; line-only glyphs stay line.
+                    if let image = spec.icon.image(
+                        glyphSide: ActionBarMetrics.iconSide,
+                        tint: look.icon.color,
+                        filled: spec.isActive || spec.isOn
+                    ) {
+                        Image(nsImage: image)
+                    }
+                }
         }
         .buttonStyle(.plain)
         .frame(width: ActionBarMetrics.buttonSize, height: ActionBarMetrics.buttonSize)
         .onHover { isHovered = $0 }
         .help(spec.tooltip)
-    }
-
-    @ViewBuilder
-    private var icon: some View {
-        switch spec.icon {
-        case .symbol(let name):
-            let size = ActionBarMetrics.IconSize.size(for: name)
-            Image(systemName: name)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .fontWeight(.medium)
-                .frame(width: size.width, height: size.height)
-        case .pullRequest:
-            PullRequestGlyph()
-                .stroke(style: StrokeStyle(lineWidth: PullRequestGlyph.svgStroke, lineCap: .round, lineJoin: .round))
-        }
-    }
-}
-
-/// The pull-request glyph from `Main Chat Header.svg`, in the 30pt button's own coordinates.
-private struct PullRequestGlyph: Shape {
-    static let svgStroke: CGFloat = 1.5
-    private static let svgCircleRadius: CGFloat = 2.1875
-
-    func path(in rect: CGRect) -> Path {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x, y: rect.minY + y) }
-        var path = Path()
-        for (x, y) in [(20.625, 20.625), (9.375, 20.625), (9.375, 9.375)] as [(CGFloat, CGFloat)] {
-            let r = Self.svgCircleRadius
-            path.addEllipse(in: CGRect(x: rect.minX + x - r, y: rect.minY + y - r, width: 2 * r, height: 2 * r))
-        }
-        path.move(to: point(16.5625, 7.1875))
-        path.addLine(to: point(14.6875, 9.6875))
-        path.addLine(to: point(16.5625, 12.1875))
-        path.move(to: point(20.3125, 17.8125))
-        path.addLine(to: point(20.3125, 11.5625))
-        path.addCurve(to: point(18.4375, 9.6875), control1: point(20.3125, 10.3125), control2: point(19.6875, 9.6875))
-        path.addLine(to: point(15.9375, 9.6875))
-        path.move(to: point(9.6875, 12.1875))
-        path.addLine(to: point(9.6875, 17.8125))
-        return path
     }
 }
 

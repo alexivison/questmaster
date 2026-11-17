@@ -41,11 +41,11 @@ struct SettingsProjectsView: View {
     private var headerIcons: some View {
         HStack(spacing: Space.item) {
             if model.isArranging {
-                ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Cancel arranging", tooltip: "Cancel (Esc)", tint: AppPalette.gitRed, action: model.cancelArrange)
-                ChromeIconButton(symbolName: "checkmark", accessibilityLabel: "Save order", tooltip: "Save order (Return)", tint: AppPalette.gitGreen, action: model.saveArrange)
+                ChromeIconButton(glyph: .icon(.dockCloseCross), accessibilityLabel: "Cancel arranging", tooltip: "Cancel (Esc)", tint: AppPalette.gitRed, action: model.cancelArrange)
+                ChromeIconButton(glyph: .symbol("checkmark"), accessibilityLabel: "Save order", tooltip: "Save order (Return)", tint: AppPalette.gitGreen, action: model.saveArrange)
             } else {
-                ChromeIconButton(symbolName: "arrow.up.arrow.down", accessibilityLabel: "Arrange projects", tooltip: "Arrange projects (R)", action: model.beginArrange)
-                ChromeIconButton(symbolName: "plus", accessibilityLabel: "Add project", tooltip: "Add project (n)", action: model.addProject)
+                ChromeIconButton(glyph: .symbol("arrow.up.arrow.down"), accessibilityLabel: "Arrange projects", tooltip: "Arrange projects (R)", action: model.beginArrange)
+                ChromeIconButton(glyph: .symbol("plus"), accessibilityLabel: "Add project", tooltip: "Add project (n)", action: model.addProject)
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)

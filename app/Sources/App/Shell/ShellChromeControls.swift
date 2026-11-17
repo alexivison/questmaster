@@ -15,9 +15,9 @@ enum ChromeMetrics {
     static let iconPointSize: CGFloat = 15
 }
 
-/// SF Symbol button whose icon takes the row look: rest, and the highlighted icon under the pointer.
+/// Icon button whose glyph takes the row look: rest, and the highlighted icon under the pointer.
 struct ChromeIconButton: View {
-    let symbolName: String
+    let glyph: AppGlyph
     let accessibilityLabel: String
     /// Hover tooltip text. Defaults to `accessibilityLabel`; pass a label+shortcut string
     /// (e.g. via Keymap.CommandBinding.displayGlyph) for controls with a keyboard shortcut.
@@ -29,10 +29,9 @@ struct ChromeIconButton: View {
     @State private var isHovered = false
 
     var body: some View {
+        let color = tint ?? RowLook.pick(highlighted: isHovered, areaFocused: true).icon.color
         Button(action: action) {
-            Image(systemName: symbolName)
-                .font(.system(size: ChromeMetrics.iconPointSize, weight: .medium))
-                .foregroundStyle((tint ?? RowLook.pick(highlighted: isHovered, areaFocused: true).icon.color).swiftUI)
+            glyphView(color)
                 .frame(width: ChromeMetrics.iconWidth, height: ChromeMetrics.iconHeight)
                 .contentShape(Rectangle())
         }
@@ -40,5 +39,19 @@ struct ChromeIconButton: View {
         .onHover { isHovered = $0 }
         .help(tooltip ?? accessibilityLabel)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    @ViewBuilder
+    private func glyphView(_ color: NSColor) -> some View {
+        switch glyph {
+        case .symbol(let name):
+            Image(systemName: name)
+                .font(.system(size: ChromeMetrics.iconPointSize, weight: .medium))
+                .foregroundStyle(color.swiftUI)
+        case .icon(let icon):
+            if let image = icon.image(glyphSide: ChromeMetrics.iconPointSize, tint: color) {
+                Image(nsImage: image)
+            }
+        }
     }
 }

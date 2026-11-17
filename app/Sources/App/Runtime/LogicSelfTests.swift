@@ -186,6 +186,8 @@ enum LogicSelfTests {
         ("testNewSessionEffortKeysCycleWhereAnECannotBeTyped", testNewSessionEffortKeysCycleWhereAnECannotBeTyped),
         ("testNewSessionClassCyclesInTheTitleAndSummonSendsAChosenOne", testNewSessionClassCyclesInTheTitleAndSummonSendsAChosenOne),
         ("testEveryPortraitIsBundledUnderItsOwnName", testEveryPortraitIsBundledUnderItsOwnName),
+        ("testEveryAppIconHasItsDrawings", testEveryAppIconHasItsDrawings),
+        ("testFilledKnockOutsStayClear", testFilledKnockOutsStayClear),
         ("testNewSessionTabTakesTheHighlightedModelThenMovesOn", testNewSessionTabTakesTheHighlightedModelThenMovesOn),
         ("testNewSessionEscapePutsADropdownAwayBeforeClosing", testNewSessionEscapePutsADropdownAwayBeforeClosing),
         ("testNewQuestTypedPathSubmitsAPathOnlyProject", testNewQuestTypedPathSubmitsAPathOnlyProject),
@@ -3623,12 +3625,14 @@ enum LogicSelfTests {
             }
             return box
         }
-        func expectCentred(_ box: CGRect?, in section: CGRect, _ name: String) throws {
+        // The empty moon's star sits right of its crescent, as drawn, so its ink lies up to 2pt right of centre at 40pt; its
+        // 24-unit box is centred. A misplaced icon is far outside this.
+        func expectCentred(_ box: CGRect?, in section: CGRect, _ name: String, tolerance: CGFloat = 3) throws {
             guard let box else {
                 throw TestFailure("\(name) should draw the icon")
             }
             try expect(
-                abs(box.midX - section.midX) <= 1 && abs(box.midY - section.midY) <= 1,
+                abs(box.midX - section.midX) <= tolerance && abs(box.midY - section.midY) <= tolerance,
                 "\(name)'s icon should be centred in its section \(section), got \(box)"
             )
             try expect(box.width <= Token.Size.emptyIcon && box.height <= Token.Size.emptyIcon, "\(name) should draw one icon in a \(Token.Size.emptyIcon)pt box, got \(box)")
@@ -7799,6 +7803,47 @@ enum LogicSelfTests {
             try expect(try pixelWidth(.familiar(sessionClass)) == 120, "\(sessionClass.rawValue)'s familiar should be 120px")
         }
         try expect(try pixelWidth(.master(nil)) == 150, "the Random silhouette should be 150px")
+    }
+
+    /// Every decided icon has its line drawing bundled, and its filled drawing exactly where it has one: every icon but the
+    /// dock's close, back and refresh. Each cast icon name Core gives a tool names an icon.
+    private static func testEveryAppIconHasItsDrawings() throws {
+        for icon in AppIcon.allCases {
+            try expect(icon.url(filled: false) != nil, "no line drawing bundled as \(icon.rawValue).svg")
+            try expect((icon.url(filled: true) != nil) == icon.hasFilled, "\(icon.rawValue) should \(icon.hasFilled ? "" : "not ")have a filled drawing")
+            try expect(icon.image(glyphSide: 20, tint: .white) != nil, "\(icon.rawValue) should draw")
+        }
+        let lineOnly = Set(AppIcon.allCases.filter { !$0.hasFilled })
+        try expect(lineOnly == [.dockCloseCross, .dockBackArrow, .dockRefreshCycle], "only close, back and refresh are line-only")
+        for tool in ["Bash", "Edit", "Read", "WebFetch", "Task", "TodoWrite", "mcp__linear__save_issue"] {
+            let name = TrackerCast(tool: tool, startedAt: Date(), typicalMS: 0).iconName
+            try expect(AppIcon(rawValue: name) != nil, "the cast icon \(name) for \(tool) has no glyph")
+        }
+    }
+
+    /// A knock-out (`#ffffff`) in a filled drawing shows the tile through, and the ink around it stays opaque. The empty
+    /// moon's filled body has a half-disc knocked out at (12, 12) of its 24-unit grid, below its top edge, and ink at (12, 15).
+    private static func testFilledKnockOutsStayClear() throws {
+        func alpha(x: Int, y: Int) throws -> UInt8 {
+            let side = 24
+            guard let image = AppIcon.emptyIdleMoon.image(glyphSide: CGFloat(side), tint: .black, filled: true),
+                  let bitmap = NSBitmapImageRep(
+                      bitmapDataPlanes: nil, pixelsWide: side * 2, pixelsHigh: side * 2, bitsPerSample: 8, samplesPerPixel: 4,
+                      hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+                  ),
+                  let pixels = bitmap.bitmapData else {
+                throw TestFailure("the empty moon should draw into a 2x raster")
+            }
+            bitmap.size = NSSize(width: side, height: side)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+            image.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+            NSGraphicsContext.restoreGraphicsState()
+            // The bitmap's first row is the top, where the SVG's own y is 0.
+            return pixels[(y * 2) * bitmap.bytesPerRow + (x * 2) * (bitmap.bitsPerPixel / 8) + 3]
+        }
+        try expect(try alpha(x: 12, y: 12) < 16, "the knock-out should be clear, got alpha \(try alpha(x: 12, y: 12))")
+        try expect(try alpha(x: 12, y: 15) > 240, "the ink below the knock-out should be opaque, got alpha \(try alpha(x: 12, y: 15))")
     }
 
     private static func testNewSessionTabTakesTheHighlightedModelThenMovesOn() throws {

@@ -14,7 +14,7 @@ struct TrackerCastTests {
         portraitRingMirrorsTheCast()
         sameCallIgnoresTheLearnedDuration()
         barHoldsItsFinishWhileTheRowCloses()
-        symbolsCoverEachAgentsTools()
+        iconNamesCoverEachAgentsTools()
         print("TrackerCastTests: all tests passed")
     }
 
@@ -149,19 +149,19 @@ struct TrackerCastTests {
         expect(TrackerCastPhase.bar(after: .casting(bash), holding: finishBar) == TrackerCastBar(cast: bash, isFinishing: false), "a cast replaces the held bar")
     }
 
-    private static func symbolsCoverEachAgentsTools() {
+    private static func iconNamesCoverEachAgentsTools() {
         let table: [(String, String)] = [
-            ("Bash", "terminal"), ("exec_command", "terminal"), ("local_shell", "terminal"), ("shell", "terminal"),
-            ("Edit", "pencil"), ("MultiEdit", "pencil"), ("apply_patch", "pencil"), ("patch", "pencil"),
-            ("Read", "doc.text.magnifyingglass"), ("Grep", "doc.text.magnifyingglass"), ("list", "doc.text.magnifyingglass"), ("find", "doc.text.magnifyingglass"),
-            ("WebFetch", "globe"), ("web_search", "globe"),
-            ("Task", "person.2"), ("Agent", "person.2"),
-            ("TodoWrite", "checklist"), ("todoread", "checklist"), ("update_plan", "checklist"),
-            ("mcp__linear__save_issue", "puzzlepiece.extension"),
+            ("Bash", "cast-shell-wand"), ("exec_command", "cast-shell-wand"), ("local_shell", "cast-shell-wand"), ("shell", "cast-shell-wand"),
+            ("Edit", "cast-edit-quill"), ("MultiEdit", "cast-edit-quill"), ("apply_patch", "cast-edit-quill"), ("patch", "cast-edit-quill"),
+            ("Read", "cast-read-crystal-ball"), ("Grep", "cast-read-crystal-ball"), ("list", "cast-read-crystal-ball"), ("find", "cast-read-crystal-ball"),
+            ("WebFetch", "cast-web-globe"), ("web_search", "cast-web-globe"),
+            ("Task", "cast-subagent-allies"), ("Agent", "cast-subagent-allies"),
+            ("TodoWrite", "cast-todo-inkwell"), ("todoread", "cast-todo-inkwell"), ("update_plan", "cast-todo-inkwell"),
+            ("mcp__linear__save_issue", "cast-other-spanner"),
         ]
-        for (tool, symbol) in table {
-            let got = TrackerCast(tool: tool, startedAt: Date(), typicalMS: 0).symbol
-            expect(got == symbol, "\(tool) should show \(symbol), got \(got)")
+        for (tool, iconName) in table {
+            let got = TrackerCast(tool: tool, startedAt: Date(), typicalMS: 0).iconName
+            expect(got == iconName, "\(tool) should show \(iconName), got \(got)")
         }
     }
 

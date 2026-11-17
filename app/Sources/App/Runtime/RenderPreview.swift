@@ -125,6 +125,7 @@ enum RenderPreview {
         )
         // The header at the design's own 631 wide: the mock's state (tracker shown, Worker Log and Watcher open,
         // caffeinate on), and everything at rest.
+        render(appIconSheetView(), size: CGSize(width: 620, height: 1680), to: "\(outputDir)/app-icon-sheet.png")
         renderView(actionBarHeaderView(), size: CGSize(width: 631, height: ActionBarMetrics.height), to: "\(outputDir)/action-bar.png")
         renderView(
             actionBarHeaderView(trackerVisible: false, caffeineActive: false, dockPanels: DockPanels()),
@@ -3089,6 +3090,37 @@ enum RenderPreview {
             spec: .deleteSession(sessionID: "qm-1783901769"),
             onDecision: { _ in }
         )
+    }
+
+    /// Every decided icon, one row each: the line drawing at 12, 14, 15, 20 and 40pt, then the filled drawing at 20pt. It is the
+    /// review sheet for the glyph set, on the panel fill so the knock-outs show what they cut.
+    private static func appIconSheetView() -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(AppIcon.allCases, id: \.self) { icon in
+                HStack(spacing: 20) {
+                    Text(icon.rawValue)
+                        .font(AppFonts.monoSmall.swiftUI)
+                        .foregroundStyle(AppPalette.textMeta.swiftUI)
+                        .frame(width: 240, alignment: .leading)
+                    ForEach([12, 14, 15, 20, 40], id: \.self) { side in
+                        appIconSheetGlyph(icon, side: CGFloat(side), filled: false)
+                    }
+                    appIconSheetGlyph(icon, side: 20, filled: true)
+                }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.panel.swiftUI)
+    }
+
+    private static func appIconSheetGlyph(_ icon: AppIcon, side: CGFloat, filled: Bool) -> some View {
+        Group {
+            if let image = icon.image(glyphSide: side, canvasSide: 40, tint: AppPalette.text, filled: filled) {
+                Image(nsImage: image)
+            }
+        }
+        .frame(width: 40, height: 40)
     }
 
     @MainActor

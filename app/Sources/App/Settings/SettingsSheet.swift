@@ -47,6 +47,8 @@ enum SettingsMetrics {
     static let columnSpacing = Space.section
     static let columnWidth = SettingsSheetModel.sheetSize.width - 2 * inset - sidebarWidth - columnSpacing
     static let sidebarSpacing = Space.section
+    /// A section's decided glyph inside its tab's 20pt icon square (the mock's 15pt).
+    static let sectionIconSide: CGFloat = 15
     /// From the top of the agent tabs: the first section title's baseline, then each next one 175 on.
     static let firstSectionBaseline: CGFloat = 65
     static let sectionPitch: CGFloat = 175
@@ -80,14 +82,14 @@ enum SettingsSection: CaseIterable {
         }
     }
 
-    var symbolName: String {
+    var glyph: AppGlyph {
         switch self {
         case .modelsAndReasoning:
-            return "slider.vertical.3"
+            return .icon(.settingsModelsBrain)
         case .projects:
-            return "folder"
+            return .symbol("folder")
         case .tmux:
-            return "terminal"
+            return .symbol("terminal")
         }
     }
 }
@@ -129,6 +131,16 @@ struct SettingsSheetView: View {
         .onDisappear { model.disappear() }
     }
 
+    /// A section's glyph in its tab's icon square: the decided icon at `sectionIconSide`, or an SF Symbol at the 14pt it drew.
+    private func sectionImage(_ section: SettingsSection, tint: NSColor) -> NSImage? {
+        switch section.glyph {
+        case .symbol(let name):
+            return AppSymbolStyle.image(name: name, pointSize: 14, weight: .regular, color: tint, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide))
+        case .icon(let icon):
+            return icon.image(glyphSide: SettingsMetrics.sectionIconSide, canvasSide: PillTabMetrics.iconSide, tint: tint)
+        }
+    }
+
     private var sidebar: some View {
         VStack(spacing: SettingsMetrics.sidebarSpacing) {
             ForEach(SettingsSection.allCases, id: \.self) { section in
@@ -136,7 +148,7 @@ struct SettingsSheetView: View {
                 let look: OutlineLook = selected ? .tabSelected : .tabRest
                 PillTab(
                     title: section.title,
-                    icon: AppSymbolStyle.image(name: section.symbolName, pointSize: 14, weight: .regular, color: look.label.color, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide)),
+                    icon: sectionImage(section, tint: look.label.color),
                     look: look,
                     selected: selected,
                     help: "\(section.title) settings",

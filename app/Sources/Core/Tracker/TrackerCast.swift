@@ -40,16 +40,16 @@ public struct TrackerCast: Decodable, Equatable {
         WorkerChatLineBuilder.callLabel(name: tool)
     }
 
-    /// The SF Symbol for the tool.
-    public var symbol: String {
+    /// The icon's resource name for the tool; the App maps it to its glyph (`AppIcon`).
+    public var iconName: String {
         switch TrackerToolKind(tool: tool) {
-        case .shell: "terminal"
-        case .edit: "pencil"
-        case .search: "doc.text.magnifyingglass"
-        case .web: "globe"
-        case .agent: "person.2"
-        case .plan: "checklist"
-        case .other: "puzzlepiece.extension"
+        case .shell: "cast-shell-wand"
+        case .edit: "cast-edit-quill"
+        case .search: "cast-read-crystal-ball"
+        case .web: "cast-web-globe"
+        case .agent: "cast-subagent-allies"
+        case .plan: "cast-todo-inkwell"
+        case .other: "cast-other-spanner"
         }
     }
 

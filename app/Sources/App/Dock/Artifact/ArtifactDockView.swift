@@ -33,6 +33,8 @@ struct ArtifactDockModel: Equatable {
     /// Bumped whenever the selected artifact must scroll into view even if its id didn't change (a
     /// `gg`/`G` jump back to the already-selected edge row).
     var scrollNonce: Int = 0
+    /// Why the list shows nothing: nothing yet, or the filter hid every artifact the session has.
+    var emptyReason: ListEmptyReason = .nothingYet
 
     static let empty = ArtifactDockModel(
         currentSessionTitle: "",
@@ -85,7 +87,7 @@ struct ArtifactDockView: View {
             }
             switch model.displayState {
             case .noCurrentSession, .empty:
-                EmptyState()
+                EmptyState(reason: model.emptyReason)
             case .missing, .unsupported, .viewing:
                 SectionedList(
                     selectedID: model.selectedArtifactID,
@@ -189,14 +191,14 @@ struct ArtifactRow: View {
         static let gutter = Space.section
         static let tileOrigin = CGPoint(x: ListItemMetrics.textInset, y: Space.row)
         static let tileSide = ControlHeight.bar
-        static let iconSize = CGSize(width: 19.2, height: 24)
-        /// doc.richtext at this size and semibold fills `iconSize`, as the design's glyph does.
-        static let iconPointSize: CGFloat = 22.5
+        /// The kind's glyph in its tile (the mock's 20pt).
+        static let iconSide: CGFloat = 20
         static let textX = tileOrigin.x + tileSide + Space.item
         static let trailingInset = ListItemMetrics.textInset
         static let titleBaseline: CGFloat = 21
         static let metaBaseline: CGFloat = 37
-        static let markPointSize: CGFloat = 13
+        /// The delete mark in the gutter: the SF diamond it replaces drew at 13pt, rounded to the 5 scale.
+        static let markSide: CGFloat = 15
     }
 
     private var rowLook: RowLook { artifact.missing ? look.missingFile : look }
@@ -221,9 +223,14 @@ struct ArtifactRow: View {
         ZStack {
             if selectMode {
                 Button(action: onToggle) {
-                    Image(systemName: marked ? "diamond.inset.filled" : "diamond")
-                        .font(.system(size: Metrics.markPointSize))
-                        .foregroundStyle(MarkLook.color(marked: marked).color.swiftUI)
+                    // Outline when unmarked, filled when marked.
+                    if let image = AppIcon.artifactDeleteMarkDiamond.image(
+                        glyphSide: Metrics.markSide,
+                        tint: MarkLook.color(marked: marked).color,
+                        filled: marked
+                    ) {
+                        Image(nsImage: image)
+                    }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(marked ? "Deselect \(artifact.label)" : "Select \(artifact.label)")
@@ -273,10 +280,9 @@ struct ArtifactRow: View {
             }
             RoundedRectangle(cornerRadius: Metrics.cornerRadius)
                 .strokeBorder(rowLook.iconBorder.color.swiftUI, lineWidth: Token.Size.divider)
-            Image(systemName: iconName)
-                .font(.system(size: Metrics.iconPointSize, weight: .semibold))
-                .frame(width: Metrics.iconSize.width, height: Metrics.iconSize.height)
-                .foregroundStyle(rowLook.icon.color.swiftUI)
+            if let image = kindIcon.image(glyphSide: Metrics.iconSide, tint: rowLook.icon.color) {
+                Image(nsImage: image)
+            }
         }
         .frame(width: Metrics.tileSide, height: Metrics.tileSide)
     }
@@ -313,19 +319,19 @@ struct ArtifactRow: View {
         return date
     }
 
-    private var iconName: String {
+    private var kindIcon: AppIcon {
         if artifact.missing {
-            return "exclamationmark.triangle"
+            return .artifactMissingHazard
         }
         switch artifact.resolvedKind {
         case .html:
-            return "doc.richtext"
+            return .artifactHTMLTome
         case .markdown:
-            return "doc.text"
+            return .artifactMarkdownNotebook
         case .image:
-            return "photo"
+            return .artifactImagePortrait
         case .unsupported:
-            return "questionmark.square.dashed"
+            return .artifactUnsupportedQuestion
         }
     }
 }
@@ -371,7 +377,7 @@ struct ArtifactViewerPane: View {
             case .html:
                 if let htmlBlockedDetail {
                     ArtifactStatusPane(
-                        symbolName: "shield.slash",
+                        glyph: .symbol("shield.slash"),
                         title: "Page not loaded",
                         message: "The remote-content blocker failed to compile, so this page did not load.",
                         detail: htmlBlockedDetail
@@ -398,7 +404,7 @@ struct ArtifactViewerPane: View {
                 ArtifactImageView(artifact: artifact, reloadNonce: reloadNonce)
             case .unsupported:
                 ArtifactStatusPane(
-                    symbolName: "questionmark.square.dashed",
+                    glyph: .icon(.artifactUnsupportedQuestion),
                     title: "Unsupported artifact",
                     message: "This artifact kind is not supported in this build.",
                     detail: artifact.kind
@@ -408,14 +414,14 @@ struct ArtifactViewerPane: View {
             EmptyState()
         case .missing(let artifact):
             ArtifactStatusPane(
-                symbolName: "exclamationmark.triangle",
+                glyph: .icon(.artifactMissingHazard),
                 title: "Missing file",
                 message: "This artifact pointed at a file that no longer exists.",
                 detail: artifact.path
             )
         case .unsupported(let artifact):
             ArtifactStatusPane(
-                symbolName: "questionmark.square.dashed",
+                glyph: .icon(.artifactUnsupportedQuestion),
                 title: "Unsupported artifact",
                 message: "This artifact kind is not supported in this build.",
                 detail: artifact.kind
@@ -441,7 +447,7 @@ struct ArtifactViewerPane: View {
 }
 
 struct ArtifactStatusPane: View {
-    var symbolName: String
+    var glyph: AppGlyph
     var title: String
     var message: String
     var detail: String = ""
@@ -451,7 +457,7 @@ struct ArtifactStatusPane: View {
             title: title,
             message: message,
             detail: detail,
-            symbolName: symbolName,
+            glyph: glyph,
             backgroundColor: AppPalette.artifactViewerBackground,
             detailSelectable: true
         )
