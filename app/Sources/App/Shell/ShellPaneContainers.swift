@@ -120,6 +120,7 @@ final class DockShellView: NSView {
 
     init(body: NSView, model: DockChromeModel = DockChromeModel()) {
         self.model = model
+        titlePlate = DockTitlePlateHost(rootView: DockTitlePlateView(model: model))
         super.init(frame: .zero)
         let topBar = FirstMouseHostingView(rootView: DockTopBar(
             model: model,
@@ -150,6 +151,8 @@ final class DockShellView: NSView {
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         chrome = ScoopedLayerChrome(view: self, content: content, rule: OutlineLook.ruleRest.border.color)
+        // The title plate rises above the top edge, outside the masked content, so it is this view's own subview.
+        addSubview(titlePlate)
     }
 
     @available(*, unavailable)
@@ -160,6 +163,15 @@ final class DockShellView: NSView {
     override func layout() {
         super.layout()
         chrome?.layout(bounds: bounds)
+        // The plate spans the panel's top edge: its bottom `height - lift` below it and its top `lift` above. Its width is kept
+        // clear of the icons at either end, as the top bar's title was.
+        let inset = ShellMetrics.dockTopBarHorizontalInset + ChromeMetrics.iconWidth + Space.item
+        titlePlate.frame = NSRect(
+            x: inset,
+            y: bounds.maxY - (DockTitlePlateMetrics.height - DockTitlePlateMetrics.lift),
+            width: max(0, bounds.width - 2 * inset),
+            height: DockTitlePlateMetrics.height
+        )
     }
 
     /// Only the shape's hits count: a click in a scooped-away corner passes to what lies beneath.
@@ -168,10 +180,13 @@ final class DockShellView: NSView {
     }
 
     private(set) var isFocused = false
+    private let titlePlate: DockTitlePlateHost
 
-    /// The 1pt rule inside the border lifts one step while the dock has keyboard focus; the 2pt border stays put.
+    /// The 1pt rule inside the border, and the title plate's border, lift one step while the dock has keyboard focus; the
+    /// 2pt border stays put.
     func setFocused(_ focused: Bool) {
         isFocused = focused
+        model.isFocused = focused
         chrome.setRuleColor(OutlineLook.rule(focused: focused).border.color)
     }
 

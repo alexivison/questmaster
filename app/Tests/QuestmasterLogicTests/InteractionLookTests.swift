@@ -48,6 +48,7 @@ struct InteractionLookTests {
         expect(OutlineLook.field(focused: false) == .fieldRest, "a field at rest")
         expect(OutlineLook.field(focused: true) == .fieldFocused, "a focused field")
         expect(OutlineLook.rule(focused: false) == .ruleRest && OutlineLook.rule(focused: true) == .ruleFocused, "a dock's double rule lifts with focus")
+        expect(OutlineLook.plate(focused: false) == .plateRest && OutlineLook.plate(focused: true) == .plateFocused, "a dock title's plate lifts with focus")
         expect(OutlineLook.tabSelected.recessed && OutlineLook.tabSelectedUnfocused.recessed, "a selected tab's disc is recessed")
         expect(!OutlineLook.tabRest.recessed, "a resting tab's disc is not recessed")
         let button = { (active: Bool, on: Bool, hovered: Bool) in ActionBarButtonLook.of(active: active, on: on, hovered: hovered) }

@@ -163,6 +163,15 @@ public struct OutlineLook: Equatable, Sendable {
     public static func rule(focused: Bool) -> OutlineLook {
         focused ? .ruleFocused : .ruleRest
     }
+
+    /// A dock title's plate: its 2pt border is `lineSoftSubtle`, and it lifts to `controlBorder` with the rule while the dock
+    /// has the keys.
+    public static let plateRest = OutlineLook(border: .lineSoftSubtle, label: .textBody, recessed: false)
+    public static let plateFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
+
+    public static func plate(focused: Bool) -> OutlineLook {
+        focused ? .plateFocused : .plateRest
+    }
 }
 
 /// A text tab (the Worker Log's worker tabs): no outline or fill, only its label changes. At rest the label is meta

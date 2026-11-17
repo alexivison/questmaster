@@ -12,7 +12,9 @@ import SwiftUI
 @Observable
 final class DockChromeModel {
     var topBar: DockTopBarModel
-    /// Whether the panel is refreshing what it lists, shown as the spinner beside its title. A closure, so the bar's body
+    /// Whether the dock has the keys, which lifts its title plate's border (`DockTitlePlateView`).
+    var isFocused = false
+    /// Whether the panel is refreshing what it lists, shown as the spinner beside its title. A closure, so the plate's body
     /// tracks the store behind it.
     let isRefreshing: () -> Bool
 
@@ -28,13 +30,6 @@ final class DockChromeModel {
         self.topBar = topBar
         self.isRefreshing = isRefreshing
     }
-}
-
-/// Every dock's title (Artifacts, Worker Log, an open artifact's name): title case, in the one gold.
-private func dockTopBarTitle(_ title: String) -> some View {
-    BaselineText(title, font: AppFonts.dockTopBarTitle, color: AppPalette.accent, baseline: ShellMetrics.dockTopBarTitleBaseline)
-        .lineLimit(1)
-        .truncationMode(.tail)
 }
 
 private extension View {
@@ -77,41 +72,22 @@ struct DockTopBar: View {
         .ignoresSafeArea()
     }
 
+    /// The titles sit on the plate over the panel's top edge (`DockTitlePlateView`), so the bar holds only its icons.
     private func listBar(_ topBar: DockTopBarModel) -> some View {
-        ZStack {
-            HStack(spacing: Space.item) {
-                Color.clear.frame(width: ChromeMetrics.iconWidth, height: 1)
-                Spacer(minLength: 0)
-                if topBar.showsLogFilter {
-                    ChromeIconButton(
-                        symbolName: "line.3.horizontal.decrease",
-                        accessibilityLabel: "Filter Worker Log",
-                        tooltip: "Filter Worker Log (\(Keymap.badgeCharacter(for: .toggleFilterMenu) ?? ""))",
-                        action: onToggleLogFilter
-                    )
-                }
-                ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
+        HStack(spacing: Space.item) {
+            Color.clear.frame(width: ChromeMetrics.iconWidth, height: 1)
+            Spacer(minLength: 0)
+            if topBar.showsLogFilter {
+                ChromeIconButton(
+                    symbolName: "line.3.horizontal.decrease",
+                    accessibilityLabel: "Filter Worker Log",
+                    tooltip: "Filter Worker Log (\(Keymap.badgeCharacter(for: .toggleFilterMenu) ?? ""))",
+                    action: onToggleLogFilter
+                )
             }
-            .dockTopBarIcons()
-            if let title = topBar.title {
-                dockTopBarTitle(title)
-                    .overlay(alignment: .trailing) { refreshSpinner }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, ChromeMetrics.iconWidth + Space.item)
-                    .allowsHitTesting(false)
-            }
+            ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
         }
-    }
-
-    /// The refresh mark: the working spinner `Space.item` past the title's end, centred on the bar's icon line, where it
-    /// takes no room, so the centred title doesn't move when it comes and goes. Nothing is drawn, or running, otherwise.
-    @ViewBuilder
-    private var refreshSpinner: some View {
-        if model.isRefreshing() {
-            SpinnerRingView(stroke: ShellMetrics.dockTopBarSpinnerStroke)
-                .frame(width: ShellMetrics.dockTopBarSpinnerSize, height: ShellMetrics.dockTopBarSpinnerSize)
-                .offset(x: ShellMetrics.dockTopBarSpinnerSize + Space.item)
-        }
+        .dockTopBarIcons()
     }
 
     private func viewerBar(_ topBar: DockTopBarModel, back: DockTopBarModel.Back) -> some View {
@@ -121,11 +97,7 @@ struct DockTopBar: View {
             }
             .dockTopBarIcons()
 
-            if let title = topBar.title {
-                dockTopBarTitle(title)
-                    .layoutPriority(1)
-                    .frame(maxWidth: .infinity)
-            }
+            Spacer(minLength: 0)
 
             HStack(spacing: Space.item) {
                 if topBar.showArtifactActions {

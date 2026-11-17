@@ -132,9 +132,9 @@ enum RenderPreview {
             to: "\(outputDir)/action-bar-rest.png"
         )
         // The Watcher panel as the Session Detail Dock draws it, and a row of it as the Pull Request Item draws it.
-        renderView(watcherPanelView(), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel.png")
-        renderView(watcherPanelView(state: .empty), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel-empty.png")
-        renderView(watcherPanelView(state: .notice), size: CGSize(width: 482, height: 305), to: "\(outputDir)/watcher-panel-notice.png")
+        renderView(watcherPanelView(), size: CGSize(width: 482, height: 315), to: "\(outputDir)/watcher-panel.png")
+        renderView(watcherPanelView(state: .empty), size: CGSize(width: 482, height: 315), to: "\(outputDir)/watcher-panel-empty.png")
+        renderView(watcherPanelView(state: .notice), size: CGSize(width: 482, height: 315), to: "\(outputDir)/watcher-panel-notice.png")
         render(watcherRowsView(highlight: 1, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design.png")
         render(watcherRowsView(highlight: nil, rows: watcherDesignRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-design-rest.png")
         render(watcherRowsView(highlight: nil, rows: watcherCountRows()), size: CGSize(width: 480, height: 270), to: "\(outputDir)/watcher-rows-counts.png")
@@ -621,7 +621,8 @@ enum RenderPreview {
             model: DockChromeModel(topBar: .watcher, isRefreshing: isRefreshing)
         )
         panel.frame = NSRect(x: 1, y: 5, width: 480, height: 300)
-        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 482, height: 305))
+        // The panel sits 5 up from the canvas floor; its title plate rises 10 past the panel top, so the canvas keeps that headroom.
+        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 482, height: 315))
         canvas.wantsLayer = true
         canvas.layer?.backgroundColor = AppPalette.window.cgColor
         canvas.addSubview(panel)
@@ -712,7 +713,7 @@ enum RenderPreview {
     }
 
 
-    /// The Watcher title bar at rest and while a refresh spins its mark: the presentation layers sampled over one
+    /// The Watcher title plate at rest and while a refresh spins its mark: the presentation layers sampled over one
     /// turn of the spinner (the offscreen snapshot can't see Core Animation's own animation), as a contact sheet in slow
     /// motion and a GIF at real speed. Only runs when RENDER_ONLY names `watcher-refresh-spinner`.
     @MainActor
@@ -726,15 +727,15 @@ enum RenderPreview {
         let store = PullRequestStore()
         let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
         _ = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true)
-        let size = CGSize(width: 482, height: 305)
+        let size = CGSize(width: 482, height: 315)
         let canvas = watcherPanelView(isRefreshing: { store.isRefreshing })
         canvas.frame = NSRect(origin: .zero, size: size)
         let window = HeadlessWindow(size: size, scale: scale)
         window.contentView = canvas
         window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
-        // The title and the mark beside it, from the top left.
-        let header = CGRect(x: 121, y: 5, width: 240, height: 40)
+        // The title plate, from the top left: its top meets the canvas's top, and the spinner hangs past its end.
+        let header = CGRect(x: 121, y: 0, width: 240, height: 40)
         RingPreview.write(captureLayers(of: canvas, scale: scale, rect: header), to: "\(dir)/watcher-header-rest.png")
 
         _ = store.handle(.refresh)

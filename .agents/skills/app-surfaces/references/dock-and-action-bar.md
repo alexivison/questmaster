@@ -2,12 +2,19 @@
 
 - Watcher and Worker Log start open in the first window layout, while startup resolves its session; no opening
   transition runs before the window appears. After startup, both panels hide if no session is attached, keeping their state.
-- Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in
-  `accent`, 14pt bold, on `ShellMetrics.dockTopBarTitleBaseline`. While a refresh the user asked for (`r`) is under way, Watcher's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a ring
-  (`ShellMetrics.dockTopBarSpinnerSize`) `Space.item` past the title, on the icon line, taking no room so the centred title never moves. Core decides it
-  (`PullRequestStore.isRefreshing`): from the key to the daemon's reply (`pr.refresh` with `wait`), for at least one turn
-  and never past 30s; a second `r` meanwhile sends nothing, and the daemon's background polls never show it. It is Core
-  Animation only, runs only while on screen, and holds still and full under Reduce Motion. No hint or footer text.
+- Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are title case in `accent`, 14pt bold, on a title plate
+  (`DockTitlePlateView`) centred on the panel's top edge: 30 high (`DockTitlePlateMetrics.height`), rising `lift` (10) above
+  the panel, `Space.section` either side of the title, and ending in `AngledButtonShape`, the angled buttons' own ends. Its
+  2pt border is `lineSoftSubtle` and lifts to `controlBorder` with the double rule while the dock has the keys
+  (`OutlineLook.plate(focused:)`). The plate hides the border and the rule behind its fill, and the top bar keeps only the
+  icons. The dock gap stays `DockColumnLayout.panelGap` (20): the lower plate's top sits 10 below the panel above. While a
+  refresh the user asked for (`r`) is under way, Watcher's plate shows the working spinner, the tracker's own
+  (`SpinnerRing`, `WorkingSpinner.period`), as a ring (`ShellMetrics.dockTopBarSpinnerSize`) `Space.item` past the title,
+  on the title's centre line; it takes no room, so the centred title never moves, but its ring overhangs the angled end by
+  about 5 while it spins. Core decides it (`PullRequestStore.isRefreshing`): from the key to the daemon's reply
+  (`pr.refresh` with `wait`), for at least one turn and never past 30s; a second `r` meanwhile sends nothing, and the
+  daemon's background polls never show it. It is Core Animation only, runs only while on screen, and holds still and
+  full under Reduce Motion. No hint or footer text.
 - The action bar is a header over the terminal column (`Main Chat Header.svg`): a scooped
   panel (`ActionBarMetrics.height`, `scoopRadius`), its top level with the tracker's and the dock's (`sideCardInset` down), `Space.section` from the
   tracker's plates and the dock, or from the window's edges when they're hidden, with the terminal's text starting
