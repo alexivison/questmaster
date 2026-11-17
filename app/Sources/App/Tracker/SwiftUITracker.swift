@@ -1706,10 +1706,12 @@ struct TrackerAgentMark: View {
                 color: AppPalette.pi,
                 canvasSize: canvasSize
             )
+        // A disc glyph fills the logo square: its ink then matches the SF symbol it replaced, which was fitted into that square
+        // (the terminal 24 x 19 on the 30pt logo, 19 x 15 on 24pt, 11.5 x 9 on 15pt, where 0.58 of the side gave half that).
         case .shell:
-            return AppIcon.discShellTerminal.image(glyphSide: side * 0.58, canvasSide: side, tint: AppPalette.muted)
+            return AppIcon.discShellTerminal.image(glyphSide: side, canvasSide: side, tint: AppPalette.muted)
         case .unknown:
-            return AppIcon.discUnknownMask.image(glyphSide: side * 0.58, canvasSide: side, tint: AppPalette.muted)
+            return AppIcon.discUnknownMask.image(glyphSide: side, canvasSide: side, tint: AppPalette.muted)
         }
     }
 }

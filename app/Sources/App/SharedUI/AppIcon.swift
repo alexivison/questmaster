@@ -37,6 +37,7 @@ enum AppIcon: String, CaseIterable {
     case discShellTerminal = "disc-shell-terminal"
     case discUnknownMask = "disc-unknown-mask"
     case settingsModelsBrain = "settings-models-brain"
+    case settingsProjectsFolder = "settings-projects-folder"
     // The dock's top bars.
     case dockFilterFunnel = "dock-filter-funnel"
     case dockCloseCross = "dock-close-cross"
