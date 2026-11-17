@@ -952,7 +952,9 @@ enum LogicSelfTests {
     /// titlebar as a top safe area, which pushed the title down on the top dock. Measured at 2x on the cap band of the title's
     /// first capital (its top to its baseline, so descenders don't count), counting only the title's gold ink so the grey
     /// filter and close glyphs beside it never do. The title must sit as it does with no titlebar, and centred on its plate
-    /// for the Watcher, the Artifacts and the Worker Log at either position.
+    /// for the Watcher, the Artifacts and the Worker Log at either position. The titlebar check is exact to half a point. The
+    /// centring allows 1.5pt, since the title's line box centres the font's own ascent and descent: the user's terminal font
+    /// sits 0.25pt high, and a runner without it (the system's monospace) sits about a point lower.
     private static func testDockTitlesStayCentredOnTheirPlatesUnderATitlebar() throws {
         let width: CGFloat = 400, height: CGFloat = 700, scale: CGFloat = 2
         let topFrame = NSRect(x: 20, y: height - 20 - 300, width: 360, height: 300)
@@ -1024,10 +1026,10 @@ enum LogicSelfTests {
         try expect(abs(workerTopTitled - workerTopBare) <= 0.5, "the Worker Log title at the top should sit where it does with no titlebar: \(report)")
         try expect(abs(workerBottomTitled - workerBottomBare) <= 0.5, "the Worker Log title at the bottom should sit where it does with no titlebar: \(report)")
         try expect(abs(artifactsTitled - artifactsBare) <= 0.5, "the Artifacts title should sit where it does with no titlebar: \(report)")
-        try expect(abs(watcherTitled) <= 0.5, "the Watcher title should be centred on its plate: \(report)")
-        try expect(abs(workerTopTitled) <= 0.5, "the Worker Log title at the top should be centred on its plate: \(report)")
-        try expect(abs(workerBottomTitled) <= 0.5, "the Worker Log title at the bottom should be centred on its plate: \(report)")
-        try expect(abs(artifactsTitled) <= 0.5, "the Artifacts title should be centred on its plate: \(report)")
+        try expect(abs(watcherTitled) <= 1.5, "the Watcher title should be centred on its plate: \(report)")
+        try expect(abs(workerTopTitled) <= 1.5, "the Worker Log title at the top should be centred on its plate: \(report)")
+        try expect(abs(workerBottomTitled) <= 1.5, "the Worker Log title at the bottom should be centred on its plate: \(report)")
+        try expect(abs(artifactsTitled) <= 1.5, "the Artifacts title should be centred on its plate: \(report)")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
