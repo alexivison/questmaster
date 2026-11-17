@@ -7,7 +7,7 @@ enum AppGlyph {
     case icon(AppIcon)
 }
 
-/// The decided "fantasy line" icons: one case per drawing. The SVGs in `Resources/Icons/line` (38) and `Resources/Icons/filled`
+/// The decided "fantasy line" icons: one case per drawing. The SVGs in `Resources/Icons/line` (39) and `Resources/Icons/filled`
 /// (30) are the source of truth, bundled unchanged. Each is 24 units with a 1.5 stroke, round caps and joins, `#000000` for
 /// ink and `#ffffff` for a knock-out that shows the tile through. The raw value is the drawing's file name.
 ///
@@ -60,15 +60,17 @@ enum AppIcon: String, CaseIterable {
     case artifactImagePortrait = "artifact-image-portrait"
     case artifactUnsupportedQuestion = "artifact-unsupported-question"
     case artifactMissingHazard = "artifact-missing-hazard"
+    case artifactBlockedShield = "artifact-blocked-shield"
     case artifactDeleteMarkDiamond = "artifact-delete-mark-diamond"
     // The empty states: the moon when nothing is there yet, the shrug when a filter hid everything.
     case emptyIdleMoon = "empty-idle-moon"
     case emptyNoMatchShrug = "empty-no-match-shrug"
 
-    /// The glyphs with no filled drawing: the dock's close, back and refresh, and the Projects page's five.
+    /// The glyphs with no filled drawing: the dock's close, back and refresh, the Projects page's five, and the viewer's shield.
     private static let lineOnly: Set<AppIcon> = [
         .dockCloseCross, .dockBackArrow, .dockRefreshCycle,
         .settingsArrangeArrows, .settingsSaveCheck, .settingsAddPlus, .rowMoveUp, .rowMoveDown,
+        .artifactBlockedShield,
     ]
     private static let bundle = AppSymbolStyle.resourceBundle()
     private static let masks = NSCache<NSString, CGImage>()

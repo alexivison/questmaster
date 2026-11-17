@@ -349,7 +349,7 @@ struct ArtifactViewerPane: View {
             case .html:
                 if let htmlBlockedDetail {
                     ArtifactStatusPane(
-                        glyph: .symbol("shield.slash"),
+                        glyph: .icon(.artifactBlockedShield),
                         title: "Page not loaded",
                         message: "The remote-content blocker failed to compile, so this page did not load.",
                         detail: htmlBlockedDetail
