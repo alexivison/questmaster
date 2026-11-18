@@ -6,6 +6,7 @@ public enum NewQuestField: CaseIterable, Equatable {
     case tags
     /// Edit Quest only: the size select, after the tags.
     case size
+    case attachments
     case content
 }
 
@@ -97,10 +98,50 @@ public enum NewQuestDestination: Equatable {
     case noProject
 }
 
+public enum QuestFormAttachmentTarget: Equatable, Hashable {
+    case chooseFiles
+    case stored(String)
+    case pending(String)
+}
+
 /// The New Quest / Edit Quest form: the project and the quest's content. The project field is a picker
 /// field (`PickerFieldMode`) over the projects the app knows: its text is a project's name, matched by
 /// name and then by path; text starting with / or ~ is a path instead, with directory suggestions.
 public struct NewQuestFormModel: Equatable {
+    public private(set) var attachmentTarget: QuestFormAttachmentTarget = .chooseFiles
+
+    public var attachmentTargets: [QuestFormAttachmentTarget] {
+        [.chooseFiles] + attachments.map { .stored($0.id) } + attachPaths.map { .pending($0) }
+    }
+
+    public mutating func focusAttachment(_ target: QuestFormAttachmentTarget) {
+        guard !submitting, attachmentTargets.contains(target) else { return }
+        attachmentTarget = target
+        focusedField = .attachments
+    }
+
+    public mutating func cycleAttachment(_ delta: Int) {
+        let targets = attachmentTargets
+        let index = targets.firstIndex(of: attachmentTarget) ?? 0
+        attachmentTarget = targets[wrapped(index + delta, count: targets.count)]
+    }
+
+    public var focusedAttachmentPath: String? {
+        switch attachmentTarget {
+        case .chooseFiles: nil
+        case .stored(let id): attachments.first { $0.id == id }?.path
+        case .pending(let path): path
+        }
+    }
+
+    public mutating func removeAttachment(_ target: QuestFormAttachmentTarget) {
+        switch target {
+        case .chooseFiles: break
+        case .stored(let id): removeAttachment(id: id)
+        case .pending(let path): removeAttachmentPath(path)
+        }
+    }
+
     public private(set) var attachments: [QuestAttachment]
     public private(set) var attachPaths: [String] = []
     private let openedAttachments: [QuestAttachment]
@@ -137,12 +178,23 @@ public struct NewQuestFormModel: Equatable {
 
     public mutating func removeAttachment(id: String) {
         guard !submitting else { return }
+        let index = attachmentTargets.firstIndex(of: attachmentTarget) ?? 0
         attachments.removeAll { $0.id == id }
+        recoverAttachmentTarget(at: index)
     }
 
     public mutating func removeAttachmentPath(_ path: String) {
         guard !submitting else { return }
+        let index = attachmentTargets.firstIndex(of: attachmentTarget) ?? 0
         attachPaths.removeAll { $0 == path }
+        recoverAttachmentTarget(at: index)
+    }
+
+    private mutating func recoverAttachmentTarget(at index: Int) {
+        let targets = attachmentTargets
+        if !targets.contains(attachmentTarget) {
+            attachmentTarget = targets[min(index, targets.count - 1)]
+        }
     }
 
     public var content: String
@@ -416,7 +468,7 @@ public struct NewQuestFormModel: Equatable {
         switch focusedField {
         case .content:
             return .prompt
-        case .size:
+        case .size, .attachments:
             return .select
         case .project, .tags:
             return .line

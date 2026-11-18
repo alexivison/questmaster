@@ -33,6 +33,7 @@ enum RenderPreview {
         render(newQuestSheetView(.typingPath), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(newQuestSheetView(.searchingProjects), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-projects.png")
         render(newQuestSheetView(.editNoTags), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-no-tags.png")
+        render(newQuestSheetView(.editTagged, attachments: true, focusAttachment: true), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-attachment-cursor.png")
         render(newQuestSheetView(.editTagged, attachments: true), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-attachments.png")
         render(newQuestSheetView(.editTagged), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-tags.png")
         render(newQuestSheetView(.editTagsOpen), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-tags-open.png")
@@ -229,6 +230,7 @@ enum RenderPreview {
         render(artifactListView(focused: false), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-list-unfocused.png")
         // The Quest Log at its fixed size, over the same quests.
         let layout = QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize)
+        render(QuestLogView(store: questLogStore(attachments: true, focusAttachment: true), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-attachment-cursor.png")
         render(QuestLogView(store: questLogStore(attachments: true), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-attachments.png")
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log.png")
         render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-nobody.png")
@@ -2431,7 +2433,7 @@ enum RenderPreview {
     }
 
     /// `tab` selects a project tab, as a click or `]` would; `selecting` selects a quest.
-    private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, tab projectID: String? = nil, attachments: Bool = false) -> QuestLogStore {
+    private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, tab projectID: String? = nil, attachments: Bool = false, focusAttachment: Bool = false) -> QuestLogStore {
         let store = QuestLogStore()
         var quests = empty ? [] : questLogQuests(longBody: longBody)
         if attachments, !quests.isEmpty { quests[0].attachments = questPreviewAttachments }
@@ -2448,6 +2450,7 @@ enum RenderPreview {
         } else if attachments, let first = quests.first {
             store.select(first.id)
         }
+        if focusAttachment { store.moveAttachment(1) }
         return store
     }
 
@@ -2775,7 +2778,7 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func newQuestSheetView(_ preview: NewQuestPreview = .empty, attachments: Bool = false) -> some View {
+    private static func newQuestSheetView(_ preview: NewQuestPreview = .empty, attachments: Bool = false, focusAttachment: Bool = false) -> some View {
         let code = (NSHomeDirectory() as NSString).appendingPathComponent("Code")
         let projects = ["questmaster", "scry", "dotfiles"].map { name in
             NewQuestProjectOption(projectID: "\(code)/\(name)/.git", projectPath: "\(code)/\(name)", projectName: name)
@@ -2801,6 +2804,7 @@ enum RenderPreview {
             let pending = edited == nil ? questPreviewAttachments : Array(questPreviewAttachments.suffix(1))
             sheet.form.addAttachmentPaths(pending.map(\.path))
         }
+        if focusAttachment, let first = sheet.form.attachments.first { sheet.focusAttachment(.stored(first.id)) }
         switch preview {
         case .empty, .editNoTags, .editTagged, .editAllTypes:
             break

@@ -711,7 +711,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     }
 
     private func insertDroppedPaths(_ urls: [URL]) {
-        guard let session, !urls.isEmpty else {
+        guard InWindowModalStack.shared.entries.isEmpty, let session, !urls.isEmpty else {
             return
         }
         terminalView?.requestFocus()
@@ -769,10 +769,12 @@ private final class TerminalHostContainerView: NSView {
     }
 
     private func dragOperation(for sender: NSDraggingInfo) -> NSDragOperation {
-        droppedFileURLs(from: sender) != nil || filePromiseReceivers(from: sender) != nil ? .copy : []
+        guard InWindowModalStack.shared.entries.isEmpty else { return [] }
+        return droppedFileURLs(from: sender) != nil || filePromiseReceivers(from: sender) != nil ? .copy : []
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard InWindowModalStack.shared.entries.isEmpty else { return false }
         if let urls = droppedFileURLs(from: sender) {
             onFilesDropped?(urls)
             return true

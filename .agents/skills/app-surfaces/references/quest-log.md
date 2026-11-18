@@ -27,3 +27,18 @@
   Clicking a tile opens the stored copy in its default application. The dates stay at the foot of the parchment
   while the body and tiles scroll above them; the project's name remains on the quest card. The Quest Log is
   900 × 780. Removing an attachment or deleting its quest removes the copy, leaving the original alone.
+
+- **Attachment keys.** The New/Edit form's attachment area is a field between size (or project on New Quest) and
+  the body. Tab/⇧Tab and ⌃J/⌃K reach it; h/l and ←/→ cycle Choose a File and the chips. Return chooses or opens
+  the focused file; d or Delete removes that chip from the draft. ⌘Return still saves from the area. A received
+  file takes the cursor and is scrolled into view. Hover never moves the cursor.
+- **Quest Log file focus.** l/→ (also ⇧⌘L) enters the selected quest's thumbnails; h/l steps files, h before the first
+  file or Esc returns to the list, and j/k resumes quest movement. Return/o opens the focused file. d or Delete
+  confirms removing that file's stored copy. After its final file is removed, the file area keeps focus until the
+  user leaves, so another d cannot become quest deletion. The cursor survives refreshes on an adjacent file.
+- **Native drops.** The quest drop target is an AppKit hosting view registered for file URLs and file promises
+  (including the screenshot-thumbnail overlay). It accepts drops only for the top quest form. The terminal
+  rejects file drops while any modal is drawn and checks again before inserting asynchronously received paths.
+  Promised files use private temporary directories, at most 20 files per drop and two receive operations at a time,
+  with a 30-second timeout. Save waits for receipt. The draft retains these files through the save acknowledgement;
+  removing the final referenced file or cancelling the form releases the temporary copy.

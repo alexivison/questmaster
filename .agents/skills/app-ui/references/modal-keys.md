@@ -23,3 +23,8 @@ fields (`ModalKeyContext.hasTextFields`), and the focused part decides the rest:
 Non-modal lists (the tracker, the dock's lists, Watcher, the Worker Log) keep their own keys, arrows included
 (`ListKeyResolver`'s `moveUp` and `moveDown`).
 
+
+The quest form's attachment area is a select in the field order: h/l or ←/→ moves between Choose a File and its
+chips, Return chooses or opens the cursor's file, and d/Delete removes the chip. ⌘Return submits. In the Quest Log,
+l/→ enters the file area, h/l traverses it, Return/o opens a file, and d/Delete asks to remove it. Esc returns to the
+quest list first; j/k resumes quest movement. The normal modal Tab and vertical-arrow rules remain in force.

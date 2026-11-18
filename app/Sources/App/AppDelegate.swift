@@ -661,11 +661,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             filter: questLogFilter,
             pageScroll: questLogPageScroll,
             onCommand: { [weak self] in self?.handleQuestLogCommand($0) },
-            onOpenAttachment: { [weak self] attachment in
-                if !NSWorkspace.shared.open(URL(fileURLWithPath: attachment.path)) {
-                    self?.errorPresenter.showTransientError("Could not open attachment: \(attachment.name)")
-                }
-            }
+            onOpenAttachment: { [weak self] in self?.openQuestAttachment($0) }
         ))
     }
 
@@ -696,6 +692,30 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             questLogFilter.focus()
         case .scrollPage(let pages):
             questLogPageScroll.scroll(byPages: pages)
+        case .openAttachment(let attachment):
+            openQuestAttachment(attachment)
+        case .removeAttachment(let quest, let attachment):
+            removeQuestAttachment(quest, attachment: attachment)
+        }
+    }
+
+    private func openQuestAttachment(_ attachment: QuestAttachment) {
+        if !NSWorkspace.shared.open(URL(fileURLWithPath: attachment.path)) {
+            errorPresenter.showTransientError("Could not open attachment: \(attachment.name)")
+        }
+    }
+
+    private func removeQuestAttachment(_ quest: QuestItem, attachment: QuestAttachment) {
+        destructiveConfirmationPresenter.present(.removeQuestAttachment(attachment)) { [weak self] confirmed in
+            guard confirmed, let self else { return }
+            do {
+                let request = try ServeMutationRequests.questDetachAttachment(questID: quest.id, attachmentID: attachment.id)
+                self.sendMutation(request, label: "remove quest attachment") {
+                    self.toastPresenter.show("Removed attachment")
+                }
+            } catch {
+                self.errorPresenter.showTransientError(error.localizedDescription)
+            }
         }
     }
 

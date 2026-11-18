@@ -174,24 +174,28 @@ struct QuestTagsTests {
 
     private static func newQuestHasNoTagsOrSizeField() {
         var model = NewQuestFormModel(content: "Loose note", initialProject: projects[0], projects: projects, home: home, types: ["bug"], size: "S")
-        expect(model.fields == [.project, .content], "New Quest should have no tags or size field, got \(model.fields)")
+        expect(model.fields == [.project, .attachments, .content], "New Quest should have no tags or size field, got \(model.fields)")
         model.focusedField = .project
         model.moveFocus(1)
-        expect(model.focusedField == .content, "Tab from the project should reach the content")
+        expect(model.focusedField == .attachments, "Tab from the project should reach attachments")
+        model.moveFocus(1)
+        expect(model.focusedField == .content, "Tab from attachments should reach the content")
         let payload = model.submitPayload()
         expect(payload != nil && payload?.types == nil && payload?.size == nil, "New Quest should send no tags, even when handed some")
     }
 
     private static func editFormListsTagsThenSizeBetweenProjectAndContent() {
         var model = NewQuestFormModel(content: "Quest", initialProject: projects[0], isEditing: true, projects: projects, home: home)
-        expect(model.fields == [.project, .tags, .size, .content], "Edit Quest should list tags then size between project and content, got \(model.fields)")
+        expect(model.fields == [.project, .tags, .size, .attachments, .content], "Edit Quest should list tags then size between project and content, got \(model.fields)")
         model.focusedField = .project
         model.moveFocus(1)
         expect(model.focusedField == .tags, "Tab from the project should reach the tags field")
         model.moveFocus(1)
         expect(model.focusedField == .size, "Tab from the tags field should reach the size field")
         model.moveFocus(1)
-        expect(model.focusedField == .content, "Tab from the size field should reach the content")
+        expect(model.focusedField == .attachments, "Tab from size should reach attachments")
+        model.moveFocus(1)
+        expect(model.focusedField == .content, "Tab from attachments should reach the content")
     }
 
     /// The size select has no text, so its focus is `.select`: ←/→ and h/l cycle it, and ↑/↓ do nothing.
