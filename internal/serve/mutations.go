@@ -60,20 +60,22 @@ func (selfMutationCommandRunner) RunMutationCommand(ctx context.Context, args []
 }
 
 type mutationPayload struct {
-	ID        string `json:"id"`
-	SessionID string `json:"session_id"`
-	TargetID  string `json:"target_id"`
-	MasterID  string `json:"master_id"`
-	Name      string `json:"name"`
-	Body      string `json:"body"`
-	Content   string `json:"content"`
-	Message   string `json:"message"`
-	Scope     string `json:"scope"`
-	Repo      string `json:"repo"`
-	RepoID    string `json:"repo_identity"`
-	Title     string `json:"title"`
-	Cwd       string `json:"cwd"`
-	Agent     string `json:"agent"`
+	AttachPaths []string `json:"attach_paths"`
+	DetachIDs   []string `json:"detach_ids"`
+	ID          string   `json:"id"`
+	SessionID   string   `json:"session_id"`
+	TargetID    string   `json:"target_id"`
+	MasterID    string   `json:"master_id"`
+	Name        string   `json:"name"`
+	Body        string   `json:"body"`
+	Content     string   `json:"content"`
+	Message     string   `json:"message"`
+	Scope       string   `json:"scope"`
+	Repo        string   `json:"repo"`
+	RepoID      string   `json:"repo_identity"`
+	Title       string   `json:"title"`
+	Cwd         string   `json:"cwd"`
+	Agent       string   `json:"agent"`
 	// Decode only to reject old start/spawn clients explicitly.
 	LegacyPrimary   json.RawMessage `json:"primary"`
 	Role            string          `json:"role"`
@@ -511,7 +513,7 @@ func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {
 	if payload.Size != nil {
 		size = *payload.Size
 	}
-	quest, err := state.UpsertQuestAt(s.mutationStore().Root(), state.Quest{
+	quest, err := state.SaveQuestWithAttachmentsAt(s.mutationStore().Root(), state.Quest{
 		ID:          strings.TrimSpace(firstNonEmpty(payload.QuestID, payload.ID)),
 		Content:     content,
 		ProjectID:   projectID,
@@ -520,7 +522,7 @@ func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {
 		SessionID:   strings.TrimSpace(payload.SessionID),
 		Types:       types,
 		Size:        size,
-	})
+	}, payload.AttachPaths, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +568,7 @@ func (s *Server) mutateQuestEdit(payload mutationPayload) (any, error) {
 	if payload.Size != nil {
 		quest.Size = *payload.Size
 	}
-	saved, err := state.UpsertQuestAt(s.mutationStore().Root(), quest)
+	saved, err := state.SaveQuestWithAttachmentsAt(s.mutationStore().Root(), quest, payload.AttachPaths, payload.DetachIDs)
 	if err != nil {
 		return nil, err
 	}

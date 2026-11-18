@@ -55,6 +55,7 @@ extension Keymap {
         // Sheets and forms
         case submit
         case createFromPrompt
+        case attachQuestFiles
         case cancel
         case tab
         case backTab
@@ -128,6 +129,7 @@ extension Keymap {
 
         case .submit: return [.code(36), .code(76), .code(36, [.command]), .code(76, [.command])]
         case .createFromPrompt: return [.character("s", [.control])]
+        case .attachQuestFiles: return [.character("A", [.command])]
         case .cancel: return [.code(53), .character("[", [.control])]
         case .tab: return [.code(48)]
         case .backTab: return [.code(48, [.shift])]

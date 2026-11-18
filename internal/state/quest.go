@@ -14,16 +14,17 @@ import (
 )
 
 type Quest struct {
-	ID          string   `json:"id"`
-	Content     string   `json:"content"`
-	Types       []string `json:"types,omitempty"`
-	Size        string   `json:"size,omitempty"`
-	ProjectID   string   `json:"project_id,omitempty"`
-	ProjectPath string   `json:"project_path,omitempty"`
-	ProjectName string   `json:"project_name,omitempty"`
-	CreatedAt   string   `json:"created_at,omitempty"`
-	UpdatedAt   string   `json:"updated_at,omitempty"`
-	SessionID   string   `json:"session_id,omitempty"`
+	Attachments []QuestAttachment `json:"attachments,omitempty"`
+	ID          string            `json:"id"`
+	Content     string            `json:"content"`
+	Types       []string          `json:"types,omitempty"`
+	Size        string            `json:"size,omitempty"`
+	ProjectID   string            `json:"project_id,omitempty"`
+	ProjectPath string            `json:"project_path,omitempty"`
+	ProjectName string            `json:"project_name,omitempty"`
+	CreatedAt   string            `json:"created_at,omitempty"`
+	UpdatedAt   string            `json:"updated_at,omitempty"`
+	SessionID   string            `json:"session_id,omitempty"`
 }
 
 var questTypeOrder = []string{"bug", "improvement", "feature", "research", "decision", "cleanup"}
@@ -187,6 +188,12 @@ func LoadQuestsAt(root string) ([]Quest, error) {
 }
 
 func UpsertQuestAt(root string, quest Quest) (Quest, error) {
+	return SaveQuestWithAttachmentsAt(root, quest, nil, nil)
+}
+
+// SaveQuestWithAttachmentsAt saves a quest and applies attachment changes atomically.
+// Existing attachments are read under the registry lock, not taken from the caller.
+func SaveQuestWithAttachmentsAt(root string, quest Quest, paths, detachIDs []string) (Quest, error) {
 	if root == "" {
 		return Quest{}, errors.New("no state root resolved")
 	}
@@ -202,18 +209,37 @@ func UpsertQuestAt(root string, quest Quest) (Quest, error) {
 		return Quest{}, err
 	}
 	quest.Types, quest.Size = normalizedTypes, normalizedSize
+	quest = normalizeQuest(quest)
 
 	var saved Quest
-	err = withQuestsRegistryLock(root, func() error {
+	err = withQuestsRegistryLock(root, func() (err error) {
 		quests, err := loadQuestsLocked(root)
 		if err != nil {
 			return err
 		}
+		var previous []QuestAttachment
+		for _, existing := range quests {
+			if existing.ID == quest.ID {
+				previous = existing.Attachments
+				break
+			}
+		}
+		attachments, created, removed, err := prepareQuestAttachments(root, previous, paths, detachIDs)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err != nil {
+				removeQuestAttachmentFiles(root, created)
+			} else {
+				removeQuestAttachmentFiles(root, removed)
+			}
+		}()
+		quest.Attachments = attachments
 		now := time.Now().UTC().Format(time.RFC3339Nano)
 		if quest.ID == "" {
 			quest.ID = nextQuestID(quests, time.Now())
 		}
-		quest = normalizeQuest(quest)
 		for i := range quests {
 			if quests[i].ID == quest.ID {
 				if quest.CreatedAt == "" {
@@ -251,9 +277,11 @@ func RemoveQuestAt(root, id string) (bool, error) {
 		if err != nil {
 			return err
 		}
+		var attachments []QuestAttachment
 		next := make([]Quest, 0, len(quests))
 		for _, quest := range quests {
 			if quest.ID == id {
+				attachments = quest.Attachments
 				removed = true
 				continue
 			}
@@ -262,7 +290,11 @@ func RemoveQuestAt(root, id string) (bool, error) {
 		if !removed {
 			return nil
 		}
-		return writeQuestsLocked(root, next)
+		if err := writeQuestsLocked(root, next); err != nil {
+			return err
+		}
+		removeQuestAttachmentFiles(root, attachments)
+		return nil
 	})
 	return removed, err
 }

@@ -96,6 +96,7 @@ func serveContractFixtures() []contractFixture {
 		AddedAt:   observedAt.Add(-10 * time.Second).Format(time.RFC3339),
 	}
 	activeQuest := QuestSnapshot{
+		Attachments: []state.QuestAttachment{{ID: "att-00000000000000000000000000000001", Name: "design.png", Path: "/tmp/example-state/quest-files/att-00000000000000000000000000000001/design.png", Size: 1024}},
 		ID:          "qst-1781842800",
 		Content:     "Add --search flag to qm quest ls",
 		Types:       []string{"bug", "research"},

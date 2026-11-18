@@ -42,6 +42,8 @@ struct ContractFixtureTests {
         expect(tracker.artifacts.first?.projectID == "/tmp/questmaster/.git", "top-level artifact project_id did not decode")
         expect(tracker.artifacts.contains { $0.sessionID == "qm-orphan" && $0.label == "Orphan" }, "top-level orphan artifact did not decode")
         expect(tracker.quests.count == 2, "top-level quests did not decode")
+        expect(tracker.quests.first?.attachments.first == QuestAttachment(id: "att-00000000000000000000000000000001", name: "design.png", path: "/tmp/example-state/quest-files/att-00000000000000000000000000000001/design.png", size: 1024), "quest attachments did not decode")
+        expect(tracker.quests.last?.attachments.isEmpty == true, "omitted attachments should decode as empty")
         expect(tracker.quests.first?.projectPath == "/tmp/questmaster/worktrees/app-contract", "quest project_path did not decode")
         let taggedQuest = tracker.quests.first { $0.id == "qst-1781842800" }
         expect(taggedQuest?.types == ["bug", "research"] && taggedQuest?.size == "M", "quest tags did not decode")

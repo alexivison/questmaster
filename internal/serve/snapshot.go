@@ -118,16 +118,17 @@ type UnlistedFolderSnapshot struct {
 }
 
 type QuestSnapshot struct {
-	ID          string   `json:"id"`
-	Content     string   `json:"content"`
-	Types       []string `json:"types,omitempty"`
-	Size        string   `json:"size,omitempty"`
-	ProjectID   string   `json:"project_id,omitempty"`
-	ProjectPath string   `json:"project_path,omitempty"`
-	ProjectName string   `json:"project_name,omitempty"`
-	CreatedAt   string   `json:"created_at,omitempty"`
-	UpdatedAt   string   `json:"updated_at,omitempty"`
-	SessionID   string   `json:"session_id,omitempty"`
+	Attachments []state.QuestAttachment `json:"attachments,omitempty"`
+	ID          string                  `json:"id"`
+	Content     string                  `json:"content"`
+	Types       []string                `json:"types,omitempty"`
+	Size        string                  `json:"size,omitempty"`
+	ProjectID   string                  `json:"project_id,omitempty"`
+	ProjectPath string                  `json:"project_path,omitempty"`
+	ProjectName string                  `json:"project_name,omitempty"`
+	CreatedAt   string                  `json:"created_at,omitempty"`
+	UpdatedAt   string                  `json:"updated_at,omitempty"`
+	SessionID   string                  `json:"session_id,omitempty"`
 }
 
 // ExchangeRow is the last master-worker instructions or report for a tracker row.
@@ -881,6 +882,7 @@ func questSnapshots(quests []state.Quest) []QuestSnapshot {
 	out := make([]QuestSnapshot, 0, len(sorted))
 	for _, quest := range sorted {
 		out = append(out, QuestSnapshot{
+			Attachments: quest.Attachments,
 			ID:          quest.ID,
 			Content:     quest.Content,
 			Types:       quest.Types,

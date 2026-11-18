@@ -14,6 +14,7 @@ struct KeymapTests {
         listKeysAreArrowsAndLetters()
         openAndEditUseReturnAndLetters()
 controlPageAndHalfPageChords()
+        attachQuestFilesUsesShiftCommandA()
         submitTakesPlainReturnAndCommandReturn()
         controlBracketIsEscape()
         tabAndBackTabAreDistinct()
@@ -26,6 +27,13 @@ controlPageAndHalfPageChords()
         gPrefixTrackerResetClearsPendingState()
         projectsAddKeyIsPlainN()
         print("KeymapTests: all tests passed")
+    }
+
+    private static func attachQuestFilesUsesShiftCommandA() {
+        expect(matches(press("A", [.command, .shift]), .attachQuestFiles), "⇧⌘A should choose quest attachments after printable Shift is normalized")
+        expect(!matches(press("a", [.command]), .attachQuestFiles), "⌘A should remain Select All")
+        expect(!matches(press("A", [.shift]), .attachQuestFiles), "typing A must not choose attachments")
+        expect(!matches(press("A", [.command, .shift, .control]), .attachQuestFiles), "additional modifiers must not match")
     }
 
     /// Settings' Projects list adds with plain n. ⌘T and a no longer add, so each key stays with one action.

@@ -7,7 +7,7 @@ import SwiftUI
 /// is fixed at `QuestLogMetrics.sheetSize`; `QuestLogLayout` places its parts.
 enum QuestLogMetrics {
     /// The sheet's fixed size. A window smaller than it shrinks the modal to fit (`ModalScaleView`), as other modals do.
-    static let sheetSize = CGSize(width: 1280, height: 860)
+    static let sheetSize = CGSize(width: 900, height: 780)
 
     /// Rounds a length to the nearest grid line.
     static func snapToGrid(_ length: CGFloat) -> CGFloat {
@@ -43,28 +43,24 @@ enum QuestLogMetrics {
     static let parchmentEdgeOpacity = 0.35
     static let parchmentOpacity = 0.7
     /// Page ink, page-local: the titled page's title baseline 34 down, the 12pt description's 36 below it on a
-    /// 16pt line, 20 in on each side; a plain page's line sits on a baseline 32 down. Then the rule 24 below the last
-    /// baseline and the footer's baseline 32 below the rule. The vines and rules scale with the page; the text doesn't.
+    /// 16pt line, 20 in on each side; a plain page's line sits on a baseline 32 down. The dates are anchored at the
+    /// foot of the page. The title's vines scale with the page; the text doesn't.
     static let inkInset = Space.section
     static let titleWidth: CGFloat = 325
     static let titleBaseline: CGFloat = 34
     static let plainBaseline: CGFloat = 32
     static let bodyBaselineGap: CGFloat = 36
     static let bodyLineHeight: CGFloat = 16
-    static let ruleBaselineGap: CGFloat = 24
-    static let footerBaselineGap: CGFloat = 32
     static let inkBottomInset: CGFloat = 25
     /// How far in from the page's bottom (top) edge the ink fades while more of it lies below (above).
     static let overflowFadeHeight: CGFloat = 30
     /// The vine strips in the design's page points: the title's spans y 20-38 with the title baseline at 34; the
     /// rule's spans y 198-215 with the rule at 206.
     static let titleVineBand = (top: CGFloat(20), height: CGFloat(18))
-    static let ruleVineBand = (top: CGFloat(198), height: CGFloat(17))
     static let titleVineLines: [CGRect] = [
         CGRect(x: 20, y: 28.5, width: 18.6394, height: 1),
         CGRect(x: 434.361, y: 28.5, width: 18.6394, height: 1),
     ]
-    static let rule = CGRect(x: 22.946, y: 206, width: 427.845, height: 1)
     /// Footer: each diamond sits `footerDiamondGap` after the part before it and before the next part; its centre
     /// sits 3.5 above the baseline. Wrapped lines sit on the 15pt pitch.
     static let footerLinePitch: CGFloat = 15
@@ -119,6 +115,7 @@ struct QuestLogView: View {
     /// Offscreen renders can't focus the field; this draws it as focused (its border, its suggestions).
     var previewFocused = false
     var onCommand: (ListCommand) -> Void
+    var onOpenAttachment: (QuestAttachment) -> Void = { _ in }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -130,7 +127,7 @@ struct QuestLogView: View {
             QuestLogList(store: store)
                 .frame(width: layout.listWidth, height: layout.listHeight, alignment: .top)
                 .offset(x: layout.listOrigin.x, y: layout.listOrigin.y)
-            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout, emptyReason: store.emptyReason)
+            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout, emptyReason: store.emptyReason, onOpenAttachment: onOpenAttachment)
                 .offset(x: layout.pageOrigin.x, y: layout.pageOrigin.y)
             // Last but the buttons: a ZStack draws later children on top, and the filter's suggestion dropdown opens
             // over the list.
@@ -181,6 +178,7 @@ struct QuestLogModal: View {
     let filter: QuestLogFilter
     let pageScroll: QuestLogPageScroll
     var onCommand: (ListCommand) -> Void
+    var onOpenAttachment: (QuestAttachment) -> Void = { _ in }
 
     var body: some View {
         // A fresh page per opening, so the parchment unrolls when the log opens and not on later changes.
@@ -189,7 +187,8 @@ struct QuestLogModal: View {
             filter: filter,
             layout: QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize),
             pageScroll: pageScroll,
-            onCommand: onCommand
+            onCommand: onCommand,
+            onOpenAttachment: onOpenAttachment
         )
         .id(store.openGeneration)
         .background(SheetKeyEventMonitor(onKeyDown: handle))
@@ -329,6 +328,7 @@ private struct QuestLogPageView: View {
     let layout: QuestLogLayout
     /// Why there is no page to show, when there is none.
     let emptyReason: ListEmptyReason
+    var onOpenAttachment: (QuestAttachment) -> Void
     @State private var unrolled = false
     @State private var inked = false
 
@@ -370,33 +370,42 @@ private struct QuestLogPageView: View {
 
     @ViewBuilder private var ink: some View {
         if let page {
-            ScrollView(.vertical) {
-                QuestLogInk(page: page, layout: layout)
-                    .background(ScrollerHider(onApply: { scrollView in
-                        hideScroller(on: scrollView)
-                        pageScroll.attach(scrollView)
-                    }))
+            VStack(spacing: 0) {
+                scrollableInk(page)
+                QuestLogFooter(page: page, layout: layout)
+                    .padding(.top, Space.item)
+                    .padding(.bottom, QuestLogMetrics.inkBottomInset)
             }
-            .scrollIndicators(.hidden)
-            // The overflow cue: while more ink lies below (or above, once scrolled), it fades out over the
-            // page's last (or first) lines. Only the ink fades; the paper stays as it is.
-            .mask {
-                let ink = AppPalette.mask.swiftUI
-                VStack(spacing: 0) {
-                    LinearGradient(colors: [pageScroll.moreAbove ? .clear : ink, ink], startPoint: .top, endPoint: .bottom)
-                        .frame(height: QuestLogMetrics.overflowFadeHeight)
-                    ink
-                    LinearGradient(colors: [ink, pageScroll.moreBelow ? .clear : ink], startPoint: .top, endPoint: .bottom)
-                        .frame(height: QuestLogMetrics.overflowFadeHeight)
-                }
-            }
-            .animation(Motion.animation(.fast), value: pageScroll.moreBelow)
-            .animation(Motion.animation(.fast), value: pageScroll.moreAbove)
             .id(pageID)
             .transition(.opacity)
         } else {
             EmptyState(color: AppPalette.panel, reason: emptyReason)
         }
+    }
+
+    private func scrollableInk(_ page: QuestLogPage) -> some View {
+        ScrollView(.vertical) {
+            QuestLogInk(page: page, layout: layout, onOpenAttachment: onOpenAttachment)
+                .background(ScrollerHider(onApply: { scrollView in
+                    hideScroller(on: scrollView)
+                    pageScroll.attach(scrollView)
+                }))
+        }
+        .scrollIndicators(.hidden)
+        // The overflow cue: while more ink lies below (or above, once scrolled), it fades out over the
+        // page's last (or first) lines. Only the ink fades; the paper stays as it is.
+        .mask {
+            let ink = AppPalette.mask.swiftUI
+            VStack(spacing: 0) {
+                LinearGradient(colors: [pageScroll.moreAbove ? .clear : ink, ink], startPoint: .top, endPoint: .bottom)
+                    .frame(height: QuestLogMetrics.overflowFadeHeight)
+                ink
+                LinearGradient(colors: [ink, pageScroll.moreBelow ? .clear : ink], startPoint: .top, endPoint: .bottom)
+                    .frame(height: QuestLogMetrics.overflowFadeHeight)
+            }
+        }
+        .animation(Motion.animation(.fast), value: pageScroll.moreBelow)
+        .animation(Motion.animation(.fast), value: pageScroll.moreAbove)
     }
 }
 
@@ -420,26 +429,39 @@ private struct UnrollMask: ViewModifier, Animatable {
 private struct QuestLogInk: View {
     let page: QuestLogPage
     let layout: QuestLogLayout
+    var onOpenAttachment: (QuestAttachment) -> Void
 
     var body: some View {
+        VStack(alignment: .leading, spacing: Space.item) {
+            content
+            if !page.attachments.isEmpty { attachments }
+        }
+        .padding(.bottom, QuestLogMetrics.inkBottomInset)
+    }
+
+    private var content: some View {
         Group {
             switch page.layout {
             case .titled:
-                BaselineColumn(gaps: [QuestLogMetrics.titleBaseline, QuestLogMetrics.bodyBaselineGap, QuestLogMetrics.ruleBaselineGap, QuestLogMetrics.footerBaselineGap]) {
+                BaselineColumn(gaps: [QuestLogMetrics.titleBaseline, QuestLogMetrics.bodyBaselineGap]) {
                     title
                     paragraph(page.body)
-                    rule
-                    footer
                 }
             case .plain:
-                BaselineColumn(gaps: [QuestLogMetrics.plainBaseline, QuestLogMetrics.ruleBaselineGap, QuestLogMetrics.footerBaselineGap]) {
+                BaselineColumn(gaps: [QuestLogMetrics.plainBaseline]) {
                     paragraph(page.title)
-                    rule
-                    footer
                 }
             }
         }
-        .padding(.bottom, QuestLogMetrics.inkBottomInset)
+    }
+
+    private var attachments: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: QuestAttachmentMetrics.side, maximum: QuestAttachmentMetrics.side), spacing: Space.item)], alignment: .leading, spacing: Space.item) {
+            ForEach(page.attachments) { attachment in
+                QuestAttachmentThumbnail(attachment: attachment) { onOpenAttachment(attachment) }
+            }
+        }
+        .padding(.horizontal, QuestLogMetrics.inkInset)
     }
 
     /// Plain page text: the description, or a title-only quest's one line.
@@ -468,15 +490,14 @@ private struct QuestLogInk: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// The rule and its vines; its "baseline" is the rule's top edge.
-    private var rule: some View {
-        QuestLogOrnaments(layout: layout, pieces: QuestLogOrnaments.ruleVines, lines: [QuestLogMetrics.rule], band: QuestLogMetrics.ruleVineBand)
-            .alignmentGuide(.firstTextBaseline) { _ in (QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top) * layout.pageScale }
-            .alignmentGuide(.lastTextBaseline) { _ in (QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top) * layout.pageScale }
-    }
+}
 
-    /// "project ◆ Created: … ◆ Updated: …", wrapped between parts when it doesn't fit (QuestLogPage.footerLines).
-    private var footer: some View {
+private struct QuestLogFooter: View {
+    let page: QuestLogPage
+    let layout: QuestLogLayout
+
+    /// The dates stay at the foot of the parchment while the content scrolls above.
+    var body: some View {
         // The separator's width in whole columns, rounded up, so a line never runs past the body.
         let separatorWidth = 2 * QuestLogMetrics.footerDiamondGap + QuestLogMetrics.footerDiamondSvgSize
         let separatorColumns = Int((separatorWidth / columnWidth(AppFonts.monoSmall)).rounded(.up))
@@ -551,7 +572,6 @@ private struct QuestLogOrnaments: View {
     let layout: QuestLogLayout
 
     static let titleVines = parsed(QuestLogArt.titleVineLeft + QuestLogArt.titleVineRight)
-    static let ruleVines = parsed(QuestLogArt.ruleVineLeft + QuestLogArt.ruleVineRight)
 
     let pieces: [Piece]
     let lines: [CGRect]

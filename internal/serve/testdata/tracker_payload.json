@@ -170,6 +170,14 @@
   ],
   "quests": [
     {
+      "attachments": [
+        {
+          "id": "att-00000000000000000000000000000001",
+          "name": "design.png",
+          "path": "/tmp/example-state/quest-files/att-00000000000000000000000000000001/design.png",
+          "size": 1024
+        }
+      ],
       "id": "qst-1781842800",
       "content": "Add --search flag to qm quest ls",
       "types": [

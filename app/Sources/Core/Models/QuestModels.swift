@@ -3,6 +3,7 @@ import Foundation
 public struct QuestItem: Decodable, Equatable, Identifiable {
     public var id: String
     public var content: String
+    public var attachments: [QuestAttachment]
     public var types: [String]
     public var size: String
     public var projectID: String
@@ -15,6 +16,7 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
     public init(
         id: String,
         content: String,
+        attachments: [QuestAttachment] = [],
         types: [String] = [],
         size: String = "",
         projectID: String = "",
@@ -26,6 +28,7 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
     ) {
         self.id = id
         self.content = content
+        self.attachments = attachments
         self.types = types
         self.size = size
         self.projectID = projectID
@@ -39,6 +42,7 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id
         case content
+        case attachments
         case types
         case size
         case project_id
@@ -53,6 +57,7 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         content = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
+        attachments = try container.decodeIfPresent([QuestAttachment].self, forKey: .attachments) ?? []
         types = try container.decodeIfPresent([String].self, forKey: .types) ?? []
         size = try container.decodeIfPresent(String.self, forKey: .size) ?? ""
         projectID = try container.decodeIfPresent(String.self, forKey: .project_id) ?? ""
@@ -61,5 +66,20 @@ public struct QuestItem: Decodable, Equatable, Identifiable {
         createdAt = try container.decodeIfPresent(String.self, forKey: .created_at) ?? ""
         updatedAt = try container.decodeIfPresent(String.self, forKey: .updated_at) ?? ""
         sessionID = try container.decodeIfPresent(String.self, forKey: .session_id) ?? ""
+    }
+}
+
+/// A stored copy of a quest's supporting file.
+public struct QuestAttachment: Decodable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+    public var path: String
+    public var size: Int64
+
+    public init(id: String, name: String, path: String, size: Int64) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.size = size
     }
 }

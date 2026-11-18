@@ -17,20 +17,24 @@ struct ClearableChip<Value: View>: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: ClearableChipMetrics.labelGap) {
-                Text(label)
-                    .font(AppFonts.questLogBody.swiftUI)
-                    .foregroundStyle(AppPalette.metaHighlighted.swiftUI)
+                if !label.isEmpty {
+                    Text(label)
+                        .font(AppFonts.questLogBody.swiftUI)
+                        .foregroundStyle(AppPalette.metaHighlighted.swiftUI)
+                }
                 value()
             }
-            .padding(.trailing, Space.item)
-            Rectangle()
-                .fill(AppPalette.lineSoftSubtle.swiftUI)
-                .frame(width: Token.Size.divider, height: ClearableChipMetrics.dividerHeight)
+            .padding(.trailing, horizontalInset)
+            if !label.isEmpty {
+                Rectangle()
+                    .fill(AppPalette.lineSoftSubtle.swiftUI)
+                    .frame(width: Token.Size.divider, height: ClearableChipMetrics.dividerHeight)
+            }
             Button(action: onClear) {
                 CrossShape()
                     .stroke(crossColor.swiftUI, lineWidth: Token.Size.divider)
-                    .frame(width: ClearableChipMetrics.crossSide, height: ClearableChipMetrics.crossSide)
-                    .padding(.horizontal, Space.item)
+                    .frame(width: crossSide, height: crossSide)
+                    .padding(.horizontal, horizontalInset)
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
             }
@@ -38,7 +42,7 @@ struct ClearableChip<Value: View>: View {
             .onHover { pointerOver = $0 }
             .accessibilityLabel(accessibilityLabel)
         }
-        .padding(.leading, Space.item)
+        .padding(.leading, horizontalInset)
         .padding(Token.Size.divider)
         .frame(height: ClearableChipMetrics.height)
         .background(RoundedRectangle(cornerRadius: ClearableChipMetrics.cornerRadius).fill(AppPalette.item.swiftUI))
@@ -48,6 +52,10 @@ struct ClearableChip<Value: View>: View {
         )
         .fixedSize()
     }
+
+    /// Filename chips have no label or divider and use the compact inset.
+    private var horizontalInset: CGFloat { label.isEmpty ? Space.row : Space.item }
+    private var crossSide: CGFloat { label.isEmpty ? Space.item : ClearableChipMetrics.crossSide }
 
     private var crossColor: NSColor {
         guard pointerOver else {

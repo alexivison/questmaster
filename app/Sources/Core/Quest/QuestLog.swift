@@ -3,7 +3,7 @@ import Observation
 
 /// What the Quest Log's page shows for a quest: the content's first line is the title and the rest is the
 /// description, kept verbatim (blank lines and typed "- " bullets included). The footer reads
-/// "project ◆ Created: YYYY/MM/DD ◆ Updated: YYYY/MM/DD".
+/// "Created: YYYY/MM/DD ◆ Updated: YYYY/MM/DD".
 public struct QuestLogPage: Equatable {
     /// A quest with a description gets the bold title between vines; a quest that is only its first line
     /// shows that line as plain text.
@@ -18,15 +18,15 @@ public struct QuestLogPage: Equatable {
     /// "YYYY/MM/DD", or "" when the timestamp is missing or unreadable.
     public var created: String
     public var updated: String
+    public var attachments: [QuestAttachment] = []
 
     public var layout: Layout {
         body.isEmpty ? .plain : .titled
     }
 
-    /// The footer's parts, a diamond between each: the project, then both dates (even when equal). A missing
-    /// date, or project, is left out.
+    /// The footer's dates, a diamond between them (even when equal). A missing date is left out.
     public var footerParts: [String] {
-        [project, created.isEmpty ? "" : "Created: \(created)", updated.isEmpty ? "" : "Updated: \(updated)"]
+        [created.isEmpty ? "" : "Created: \(created)", updated.isEmpty ? "" : "Updated: \(updated)"]
             .filter { !$0.isEmpty }
     }
 
@@ -48,6 +48,7 @@ public struct QuestLogPage: Equatable {
         let rest = lines.dropFirst(firstLine + 1).drop { $0.trimmingCharacters(in: .whitespaces).isEmpty }
         let body = rest.joined(separator: "\n").replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
         self.init(title: title, body: body, project: project, created: Self.day(quest.createdAt), updated: Self.day(quest.updatedAt))
+        attachments = quest.attachments
     }
 
     /// The footer's parts set greedily on lines of `columns` characters, a separator (the diamond and its

@@ -40,6 +40,7 @@ func newQuestAddCmd(store *state.Store, client *tmux.Client, sessionFlag *string
 	var file string
 	var types []string
 	var size string
+	var attachments []string
 	cmd := &cobra.Command{
 		Use:   "add [content]",
 		Short: "Add a quest",
@@ -57,7 +58,7 @@ func newQuestAddCmd(store *state.Store, client *tmux.Client, sessionFlag *string
 			if err != nil {
 				return err
 			}
-			quest, err := state.UpsertQuestAt(questStateRoot(store), state.Quest{
+			quest, err := state.SaveQuestWithAttachmentsAt(questStateRoot(store), state.Quest{
 				Content:     content,
 				ProjectID:   projectMeta.id,
 				ProjectPath: projectMeta.path,
@@ -65,7 +66,7 @@ func newQuestAddCmd(store *state.Store, client *tmux.Client, sessionFlag *string
 				SessionID:   sessionID,
 				Types:       questTagFlagValues(types),
 				Size:        size,
-			})
+			}, attachments, nil)
 			if err != nil {
 				return err
 			}
@@ -76,6 +77,7 @@ func newQuestAddCmd(store *state.Store, client *tmux.Client, sessionFlag *string
 	cmd.Flags().StringVar(&file, "file", "", "read content from a file, or '-' for stdin")
 	cmd.Flags().StringArrayVar(&types, "type", nil, "quest type tags (repeatable or comma-separated)")
 	cmd.Flags().StringVar(&size, "size", "", "quest size: S, M, or L")
+	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "attach a file or image by path (repeatable; at most 20 files, 25 MiB each)")
 	return cmd
 }
 
@@ -129,11 +131,13 @@ func newQuestListCmd(store *state.Store) *cobra.Command {
 }
 
 func newQuestEditCmd(store *state.Store) *cobra.Command {
+	var detachIDs []string
 	var content string
 	var file string
 	var project string
 	var types []string
 	var size string
+	var attachments []string
 	cmd := &cobra.Command{
 		Use:   "edit <id>",
 		Short: "Edit a quest",
@@ -178,13 +182,15 @@ func newQuestEditCmd(store *state.Store) *cobra.Command {
 			if cmd.Flags().Changed("size") {
 				quest.Size = size
 			}
-			saved, err := state.UpsertQuestAt(questStateRoot(store), quest)
+			saved, err := state.SaveQuestWithAttachmentsAt(questStateRoot(store), quest, attachments, detachIDs)
 			if err != nil {
 				return err
 			}
 			return writeJSON(cmd.OutOrStdout(), saved)
 		},
 	}
+	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "attach a file or image by path (repeatable; at most 20 files, 25 MiB each)")
+	cmd.Flags().StringArrayVar(&detachIDs, "detach", nil, "remove an attachment by ID (repeatable)")
 	cmd.Flags().StringVar(&content, "content", "", "replacement content")
 	cmd.Flags().StringVar(&file, "file", "", "read replacement content from a file, or '-' for stdin")
 	cmd.Flags().StringVar(&project, "project", "", "replacement project path, or empty to clear")

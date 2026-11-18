@@ -26,6 +26,9 @@ Use this skill when the user asks to record or change work in Questmaster's proj
   and `cleanup`; size is `S`, `M`, or `L`. Choose only tags supported by the request.
   On edit, `--type` replaces the full type set and `--size` replaces the size.
   Omitted flags preserve existing values; `--type ""` and `--size ""` clear them.
+- Add supporting files or images with repeatable `--attach <path>` on add or edit (up to 20 files per quest, 25 MiB each).
+  Files are copied into quest storage; `quest ls` returns their IDs, names and stored paths.
+  Remove a copy with `questmaster quest edit <id> --detach <attachment-id>`; omitted attachment flags preserve files.
 - `questmaster quest edit <id> --content ...` replaces the full quest content.
   Preserve relevant existing details when rewriting it, and change content only when
   requested or needed to reflect the user's stated change. Use `--file` when content
