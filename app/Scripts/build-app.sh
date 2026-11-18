@@ -34,6 +34,8 @@ UI_REPO_ROOT="$REPO_ROOT"
 # shellcheck source-path=SCRIPTDIR source=output.sh
 source "$SCRIPT_DIR/output.sh"
 
+"$SCRIPT_DIR/check-build-requirements.sh"
+
 if [ ! -f "$ICNS_PATH" ]; then
   echo "missing app icon: $ICNS_PATH" >&2
   exit 1

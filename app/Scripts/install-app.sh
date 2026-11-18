@@ -300,11 +300,18 @@ if [ "${UI_FANCY}" = 0 ]; then
   echo "Linked $STABLE -> $VERSION_DIR/qm"
   echo "Linked $PATH_LINK -> $STABLE"
   if [ -d "$PREVIOUS" ]; then echo "Kept $PREVIOUS (restore it with $0 --rollback)"; fi
-  exit 0
+else
+  printf '\n  %s✦ Questmaster %s stands ready.%s\n\n' "${UI_GOLD}" "$VERSION" "${UI_RESET}"
+  ui_fact "App" "$(ui_tilde "$INSTALL_PATH")"
+  ui_fact "qm" "$(ui_tilde "$STABLE") → versions/$(basename "$VERSION_DIR")/qm"
+  ui_fact "PATH" "$(ui_tilde "$PATH_LINK") → $(ui_tilde "$STABLE")"
+  if [ -d "$PREVIOUS" ]; then ui_fact "Previous" "$(ui_tilde "$PREVIOUS")  ${UI_DIM}(install-app.sh --rollback)${UI_RESET}"; fi
 fi
-printf '\n  %s✦ Questmaster %s stands ready.%s\n\n' "${UI_GOLD}" "$VERSION" "${UI_RESET}"
-ui_fact "App" "$(ui_tilde "$INSTALL_PATH")"
-ui_fact "qm" "$(ui_tilde "$STABLE") → versions/$(basename "$VERSION_DIR")/qm"
-ui_fact "PATH" "$(ui_tilde "$PATH_LINK") → $(ui_tilde "$STABLE")"
-if [ -d "$PREVIOUS" ]; then ui_fact "Previous" "$(ui_tilde "$PREVIOUS")  ${UI_DIM}(install-app.sh --rollback)${UI_RESET}"; fi
-echo
+if [ "$ISOLATED" = 0 ]; then
+  if [ "$INSTALL_PATH" = /Applications/Questmaster.app ]; then
+    printf '\nOpen Questmaster from Applications or Spotlight.\n'
+  else
+    printf '\nOpen %s in Finder.\n' "$INSTALL_PATH"
+  fi
+  printf 'In the app, press Command+N to create your first session.\n\n'
+fi
