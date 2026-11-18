@@ -10,6 +10,7 @@ struct ClearableChip<Value: View>: View {
     let label: String
     let accessibilityLabel: String
     var focused = false
+    var fixedHorizontalSize = true
     let onClear: () -> Void
     @ViewBuilder var value: () -> Value
 
@@ -51,7 +52,7 @@ struct ClearableChip<Value: View>: View {
             RoundedRectangle(cornerRadius: ClearableChipMetrics.cornerRadius)
                 .strokeBorder(OutlineLook.field(focused: focused).border.color.swiftUI, lineWidth: Token.Size.divider)
         )
-        .fixedSize()
+        .fixedSize(horizontal: fixedHorizontalSize, vertical: true)
     }
 
     /// Filename chips have no label or divider and use the compact inset.

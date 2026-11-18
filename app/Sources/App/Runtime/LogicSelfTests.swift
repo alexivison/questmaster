@@ -8186,6 +8186,10 @@ enum LogicSelfTests {
         sheet.form.pickProject(.noProject)
         try expect(sheet.addAttachments([file], temporaryDirectory: directory), "a received screenshot should join the draft")
         try expect(sheet.form.focusedField == .attachments && sheet.form.attachmentTarget == .pending(file.path), "a received file should have the keyboard cursor")
+        let sinkBefore = sheet.sinkNonce
+        try expect(sheet.handle(try keyEvent("j", keyCode: 38, modifierFlags: .control)), "Ctrl+J should leave the received file for the body")
+        try expect(sheet.handle(try keyEvent("k", keyCode: 40, modifierFlags: .control)), "Ctrl+K should return to the attachment field")
+        try expect(sheet.form.focusedField == .attachments && sheet.form.attachmentTarget == .chooseFiles && sheet.sinkNonce > sinkBefore, "returning after a drop should give the drop box focus and take the caret out of the body")
         sheet.receivingDrop = true
         sheet.submit()
         try expect(!sheet.canSubmit && client.sentRequests.isEmpty, "save should wait for promised files to arrive")

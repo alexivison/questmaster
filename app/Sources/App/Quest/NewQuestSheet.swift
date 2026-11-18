@@ -63,6 +63,7 @@ enum QuestFormMetrics {
     static let dropHeight: CGFloat = 150
     static let dropIconSide: CGFloat = 40
     static let dash: CGFloat = 3
+    static let minimumContentHeight: CGFloat = 100
 }
 
 /// The quest forms keep their drop area and filename chips above the text. Edit Quest adds tags and size.
@@ -90,16 +91,39 @@ struct NewQuestSheetView: View {
             onCancel: { model.cancel() },
             onPrimary: { model.submit() }
         ) {
-            VStack(spacing: ModalFormMetrics.fieldSpacing) {
-                projectField
-                    .zIndex(2)
-                if model.form.isEditing {
-                    tagsField
-                        .zIndex(1)
-                    sizeField
+            GeometryReader { geometry in
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) {
+                        VStack(spacing: ModalFormMetrics.fieldSpacing) {
+                            projectField
+                                .zIndex(2)
+                                .id(NewQuestField.project)
+                            if model.form.isEditing {
+                                tagsField
+                                    .zIndex(1)
+                                    .id(NewQuestField.tags)
+                                sizeField
+                                    .id(NewQuestField.size)
+                            }
+                            attachments
+                            contentBox
+                                .id(NewQuestField.content)
+                        }
+                        .frame(minHeight: geometry.size.height)
+                        .background(ScrollerHider())
+                    }
+                    .scrollIndicators(.never)
+                    .onChange(of: model.form.attachmentTarget) { _, target in
+                        if model.form.focusedField == .attachments { proxy.scrollTo(target) }
+                    }
+                    .onChange(of: model.form.focusedField) { _, field in
+                        if field == .attachments {
+                            proxy.scrollTo(model.form.attachmentTarget)
+                        } else {
+                            proxy.scrollTo(field)
+                        }
+                    }
                 }
-                attachments
-                contentBox
             }
             .background(FocusSink(nonce: model.sinkNonce))
         }
@@ -197,24 +221,19 @@ struct NewQuestSheetView: View {
     private var attachments: some View {
         VStack(alignment: .leading, spacing: Space.item) {
             dropArea
+                .id(QuestFormAttachmentTarget.chooseFiles)
             if !model.form.attachments.isEmpty || !model.form.attachPaths.isEmpty {
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal) {
-                        HStack(spacing: Space.item) {
-                            ForEach(model.form.attachments) { attachment in
-                                attachmentChip(name: attachment.name, target: .stored(attachment.id)) { model.removeAttachment(.stored(attachment.id)) }
-                                    .help(attachment.path)
-                            }
-                            ForEach(model.form.attachPaths, id: \.self) { path in
-                                attachmentChip(name: URL(fileURLWithPath: path).lastPathComponent, target: .pending(path)) { model.removeAttachment(.pending(path)) }
-                                    .help(path)
-                            }
-                        }
+                QuestAttachmentChipLayout {
+                    ForEach(model.form.attachments) { attachment in
+                        attachmentChip(name: attachment.name, target: .stored(attachment.id)) { model.removeAttachment(.stored(attachment.id)) }
+                            .help(attachment.path)
                     }
-                    .scrollIndicators(.hidden)
-                    .onChange(of: model.form.attachmentTarget) { _, target in proxy.scrollTo(target, anchor: .center) }
+                    ForEach(model.form.attachPaths, id: \.self) { path in
+                        attachmentChip(name: URL(fileURLWithPath: path).lastPathComponent, target: .pending(path)) { model.removeAttachment(.pending(path)) }
+                            .help(path)
+                    }
                 }
-                .frame(height: ClearableChipMetrics.height)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .disabled(model.form.submitting)
@@ -263,10 +282,12 @@ struct NewQuestSheetView: View {
 
     private func attachmentChip(name: String, target: QuestFormAttachmentTarget, onRemove: @escaping () -> Void) -> some View {
         let focused = model.form.focusedField == .attachments && model.form.attachmentTarget == target
-        return ClearableChip(label: "", accessibilityLabel: "Remove \(name)", focused: focused, onClear: onRemove) {
+        return ClearableChip(label: "", accessibilityLabel: "Remove \(name)", focused: focused, fixedHorizontalSize: false, onClear: onRemove) {
             Text(name)
                 .font(AppFonts.questLogBody.swiftUI)
                 .foregroundStyle(RowLook.pick(highlighted: focused, areaFocused: true).text.color.swiftUI)
+                .lineLimit(1)
+                .truncationMode(.middle)
                 .onTapGesture { model.focusAttachment(target) }
         }
         .id(target)
@@ -283,7 +304,7 @@ struct NewQuestSheetView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
         .fieldChrome(focused: model.form.focusedField == .content)
-        .frame(maxHeight: .infinity)
+        .frame(minHeight: QuestFormMetrics.minimumContentHeight, maxHeight: .infinity)
     }
 }
 
