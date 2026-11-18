@@ -107,16 +107,32 @@ public struct NewQuestFormModel: Equatable {
     public static let maxAttachments = 20
 
     /// Pending additions stay local until the form is submitted.
-    public mutating func addAttachmentPaths(_ paths: [String]) {
-        guard !submitting else { return }
+    @discardableResult
+    public mutating func addAttachmentURLs(_ urls: [URL]) -> Bool {
+        guard !submitting else { return false }
+        guard urls.count <= Self.maxAttachments else {
+            errorMessage = "A quest supports at most \(Self.maxAttachments) attachments."
+            return false
+        }
+        guard urls.allSatisfy(\.isFileURL) else {
+            errorMessage = "Choose files from this computer to attach."
+            return false
+        }
+        return addAttachmentPaths(urls.map(\.path))
+    }
+
+    @discardableResult
+    public mutating func addAttachmentPaths(_ paths: [String]) -> Bool {
+        guard !submitting else { return false }
         var seen = Set(attachPaths)
         let additions = paths.filter { !$0.isEmpty && seen.insert($0).inserted }
         guard attachments.count + attachPaths.count + additions.count <= Self.maxAttachments else {
             errorMessage = "A quest supports at most \(Self.maxAttachments) attachments."
-            return
+            return false
         }
         attachPaths += additions
         errorMessage = nil
+        return true
     }
 
     public mutating func removeAttachment(id: String) {

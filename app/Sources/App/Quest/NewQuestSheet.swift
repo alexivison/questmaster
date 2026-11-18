@@ -57,8 +57,15 @@ struct NewQuestSheetPresentation: Identifiable {
     let onSuccess: () -> Void
 }
 
-/// new-quest.svg: the project field (projects by name, or directories for a typed path) and the content
-/// filling the rest. Edit Quest adds the types field and the size select between them.
+enum QuestFormMetrics {
+    static let newSize = ModalFormMetrics.size
+    static let editSize = CGSize(width: 450, height: 690)
+    static let dropHeight: CGFloat = 150
+    static let dropIconSide: CGFloat = 40
+    static let dash: CGFloat = 3
+}
+
+/// The quest forms keep their drop area and filename chips above the text. Edit Quest adds tags and size.
 struct NewQuestSheetView: View {
     @StateObject private var model: NewQuestSheetModel
 
@@ -76,6 +83,8 @@ struct NewQuestSheetView: View {
             errorMessage: model.form.errorMessage,
             primaryLabel: model.actionTitle,
             canSubmit: model.form.canSubmit,
+            size: model.sheetSize,
+            buttonWidth: model.form.isEditing ? ModalFormMetrics.editButtonWidth : ModalFormMetrics.buttonWidth,
             onCancel: { model.cancel() },
             onPrimary: { model.submit() }
         ) {
@@ -87,12 +96,12 @@ struct NewQuestSheetView: View {
                         .zIndex(1)
                     sizeField
                 }
-                contentBox
                 attachments
+                contentBox
             }
             .background(FocusSink(nonce: model.sinkNonce))
         }
-        .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
+        .frame(width: model.sheetSize.width, height: model.sheetSize.height)
         .scoopedPanel()
         .background(SheetKeyEventMonitor(onKeyDown: model.handle))
         .onAppear { model.present() }
@@ -102,7 +111,7 @@ struct NewQuestSheetView: View {
     private var projectField: some View {
         FormTextField(
             text: Binding(get: { model.form.projectText }, set: { model.projectTyped($0) }),
-            placeholder: "Project or path...",
+            placeholder: model.form.isEditing ? "Project" : "Path to project...",
             focusNonce: model.projectFocusNonce,
             focused: model.form.focusedField == .project,
             onFocusChanged: { editing in
@@ -184,25 +193,53 @@ struct NewQuestSheetView: View {
     }
 
     private var attachments: some View {
-        HStack(spacing: Space.item) {
-            Button("Attach files…", action: model.chooseAttachments)
-                .buttonStyle(OutlineButtonStyle())
-                .help("Attach files (⇧⌘A); up to 20 files, 25 MiB each")
-            ScrollView(.horizontal) {
+        VStack(alignment: .leading, spacing: Space.item) {
+            VStack(spacing: Space.item) {
+                if let icon = AppIcon.artifactImagePortrait.image(glyphSide: QuestFormMetrics.dropIconSide, tint: AppPalette.textMeta) {
+                    Image(nsImage: icon)
+                }
                 HStack(spacing: Space.row) {
-                    ForEach(model.form.attachments) { attachment in
-                        attachmentChip(name: attachment.name) { model.form.removeAttachment(id: attachment.id) }
-                            .help(attachment.path)
+                    Text("Drag and Drop or")
+                    Button(action: model.chooseAttachments) {
+                        Text("Choose a File").underline()
                     }
-                    ForEach(model.form.attachPaths, id: \.self) { path in
-                        attachmentChip(name: URL(fileURLWithPath: path).lastPathComponent) { model.form.removeAttachmentPath(path) }
-                            .help(path)
+                    .buttonStyle(.plain)
+                    .help("Choose supporting files or images (⇧⌘A)")
+                }
+                .font(AppFonts.questLogBody.swiftUI)
+                .foregroundStyle(AppPalette.textMeta.swiftUI)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: QuestFormMetrics.dropHeight)
+            .background(AppPalette.window.swiftUI)
+            .overlay {
+                RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius)
+                    .strokeBorder(OutlineLook.field(focused: model.dropTargeted).border.color.swiftUI,
+                                  style: StrokeStyle(lineWidth: Token.Size.divider, dash: [QuestFormMetrics.dash]))
+            }
+            .contentShape(Rectangle())
+            .dropDestination(for: URL.self) { urls, _ in
+                model.form.addAttachmentURLs(urls)
+            } isTargeted: { model.dropTargeted = $0 }
+            .accessibilityLabel("Drop files or images to attach to this quest")
+
+            if !model.form.attachments.isEmpty || !model.form.attachPaths.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: Space.item) {
+                        ForEach(model.form.attachments) { attachment in
+                            attachmentChip(name: attachment.name) { model.form.removeAttachment(id: attachment.id) }
+                                .help(attachment.path)
+                        }
+                        ForEach(model.form.attachPaths, id: \.self) { path in
+                            attachmentChip(name: URL(fileURLWithPath: path).lastPathComponent) { model.form.removeAttachmentPath(path) }
+                                .help(path)
+                        }
                     }
                 }
+                .scrollIndicators(.hidden)
+                .frame(height: ClearableChipMetrics.height)
             }
-            .scrollIndicators(.hidden)
         }
-        .frame(height: ControlHeight.control)
         .disabled(model.form.submitting)
     }
 
@@ -232,6 +269,7 @@ struct NewQuestSheetView: View {
 @MainActor
 final class NewQuestSheetModel: ObservableObject {
     @Published var form: NewQuestFormModel
+    @Published var dropTargeted = false
     /// The directory suggestions for a typed path.
     @Published var paths = SuggestionList()
     /// Bumped as a search starts, to put the caret in the project text.
@@ -273,7 +311,11 @@ final class NewQuestSheetModel: ObservableObject {
     }
 
     var actionTitle: String {
-        questID.isEmpty ? "Inscribe" : "Amend"
+        questID.isEmpty ? "Inscribe" : "Save"
+    }
+
+    var sheetSize: CGSize {
+        form.isEditing ? QuestFormMetrics.editSize : QuestFormMetrics.newSize
     }
 
     var showsDirectorySuggestions: Bool {
@@ -304,7 +346,7 @@ final class NewQuestSheetModel: ObservableObject {
         attachmentPanel = panel
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard let self else { return }
-            if response == .OK { self.form.addAttachmentPaths(panel.urls.map(\.path)) }
+            if response == .OK { self.form.addAttachmentURLs(panel.urls) }
             self.attachmentPanel = nil
         }
         if let window = NSApp.keyWindow {

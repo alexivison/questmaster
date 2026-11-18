@@ -3,6 +3,7 @@ import QuestmasterCore
 
 struct QuestCoreTests {
     static func run() {
+        droppedImagesUseTheSameAttachmentDraft()
         attachmentsStayPendingAndBuildMutationPayloads()
         flatListIsNewestCreatedFirstAcrossProjects()
         displayOrdersByCreatedNotUpdated()
@@ -16,7 +17,7 @@ struct QuestCoreTests {
         questTagChipsNameSizeFirstThenTypesInOrder()
         displayRecoversDeletedSelectionToPreviousQuest()
         questLogPageSplitsTitleAndKeepsBodyVerbatim()
-        questLogPageFooterUsesProjectAndDay()
+        questLogPageFooterUsesDates()
         questLogFooterWrapsBetweenParts()
         questLogPageIsPlainWithoutABody()
         questLogStoreSyncsThroughTheFilter()
@@ -42,6 +43,18 @@ struct QuestCoreTests {
         leavingTheProjectFieldEndsItsSearch()
         startFromQuestsBuildsIDPromptAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
+    }
+
+    private static func droppedImagesUseTheSameAttachmentDraft() {
+        var form = NewQuestFormModel(content: "Example", isEditing: true)
+        let image = URL(fileURLWithPath: "/tmp/example-app/mockup.png")
+        expect(form.addAttachmentURLs([image]), "a dropped local image should be accepted")
+        expect(form.attachPaths == [image.path], "drop and file selection should share the pending file paths")
+        expect(!form.addAttachmentURLs([URL(string: "https://example.com/image.png")!]), "a remote URL is not a local attachment")
+        expect(form.attachPaths == [image.path], "a rejected drop must leave existing files alone")
+        expect(!form.addAttachmentURLs(Array(repeating: image, count: NewQuestFormModel.maxAttachments + 1)), "oversized drops should be rejected before loading files")
+        form.submitting = true
+        expect(!form.addAttachmentURLs([URL(fileURLWithPath: "/tmp/example-app/second.png")]), "an in-flight form must reject drops")
     }
 
     private static func attachmentsStayPendingAndBuildMutationPayloads() {
@@ -90,29 +103,28 @@ struct QuestCoreTests {
         expect(QuestLogPage(quest: QuestItem(id: "q", content: "Only a title"), project: "").body.isEmpty, "single-line quest should have no body")
     }
 
-    private static func questLogPageFooterUsesProjectAndDay() {
+    private static func questLogPageFooterUsesDates() {
         let same = QuestItem(id: "q", content: "T", createdAt: "2026-09-08T09:00:00Z", updatedAt: "2026-09-08T10:00:00Z")
         expect(
-            QuestLogPage(quest: same, project: "dotfiles").footerParts == ["dotfiles", "Created: 2026/09/08", "Updated: 2026/09/08"],
+            QuestLogPage(quest: same, project: "dotfiles").footerParts == ["Created: 2026/09/08", "Updated: 2026/09/08"],
             "both dates should show, even when equal: \(QuestLogPage(quest: same, project: "dotfiles").footerParts)"
         )
         let neverUpdated = QuestItem(id: "q", content: "T", createdAt: "2026-01-02T00:00:00Z")
-        expect(QuestLogPage(quest: neverUpdated, project: "dotfiles").footerParts == ["dotfiles", "Created: 2026/01/02"], "without an updated time only the created part should show")
-        expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", updatedAt: "2026-03-04T00:00:00Z"), project: "p").footerParts == ["p", "Updated: 2026/03/04"], "a missing created time is left out")
-        expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", createdAt: "soon"), project: "p").footerParts == ["p"], "an unreadable timestamp should leave its date out")
+        expect(QuestLogPage(quest: neverUpdated, project: "dotfiles").footerParts == ["Created: 2026/01/02"], "without an updated time only the created part should show")
+        expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", updatedAt: "2026-03-04T00:00:00Z"), project: "p").footerParts == ["Updated: 2026/03/04"], "a missing created time is left out")
+        expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", createdAt: "soon"), project: "p").footerParts == [], "an unreadable timestamp should leave its date out")
     }
 
     private static func questLogFooterWrapsBetweenParts() {
         let page = QuestLogPage(title: "T", body: "", project: "dotfiles", created: "2026/09/08", updated: "2026/09/08")
         expect(page.footerLines(columns: 65, separatorColumns: 4) == [page.footerParts], "the footer should fit on one line at the page's width")
         expect(
-            page.footerLines(columns: 32, separatorColumns: 4) == [["dotfiles", "Created: 2026/09/08"], ["Updated: 2026/09/08"]],
+            page.footerLines(columns: 32, separatorColumns: 4) == [["Created: 2026/09/08"], ["Updated: 2026/09/08"]],
             "parts should move to the next line whole, without a leading diamond: \(page.footerLines(columns: 32, separatorColumns: 4))"
         )
-        let long = QuestLogPage(title: "T", body: "", project: "a very long project name indeed", created: "2026/09/08", updated: "")
         expect(
-            long.footerLines(columns: 20, separatorColumns: 4) == [["a very long project"], ["name indeed"], ["Created: 2026/09/08"]],
-            "a project longer than a line should wrap like the description, without truncation: \(long.footerLines(columns: 20, separatorColumns: 4))"
+            page.footerLines(columns: 12, separatorColumns: 4) == [["Created:"], ["2026/09/08"], ["Updated:"], ["2026/09/08"]],
+            "dates should wrap without truncation on a narrow page"
         )
     }
 

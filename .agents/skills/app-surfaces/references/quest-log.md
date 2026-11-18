@@ -17,7 +17,13 @@
   the shared fit in `ModalScaleView`, as other modals do. `QuestLogLayout` places the parts: the page keeps its proportions
   and takes the height, the left column takes the width.
 
-- **Attachments.** New Quest and Edit Quest offer “Attach files…” (⇧⌘A). Selected files are pending until the form is
-  saved; each chip's x removes an existing or pending attachment. Saving copies regular files into the private quest
-  library (up to 20 per quest, 25 MiB each). The page lists the saved files below its footer; a click opens the stored
-  copy in its default application. Removing an attachment or deleting its quest removes the copy, leaving the original alone.
+- **Attachments.** New Quest and Edit Quest place a 150pt dashed drop area above the body text, with the image
+  glyph, “Drag and Drop or Choose a File” and filename chips directly beneath it. Choose a File and ⇧⌘A open
+  the file picker; local file/image drops use the same draft. The chips have no kind label or divider, and their
+  x removes an existing or pending file. Saving copies regular files into the private quest library (up to 20
+  per quest, 25 MiB each). New Quest is 540 × 620; Edit Quest is 450 × 690 with 150pt Cancel/Save buttons.
+- **Page attachments and dates.** Saved attachments appear in a wrapping grid of 65pt tiles beneath the
+  description. Images use bounded thumbnails; other files and unavailable previews show their filenames.
+  Clicking a tile opens the stored copy in its default application. The dates stay at the foot of the parchment
+  while the body and tiles scroll above them; the project's name remains on the quest card. The Quest Log is
+  900 × 780. Removing an attachment or deleting its quest removes the copy, leaving the original alone.

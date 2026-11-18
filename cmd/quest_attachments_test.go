@@ -3,7 +3,10 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,8 +17,12 @@ import (
 func TestQuestAttachmentCommands(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	source := filepath.Join(t.TempDir(), "design, draft.txt")
-	if err := os.WriteFile(source, []byte("design"), 0o600); err != nil {
+	source := filepath.Join(t.TempDir(), "design, draft.png")
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, encoded.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var quest state.Quest
@@ -27,10 +34,14 @@ func TestQuestAttachmentCommands(t *testing.T) {
 		}
 	}
 	decode(runCmd(t, store, sessionsRunner(), "quest", "add", "Example quest", "--project", "", "--session", "qm-example", "--attach", source))
-	if len(quest.Attachments) != 1 || quest.Attachments[0].Name != "design, draft.txt" {
+	if len(quest.Attachments) != 1 || quest.Attachments[0].Name != "design, draft.png" {
 		t.Fatalf("add attachments = %#v", quest.Attachments)
 	}
 	id, first := quest.ID, quest.Attachments[0]
+	copied, err := os.ReadFile(first.Path)
+	if err != nil || !bytes.Equal(copied, encoded.Bytes()) {
+		t.Fatalf("image attachment did not preserve binary content: %v", err)
+	}
 	decode(runCmd(t, store, sessionsRunner(), "quest", "edit", id, "--content", "Changed"))
 	if len(quest.Attachments) != 1 || quest.Attachments[0] != first {
 		t.Fatalf("content edit changed attachments: %#v", quest.Attachments)

@@ -77,7 +77,7 @@ func newQuestAddCmd(store *state.Store, client *tmux.Client, sessionFlag *string
 	cmd.Flags().StringVar(&file, "file", "", "read content from a file, or '-' for stdin")
 	cmd.Flags().StringArrayVar(&types, "type", nil, "quest type tags (repeatable or comma-separated)")
 	cmd.Flags().StringVar(&size, "size", "", "quest size: S, M, or L")
-	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "copy a file into the quest (repeatable; at most 20 files, 25 MiB each)")
+	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "attach a file or image by path (repeatable; at most 20 files, 25 MiB each)")
 	return cmd
 }
 
@@ -189,7 +189,7 @@ func newQuestEditCmd(store *state.Store) *cobra.Command {
 			return writeJSON(cmd.OutOrStdout(), saved)
 		},
 	}
-	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "copy a file into the quest (repeatable; at most 20 files, 25 MiB each)")
+	cmd.Flags().StringArrayVar(&attachments, "attach", nil, "attach a file or image by path (repeatable; at most 20 files, 25 MiB each)")
 	cmd.Flags().StringArrayVar(&detachIDs, "detach", nil, "remove an attachment by ID (repeatable)")
 	cmd.Flags().StringVar(&content, "content", "", "replacement content")
 	cmd.Flags().StringVar(&file, "file", "", "read replacement content from a file, or '-' for stdin")

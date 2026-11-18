@@ -28,16 +28,17 @@ enum RenderPreview {
         render(newSessionView(.tabsFocused), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-tabs-focused.png")
         render(newSessionView(.modelSelect), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-model-select.png")
         render(newSessionView(.noEffort), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-no-effort.png")
-        render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-init.png")
+        render(newQuestSheetView(), size: QuestFormMetrics.newSize, to: "\(outputDir)/new-quest-init.png")
+        render(newQuestSheetView(attachments: true), size: QuestFormMetrics.newSize, to: "\(outputDir)/new-quest-attachments.png")
         render(newQuestSheetView(.typingPath), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(newQuestSheetView(.searchingProjects), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-projects.png")
-        render(newQuestSheetView(.editNoTags), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-no-tags.png")
-        render(newQuestSheetView(.editTagged, attachments: true), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-attachments.png")
-        render(newQuestSheetView(.editTagged), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags.png")
-        render(newQuestSheetView(.editTagsOpen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags-open.png")
-        render(newQuestSheetView(.editTagsSearching), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags-search.png")
-        render(newQuestSheetView(.editAllTypes), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-all-types.png")
-        render(newQuestSheetView(.editSizeFocused), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-size-focused.png")
+        render(newQuestSheetView(.editNoTags), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-no-tags.png")
+        render(newQuestSheetView(.editTagged, attachments: true), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-attachments.png")
+        render(newQuestSheetView(.editTagged), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-tags.png")
+        render(newQuestSheetView(.editTagsOpen), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-tags-open.png")
+        render(newQuestSheetView(.editTagsSearching), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-tags-search.png")
+        render(newQuestSheetView(.editAllTypes), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-all-types.png")
+        render(newQuestSheetView(.editSizeFocused), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-size-focused.png")
         render(colorInputView(previewing: false), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input.png")
         render(colorInputView(previewing: true), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input-preview.png")
         let editSession = TrackerEditSession(sessionID: "qm-1", title: "Small Fixes", color: "orange", allowsColor: true)
@@ -2450,9 +2451,13 @@ enum RenderPreview {
         return store
     }
 
-    private static let questPreviewAttachments = [
-        QuestAttachment(id: "att-preview", name: "design sketch.png", path: "/tmp/example-app/design sketch.png", size: 1024),
-    ]
+    private static var questPreviewAttachments: [QuestAttachment] {
+        ["class-wizard", "class-cleric", "class-ranger"].enumerated().map { index, resource in
+            let path = AppSymbolStyle.resourceBundle().url(forResource: resource, withExtension: "png")?.path
+                ?? "/tmp/example-app/\(resource).png"
+            return QuestAttachment(id: "att-preview-\(index)", name: "filename.png", path: path, size: 1024)
+        }
+    }
 
     /// Quests across eight projects with names too long for the tab row, so it scrolls sideways; the last tab is selected.
     private static func questLogOverflowStore() -> QuestLogStore {
@@ -2783,7 +2788,7 @@ enum RenderPreview {
                 initialContent: preview == .empty ? "" : "Add more meta data to shell sessions",
                 initialTypes: edited?.types ?? [],
                 initialSize: edited?.size ?? "",
-                initialAttachments: attachments ? questPreviewAttachments : [],
+                initialAttachments: attachments && edited != nil ? Array(questPreviewAttachments.prefix(2)) : [],
                 questID: edited == nil ? "" : "qst-1",
                 sessionID: "",
                 mutationClient: SettingsPreviewMutationClient(),
@@ -2792,7 +2797,10 @@ enum RenderPreview {
             ),
             dismiss: {}
         )
-        if attachments { sheet.form.addAttachmentPaths(["/tmp/example-app/notes.txt"]) }
+        if attachments {
+            let pending = edited == nil ? questPreviewAttachments : Array(questPreviewAttachments.suffix(1))
+            sheet.form.addAttachmentPaths(pending.map(\.path))
+        }
         switch preview {
         case .empty, .editNoTags, .editTagged, .editAllTypes:
             break
