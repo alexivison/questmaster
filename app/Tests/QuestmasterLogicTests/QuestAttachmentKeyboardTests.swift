@@ -4,6 +4,7 @@ import QuestmasterCore
 struct QuestAttachmentKeyboardTests {
     static func run() {
         formCursorRemovesStoredAndPendingFiles()
+        formNavigationReturnsToTheDropArea()
         logCursorOpensAndRemovesOnlyTheFocusedFile()
         logCursorSurvivesRemovalAndReturnsToTheList()
         removalRequestPreservesOtherQuestFields()
@@ -40,6 +41,34 @@ struct QuestAttachmentKeyboardTests {
         expect(form.focusedField == .attachments, "Ctrl+K from the body should return to attachments")
         form.moveFocus(1)
         expect(form.focusedField == .content, "Ctrl+J should return to the body")
+    }
+
+    private static func formNavigationReturnsToTheDropArea() {
+        for editing in [false, true] {
+            let stored = file("att-example")
+            let pending = "/tmp/example-app/draft.png"
+            var form = NewQuestFormModel(content: "Example", isEditing: editing, attachments: [stored])
+            form.addAttachmentPaths([pending])
+            form.focusAttachment(.pending(pending))
+            expect(form.attachmentTarget == .pending(pending), "explicit file focus should survive entering the attachment field")
+            form.moveFocus(1)
+            expect(form.focusedField == .content, "moving on from a file should reach the body")
+            form.moveFocus(-1)
+            expect(form.focusedField == .attachments && form.attachmentTarget == .chooseFiles, "returning from the body should focus the drop box, even after adding files")
+            expect(form.focusedAttachmentPath == nil, "Return on the drop box should choose a file rather than open the old one")
+            form.cycleAttachment(-1)
+            expect(form.attachmentTarget == .pending(pending), "h from the drop box should still wrap to the final chip")
+            form.cycleAttachment(1)
+            expect(form.attachmentTarget == .chooseFiles, "l from the final chip should return to the drop box")
+            form.moveFocus(-1)
+            form.moveFocus(1)
+            expect(form.attachmentTarget == .chooseFiles, "entering from the preceding field should also focus the drop box")
+            form.focusedField = .content
+            form.focusAttachment(.stored(stored.id))
+            expect(form.attachmentTarget == .stored(stored.id), "clicking a chip should focus that file directly")
+            form.focusAttachment(.chooseFiles)
+            expect(form.attachmentTarget == .chooseFiles, "the drop box should remain directly focusable with files attached")
+        }
     }
 
     private static func logCursorOpensAndRemovesOnlyTheFocusedFile() {

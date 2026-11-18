@@ -30,6 +30,16 @@ enum RenderPreview {
         render(newSessionView(.noEffort), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-no-effort.png")
         render(newQuestSheetView(), size: QuestFormMetrics.newSize, to: "\(outputDir)/new-quest-init.png")
         render(newQuestSheetView(attachments: true), size: QuestFormMetrics.newSize, to: "\(outputDir)/new-quest-attachments.png")
+        let wrappingAttachments = ["first-design.png", "second-design.png", "notes.txt", "a-filename-that-is-far-too-long-to-fit-without-truncating-in-the-quest-modal.png", "reference.png"]
+        render(newQuestSheetView(attachmentNames: wrappingAttachments), size: QuestFormMetrics.newSize, to: "\(outputDir)/new-quest-attachments-wrapped.png")
+        render(newQuestSheetView(.editTagged, attachmentNames: wrappingAttachments), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-attachments-wrapped.png")
+        let fullAttachments = (1...NewQuestFormModel.maxAttachments).map { "example-image-\($0).png" }
+        render(newQuestSheetView(.editTagged, attachmentNames: fullAttachments), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-attachments-full.png")
+        renderView(NSHostingView(rootView: newQuestSheetView(.editTagged, attachmentNames: fullAttachments)), size: QuestFormMetrics.editSize, afterSettle: { root in
+            guard let scrollView = firstScrollView(in: root), let document = scrollView.documentView else { return }
+            scrollView.contentView.scroll(to: CGPoint(x: 0, y: max(0, document.bounds.height - scrollView.contentView.bounds.height)))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }, to: "\(outputDir)/edit-quest-attachments-full-bottom.png")
         render(newQuestSheetView(.typingPath), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(newQuestSheetView(.searchingProjects), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-projects.png")
         render(newQuestSheetView(.editNoTags), size: QuestFormMetrics.editSize, to: "\(outputDir)/edit-quest-no-tags.png")
@@ -2778,7 +2788,7 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func newQuestSheetView(_ preview: NewQuestPreview = .empty, attachments: Bool = false, focusAttachment: Bool = false) -> some View {
+    private static func newQuestSheetView(_ preview: NewQuestPreview = .empty, attachments: Bool = false, focusAttachment: Bool = false, attachmentNames: [String]? = nil) -> some View {
         let code = (NSHomeDirectory() as NSString).appendingPathComponent("Code")
         let projects = ["questmaster", "scry", "dotfiles"].map { name in
             NewQuestProjectOption(projectID: "\(code)/\(name)/.git", projectPath: "\(code)/\(name)", projectName: name)
@@ -2803,6 +2813,10 @@ enum RenderPreview {
         if attachments {
             let pending = edited == nil ? questPreviewAttachments : Array(questPreviewAttachments.suffix(1))
             sheet.form.addAttachmentPaths(pending.map(\.path))
+        }
+        if let attachmentNames {
+            sheet.form.addAttachmentPaths(attachmentNames.map { "/tmp/example-app/\($0)" })
+            sheet.focusAttachment(.chooseFiles)
         }
         if focusAttachment, let first = sheet.form.attachments.first { sheet.focusAttachment(.stored(first.id)) }
         switch preview {

@@ -18,7 +18,10 @@
   and takes the height, the left column takes the width.
 
 - **Attachments.** New Quest and Edit Quest place a 150pt dashed drop area above the body text, with the image
-  glyph, “Drag and Drop or Choose a File” and filename chips directly beneath it. Choose a File and ⇧⌘A open
+  glyph, “Drag and Drop or Choose a File” and filename chips directly beneath it, wrapping onto further rows
+  within the form's width. Long filenames truncate in the middle and keep their path tooltip. The body retains
+  a minimum editor height; when many chip rows exceed the modal, the form scrolls vertically above its buttons.
+  Choose a File and ⇧⌘A open
   the file picker; local file/image drops use the same draft. The chips have no kind label or divider, and their
   x removes an existing or pending file. Saving copies regular files into the private quest library (up to 20
   per quest, 25 MiB each). New Quest is 540 × 620; Edit Quest is 450 × 690 with 150pt Cancel/Save buttons.
@@ -31,7 +34,8 @@
 - **Attachment keys.** The New/Edit form's attachment area is a field between size (or project on New Quest) and
   the body. Tab/⇧Tab and ⌃J/⌃K reach it; h/l and ←/→ cycle Choose a File and the chips. Return chooses or opens
   the focused file; d or Delete removes that chip from the draft. ⌘Return still saves from the area. A received
-  file takes the cursor and is scrolled into view. Hover never moves the cursor.
+  file takes the cursor and is brought into view. Returning to this field from another field focuses the drop
+  box, so Return can choose another file without stepping back through existing chips. Hover never moves the cursor.
 - **Quest Log file focus.** l/→ (also ⇧⌘L) enters the selected quest's thumbnails; h/l steps files, h before the first
   file or Esc returns to the list, and j/k resumes quest movement. Return/o opens the focused file. d or Delete
   confirms removing that file's stored copy. After its final file is removed, the file area keeps focus until the

@@ -1,6 +1,6 @@
 import Foundation
 
-public enum NewQuestField: CaseIterable, Equatable {
+public enum NewQuestField: CaseIterable, Equatable, Hashable {
     case project
     /// Edit Quest only: New Quest stays tagless, for quick jotting.
     case tags
@@ -116,8 +116,8 @@ public struct NewQuestFormModel: Equatable {
 
     public mutating func focusAttachment(_ target: QuestFormAttachmentTarget) {
         guard !submitting, attachmentTargets.contains(target) else { return }
-        attachmentTarget = target
         focusedField = .attachments
+        attachmentTarget = target
     }
 
     public mutating func cycleAttachment(_ delta: Int) {
@@ -201,6 +201,9 @@ public struct NewQuestFormModel: Equatable {
     /// Leaving the project field ends its search, keeping what was typed.
     public var focusedField: NewQuestField {
         didSet {
+            if focusedField == .attachments, oldValue != .attachments {
+                attachmentTarget = .chooseFiles
+            }
             if focusedField != .project, projectMode == .search {
                 endProjectSearch(keepingText: true)
             }
