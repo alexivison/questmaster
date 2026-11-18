@@ -504,7 +504,7 @@ final class NewQuestSheetModel: ObservableObject {
 
     /// The sheet's keys: the project field's own (`handleFieldKey`), then the shared modal keys (`ModalKeys`).
     func handle(_ event: NSEvent) -> Bool {
-        if !form.submitting, event.keymapPress.modifiers == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "a" {
+        if !form.submitting, Keymap.matches(event.keymapPress, .attachQuestFiles) {
             chooseAttachments()
             return true
         }
