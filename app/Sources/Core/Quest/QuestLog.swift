@@ -124,6 +124,8 @@ public struct QuestLogPage: Equatable {
 public enum QuestLogEffect: Equatable {
     case start([QuestItem])
     case edit(QuestItem)
+    case openAttachment(QuestAttachment)
+    case removeAttachment(QuestItem, QuestAttachment)
     case delete([QuestItem])
     case copy([QuestItem])
     case focusFilter
@@ -160,6 +162,8 @@ public final class QuestLogStore {
     /// The project tab in use, nil for All. It survives closing the log and falls back to All when its project has no quests left.
     public private(set) var selectedProjectID: String?
     public private(set) var selectedID: String?
+    public private(set) var focusedAttachmentID: String?
+    public private(set) var attachmentsFocused = false
     public private(set) var markedIDs: Set<String> = []
     /// Bumped when a jump asks the list to scroll to the selection even if it didn't change (`gg` / `G`).
     public private(set) var scrollNonce = 0
@@ -180,7 +184,16 @@ public final class QuestLogStore {
     /// The command a press asks of the Quest Log. The list keys (`ListCapabilities.questLog`) come first, so a press
     /// still cancels a pending `g`; then the rows move with the modal keys: j and k, while Tab, ⌃J, ⌃K and ↑/↓ take nothing.
     public func command(for press: Keymap.KeyPress) -> ListCommand? {
-        keys.command(for: press, in: .questLog) ?? modalMove(for: press)
+        if let step = ModalKeys.cycleStep(press) {
+            moveAttachment(step)
+            keys.reset()
+            return nil
+        }
+        if attachmentsFocused {
+            if Keymap.matches(press, .open) || Keymap.matches(press, .openExternal) { keys.reset(); return .open }
+            if Keymap.matches(press, .backspace) { keys.reset(); return .delete }
+        }
+        return keys.command(for: press, in: .questLog) ?? modalMove(for: press)
     }
 
     /// The Quest Log's list as a modal with no text field: one row per quest.
@@ -202,6 +215,29 @@ public final class QuestLogStore {
         }
     }
 
+    public var focusedAttachment: QuestAttachment? {
+        selectedQuest?.attachments.first { $0.id == focusedAttachmentID }
+    }
+
+    private var selectedQuest: QuestItem? {
+        visibleQuests.first { $0.id == selectedID }
+    }
+
+    /// l enters the file row; h past its first file returns to the quest list.
+    public func moveAttachment(_ delta: Int) {
+        keys.reset()
+        let attachments = selectedQuest?.attachments ?? []
+        guard !attachments.isEmpty else {
+            focusedAttachmentID = nil
+            if delta < 0 { attachmentsFocused = false }
+            return
+        }
+        let current = attachments.firstIndex { $0.id == focusedAttachmentID } ?? -1
+        let next = current + delta
+        attachmentsFocused = next >= 0
+        focusedAttachmentID = next < 0 ? nil : attachments[min(next, attachments.count - 1)].id
+    }
+
     public func open() {
         guard !isOpen else {
             return
@@ -212,6 +248,8 @@ public final class QuestLogStore {
 
     public func close() {
         isOpen = false
+        focusedAttachmentID = nil
+        attachmentsFocused = false
         markedIDs = []
     }
 
@@ -277,8 +315,17 @@ public final class QuestLogStore {
             return
         }
         let previous = visibleQuests
+        let previousSelectedID = selectedID
+        let previousFileIndex = selectedQuest?.attachments.firstIndex { $0.id == focusedAttachmentID } ?? 0
         visibleQuests = next
         selectedID = QuestDisplayState.recoveredSelection(current: selectedID, in: next, previouslyDisplayedQuests: previous)
+        if previousSelectedID != selectedID {
+            attachmentsFocused = false
+            focusedAttachmentID = nil
+        } else if attachmentsFocused, focusedAttachment == nil {
+            let files = selectedQuest?.attachments ?? []
+            focusedAttachmentID = files.isEmpty ? nil : files[min(previousFileIndex, files.count - 1)].id
+        }
         markedIDs.formIntersection(next.map(\.id))
     }
 
@@ -298,6 +345,8 @@ public final class QuestLogStore {
             return
         }
         selectedID = id
+        focusedAttachmentID = nil
+        attachmentsFocused = false
     }
 
     public var selectedPage: QuestLogPage? {
@@ -328,11 +377,13 @@ public final class QuestLogStore {
         return visibleQuests.filter { ids.contains($0.id) }
     }
 
-    /// Applies a list command here and returns the rest for the app to carry out (nil when there is nothing to act on).
-    /// A command the Quest Log doesn't take (Return, the workers' keys) does nothing.
+    /// Commands act on the focused file, or the quest selection while the list has focus.
+    /// Attachment deletion stays in the file area even when a refresh removes its final file.
     public func handle(_ command: ListCommand) -> QuestLogEffect? {
         switch command {
         case .move(let delta):
+            attachmentsFocused = false
+            focusedAttachmentID = nil
             selectedID = QuestDisplayState.movedSelection(current: selectedID, delta: delta, in: visibleQuests)
             return nil
         case .jumpToTop:
@@ -347,13 +398,20 @@ public final class QuestLogStore {
             }
             return nil
         case .close:
+            if attachmentsFocused { attachmentsFocused = false; focusedAttachmentID = nil; return nil }
             return .close
         case .focusFilter:
+            attachmentsFocused = false
+            focusedAttachmentID = nil
             return .focusFilter
         case .previousTab:
+            attachmentsFocused = false
+            focusedAttachmentID = nil
             stepTab(-1)
             return nil
         case .nextTab:
+            attachmentsFocused = false
+            focusedAttachmentID = nil
             stepTab(1)
             return nil
         case .page(let direction):
@@ -365,10 +423,16 @@ public final class QuestLogStore {
         case .edit:
             return visibleQuests.first { $0.id == selectedID }.map(QuestLogEffect.edit)
         case .delete:
+            if attachmentsFocused {
+                guard let quest = selectedQuest, let attachment = focusedAttachment else { return nil }
+                return .removeAttachment(quest, attachment)
+            }
             return targets.isEmpty ? nil : .delete(targets)
+        case .open, .openExternal:
+            return focusedAttachment.map(QuestLogEffect.openAttachment)
         case .copy:
             return targets.isEmpty ? nil : .copy(targets)
-        case .jumpToTopPrefix, .open, .openExternal, .refresh, .editRepo,
+        case .jumpToTopPrefix, .refresh, .editRepo,
              .toggleWorkersCollapsed, .toggleAllWorkersCollapsed:
             return nil
         }
@@ -386,6 +450,8 @@ public final class QuestLogStore {
             return
         }
         selectedID = id
+        focusedAttachmentID = nil
+        attachmentsFocused = false
         scrollNonce &+= 1
     }
 }

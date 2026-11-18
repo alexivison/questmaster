@@ -68,6 +68,8 @@ enum QuestFormMetrics {
 /// The quest forms keep their drop area and filename chips above the text. Edit Quest adds tags and size.
 struct NewQuestSheetView: View {
     @StateObject private var model: NewQuestSheetModel
+    @Environment(\.inWindowModalStack) private var modalStack
+    @Environment(\.inWindowModalEntryID) private var modalEntryID
 
     init(presentation: NewQuestSheetPresentation, dismiss: @escaping () -> Void) {
         self.init(model: NewQuestSheetModel(presentation: presentation, dismiss: dismiss))
@@ -82,7 +84,7 @@ struct NewQuestSheetView: View {
             title: model.title,
             errorMessage: model.form.errorMessage,
             primaryLabel: model.actionTitle,
-            canSubmit: model.form.canSubmit,
+            canSubmit: model.canSubmit,
             size: model.sheetSize,
             buttonWidth: model.form.isEditing ? ModalFormMetrics.editButtonWidth : ModalFormMetrics.buttonWidth,
             onCancel: { model.cancel() },
@@ -194,17 +196,52 @@ struct NewQuestSheetView: View {
 
     private var attachments: some View {
         VStack(alignment: .leading, spacing: Space.item) {
+            dropArea
+            if !model.form.attachments.isEmpty || !model.form.attachPaths.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal) {
+                        HStack(spacing: Space.item) {
+                            ForEach(model.form.attachments) { attachment in
+                                attachmentChip(name: attachment.name, target: .stored(attachment.id)) { model.removeAttachment(.stored(attachment.id)) }
+                                    .help(attachment.path)
+                            }
+                            ForEach(model.form.attachPaths, id: \.self) { path in
+                                attachmentChip(name: URL(fileURLWithPath: path).lastPathComponent, target: .pending(path)) { model.removeAttachment(.pending(path)) }
+                                    .help(path)
+                            }
+                        }
+                    }
+                    .scrollIndicators(.hidden)
+                    .onChange(of: model.form.attachmentTarget) { _, target in proxy.scrollTo(target, anchor: .center) }
+                }
+                .frame(height: ClearableChipMetrics.height)
+            }
+        }
+        .disabled(model.form.submitting)
+        .help("h/l select attachments; Return opens; d or Delete removes. ⇧⌘A adds files.")
+    }
+
+    private var dropArea: some View {
+        QuestFileDropTarget(
+            canAccept: { !model.form.submitting && modalStack.isTop(modalEntryID) },
+            onTargeted: { model.dropTargeted = $0 },
+            onReceiving: { model.receivingDrop = $0 },
+            onDrop: { model.addAttachments($0, temporaryDirectory: $1) },
+            onError: { model.form.setError($0) }
+        ) {
             VStack(spacing: Space.item) {
                 if let icon = AppIcon.artifactImagePortrait.image(glyphSide: QuestFormMetrics.dropIconSide, tint: AppPalette.textMeta) {
                     Image(nsImage: icon)
                 }
                 HStack(spacing: Space.row) {
-                    Text("Drag and Drop or")
-                    Button(action: model.chooseAttachments) {
-                        Text("Choose a File").underline()
+                    if model.receivingDrop {
+                        Text("Receiving files…")
+                    } else {
+                        Text("Drag and Drop or")
+                        Button(action: model.chooseAttachments) { Text("Choose a File").underline() }
+                            .buttonStyle(.plain)
+                            .help("Choose supporting files or images (⇧⌘A)")
                     }
-                    .buttonStyle(.plain)
-                    .help("Choose supporting files or images (⇧⌘A)")
                 }
                 .font(AppFonts.questLogBody.swiftUI)
                 .foregroundStyle(AppPalette.textMeta.swiftUI)
@@ -214,41 +251,25 @@ struct NewQuestSheetView: View {
             .background(AppPalette.window.swiftUI)
             .overlay {
                 RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius)
-                    .strokeBorder(OutlineLook.field(focused: model.dropTargeted).border.color.swiftUI,
+                    .strokeBorder(OutlineLook.field(focused: model.dropTargeted || (model.form.focusedField == .attachments && model.form.attachmentTarget == .chooseFiles)).border.color.swiftUI,
                                   style: StrokeStyle(lineWidth: Token.Size.divider, dash: [QuestFormMetrics.dash]))
             }
             .contentShape(Rectangle())
-            .dropDestination(for: URL.self) { urls, _ in
-                model.form.addAttachmentURLs(urls)
-            } isTargeted: { model.dropTargeted = $0 }
-            .accessibilityLabel("Drop files or images to attach to this quest")
-
-            if !model.form.attachments.isEmpty || !model.form.attachPaths.isEmpty {
-                ScrollView(.horizontal) {
-                    HStack(spacing: Space.item) {
-                        ForEach(model.form.attachments) { attachment in
-                            attachmentChip(name: attachment.name) { model.form.removeAttachment(id: attachment.id) }
-                                .help(attachment.path)
-                        }
-                        ForEach(model.form.attachPaths, id: \.self) { path in
-                            attachmentChip(name: URL(fileURLWithPath: path).lastPathComponent) { model.form.removeAttachmentPath(path) }
-                                .help(path)
-                        }
-                    }
-                }
-                .scrollIndicators(.hidden)
-                .frame(height: ClearableChipMetrics.height)
-            }
+            .onTapGesture { model.focusAttachment(.chooseFiles) }
         }
-        .disabled(model.form.submitting)
+        .frame(height: QuestFormMetrics.dropHeight)
+        .accessibilityLabel("Drop files or images to attach to this quest")
     }
 
-    private func attachmentChip(name: String, onRemove: @escaping () -> Void) -> some View {
-        ClearableChip(label: "", accessibilityLabel: "Remove \(name)", onClear: onRemove) {
+    private func attachmentChip(name: String, target: QuestFormAttachmentTarget, onRemove: @escaping () -> Void) -> some View {
+        let focused = model.form.focusedField == .attachments && model.form.attachmentTarget == target
+        return ClearableChip(label: "", accessibilityLabel: "Remove \(name)", focused: focused, onClear: onRemove) {
             Text(name)
                 .font(AppFonts.questLogBody.swiftUI)
-                .foregroundStyle(AppPalette.textBody.swiftUI)
+                .foregroundStyle(RowLook.pick(highlighted: focused, areaFocused: true).text.color.swiftUI)
+                .onTapGesture { model.focusAttachment(target) }
         }
+        .id(target)
     }
 
     private var contentBox: some View {
@@ -270,6 +291,7 @@ struct NewQuestSheetView: View {
 final class NewQuestSheetModel: ObservableObject {
     @Published var form: NewQuestFormModel
     @Published var dropTargeted = false
+    @Published var receivingDrop = false
     /// The directory suggestions for a typed path.
     @Published var paths = SuggestionList()
     /// Bumped as a search starts, to put the caret in the project text.
@@ -279,6 +301,8 @@ final class NewQuestSheetModel: ObservableObject {
     /// Bumped as the project field returns to SELECT, to take the caret out.
     @Published private(set) var sinkNonce = 0
 
+    private var temporaryDropDirectories: [URL] = []
+    private var isPresented = true
     private var attachmentPanel: NSOpenPanel?
     private let mutationClient: ServeMutationSending
     private let pathSuggester: PathSuggester
@@ -314,6 +338,8 @@ final class NewQuestSheetModel: ObservableObject {
         questID.isEmpty ? "Inscribe" : "Save"
     }
 
+    var canSubmit: Bool { form.canSubmit && !receivingDrop }
+
     var sheetSize: CGSize {
         form.isEditing ? QuestFormMetrics.editSize : QuestFormMetrics.newSize
     }
@@ -329,14 +355,17 @@ final class NewQuestSheetModel: ObservableObject {
     }
 
     func disappear() {
+        isPresented = false
         attachmentPanel?.cancel(nil)
         attachmentPanel = nil
+        if !form.submitting { clearTemporaryDrops() }
         pathSuggester.cancel()
         paths.clear()
     }
 
     func chooseAttachments() {
         guard !form.submitting, attachmentPanel == nil else { return }
+        focusAttachment(.chooseFiles)
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -346,13 +375,56 @@ final class NewQuestSheetModel: ObservableObject {
         attachmentPanel = panel
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard let self else { return }
-            if response == .OK { self.form.addAttachmentURLs(panel.urls) }
+            if response == .OK { self.addAttachments(panel.urls) }
             self.attachmentPanel = nil
         }
         if let window = NSApp.keyWindow {
             panel.beginSheetModal(for: window, completionHandler: completion)
         } else {
             panel.begin(completionHandler: completion)
+        }
+    }
+
+    func focusAttachment(_ target: QuestFormAttachmentTarget) {
+        guard !form.submitting else { return }
+        form.focusAttachment(target)
+        sinkNonce += 1
+    }
+
+    @discardableResult
+    func addAttachments(_ urls: [URL], temporaryDirectory: URL? = nil) -> Bool {
+        guard form.addAttachmentURLs(urls) else { return false }
+        if let temporaryDirectory { temporaryDropDirectories.append(temporaryDirectory) }
+        cleanUnusedDropDirectories()
+        focusAttachment(form.attachPaths.last.map(QuestFormAttachmentTarget.pending) ?? .chooseFiles)
+        return true
+    }
+
+    func removeAttachment(_ target: QuestFormAttachmentTarget) {
+        form.removeAttachment(target)
+        cleanUnusedDropDirectories()
+    }
+
+    private func clearTemporaryDrops() {
+        for directory in temporaryDropDirectories { try? FileManager.default.removeItem(at: directory) }
+        temporaryDropDirectories = []
+    }
+
+    private func cleanUnusedDropDirectories() {
+        temporaryDropDirectories.removeAll { directory in
+            guard !form.attachPaths.contains(where: { $0.hasPrefix(directory.path + "/") }) else { return false }
+            try? FileManager.default.removeItem(at: directory)
+            return true
+        }
+    }
+
+    private func activateAttachment() {
+        guard let path = form.focusedAttachmentPath else {
+            chooseAttachments()
+            return
+        }
+        if !NSWorkspace.shared.open(URL(fileURLWithPath: path)) {
+            form.setError("Could not open attachment: \(URL(fileURLWithPath: path).lastPathComponent)")
         }
     }
 
@@ -424,9 +496,13 @@ final class NewQuestSheetModel: ObservableObject {
         form.cycleSize(1)
     }
 
-    /// ←/→ and h/l on the size select (`ModalKeys`).
-    private func cycleSize(_ step: Int) {
-        form.cycleSize(step)
+    /// ←/→ and h/l on the size and attachment selects (`ModalKeys`).
+    private func cycleSelect(_ step: Int) {
+        switch form.focusedField {
+        case .size: form.cycleSize(step)
+        case .attachments: form.cycleAttachment(step)
+        default: break
+        }
     }
 
     /// The types text takes the caret: a click, Tab, or a chip's x (which leaves the field's own focus with the text).
@@ -514,7 +590,7 @@ final class NewQuestSheetModel: ObservableObject {
             submit: { self.submit() },
             cancel: { self.cancel() },
             moveFocus: { self.moveFocus($0) },
-            cycle: { self.cycleSize($0) }
+            cycle: { self.cycleSelect($0) }
         ).handle(event)
     }
 
@@ -534,6 +610,17 @@ final class NewQuestSheetModel: ObservableObject {
             return handleProjectFieldKey(event)
         case .tags:
             return form.tags.handle(event.keymapPress)
+        case .attachments:
+            let press = event.keymapPress
+            if Keymap.matches(press, .open) {
+                activateAttachment()
+                return true
+            }
+            if Keymap.matches(press, .delete) || Keymap.matches(press, .backspace) {
+                removeAttachment(form.attachmentTarget)
+                return true
+            }
+            return false
         case .size, .content:
             return false
         }
@@ -603,7 +690,7 @@ final class NewQuestSheetModel: ObservableObject {
         form.moveFocus(delta)
         follow(from: before)
         switch form.focusedField {
-        case .project, .size:
+        case .project, .size, .attachments:
             sinkNonce += 1
         case .tags:
             tagsFocusNonce += 1
@@ -623,7 +710,7 @@ final class NewQuestSheetModel: ObservableObject {
     }
 
     func submit() {
-        guard !form.submitting else {
+        guard !form.submitting, !receivingDrop else {
             return
         }
         paths.clear()
@@ -635,13 +722,20 @@ final class NewQuestSheetModel: ObservableObject {
             let request = questID.isEmpty
                 ? try ServeMutationRequests.questAdd(payload, sessionID: sessionID)
                 : try ServeMutationRequests.questEdit(questID: questID, payload: payload)
+            let dropDirectories = temporaryDropDirectories
             mutationClient.send(request) { [weak self] result in
                 DispatchQueue.main.async {
                     guard let self else {
+                        for directory in dropDirectories { try? FileManager.default.removeItem(at: directory) }
+                        return
+                    }
+                    guard self.isPresented else {
+                        self.clearTemporaryDrops()
                         return
                     }
                     switch result {
                     case .success:
+                        self.clearTemporaryDrops()
                         self.onSuccess()
                         self.dismiss()
                     case .failure(let error):

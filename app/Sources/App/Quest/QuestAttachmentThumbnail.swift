@@ -12,6 +12,7 @@ enum QuestAttachmentMetrics {
 /// Small previews of the stored copies. File names stay available through the tooltip and accessibility label.
 struct QuestAttachmentThumbnail: View {
     let attachment: QuestAttachment
+    var highlighted = false
     var onOpen: () -> Void
     @State private var thumbnail: CGImage?
 
@@ -25,19 +26,19 @@ struct QuestAttachmentThumbnail: View {
                 } else {
                     Text(attachment.name)
                         .font(AppFonts.questLogBody.swiftUI)
-                        .foregroundStyle(AppPalette.textBody.swiftUI)
+                        .foregroundStyle(RowLook.pick(highlighted: highlighted, areaFocused: true).text.color.swiftUI)
                         .lineLimit(2)
                         .truncationMode(.middle)
                         .padding(Space.row)
                 }
             }
-            .frame(width: QuestAttachmentMetrics.side, height: QuestAttachmentMetrics.side)
-            .background(AppPalette.item.swiftUI)
+            .frame(width: QuestAttachmentMetrics.side - 2 * Token.Size.divider, height: QuestAttachmentMetrics.side - 2 * Token.Size.divider)
             .clipShape(RoundedRectangle(cornerRadius: QuestAttachmentMetrics.cornerRadius))
-            .stateRow(.pick(highlighted: false, areaFocused: true), cornerRadius: QuestAttachmentMetrics.cornerRadius)
+            .padding(Token.Size.divider)
+            .stateRow(.pick(highlighted: highlighted, areaFocused: true).listItem(underPointer: false), cornerRadius: QuestAttachmentMetrics.cornerRadius)
         }
         .buttonStyle(.plain)
-        .help(attachment.name)
+        .help("\(attachment.name) (Return opens; d removes)")
         .accessibilityLabel("Open attachment \(attachment.name)")
         .task(id: attachment.path) {
             let loaded = await QuestAttachmentThumbnails.shared.load(path: attachment.path)

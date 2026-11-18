@@ -224,6 +224,11 @@ public enum ServeMutationRequests {
         return lists
     }
 
+    public static func questDetachAttachment(questID: String, attachmentID: String) throws -> ServeMutationRequest {
+        ServeMutationRequest(method: "quest.edit", data: ["quest_id": try required("quest_id", questID)],
+                             lists: ["detach_ids": [try required("attachment_id", attachmentID)]])
+    }
+
     public static func questDelete(questID: String) throws -> ServeMutationRequest {
         ServeMutationRequest(method: "quest.delete", data: ["quest_id": try required("quest_id", questID)])
     }

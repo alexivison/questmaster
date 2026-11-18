@@ -127,7 +127,7 @@ struct QuestLogView: View {
             QuestLogList(store: store)
                 .frame(width: layout.listWidth, height: layout.listHeight, alignment: .top)
                 .offset(x: layout.listOrigin.x, y: layout.listOrigin.y)
-            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout, emptyReason: store.emptyReason, onOpenAttachment: onOpenAttachment)
+            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout, emptyReason: store.emptyReason, focusedAttachmentID: store.focusedAttachmentID, onOpenAttachment: onOpenAttachment)
                 .offset(x: layout.pageOrigin.x, y: layout.pageOrigin.y)
             // Last but the buttons: a ZStack draws later children on top, and the filter's suggestion dropdown opens
             // over the list.
@@ -195,6 +195,10 @@ struct QuestLogModal: View {
     }
 
     private func handleNavigation(_ direction: NavigationDirection) {
+        if direction == .left || direction == .right {
+            store.moveAttachment(direction == .left ? -1 : 1)
+            return
+        }
         if let command = ListCommand.navigation(for: direction) {
             onCommand(command)
         }
@@ -328,6 +332,7 @@ private struct QuestLogPageView: View {
     let layout: QuestLogLayout
     /// Why there is no page to show, when there is none.
     let emptyReason: ListEmptyReason
+    let focusedAttachmentID: String?
     var onOpenAttachment: (QuestAttachment) -> Void
     @State private var unrolled = false
     @State private var inked = false
@@ -384,28 +389,33 @@ private struct QuestLogPageView: View {
     }
 
     private func scrollableInk(_ page: QuestLogPage) -> some View {
-        ScrollView(.vertical) {
-            QuestLogInk(page: page, layout: layout, onOpenAttachment: onOpenAttachment)
-                .background(ScrollerHider(onApply: { scrollView in
-                    hideScroller(on: scrollView)
-                    pageScroll.attach(scrollView)
-                }))
-        }
-        .scrollIndicators(.hidden)
-        // The overflow cue: while more ink lies below (or above, once scrolled), it fades out over the
-        // page's last (or first) lines. Only the ink fades; the paper stays as it is.
-        .mask {
-            let ink = AppPalette.mask.swiftUI
-            VStack(spacing: 0) {
-                LinearGradient(colors: [pageScroll.moreAbove ? .clear : ink, ink], startPoint: .top, endPoint: .bottom)
-                    .frame(height: QuestLogMetrics.overflowFadeHeight)
-                ink
-                LinearGradient(colors: [ink, pageScroll.moreBelow ? .clear : ink], startPoint: .top, endPoint: .bottom)
-                    .frame(height: QuestLogMetrics.overflowFadeHeight)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                QuestLogInk(page: page, layout: layout, focusedAttachmentID: focusedAttachmentID, onOpenAttachment: onOpenAttachment)
+                    .background(ScrollerHider(onApply: { scrollView in
+                        hideScroller(on: scrollView)
+                        pageScroll.attach(scrollView)
+                    }))
+            }
+            .scrollIndicators(.hidden)
+            // The overflow cue: while more ink lies below (or above, once scrolled), it fades out over the
+            // page's last (or first) lines. Only the ink fades; the paper stays as it is.
+            .mask {
+                let ink = AppPalette.mask.swiftUI
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [pageScroll.moreAbove ? .clear : ink, ink], startPoint: .top, endPoint: .bottom)
+                        .frame(height: QuestLogMetrics.overflowFadeHeight)
+                    ink
+                    LinearGradient(colors: [ink, pageScroll.moreBelow ? .clear : ink], startPoint: .top, endPoint: .bottom)
+                        .frame(height: QuestLogMetrics.overflowFadeHeight)
+                }
+            }
+            .animation(Motion.animation(.fast), value: pageScroll.moreBelow)
+            .animation(Motion.animation(.fast), value: pageScroll.moreAbove)
+            .onChange(of: focusedAttachmentID) { _, id in
+                if let id { proxy.scrollTo(id, anchor: .center) }
             }
         }
-        .animation(Motion.animation(.fast), value: pageScroll.moreBelow)
-        .animation(Motion.animation(.fast), value: pageScroll.moreAbove)
     }
 }
 
@@ -429,6 +439,7 @@ private struct UnrollMask: ViewModifier, Animatable {
 private struct QuestLogInk: View {
     let page: QuestLogPage
     let layout: QuestLogLayout
+    let focusedAttachmentID: String?
     var onOpenAttachment: (QuestAttachment) -> Void
 
     var body: some View {
@@ -458,7 +469,8 @@ private struct QuestLogInk: View {
     private var attachments: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: QuestAttachmentMetrics.side, maximum: QuestAttachmentMetrics.side), spacing: Space.item)], alignment: .leading, spacing: Space.item) {
             ForEach(page.attachments) { attachment in
-                QuestAttachmentThumbnail(attachment: attachment) { onOpenAttachment(attachment) }
+                QuestAttachmentThumbnail(attachment: attachment, highlighted: attachment.id == focusedAttachmentID) { onOpenAttachment(attachment) }
+                    .id(attachment.id)
             }
         }
         .padding(.horizontal, QuestLogMetrics.inkInset)

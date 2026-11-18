@@ -5,6 +5,7 @@ public enum DestructiveConfirmationAction: Equatable {
     case deleteArtifact
     case deleteArtifacts
     case deleteQuests
+    case removeQuestAttachment
 }
 
 public struct DestructiveConfirmation: Equatable {
@@ -52,6 +53,13 @@ public struct DestructiveConfirmation: Equatable {
             confirmLabel: "Delete",
             cancelLabel: "Cancel"
         )
+    }
+
+    public static func removeQuestAttachment(_ attachment: QuestAttachment) -> DestructiveConfirmation {
+        DestructiveConfirmation(action: .removeQuestAttachment, subjectID: attachment.id,
+                                title: "Remove attachment?",
+                                message: "\(attachment.name)\nThis permanently removes the quest's stored copy. The original file is left alone.",
+                                confirmLabel: "Remove", cancelLabel: "Cancel")
     }
 
     public static func deleteQuests(count: Int) -> DestructiveConfirmation {

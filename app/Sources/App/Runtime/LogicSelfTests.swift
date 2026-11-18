@@ -194,6 +194,8 @@ enum LogicSelfTests {
         ("testFilledKnockOutsStayClear", testFilledKnockOutsStayClear),
         ("testNewSessionTabTakesTheHighlightedModelThenMovesOn", testNewSessionTabTakesTheHighlightedModelThenMovesOn),
         ("testNewSessionEscapePutsADropdownAwayBeforeClosing", testNewSessionEscapePutsADropdownAwayBeforeClosing),
+        ("testQuestNativeDropOwnsFileDelivery", testQuestNativeDropOwnsFileDelivery),
+        ("testQuestPromisedDropLifetimeFollowsTheDraft", testQuestPromisedDropLifetimeFollowsTheDraft),
         ("testNewQuestTypedPathSubmitsAPathOnlyProject", testNewQuestTypedPathSubmitsAPathOnlyProject),
         ("testNewQuestReturnKeepsATypedPathUnlessARowWasChosen", testNewQuestReturnKeepsATypedPathUnlessARowWasChosen),
         ("testEditQuestTypesFieldListsTheOpenTypesAsSuggestions", testEditQuestTypesFieldListsTheOpenTypesAsSuggestions),
@@ -8146,6 +8148,69 @@ enum LogicSelfTests {
     }
 
     /// A typed path goes to serve alone, so it gives the quest the project `quest add --project` would.
+    private static func testQuestNativeDropOwnsFileDelivery() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let image = URL(fileURLWithPath: "/tmp/example-app/mockup.png")
+        try expect(pasteboard.writeObjects([image as NSURL]), "the native drop should contain a file URL")
+        let receiver = QuestFileDropView(rootView: AnyView(EmptyView()))
+        let promisedTypes = NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+        try expect(receiver.registeredDraggedTypes.contains(.fileURL) && promisedTypes.allSatisfy(receiver.registeredDraggedTypes.contains), "the quest target should advertise file URLs and screenshot promises to AppKit")
+        var active = true
+        var delivered: [URL] = []
+        var error: String?
+        receiver.canAccept = { active }
+        receiver.onDrop = { urls, directory in
+            delivered += urls
+            return directory == nil
+        }
+        receiver.onError = { error = $0 }
+        try expect(receiver.receive(pasteboard) && delivered == [image], "the native receiver should deliver the file to the quest")
+        active = false
+        try expect(!receiver.receive(pasteboard) && delivered == [image], "a covered or closed modal must reject the same drop")
+        active = true
+        pasteboard.clearContents()
+        let many = (0...NewQuestFormModel.maxAttachments).map { URL(fileURLWithPath: "/tmp/example-app/\($0).png") as NSURL }
+        try expect(pasteboard.writeObjects(many), "the drop should carry the over-limit selection")
+        try expect(!receiver.receive(pasteboard) && error != nil && delivered == [image], "an over-limit drop must leave the existing draft intact")
+    }
+
+    private static func testQuestPromisedDropLifetimeFollowsTheDraft() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("quest-drop-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("image.png")
+        try Data([1, 2, 3]).write(to: file)
+        let client = StubMutationClient(result: .failure(StubMutationError()))
+        let sheet = newQuestSheet(client: client)
+        sheet.form.pickProject(.noProject)
+        try expect(sheet.addAttachments([file], temporaryDirectory: directory), "a received screenshot should join the draft")
+        try expect(sheet.form.focusedField == .attachments && sheet.form.attachmentTarget == .pending(file.path), "a received file should have the keyboard cursor")
+        sheet.receivingDrop = true
+        sheet.submit()
+        try expect(!sheet.canSubmit && client.sentRequests.isEmpty, "save should wait for promised files to arrive")
+        sheet.receivingDrop = false
+        sheet.removeAttachment(.pending(file.path))
+        try expect(!FileManager.default.fileExists(atPath: directory.path), "removing the final promised file should clean up its temporary directory")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data([4]).write(to: file)
+        try expect(sheet.addAttachments([file], temporaryDirectory: directory), "a later screenshot should be accepted")
+        sheet.cancel()
+        try expect(!FileManager.default.fileExists(atPath: directory.path), "cancelling the quest should release promised files")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data([5]).write(to: file)
+        let deferred = StubMutationClient(result: .success(ServeMutationAck(data: nil)), deferCompletions: true)
+        let saving = newQuestSheet(client: deferred)
+        saving.form.pickProject(.noProject)
+        try expect(saving.addAttachments([file], temporaryDirectory: directory), "a promised file should be ready to save")
+        saving.submit()
+        try expect(deferred.sentRequests.count == 1 && saving.form.submitting, "the save should be in flight")
+        saving.cancel()
+        try expect(FileManager.default.fileExists(atPath: file.path), "closing during save must retain the source until acknowledgement")
+        deferred.fireCompletion(forRequestAt: 0)
+        try expect(waitUntil { !FileManager.default.fileExists(atPath: directory.path) }, "the acknowledgement should release the source after the form has closed")
+    }
+
     private static func testNewQuestTypedPathSubmitsAPathOnlyProject() throws {
         let client = StubMutationClient(result: .success(ServeMutationAck(data: nil)))
         let sheet = NewQuestSheetModel(
@@ -8217,11 +8282,11 @@ enum LogicSelfTests {
         try expect(sheet.form.projectMode == .search, "precondition: searching")
         let sinkBefore = sheet.sinkNonce
         try expect(sheet.handle(try keyEvent("j", keyCode: 38, modifierFlags: .control)), "⌃j should move on")
-        try expect(sheet.form.focusedField == .content && sheet.form.projectMode == .select, "leaving should end the search")
-        try expect(sheet.sinkNonce == sinkBefore, "leaving should leave the caret to the content, not the sink")
+        try expect(sheet.form.focusedField == .attachments && sheet.form.projectMode == .select, "leaving should end the search")
+        try expect(sheet.sinkNonce == sinkBefore + 1, "attachments should take the caret into the sink")
         try expect(sheet.handle(try keyEvent("k", keyCode: 40, modifierFlags: .control)), "⌃k should come back")
         try expect(sheet.form.focusedField == .project && sheet.form.projectMode == .select && sheet.form.projectText == "s", "back in SELECT with the text kept")
-        try expect(sheet.sinkNonce == sinkBefore + 1, "SELECT should take the caret out of the text")
+        try expect(sheet.sinkNonce == sinkBefore + 2, "SELECT should keep the caret in the sink")
     }
 
     /// An Edit Quest sheet for quest qst-1 with the given types and size.
@@ -8260,6 +8325,7 @@ enum LogicSelfTests {
         let sinkBefore = sheet.sinkNonce
         try expect(sheet.handle(try keyEvent("", keyCode: 48)) && sheet.form.focusedField == .size, "Tab should reach the size")
         try expect(sheet.sinkNonce == sinkBefore + 1, "the size select should take the caret out of the text")
+        try expect(sheet.handle(try keyEvent("", keyCode: 48)) && sheet.form.focusedField == .attachments, "Tab should reach attachments")
         try expect(sheet.handle(try keyEvent("", keyCode: 48)) && sheet.form.focusedField == .content, "Tab should reach the content")
     }
 
@@ -8416,7 +8482,7 @@ enum LogicSelfTests {
         try expect(sheet.handle(try keyEvent("/", keyCode: 44)), "a / should start a path search")
         sheet.projectTyped("/nonexistent-qm/zz")
         try expect(sheet.handle(try keyEvent("\t", keyCode: 48)), "Tab should be consumed")
-        try expect(sheet.form.focusedField == .content, "Tab with nothing to complete should move on")
+        try expect(sheet.form.focusedField == .attachments, "Tab with nothing to complete should move on to attachments")
     }
 
     private static func testNewSessionControlRRefreshesModelsFromTheModelField() throws {

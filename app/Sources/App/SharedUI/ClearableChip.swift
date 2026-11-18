@@ -9,6 +9,7 @@ import SwiftUI
 struct ClearableChip<Value: View>: View {
     let label: String
     let accessibilityLabel: String
+    var focused = false
     let onClear: () -> Void
     @ViewBuilder var value: () -> Value
 
@@ -48,7 +49,7 @@ struct ClearableChip<Value: View>: View {
         .background(RoundedRectangle(cornerRadius: ClearableChipMetrics.cornerRadius).fill(AppPalette.item.swiftUI))
         .overlay(
             RoundedRectangle(cornerRadius: ClearableChipMetrics.cornerRadius)
-                .strokeBorder(AppPalette.line.swiftUI, lineWidth: Token.Size.divider)
+                .strokeBorder(OutlineLook.field(focused: focused).border.color.swiftUI, lineWidth: Token.Size.divider)
         )
         .fixedSize()
     }
