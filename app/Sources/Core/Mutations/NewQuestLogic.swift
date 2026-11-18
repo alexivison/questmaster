@@ -58,6 +58,8 @@ public struct NewQuestProjectOption: Equatable, Identifiable {
 }
 
 public struct NewQuestSubmitPayload: Equatable {
+    public var attachPaths: [String] = []
+    public var detachIDs: [String] = []
     public var content: String
     public var projectID: String
     public var projectPath: String
@@ -99,6 +101,34 @@ public enum NewQuestDestination: Equatable {
 /// field (`PickerFieldMode`) over the projects the app knows: its text is a project's name, matched by
 /// name and then by path; text starting with / or ~ is a path instead, with directory suggestions.
 public struct NewQuestFormModel: Equatable {
+    public private(set) var attachments: [QuestAttachment]
+    public private(set) var attachPaths: [String] = []
+    private let openedAttachments: [QuestAttachment]
+    public static let maxAttachments = 20
+
+    /// Pending additions stay local until the form is submitted.
+    public mutating func addAttachmentPaths(_ paths: [String]) {
+        guard !submitting else { return }
+        var seen = Set(attachPaths)
+        let additions = paths.filter { !$0.isEmpty && seen.insert($0).inserted }
+        guard attachments.count + attachPaths.count + additions.count <= Self.maxAttachments else {
+            errorMessage = "A quest supports at most \(Self.maxAttachments) attachments."
+            return
+        }
+        attachPaths += additions
+        errorMessage = nil
+    }
+
+    public mutating func removeAttachment(id: String) {
+        guard !submitting else { return }
+        attachments.removeAll { $0.id == id }
+    }
+
+    public mutating func removeAttachmentPath(_ path: String) {
+        guard !submitting else { return }
+        attachPaths.removeAll { $0 == path }
+    }
+
     public var content: String
     /// Leaving the project field ends its search, keeping what was typed.
     public var focusedField: NewQuestField {
@@ -144,8 +174,11 @@ public struct NewQuestFormModel: Equatable {
         projects: [NewQuestProjectOption] = [],
         home: String = "",
         types: [String] = [],
-        size: String = ""
+        size: String = "",
+        attachments: [QuestAttachment] = []
     ) {
+        self.attachments = attachments
+        openedAttachments = attachments
         self.home = home
         self.content = content
         self.initialProject = initialProject
@@ -410,6 +443,14 @@ public struct NewQuestFormModel: Equatable {
     /// The opening project while it is still the one named; any other project or path goes as its path
     /// alone, and serve gives it the id and name `quest add --project` would.
     public mutating func submitPayload() -> NewQuestSubmitPayload? {
+        guard var payload = contentPayload() else { return nil }
+        payload.attachPaths = attachPaths
+        let keptIDs = Set(attachments.map(\.id))
+        payload.detachIDs = openedAttachments.filter { !keptIDs.contains($0.id) }.map(\.id)
+        return payload
+    }
+
+    private mutating func contentPayload() -> NewQuestSubmitPayload? {
         if let missingField {
             errorMessage = "\(missingField) is required"
             return nil

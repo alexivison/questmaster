@@ -15,6 +15,7 @@ final class NewQuestSheetPresenter: ObservableObject {
         initialContent: String = "",
         initialTypes: [String] = [],
         initialSize: String = "",
+        initialAttachments: [QuestAttachment] = [],
         questID: String = "",
         sessionID: String?,
         mutationClient: ServeMutationSending,
@@ -27,6 +28,7 @@ final class NewQuestSheetPresenter: ObservableObject {
             initialContent: initialContent,
             initialTypes: initialTypes,
             initialSize: initialSize,
+            initialAttachments: initialAttachments,
             questID: questID,
             sessionID: sessionID ?? "",
             mutationClient: mutationClient,
@@ -47,6 +49,7 @@ struct NewQuestSheetPresentation: Identifiable {
     let initialContent: String
     let initialTypes: [String]
     let initialSize: String
+    var initialAttachments: [QuestAttachment] = []
     let questID: String
     let sessionID: String
     let mutationClient: ServeMutationSending
@@ -85,6 +88,7 @@ struct NewQuestSheetView: View {
                     sizeField
                 }
                 contentBox
+                attachments
             }
             .background(FocusSink(nonce: model.sinkNonce))
         }
@@ -179,6 +183,37 @@ struct NewQuestSheetView: View {
         BaselineText(text, font: AppFonts.questLogBody, color: color, baseline: FormFieldMetrics.baseline)
     }
 
+    private var attachments: some View {
+        HStack(spacing: Space.item) {
+            Button("Attach files…", action: model.chooseAttachments)
+                .buttonStyle(OutlineButtonStyle())
+                .help("Attach files (⇧⌘A); up to 20 files, 25 MiB each")
+            ScrollView(.horizontal) {
+                HStack(spacing: Space.row) {
+                    ForEach(model.form.attachments) { attachment in
+                        attachmentChip(name: attachment.name) { model.form.removeAttachment(id: attachment.id) }
+                            .help(attachment.path)
+                    }
+                    ForEach(model.form.attachPaths, id: \.self) { path in
+                        attachmentChip(name: URL(fileURLWithPath: path).lastPathComponent) { model.form.removeAttachmentPath(path) }
+                            .help(path)
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+        }
+        .frame(height: ControlHeight.control)
+        .disabled(model.form.submitting)
+    }
+
+    private func attachmentChip(name: String, onRemove: @escaping () -> Void) -> some View {
+        ClearableChip(label: "", accessibilityLabel: "Remove \(name)", onClear: onRemove) {
+            Text(name)
+                .font(AppFonts.questLogBody.swiftUI)
+                .foregroundStyle(AppPalette.textBody.swiftUI)
+        }
+    }
+
     private var contentBox: some View {
         ModalPromptEditor(
             text: Binding(get: { model.form.content }, set: { model.form.content = $0 }),
@@ -206,6 +241,7 @@ final class NewQuestSheetModel: ObservableObject {
     /// Bumped as the project field returns to SELECT, to take the caret out.
     @Published private(set) var sinkNonce = 0
 
+    private var attachmentPanel: NSOpenPanel?
     private let mutationClient: ServeMutationSending
     private let pathSuggester: PathSuggester
     private let questID: String
@@ -221,7 +257,8 @@ final class NewQuestSheetModel: ObservableObject {
             projects: presentation.projects,
             home: NSHomeDirectory(),
             types: presentation.initialTypes,
-            size: presentation.initialSize
+            size: presentation.initialSize,
+            attachments: presentation.initialAttachments
         )
         questID = presentation.questID
         mutationClient = presentation.mutationClient
@@ -250,8 +287,31 @@ final class NewQuestSheetModel: ObservableObject {
     }
 
     func disappear() {
+        attachmentPanel?.cancel(nil)
+        attachmentPanel = nil
         pathSuggester.cancel()
         paths.clear()
+    }
+
+    func chooseAttachments() {
+        guard !form.submitting, attachmentPanel == nil else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Attach"
+        panel.message = "Choose supporting files (up to 20 files, 25 MiB each)."
+        attachmentPanel = panel
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            if response == .OK { self.form.addAttachmentPaths(panel.urls.map(\.path)) }
+            self.attachmentPanel = nil
+        }
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
     }
 
     func cancel() {
@@ -402,7 +462,11 @@ final class NewQuestSheetModel: ObservableObject {
 
     /// The sheet's keys: the project field's own (`handleFieldKey`), then the shared modal keys (`ModalKeys`).
     func handle(_ event: NSEvent) -> Bool {
-        ModalKeyActions(
+        if !form.submitting, event.keymapPress.modifiers == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "a" {
+            chooseAttachments()
+            return true
+        }
+        return ModalKeyActions(
             context: { self.modalKeyContext },
             fieldKey: { self.handleFieldKey($0) },
             submit: { self.submit() },

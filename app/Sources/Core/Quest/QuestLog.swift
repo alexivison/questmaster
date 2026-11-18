@@ -18,6 +18,7 @@ public struct QuestLogPage: Equatable {
     /// "YYYY/MM/DD", or "" when the timestamp is missing or unreadable.
     public var created: String
     public var updated: String
+    public var attachments: [QuestAttachment] = []
 
     public var layout: Layout {
         body.isEmpty ? .plain : .titled
@@ -48,6 +49,7 @@ public struct QuestLogPage: Equatable {
         let rest = lines.dropFirst(firstLine + 1).drop { $0.trimmingCharacters(in: .whitespaces).isEmpty }
         let body = rest.joined(separator: "\n").replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
         self.init(title: title, body: body, project: project, created: Self.day(quest.createdAt), updated: Self.day(quest.updatedAt))
+        attachments = quest.attachments
     }
 
     /// The footer's parts set greedily on lines of `columns` characters, a separator (the diamond and its

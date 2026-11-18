@@ -16,3 +16,8 @@
 - **The Quest Log's size** is fixed at `QuestLogMetrics.sheetSize`. A smaller window shrinks the modal through
   the shared fit in `ModalScaleView`, as other modals do. `QuestLogLayout` places the parts: the page keeps its proportions
   and takes the height, the left column takes the width.
+
+- **Attachments.** New Quest and Edit Quest offer “Attach files…” (⇧⌘A). Selected files are pending until the form is
+  saved; each chip's x removes an existing or pending attachment. Saving copies regular files into the private quest
+  library (up to 20 per quest, 25 MiB each). The page lists the saved files below its footer; a click opens the stored
+  copy in its default application. Removing an attachment or deleting its quest removes the copy, leaving the original alone.

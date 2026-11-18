@@ -32,6 +32,7 @@ enum RenderPreview {
         render(newQuestSheetView(.typingPath), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(newQuestSheetView(.searchingProjects), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-projects.png")
         render(newQuestSheetView(.editNoTags), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-no-tags.png")
+        render(newQuestSheetView(.editTagged, attachments: true), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-attachments.png")
         render(newQuestSheetView(.editTagged), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags.png")
         render(newQuestSheetView(.editTagsOpen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags-open.png")
         render(newQuestSheetView(.editTagsSearching), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/edit-quest-tags-search.png")
@@ -227,6 +228,7 @@ enum RenderPreview {
         render(artifactListView(focused: false), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-list-unfocused.png")
         // The Quest Log at its fixed size, over the same quests.
         let layout = QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize)
+        render(QuestLogView(store: questLogStore(attachments: true), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-attachments.png")
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log.png")
         render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-nobody.png")
         render(QuestLogView(store: questLogStore(tab: "questmaster"), filter: questLogFilter(), layout: layout, onCommand: { _ in }), size: layout.sheetSize, to: "\(outputDir)/quest-log-tab.png")
@@ -2428,10 +2430,12 @@ enum RenderPreview {
     }
 
     /// `tab` selects a project tab, as a click or `]` would; `selecting` selects a quest.
-    private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, tab projectID: String? = nil) -> QuestLogStore {
+    private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, tab projectID: String? = nil, attachments: Bool = false) -> QuestLogStore {
         let store = QuestLogStore()
+        var quests = empty ? [] : questLogQuests(longBody: longBody)
+        if attachments, !quests.isEmpty { quests[0].attachments = questPreviewAttachments }
         store.sync(
-            quests: empty ? [] : questLogQuests(longBody: longBody),
+            quests: quests,
             repos: [],
             projects: settingsProjects.map { TrackerProject(id: $0.name, name: $0.name, color: $0.color) }
         )
@@ -2440,9 +2444,15 @@ enum RenderPreview {
         }
         if let id {
             store.select(id)
+        } else if attachments, let first = quests.first {
+            store.select(first.id)
         }
         return store
     }
+
+    private static let questPreviewAttachments = [
+        QuestAttachment(id: "att-preview", name: "design sketch.png", path: "/tmp/example-app/design sketch.png", size: 1024),
+    ]
 
     /// Quests across eight projects with names too long for the tab row, so it scrolls sideways; the last tab is selected.
     private static func questLogOverflowStore() -> QuestLogStore {
@@ -2760,7 +2770,7 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func newQuestSheetView(_ preview: NewQuestPreview = .empty) -> some View {
+    private static func newQuestSheetView(_ preview: NewQuestPreview = .empty, attachments: Bool = false) -> some View {
         let code = (NSHomeDirectory() as NSString).appendingPathComponent("Code")
         let projects = ["questmaster", "scry", "dotfiles"].map { name in
             NewQuestProjectOption(projectID: "\(code)/\(name)/.git", projectPath: "\(code)/\(name)", projectName: name)
@@ -2773,6 +2783,7 @@ enum RenderPreview {
                 initialContent: preview == .empty ? "" : "Add more meta data to shell sessions",
                 initialTypes: edited?.types ?? [],
                 initialSize: edited?.size ?? "",
+                initialAttachments: attachments ? questPreviewAttachments : [],
                 questID: edited == nil ? "" : "qst-1",
                 sessionID: "",
                 mutationClient: SettingsPreviewMutationClient(),
@@ -2781,6 +2792,7 @@ enum RenderPreview {
             ),
             dismiss: {}
         )
+        if attachments { sheet.form.addAttachmentPaths(["/tmp/example-app/notes.txt"]) }
         switch preview {
         case .empty, .editNoTags, .editTagged, .editAllTypes:
             break

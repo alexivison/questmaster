@@ -660,7 +660,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             store: questLogStore,
             filter: questLogFilter,
             pageScroll: questLogPageScroll,
-            onCommand: { [weak self] in self?.handleQuestLogCommand($0) }
+            onCommand: { [weak self] in self?.handleQuestLogCommand($0) },
+            onOpenAttachment: { [weak self] attachment in
+                if !NSWorkspace.shared.open(URL(fileURLWithPath: attachment.path)) {
+                    self?.errorPresenter.showTransientError("Could not open attachment: \(attachment.name)")
+                }
+            }
         ))
     }
 
@@ -1162,6 +1167,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             initialContent: quest.content,
             initialTypes: quest.types,
             initialSize: quest.size,
+            initialAttachments: quest.attachments,
             questID: quest.id,
             sessionID: runtimeStore.currentTerminalSessionID,
             mutationClient: mutationClient,

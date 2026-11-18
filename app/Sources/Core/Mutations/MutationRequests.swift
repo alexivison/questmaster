@@ -9,7 +9,10 @@ public struct ServeMutationRequest: Equatable {
     public init(method: String, data: [String: String] = [:], lists: [String: [String]] = [:]) {
         self.method = method
         self.data = data.mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        self.lists = lists.mapValues { $0.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } }
+        var normalizedLists = lists.mapValues { $0.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } }
+        // A file name may end in whitespace; file-picker paths must reach the daemon verbatim.
+        normalizedLists["attach_paths"] = lists["attach_paths"]
+        self.lists = normalizedLists
     }
 
     public func jsonObject(id: String) -> [String: Any] {
@@ -181,7 +184,7 @@ public enum ServeMutationRequests {
         if let sessionID = cleanOptional(sessionID) {
             data["session_id"] = sessionID
         }
-        return ServeMutationRequest(method: "quest.add", data: data)
+        return ServeMutationRequest(method: "quest.add", data: data, lists: attachmentLists(payload))
     }
 
     public static func questEdit(questID: String, content: String) throws -> ServeMutationRequest {
@@ -197,7 +200,7 @@ public enum ServeMutationRequests {
             "content": try required("content", payload.content),
         ]
         // An absent field leaves the quest's tags as they were; an empty one clears them.
-        var lists: [String: [String]] = [:]
+        var lists = attachmentLists(payload)
         if let types = payload.types {
             lists["types"] = types
         }
@@ -212,6 +215,13 @@ public enum ServeMutationRequests {
         data["project_path"] = payload.projectPath
         data["project_name"] = payload.projectName
         return ServeMutationRequest(method: "quest.edit", data: data, lists: lists)
+    }
+
+    private static func attachmentLists(_ payload: NewQuestSubmitPayload) -> [String: [String]] {
+        var lists: [String: [String]] = [:]
+        if !payload.attachPaths.isEmpty { lists["attach_paths"] = payload.attachPaths }
+        if !payload.detachIDs.isEmpty { lists["detach_ids"] = payload.detachIDs }
+        return lists
     }
 
     public static func questDelete(questID: String) throws -> ServeMutationRequest {

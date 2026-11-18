@@ -3,6 +3,7 @@ import QuestmasterCore
 
 struct QuestCoreTests {
     static func run() {
+        attachmentsStayPendingAndBuildMutationPayloads()
         flatListIsNewestCreatedFirstAcrossProjects()
         displayOrdersByCreatedNotUpdated()
         projectTabsFollowTheUsersOrderAndOnlyListProjectsWithQuests()
@@ -41,6 +42,31 @@ struct QuestCoreTests {
         leavingTheProjectFieldEndsItsSearch()
         startFromQuestsBuildsIDPromptAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
+    }
+
+    private static func attachmentsStayPendingAndBuildMutationPayloads() {
+        let attachment = QuestAttachment(id: "att-example", name: "design.png", path: "/tmp/example-state/design.png", size: 4)
+        let quest = QuestItem(id: "qst-example", content: "Example", attachments: [attachment])
+        expect(QuestLogPage(quest: quest, project: "").attachments == [attachment], "the quest page should carry its files")
+        var form = NewQuestFormModel(content: "Example", isEditing: true, attachments: [attachment])
+        expect(form.submitPayload()?.detachIDs == [], "an unchanged edit must preserve attachments")
+        form.addAttachmentPaths(["/tmp/example/design.png ", "/tmp/example/design.png ", "/tmp/example/notes.txt"])
+        expect(form.attachPaths.count == 2, "reselecting a pending file should not duplicate it")
+        form.removeAttachmentPath("/tmp/example/notes.txt")
+        form.removeAttachment(id: attachment.id)
+        guard let payload = form.submitPayload() else { fail("attachment edit payload missing") }
+        expect(payload.attachPaths == ["/tmp/example/design.png "] && payload.detachIDs == [attachment.id], "save should carry only attachment changes")
+        do {
+            let request = try ServeMutationRequests.questEdit(questID: quest.id, payload: payload)
+            expect(request.lists["attach_paths"] == payload.attachPaths && request.lists["detach_ids"] == payload.detachIDs, "edit should encode attachment arrays")
+            let add = try ServeMutationRequests.questAdd(payload)
+            expect(add.lists["attach_paths"] == payload.attachPaths, "add should encode pending files")
+        } catch { fail("attachment mutation threw \(error)") }
+        form.addAttachmentPaths((0..<NewQuestFormModel.maxAttachments).map { "/tmp/example/\($0).txt" })
+        expect(form.errorMessage != nil && form.attachPaths.count == 1, "an oversized selection should leave the draft intact")
+        form.submitting = true
+        form.removeAttachmentPath("/tmp/example/design.png ")
+        expect(form.attachPaths.count == 1, "an in-flight form cannot change attachment selection")
     }
 
     private static func flatListIsNewestCreatedFirstAcrossProjects() {

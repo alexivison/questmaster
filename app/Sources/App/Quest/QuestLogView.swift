@@ -119,6 +119,7 @@ struct QuestLogView: View {
     /// Offscreen renders can't focus the field; this draws it as focused (its border, its suggestions).
     var previewFocused = false
     var onCommand: (ListCommand) -> Void
+    var onOpenAttachment: (QuestAttachment) -> Void = { _ in }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -130,7 +131,7 @@ struct QuestLogView: View {
             QuestLogList(store: store)
                 .frame(width: layout.listWidth, height: layout.listHeight, alignment: .top)
                 .offset(x: layout.listOrigin.x, y: layout.listOrigin.y)
-            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout, emptyReason: store.emptyReason)
+            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, layout: layout, emptyReason: store.emptyReason, onOpenAttachment: onOpenAttachment)
                 .offset(x: layout.pageOrigin.x, y: layout.pageOrigin.y)
             // Last but the buttons: a ZStack draws later children on top, and the filter's suggestion dropdown opens
             // over the list.
@@ -181,6 +182,7 @@ struct QuestLogModal: View {
     let filter: QuestLogFilter
     let pageScroll: QuestLogPageScroll
     var onCommand: (ListCommand) -> Void
+    var onOpenAttachment: (QuestAttachment) -> Void = { _ in }
 
     var body: some View {
         // A fresh page per opening, so the parchment unrolls when the log opens and not on later changes.
@@ -189,7 +191,8 @@ struct QuestLogModal: View {
             filter: filter,
             layout: QuestLogLayout(sheetSize: QuestLogMetrics.sheetSize),
             pageScroll: pageScroll,
-            onCommand: onCommand
+            onCommand: onCommand,
+            onOpenAttachment: onOpenAttachment
         )
         .id(store.openGeneration)
         .background(SheetKeyEventMonitor(onKeyDown: handle))
@@ -329,6 +332,7 @@ private struct QuestLogPageView: View {
     let layout: QuestLogLayout
     /// Why there is no page to show, when there is none.
     let emptyReason: ListEmptyReason
+    var onOpenAttachment: (QuestAttachment) -> Void
     @State private var unrolled = false
     @State private var inked = false
 
@@ -371,7 +375,7 @@ private struct QuestLogPageView: View {
     @ViewBuilder private var ink: some View {
         if let page {
             ScrollView(.vertical) {
-                QuestLogInk(page: page, layout: layout)
+                QuestLogInk(page: page, layout: layout, onOpenAttachment: onOpenAttachment)
                     .background(ScrollerHider(onApply: { scrollView in
                         hideScroller(on: scrollView)
                         pageScroll.attach(scrollView)
@@ -420,8 +424,17 @@ private struct UnrollMask: ViewModifier, Animatable {
 private struct QuestLogInk: View {
     let page: QuestLogPage
     let layout: QuestLogLayout
+    var onOpenAttachment: (QuestAttachment) -> Void
 
     var body: some View {
+        VStack(alignment: .leading, spacing: Space.section) {
+            content
+            if !page.attachments.isEmpty { attachments }
+        }
+        .padding(.bottom, QuestLogMetrics.inkBottomInset)
+    }
+
+    private var content: some View {
         Group {
             switch page.layout {
             case .titled:
@@ -439,7 +452,18 @@ private struct QuestLogInk: View {
                 }
             }
         }
-        .padding(.bottom, QuestLogMetrics.inkBottomInset)
+    }
+
+    private var attachments: some View {
+        VStack(alignment: .leading, spacing: Space.row) {
+            ForEach(page.attachments) { attachment in
+                Button(attachment.name) { onOpenAttachment(attachment) }
+                    .buttonStyle(OutlineButtonStyle())
+                    .help(attachment.path)
+                    .accessibilityLabel("Open attachment \(attachment.name)")
+            }
+        }
+        .padding(.horizontal, QuestLogMetrics.inkInset)
     }
 
     /// Plain page text: the description, or a title-only quest's one line.
