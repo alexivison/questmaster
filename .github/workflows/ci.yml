@@ -130,6 +130,12 @@ jobs:
       - name: Install script tests
         run: app/Scripts/test-install.sh
 
+      - name: Build prerequisite tests
+        run: app/Scripts/test-build-requirements.sh
+
+      - name: Install tmux
+        run: brew install tmux
+
       - name: Cache SwiftPM binary artifacts
         uses: actions/cache@v4
         with:

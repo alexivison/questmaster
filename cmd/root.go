@@ -98,9 +98,10 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "questmaster",
 		Short: "CLI for questmaster sessions",
-		Long: `questmaster is the shared implementation surface for questmaster sessions.
+		Long: `questmaster (also called qm inside managed sessions) manages coding-agent sessions.
 
-When invoked with no subcommand, it shows help.`,
+To open the native macOS app, open Questmaster from Applications or Spotlight.
+When invoked with no subcommand, this CLI shows help.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {

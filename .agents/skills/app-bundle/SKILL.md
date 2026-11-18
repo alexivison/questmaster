@@ -13,8 +13,9 @@ Hard rules (also in the root `AGENTS.md`):
 
 ## Build and install
 
-`build-app.sh` builds the Swift executable, fetches/embeds GhosttyKit, **builds
-the Go `qm` binary into the bundle**, stamps both with one `git describe`
+`build-app.sh` first runs `check-build-requirements.sh` (Apple Silicon, macOS 14+,
+Command Line Tools with Swift, Git, Go and tmux), then builds the Swift executable,
+fetches/embeds GhosttyKit, **builds the Go `qm` binary into the bundle**, stamps both with one `git describe`
 version, ad-hoc codesigns, and hands the bundle to `install-app.sh`. That stages
 and verifies it beside the installed app, copies its `qm` to
 `<state root>/bin/versions/<version>-<hash>/qm`, retargets the stable link
@@ -25,7 +26,9 @@ backend changes to `main` does not make them live in the app until the bundle is
 rebuilt.** Agents never run either script against the real install: a test run
 uses a temporary `--install-path`, `HOME` and `QUESTMASTER_STATE_ROOT` with
 `--isolated` (the installer refuses a mix), and `app/Scripts/test-install.sh`
-covers the installer.
+covers the installer. `test-build-requirements.sh` checks prerequisite failures
+with fake tools. A normal install registers the app with LaunchServices and
+ends by directing users to open it from Applications or Spotlight.
 
 State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 
