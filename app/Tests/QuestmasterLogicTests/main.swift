@@ -26,6 +26,7 @@ timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("ColorFieldTests") { ColorFieldTests.run() }
         timed("PickerFieldKeyTests") { PickerFieldKeyTests.run() }
         timed("FilterFieldKeyTests") { FilterFieldKeyTests.run() }
+        timed("FuzzySearchTests") { FuzzySearchTests.run() }
         timed("RoleDefaultsLogicTests") { RoleDefaultsLogicTests.run() }
         timed("NewTerminalLogicTests") { NewTerminalLogicTests.run() }
         timed("DestructiveConfirmationTests") { DestructiveConfirmationTests.run() }

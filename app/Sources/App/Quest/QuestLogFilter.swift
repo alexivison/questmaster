@@ -172,11 +172,10 @@ final class QuestLogFilter {
         guard !suggestionsHidden, let trigger = DockPaneModel.filterTrigger(in: query, kinds: Self.kinds) else {
             return []
         }
+        let search = FuzzySearch(trigger.query)
         switch trigger.mode {
         case .command:
-            let commandQuery = trigger.query.lowercased()
-            return Self.kinds
-                .filter { commandQuery.isEmpty || $0.rawValue.hasPrefix(commandQuery) }
+            return search.ranked(Self.kinds, key: \.rawValue)
                 .map { kind in
                     ArtifactFilterSuggestion(mode: .command, kind: kind, value: kind.rawValue, title: kind.command, detail: "filter", tokenTitle: "")
                 }
@@ -187,7 +186,7 @@ final class QuestLogFilter {
             let selected = selectedValues(of: kind)
             return options(for: kind)
                 .filter { !selected.contains($0.id) }
-                .filter { DockPaneModel.fuzzyMatch(trigger.query, in: $0.id) || DockPaneModel.fuzzyMatch(trigger.query, in: $0.title) }
+                .filter { search.matches($0.id) || search.matches($0.title) }
                 .map { option in
                     ArtifactFilterSuggestion(
                         mode: .value,

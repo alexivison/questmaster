@@ -556,6 +556,14 @@ struct ArtifactCoreTests {
             "filter should match project ids"
         )
         expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "scrn png", typeID: "image") == [screenshot],
+            "abbreviated path terms should combine with the type filter"
+        )
+        expect(
+            ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "rprt", projectID: "repo-b") == [report],
+            "labels should accept nonadjacent characters with a project filter"
+        )
+        expect(
             ArtifactDisplayState.filteredArtifacts([plan, report, screenshot], query: "", projectID: "repo-b") == [report],
             "project filter should keep matching project rows"
         )

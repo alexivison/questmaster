@@ -33,23 +33,10 @@ public enum PickerFieldMode: Equatable {
         return .seed(characters)
     }
 
-    /// The items matching a search, best first: an exact match, then those starting with the query,
-    /// then those containing it, each group in the items' own order. `key` is the lowercased text to match.
+    /// The items matching a search, best first: exact, prefix, substring, then fuzzy matches,
+    /// each group in the items' own order. `key` is the text to match.
     public static func ranked<Item>(_ items: [Item], query: String, key: (Item) -> String) -> [Item] {
-        var exact: [Item] = []
-        var prefix: [Item] = []
-        var contains: [Item] = []
-        for item in items {
-            let text = key(item)
-            if text == query {
-                exact.append(item)
-            } else if text.hasPrefix(query) {
-                prefix.append(item)
-            } else if text.contains(query) {
-                contains.append(item)
-            }
-        }
-        return exact + prefix + contains
+        FuzzySearch(query).ranked(items, key: key)
     }
 
     /// Where the caret goes as a picker field's mode changes.

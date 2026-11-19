@@ -14,8 +14,7 @@ public struct QuestListFilter: Equatable {
     }
 
     public func matches(_ quest: QuestItem) -> Bool {
-        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matchesText = cleanText.isEmpty || quest.content.localizedCaseInsensitiveContains(cleanText)
+        let matchesText = FuzzySearch(text).matches(quest.content)
         let matchesType = types.isEmpty || quest.types.contains(where: types.contains)
         let matchesSize = sizes.isEmpty || sizes.contains(quest.size)
         return matchesText && matchesType && matchesSize

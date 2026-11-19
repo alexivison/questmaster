@@ -246,10 +246,7 @@ public struct RoleDefaultsSettingsModel: Equatable {
     private var pickerMatches: [SessionModelOption] {
         let options = pickerOptions
         guard !isBrowsing else { return options }
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let labels = PickerFieldMode.ranked(options, query: query) { $0.label.lowercased() }
-        let matchedIDs = Set(labels.map(\.id))
-        return labels + PickerFieldMode.ranked(options.filter { !matchedIDs.contains($0.id) }, query: query) { $0.id.lowercased() }
+        return FuzzySearch(searchText).ranked(options, keys: { [$0.label, $0.id] })
     }
 
     public var pickerSuggestions: [SessionModelOption] {

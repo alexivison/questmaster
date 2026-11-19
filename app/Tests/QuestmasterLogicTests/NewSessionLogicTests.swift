@@ -9,6 +9,7 @@ struct NewSessionLogicTests {
         modelFieldStartsEmptyAndTakesSettingsDefault()
         typedModelSurvivesLaterResolves()
         modelSuggestionsMatchWhatIsTyped()
+        modelSearchMatchesAbbreviatedProviderAndVersion()
         acceptingAModelSuggestionPutsTheDropdownAway()
         browsingReachesEveryModel()
         modelRefreshKeyIsTheModelFieldsOwn()
@@ -123,6 +124,18 @@ struct NewSessionLogicTests {
         model.moveModelHighlight(-1)
         expect(model.highlightedModelSuggestion?.id == ids.last, "up from the first model should wrap to the last, past the visible rows")
         expect(model.modelSuggestions.last?.id == ids.last && model.visibleModelHighlightIndex == NewSessionFormModel.maxModelSuggestions - 1, "the visible rows should follow the highlight")
+    }
+
+    private static func modelSearchMatchesAbbreviatedProviderAndVersion() {
+        var model = NewSessionFormModel(initialPath: "/tmp/example-app", initialFocus: .model)
+        let id = "anthropic/claude-opus-5.5"
+        model.setModelOptions([SessionModelOption(id: id, label: "Claude Opus")], defaultModel: "")
+        model.startModelSearch(.seed("anthr opus 5"))
+        expect(model.modelSuggestions.map(\.id) == [id], "New Session should accept the same fuzzy query as Settings")
+        model.typeModel("cld ops")
+        expect(model.modelSuggestions.map(\.id) == [id], "a model's display label should be fuzzy searchable too")
+        expect(model.acceptHighlightedModel(), "the fuzzy result should be selectable")
+        expect(model.submitPayload()?.model == id, "launching must use the full model ID")
     }
 
     private static func browsingReachesEveryModel() {
