@@ -150,6 +150,7 @@ enum LogicSelfTests {
         ("testTheShellSectionScrollsInsideItselfPastItsMaxHeight", testTheShellSectionScrollsInsideItselfPastItsMaxHeight),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testQuestLogFilterReturnAndEscHandBackToTheList", testQuestLogFilterReturnAndEscHandBackToTheList),
+        ("testQuestLogFilterSuggestionsMatchAbbreviations", testQuestLogFilterSuggestionsMatchAbbreviations),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
@@ -5157,6 +5158,18 @@ enum LogicSelfTests {
         try expect(leaves == 2 && store.selectedID == "q1" && filter.query == "write", "Esc should hand the keys back and keep the cursor and the filter")
     }
 
+    private static func testQuestLogFilterSuggestionsMatchAbbreviations() throws {
+        let filter = QuestLogFilter()
+        filter.setQuery("@tp")
+        try expect(filter.suggestions.map(\.title) == ["@type:"], "filter commands should accept nonadjacent characters")
+        try expect(filter.acceptSuggestion(), "a fuzzy command should be selectable")
+        try expect(filter.query == "@type:", "the selected command should expand to its full spelling")
+        filter.setQuery("@type:imprv")
+        try expect(filter.suggestions.map(\.value) == ["improvement"], "filter values should use fuzzy matching too")
+        try expect(filter.acceptSuggestion(), "a fuzzy tag should be selectable")
+        try expect(filter.search.types == ["improvement"], "a fuzzy pick should filter by the full tag value")
+    }
+
     /// A child (⌘T's New Quest over the Quest Log) closing hands the keys back to what had them in the modal it
     /// uncovers: the filter's field editor, caret where it was, so typing goes on into the filter.
     private static func testClosingAChildRefocusesTheModalItUncovers() throws {
@@ -6937,16 +6950,16 @@ enum LogicSelfTests {
             commandModel.artifactModel.filterSuggestions.map(\.title) == ["@project:", "@type:"],
             "@ should show project and type command suggestions"
         )
-        commandModel.setArtifactFilterQuery("@p")
+        commandModel.setArtifactFilterQuery("@prj")
         try expect(
             commandModel.artifactModel.filterSuggestions.map(\.title) == ["@project:"],
-            "@p should fuzzy-match the project command"
+            "@prj should fuzzy-match the project command"
         )
         try expect(commandModel.handleArtifactFilterCommand(.plain(48)), "Tab should accept the command suggestion")
         try expect(commandModel.artifactModel.artifactFilterQuery == "@project:", "command accept should keep editing values")
         try expect(commandModel.artifactModel.artifactFilterTokens.isEmpty, "command accept should not create a token")
 
-        commandModel.setArtifactFilterQuery("@project:b")
+        commandModel.setArtifactFilterQuery("@project:brp")
         try expect(commandModel.acceptArtifactFilterSuggestion(), "accepting a project value should succeed")
         try expect(
             commandModel.artifactModel.artifactFilterTokens == [
@@ -6956,7 +6969,7 @@ enum LogicSelfTests {
         )
         try expect(commandModel.artifactModel.artifacts == [report, screenshot], "project token should filter rows")
 
-        commandModel.setArtifactFilterQuery("@type:i")
+        commandModel.setArtifactFilterQuery("@type:img")
         try expect(commandModel.acceptArtifactFilterSuggestion(), "accepting a type value should succeed")
         try expect(commandModel.artifactModel.artifacts == [screenshot], "project and type tokens should combine")
         try expect(

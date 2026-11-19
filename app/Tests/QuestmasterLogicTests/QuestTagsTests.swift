@@ -84,6 +84,8 @@ struct QuestTagsTests {
         expect(field.rows == [.cleanup], "the query should match only Cleanup, got \(field.rows)")
         field.typeQuery("BUG")
         expect(field.rows == [.bug], "matching should ignore case, got \(field.rows)")
+        field.typeQuery("imprv")
+        expect(field.rows == [.improvement], "tag search should accept nonadjacent characters, got \(field.rows)")
         field.typeQuery("zz")
         expect(field.rows.isEmpty && field.highlightedRow == nil, "a query no type matches should leave no rows")
     }

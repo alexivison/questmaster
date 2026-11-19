@@ -17,6 +17,8 @@ struct RoleDefaultsLogicTests {
         moveTabSwitchesAgentAndResetsFocus()
         cyclingFocusedValueAffectsOnlyTheFocusedField()
         searchesModelsByLabelAndIDWithoutChangingTheDefault()
+        searchesProviderQualifiedModelsWithAbbreviatedTerms()
+        exactModelIDRanksBeforeAFuzzyLabel()
         searchBrowsesEveryOptionAndPicksPastTheFirstWindow()
         reasoningSearchStaysWithinItsAgentAndRole()
         leavingOrCancellingSearchKeepsTheSelection()
@@ -306,6 +308,31 @@ struct RoleDefaultsLogicTests {
         model.applyPickerCommand(.pick)
         expect(model.rows[0].selectedModel == "model-c" && model.rows[0].isModelDirty, "picking should commit the model id")
         expect(model.pickerMode == .select && model.text(role: "master", field: .model) == "Fast extended", "the selected field should show its label with the dropdown closed")
+    }
+
+    private static func searchesProviderQualifiedModelsWithAbbreviatedTerms() {
+        var model = RoleDefaultsSettingsModel(agents: ["pi"])
+        let id = "anthropic/claude-opus-5.5"
+        model.setModelOptions([
+            SessionModelOption(id: "anthropic/claude-sonnet-5.5", label: "Claude Sonnet"),
+            SessionModelOption(id: id, label: "Claude Opus"),
+        ], defaultModel: "", agent: "pi", role: "master")
+
+        model.applyPickerCommand(.startSearch(.seed("anthr opus 5")))
+        expect(model.pickerSuggestions.first?.id == id, "abbreviated provider, model and version terms should rank Pi's matching model first")
+        expect(model.rows[0].selectedModel.isEmpty, "searching must leave the selection alone until a pick")
+        model.applyPickerCommand(.pick)
+        expect(model.rows[0].selectedModel == id, "a fuzzy pick must commit the full model ID")
+    }
+
+    private static func exactModelIDRanksBeforeAFuzzyLabel() {
+        var model = RoleDefaultsSettingsModel(agents: ["pi"])
+        model.setModelOptions([
+            SessionModelOption(id: "other", label: "Modern Large-Alpha"),
+            SessionModelOption(id: "model-a", label: "Standard"),
+        ], defaultModel: "", agent: "pi", role: "master")
+        model.applyPickerCommand(.startSearch(.seed("model-a")))
+        expect(model.pickerSuggestions.map(\.id) == ["model-a", "other"], "an exact ID should rank ahead of a loose label match")
     }
 
     private static func searchBrowsesEveryOptionAndPicksPastTheFirstWindow() {

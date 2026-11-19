@@ -191,7 +191,7 @@ public struct NewSessionFormModel: Equatable {
         guard !isBrowsingModels else {
             return modelOptions
         }
-        return PickerFieldMode.ranked(modelOptions, query: selectedModel.lowercased()) { $0.id.lowercased() }
+        return FuzzySearch(selectedModel).ranked(modelOptions, keys: { [$0.label, $0.id] })
     }
 
     /// The dropdown's rows: `maxModelSuggestions` of the matches, following the highlight.

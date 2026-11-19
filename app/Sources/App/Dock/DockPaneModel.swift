@@ -777,11 +777,10 @@ final class DockPaneModel: ObservableObject {
               let trigger = activeFilterTrigger() else {
             return []
         }
+        let search = FuzzySearch(trigger.query)
         switch trigger.mode {
         case .command:
-            let commandQuery = trigger.query.lowercased()
-            return Self.artifactFilterKinds
-                .filter { commandQuery.isEmpty || $0.rawValue.hasPrefix(commandQuery) }
+            return search.ranked(Self.artifactFilterKinds, key: \.rawValue)
                 .map {
                     ArtifactFilterSuggestion(
                         mode: .command,
@@ -800,7 +799,7 @@ final class DockPaneModel: ObservableObject {
             let options = (kind == .project ? projectOptions : typeOptions).filter { !$0.id.isEmpty }
             return options
                 .filter { !selected.contains($0.id) }
-                .filter { Self.fuzzyMatch(trigger.query, in: $0.id) || Self.fuzzyMatch(trigger.query, in: $0.title) }
+                .filter { search.matches($0.id) || search.matches($0.title) }
                 .map { option in
                     ArtifactFilterSuggestion(
                         mode: .value,
@@ -967,23 +966,6 @@ final class DockPaneModel: ObservableObject {
         default:
             return "Unsupported"
         }
-    }
-
-    static func fuzzyMatch(_ query: String, in value: String) -> Bool {
-        guard !query.isEmpty else {
-            return true
-        }
-        let query = query.lowercased()
-        var queryIndex = query.startIndex
-        for character in value.lowercased() {
-            if character == query[queryIndex] {
-                queryIndex = query.index(after: queryIndex)
-                if queryIndex == query.endIndex {
-                    return true
-                }
-            }
-        }
-        return false
     }
 
     static func wrapped(_ value: Int, count: Int) -> Int {

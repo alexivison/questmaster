@@ -163,7 +163,7 @@ public struct ArtifactDisplayState: Equatable {
         projectID: String? = nil,
         typeID: String? = nil
     ) -> [ArtifactReference] {
-        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let search = FuzzySearch(query)
         let cleanProjectID = cleanFilterValue(projectID)
         let cleanTypeID = cleanFilterValue(typeID)
         return artifacts.filter { artifact in
@@ -173,13 +173,10 @@ public struct ArtifactDisplayState: Equatable {
             if let cleanTypeID, filterTypeID(for: artifact) != cleanTypeID {
                 return false
             }
-            guard !cleanQuery.isEmpty else {
-                return true
-            }
-            return artifact.label.localizedCaseInsensitiveContains(cleanQuery)
-                || artifact.path.localizedCaseInsensitiveContains(cleanQuery)
-                || artifact.sessionIDs.contains { $0.localizedCaseInsensitiveContains(cleanQuery) }
-                || artifact.projectID.localizedCaseInsensitiveContains(cleanQuery)
+            return search.matches(artifact.label)
+                || search.matches(artifact.path)
+                || artifact.sessionIDs.contains { search.matches($0) }
+                || search.matches(artifact.projectID)
         }
     }
 

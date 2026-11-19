@@ -246,6 +246,8 @@ struct QuestCoreTests {
         expect(ids(QuestListFilter(types: ["research"], sizes: ["S"])).isEmpty, "no quest is both research and small")
         expect(ids(QuestListFilter(text: "save", types: ["bug", "feature"])) == ["bug-small", "feature-research-large"], "text should narrow the tag matches")
         expect(ids(QuestListFilter(text: "pick", sizes: ["S"])) == ["decision-small"], "text, then size, should keep one quest")
+        expect(ids(QuestListFilter(text: "btn sv", types: ["bug"], sizes: ["S"])) == ["bug-small"], "abbreviated terms in any order should combine with tag filters")
+        expect(ids(QuestListFilter(text: "btn sv", sizes: ["L"])).isEmpty, "fuzzy text must still respect the size filter")
         expect(ids(QuestListFilter(types: ["bug"]), projectID: "q").isEmpty, "the tab should narrow the tag matches too")
         expect(ids(QuestListFilter(types: ["bug"]), projectID: "p") == ["bug-small"], "the tab's own quests should still match")
     }
@@ -483,12 +485,14 @@ struct QuestCoreTests {
     private static func projectSearchRanksByNameThenPath() {
         var model = NewQuestFormModel(projects: projects, home: home)
         model.startProjectSearch(.seed("questm"))
-        expect(model.projectSuggestions.map(\.projectName) == ["questmaster"], "questm should list only the matching project: \(model.projectSuggestions.map(\.projectName))")
+        expect(model.projectSuggestions.map(\.projectName) == ["questmaster", "maps"], "a literal name should rank before a fuzzy path match: \(model.projectSuggestions.map(\.projectName))")
         expect(model.highlightedProject?.projectName == "questmaster", "the best match should be highlighted")
         model.typeProject("quest")
         expect(model.projectSuggestions.map(\.projectName) == ["questmaster", "maps"], "name matches should come before path matches")
         model.typeProject("code/do")
         expect(model.projectSuggestions.map(\.projectName) == ["dotfiles"], "the path should match too, ~-abbreviated")
+        model.typeProject("qstmstr")
+        expect(model.projectSuggestions.map(\.projectName) == ["questmaster"], "project names should accept nonadjacent characters")
         model.typeProject("")
         expect(model.projectSuggestions.count == NewQuestFormModel.maxProjectSuggestions, "an empty search should browse the projects")
     }
