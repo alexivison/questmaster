@@ -5,6 +5,8 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -108,6 +110,38 @@ func TestModelsCmdRejectsInvalidRole(t *testing.T) {
 	for _, role := range []string{"wrker", "standalone", "agent"} {
 		if _, err := runCmdErr(t, store, runner, "models", "claude", "--role", role); err == nil {
 			t.Fatalf("expected an error for invalid --role %q", role)
+		}
+	}
+}
+
+func TestModelsCmdPiUsesAuthorizedNativeInventory(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "pi")
+	script := `#!/bin/sh
+[ "$#" = 2 ] && [ "$1" = --list-models ] && [ "$2" = --offline ] || exit 19
+cat <<'MODELS'
+provider model context max-out thinking images
+anthropic claude-example 1M 128K yes yes
+custom-host vendor/custom-model 64K 8K no no
+MODELS
+`
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PI_BIN", binary)
+	store := setupStore(t)
+	modelsCatalogFetch = func(context.Context, string) ([]byte, error) {
+		t.Error("Pi fetched an external catalog")
+		return nil, nil
+	}
+	t.Cleanup(func() { modelsCatalogFetch = nil })
+	for _, role := range []string{"master", "worker"} {
+		out := runCmd(t, store, idleRunner(), "models", "pi", "--role", role, "--query", "claude", "--refresh")
+		var got modelsuggest.Suggestions
+		if err := json.Unmarshal([]byte(out), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Source != modelsuggest.SourceHarness || len(got.Models) != 1 || got.Models[0].ID != "anthropic/claude-example" {
+			t.Fatalf("Pi %s models = %+v", role, got)
 		}
 	}
 }

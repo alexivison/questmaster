@@ -9,6 +9,9 @@
 //  3. the models.dev catalog (fetched, distilled and cached under the state
 //     root), including the family aliases a harness accepts.
 //
+// Native-only harnesses (Pi) do not consult the catalog or revive unavailable
+// models from history. Their configured default is still reported separately.
+//
 // Every source is optional and every failure is quiet: with no network, no
 // cache and no history the list can legitimately be empty. Nothing here
 // validates a model — an id the user types is passed to the harness as-is,
@@ -30,6 +33,7 @@ package modelsuggest
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -126,13 +130,13 @@ func Resolve(ctx context.Context, opts ResolveOptions) Suggestions {
 	// caller (a CLI arg, a wire payload) capitalized it.
 	agentName := strings.ToLower(strings.TrimSpace(opts.Agent))
 
-	catalog, _ := LoadCatalog(ctx, CatalogOptions{
-		Root:       opts.Root,
-		Fetch:      opts.Fetch,
-		Now:        opts.Now,
-		Refresh:    opts.Refresh,
-		Background: opts.Background,
-	})
+	var catalog Catalog
+	if len(agent.ModelPolicyOf(agentName).Sources) > 0 {
+		catalog, _ = LoadCatalog(ctx, CatalogOptions{
+			Root: opts.Root, Fetch: opts.Fetch, Now: opts.Now,
+			Refresh: opts.Refresh, Background: opts.Background,
+		})
+	}
 
 	probe := opts.Prober
 	if opts.NoProbe {
@@ -184,13 +188,16 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	}
 
 	collector := &modelCollector{seen: map[string]bool{}, query: strings.ToLower(strings.TrimSpace(opts.Query))}
-	collector.addAll(recentModels(opts.Store, agentName))
+	nativeOnly := policy.Native != "" && len(policy.Sources) == 0
+	if !nativeOnly {
+		collector.addAll(recentModels(opts.Store, agentName))
+	}
 
-	harnessIDs := probeModels(ctx, opts.Probe)
+	harnessIDs, harnessOK := probeModels(ctx, opts.Probe)
 	catalogModels := catalogSuggestions(policy, opts.Catalog, harnessIDs)
 
 	switch {
-	case len(harnessIDs) > 0:
+	case len(harnessIDs) > 0 || (nativeOnly && harnessOK):
 		result.Source = SourceHarness
 	case len(catalogModels) > 0:
 		result.Source = SourceCatalog
@@ -219,6 +226,9 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	// caller what's configured regardless of whether it matches the search.
 	if result.Default != "" && !containsModelID(collector.models, result.Default) {
 		defaultModel := Model{ID: result.Default, Label: result.Default, Note: "your configured default"}
+		if nativeOnly && !slices.Contains(harnessIDs, result.Default) {
+			defaultModel.Note += " · not reported by " + agent.SpecOf(agentName).DisplayName
+		}
 		if collector.matches(defaultModel) {
 			collector.models = append(collector.models, defaultModel)
 		}
@@ -310,15 +320,15 @@ func recentModels(store *state.Store, agentName string) []Model {
 	return models
 }
 
-func probeModels(ctx context.Context, probe Prober) []string {
+func probeModels(ctx context.Context, probe Prober) ([]string, bool) {
 	if probe == nil {
-		return nil
+		return nil, false
 	}
 	ids, err := probe(ctx)
 	if err != nil {
-		return nil
+		return nil, false
 	}
-	return ids
+	return ids, true
 }
 
 // catalogSuggestions renders a harness's catalog sources into its own model

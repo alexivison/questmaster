@@ -3,12 +3,46 @@ package modelsuggest
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
 )
+
+func TestPiEffortProbeSkipsStartupResources(t *testing.T) {
+	t.Parallel()
+
+	binary := filepath.Join(t.TempDir(), "pi")
+	stub := `#!/bin/sh
+extensions=enabled
+network=enabled
+help=false
+for arg do
+  case "$arg" in
+    --help) help=true ;;
+    --no-extensions) extensions=disabled ;;
+    --offline) network=disabled ;;
+    *) exit 2 ;;
+  esac
+done
+if [ "$help" != true ] || [ "$extensions" != disabled ] || [ "$network" != disabled ]; then
+  echo 'probe would run startup resources' >&2
+  exit 1
+fi
+echo '  --thinking <level>  Set thinking level: off, high, max'
+`
+	if err := os.WriteFile(binary, []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewEffortResolver(nil)
+	got := resolver.Resolve(context.Background(), "pi", "", binary)
+	if want := []string{"off", "high", "max"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Resolve() = %v, want %v", got, want)
+	}
+}
 
 func TestParseReasoningEfforts(t *testing.T) {
 	t.Parallel()

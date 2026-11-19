@@ -2,8 +2,10 @@ package modelsuggest
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +16,14 @@ import (
 	"github.com/alexivison/questmaster/internal/session"
 )
 
-const probeTimeout = 4 * time.Second
+const (
+	probeTimeout       = 4 * time.Second
+	maxModelProbeBytes = 1 << 20
+	maxProbedModels    = 4096
+)
+
+// Master/worker settings can ask together; bound child processes across callers.
+var modelProbeSlots = make(chan struct{}, 2)
 
 // Prober enumerates the model ids a harness itself reports. It is the most
 // truthful source available — it reflects the providers the user has actually
@@ -22,29 +31,75 @@ const probeTimeout = 4 * time.Second
 type Prober func(ctx context.Context) ([]string, error)
 
 // HarnessProber returns the prober for an agent, or nil when the harness
-// cannot enumerate its own models. Only OpenCode can today, via
-// `opencode models`; Claude, Codex and Pi have no listing command, so their
-// suggestions come from the catalog.
+// cannot enumerate its own models. Each harness declares the command source
+// in its model policy.
 func HarnessProber(agentName string) Prober {
-	if strings.TrimSpace(agentName) != "opencode" {
+	agentName = strings.ToLower(strings.TrimSpace(agentName))
+	source := agent.ModelPolicyOf(agentName).Native
+	if source == "" {
 		return nil
 	}
 	return func(ctx context.Context) ([]string, error) {
-		binary, ok := probeBinary("opencode")
+		binary, ok := probeBinary(agentName)
 		if !ok {
-			return nil, fmt.Errorf("opencode binary not found")
+			return nil, fmt.Errorf("%s binary not found", agentName)
 		}
-		return runModelProbe(ctx, binary, "models")
+		switch source {
+		case agent.ModelListOpenCode:
+			return runModelProbe(ctx, binary, "models")
+		case agent.ModelListPi:
+			// Keep provider extensions: they can supply authorized custom models.
+			out, err := modelProbeOutput(ctx, binary, "--list-models", "--offline")
+			if err != nil {
+				return nil, err
+			}
+			return parsePiModels(out)
+		default:
+			return nil, fmt.Errorf("unknown model listing source %q", source)
+		}
 	}
 }
 
-func runModelProbe(ctx context.Context, binary string, args ...string) ([]string, error) {
+type modelProbeBuffer struct {
+	buffer   bytes.Buffer
+	overflow bool
+}
+
+func (b *modelProbeBuffer) Write(p []byte) (int, error) {
+	if b.buffer.Len()+len(p) > maxModelProbeBytes {
+		b.overflow = true
+		return 0, fmt.Errorf("model listing exceeds 1 MiB")
+	}
+	return b.buffer.Write(p)
+}
+
+func modelProbeOutput(ctx context.Context, binary string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-
-	out, err := exec.CommandContext(ctx, binary, args...).Output()
+	select {
+	case modelProbeSlots <- struct{}{}:
+		defer func() { <-modelProbeSlots }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
+	var out modelProbeBuffer
+	cmd.Stdout, cmd.Stderr = &out, io.Discard
+	cmd.WaitDelay = 100 * time.Millisecond
+	err := cmd.Run()
+	if out.overflow {
+		return nil, fmt.Errorf("model listing exceeds 1 MiB")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("run %s %s: %w", binary, strings.Join(args, " "), err)
+	}
+	return out.buffer.Bytes(), nil
+}
+
+func runModelProbe(ctx context.Context, binary string, args ...string) ([]string, error) {
+	out, err := modelProbeOutput(ctx, binary, args...)
+	if err != nil {
+		return nil, err
 	}
 
 	ids := make([]string, 0, 64)
@@ -57,9 +112,45 @@ func runModelProbe(ctx context.Context, binary string, args ...string) ([]string
 		}
 		seen[id] = true
 		ids = append(ids, id)
+		if len(ids) > maxProbedModels {
+			return nil, fmt.Errorf("model listing exceeds %d models", maxProbedModels)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read %s output: %w", binary, err)
+	}
+	return ids, nil
+}
+
+// Pi prints provider and model in separate columns, followed by capabilities.
+// Only rows after its table header are model ids; login guidance is not a row.
+func parsePiModels(out []byte) ([]string, error) {
+	var ids []string
+	seen := map[string]bool{}
+	table := false
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 2 && fields[0] == "provider" && fields[1] == "model" {
+			table = true
+			continue
+		}
+		if !table || len(fields) != 6 || (fields[4] != "yes" && fields[4] != "no") ||
+			(fields[5] != "yes" && fields[5] != "no") {
+			continue
+		}
+		id := fields[0] + "/" + fields[1]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+		if len(ids) > maxProbedModels {
+			return nil, fmt.Errorf("model listing exceeds %d models", maxProbedModels)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read Pi model listing: %w", err)
 	}
 	return ids, nil
 }
@@ -86,9 +177,8 @@ func probeModelID(line string) string {
 // the explicit env override, then an augmented PATH, then the declared
 // fallback path. It intentionally stops short of the full launch-time
 // resolution in internal/session (which also spawns an interactive login
-// shell to pick up shell-manager shims) — a probe is best-effort, and falling
-// back to the catalog is an acceptable degradation when only that heavier
-// lookup would have found the binary.
+// shell to pick up shell-manager shims). A missing binary leaves a native-only
+// inventory empty; harnesses with catalog sources may fall back to those.
 func probeBinary(agentName string) (string, bool) {
 	spec := agent.SpecOf(agentName)
 	if env := strings.TrimSpace(os.Getenv(spec.BinaryEnvVar)); env != "" {

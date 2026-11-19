@@ -220,13 +220,13 @@ func TestClaudeBuildCmd_ModelOverride(t *testing.T) {
 	}
 }
 
-func TestModelPolicySourcesDeclareCatalogProviders(t *testing.T) {
+func TestModelPoliciesDeclareSources(t *testing.T) {
 	t.Parallel()
 
 	for _, name := range Names() {
 		policy := ModelPolicyOf(name)
-		if len(policy.Sources) == 0 {
-			t.Errorf("%s declares no model catalog source", name)
+		if len(policy.Sources) == 0 && policy.Native == "" {
+			t.Errorf("%s declares no model source", name)
 		}
 		for _, source := range policy.Sources {
 			if source.Catalog == "" {
