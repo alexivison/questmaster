@@ -4,13 +4,24 @@ import "strings"
 
 // ModelPolicy is a harness's declared model story: where a dynamic list of
 // selectable models comes from. Questmaster's explicit role default is stored
-// in Settings; choices are resolved at runtime from the catalog sources below
-// (and, for harnesses that can enumerate their own models, from the harness).
+// in Settings; choices are resolved at runtime from its native listing and
+// optional catalog sources.
 type ModelPolicy struct {
+	// Native lists models through the harness itself. Without catalog sources,
+	// suggestions are limited to its currently available models.
+	Native ModelListSource
 	// Sources map catalog providers onto the model strings this harness
 	// accepts. Order is presentation order.
 	Sources []ModelSource
 }
+
+// ModelListSource identifies a harness-owned model listing command.
+type ModelListSource string
+
+const (
+	ModelListPi       ModelListSource = "pi-list-models"
+	ModelListOpenCode ModelListSource = "opencode-models"
+)
 
 // EffortSource identifies a harness-owned input used to resolve reasoning-
 // effort choices and the model they apply to. modelsuggest reads it at runtime.

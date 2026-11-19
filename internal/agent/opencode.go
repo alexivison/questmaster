@@ -34,6 +34,7 @@ var openCodeSpec = Spec{
 	Efforts:        EffortSourceOpenCodeModels,
 	EffortModel:    EffortSourceOpenCodeConfig,
 	Models: ModelPolicy{
+		Native: ModelListOpenCode,
 		// OpenCode takes provider-qualified ids and can enumerate the
 		// providers the user actually configured, so these catalog sources
 		// are only the fallback for when `opencode models` cannot run.

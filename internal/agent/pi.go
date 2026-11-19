@@ -19,9 +19,8 @@ var piSpec = Spec{
 	State:          StateSidecar,
 	Efforts:        EffortSourcePiHelp,
 	Models: ModelPolicy{
-		// Pi qualifies models with its own provider naming, so catalog ids
-		// are offered under the provider prefix its defaults use.
-		Sources: []ModelSource{{Catalog: "openai", Prefix: "openai-codex/"}},
+		// Pi owns provider authorization and its model inventory.
+		Native: ModelListPi,
 	},
 }
 

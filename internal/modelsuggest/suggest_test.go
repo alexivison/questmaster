@@ -3,6 +3,7 @@ package modelsuggest
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -58,15 +59,6 @@ func TestQueryRendersCatalogInEachHarnessVocabulary(t *testing.T) {
 			wantIDs:   []string{"gpt-5.6-terra"},
 			absentIDs: []string{"terra", "openai/gpt-5.6-terra", "gpt-image-2"},
 		},
-		{
-			// Pi qualifies ids with its own provider naming.
-			name:      "pi master",
-			agent:     "pi",
-			role:      agent.RoleMaster,
-			wantFirst: "openai-codex/gpt-5.6-terra",
-			wantIDs:   []string{"openai-codex/gpt-5.6-terra"},
-			absentIDs: []string{"gpt-5.6-terra"},
-		},
 	}
 
 	for _, tc := range cases {
@@ -91,6 +83,44 @@ func TestQueryRendersCatalogInEachHarnessVocabulary(t *testing.T) {
 			for _, absent := range tc.absentIDs {
 				if containsID(got.Models, absent) {
 					t.Errorf("models %v should not offer %q", ids(got.Models), absent)
+				}
+			}
+		})
+	}
+}
+
+func TestPiQueryUsesOnlyNativeAvailableModels(t *testing.T) {
+	t.Parallel()
+
+	for _, role := range []agent.SessionRole{agent.RoleMaster, agent.RoleWorker} {
+		t.Run(agent.RoleDefaultsKey(role), func(t *testing.T) {
+			t.Parallel()
+			store := seedStore(t, []state.AgentManifest{{Name: "pi", Role: "agent", Model: "signed-out/old-model"}})
+			if err := state.NewRoleDefaultsStore(store.Root()).Set("pi", agent.RoleDefaultsKey(role), state.RoleDefault{Model: "custom-provider/vendor/model:v1"}); err != nil {
+				t.Fatal(err)
+			}
+			available := []string{"anthropic/claude-example", "custom-provider/vendor/model:v1"}
+			probe := func(context.Context) ([]string, error) { return available, nil }
+			got := Query(context.Background(), Options{
+				Agent: "pi", Role: role, Catalog: testCatalog(t), Probe: probe, Store: store,
+			})
+			if got.Source != SourceHarness || !slices.Equal(ids(got.Models), available) {
+				t.Fatalf("Pi models = %+v, want only its authorized models %v", got, available)
+			}
+			if got.Default != "custom-provider/vendor/model:v1" {
+				t.Fatal("configured default metadata was lost")
+			}
+			got = Query(context.Background(), Options{Agent: "pi", Role: role, Probe: probe, Query: "claude", Limit: 1})
+			if !slices.Equal(ids(got.Models), available[:1]) {
+				t.Fatalf("Claude search = %v", ids(got.Models))
+			}
+			for _, probe := range []Prober{
+				func(context.Context) ([]string, error) { return nil, nil },
+				func(context.Context) ([]string, error) { return nil, fmt.Errorf("Pi unavailable") },
+			} {
+				got = Query(context.Background(), Options{Agent: "pi", Role: role, Catalog: testCatalog(t), Probe: probe, Store: store})
+				if len(got.Models) != 1 || got.Models[0].ID != got.Default || !strings.Contains(got.Models[0].Note, "not reported by Pi") {
+					t.Fatalf("signed-out Pi should retain only its labeled configured selection: %+v", got)
 				}
 			}
 		})

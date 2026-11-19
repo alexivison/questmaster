@@ -135,8 +135,9 @@ Building, installing and branch-running the app bundle: `app-bundle` skill.
   `pull_requests_rev`. Unknown states are excluded; the object is omitted
   when all counts are zero. It is additive and needs no protocol version bump.
 - **No model or reasoning-effort list is hardcoded.** Each harness declares its
-  catalog sources and effort source once in `agent.Spec`; model ids are passed
-  through verbatim. When adding a harness, declare its sources; never add values to a list.
+  native model listing, optional catalog sources and effort source in `agent.Spec`;
+  model ids are passed through verbatim. Pi uses its authorized native inventory,
+  without a catalog fallback. When adding a harness, declare its sources; never add values to a list.
 - **Delivery labels are what happened:** `accepted` (a native socket took the frame),
   `submitted` (tmux `send-keys` typed it), or empty (alert held). Never label a tmux
   send as received.
