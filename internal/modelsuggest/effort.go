@@ -150,7 +150,9 @@ func probeReasoningEfforts(ctx context.Context, source agent.EffortSource, confi
 	case agent.EffortSourceClaudeHelp:
 		name, args = "claude", []string{"--help"}
 	case agent.EffortSourcePiHelp:
-		name, args = "pi", []string{"--help"}
+		// Thinking levels belong to Pi itself; user extensions and startup
+		// network operations only add work and side effects to this probe.
+		name, args = "pi", []string{"--help", "--no-extensions", "--offline"}
 	case agent.EffortSourceOpenCodeModels:
 		name, args = "opencode", []string{"models", "--verbose"}
 	case agent.EffortSourceOpenCodeConfig:
