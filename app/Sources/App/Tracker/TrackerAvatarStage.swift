@@ -32,20 +32,8 @@ final class TrackerAvatarStage {
 
     /// The clock is the wall clock: a session's working start (`elapsedSince`) is a wall-clock time.
     init(clock: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 }) {
-        let classSprites = TrackerAvatarSprites.bundled()
-        let familiarSprites = TrackerAvatarSprites.bundledFamiliars()
-        let catalog = TrackerAvatarCatalog(
-            animations: classSprites.mapValues(\.animation),
-            familiars: familiarSprites.mapValues(\.animation)
-        )
-        var artSprites: [TrackerAvatarArtKey: TrackerAvatarSprites] = [:]
-        for (classID, sprites) in classSprites {
-            artSprites[TrackerAvatarArtKey(kind: .master, classID: classID)] = sprites
-        }
-        for (classID, sprites) in familiarSprites {
-            artSprites[TrackerAvatarArtKey(kind: .familiar, classID: classID)] = sprites
-        }
-        self.artSprites = artSprites
+        let catalog = TrackerAvatarLibrary.catalog
+        artSprites = TrackerAvatarLibrary.sprites
         self.catalog = catalog
         director = TrackerAvatarDirector(reducesMotion: Motion.reducesMotion(), catalog: catalog)
         detector = TrackerAvatarEventDetector(catalog: catalog)
@@ -112,4 +100,35 @@ final class TrackerAvatarStage {
     private func wake() {
         refresh(at: clock())
     }
+}
+
+/// The avatar art the app bundles, read once and shared by every stage: the sprites of each class and familiar, by art key, and the
+/// catalog that says which art a session draws.
+@MainActor
+enum TrackerAvatarLibrary {
+    static let sprites: [TrackerAvatarArtKey: TrackerAvatarSprites] = {
+        var art: [TrackerAvatarArtKey: TrackerAvatarSprites] = [:]
+        for (classID, classSprites) in TrackerAvatarSprites.bundled() {
+            art[TrackerAvatarArtKey(kind: .master, classID: classID)] = classSprites
+        }
+        for (classID, familiar) in TrackerAvatarSprites.bundledFamiliars() {
+            art[TrackerAvatarArtKey(kind: .familiar, classID: classID)] = familiar
+        }
+        return art
+    }()
+
+    /// A designed familiar's company frames, by class id: what the master's company draws in place of its full frames.
+    static let companions: [String: TrackerAvatarSprites] = TrackerAvatarSprites.bundledCompanions()
+
+    static let catalog: TrackerAvatarCatalog = {
+        var animations: [String: TrackerAvatarAnimation] = [:]
+        var familiars: [String: TrackerAvatarAnimation] = [:]
+        for (key, sprites) in sprites {
+            switch key.kind {
+            case .master: animations[key.classID] = sprites.animation
+            case .familiar: familiars[key.classID] = sprites.animation
+            }
+        }
+        return TrackerAvatarCatalog(animations: animations, familiars: familiars)
+    }()
 }

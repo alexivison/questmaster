@@ -4,8 +4,8 @@ import QuestmasterCore
 import SwiftUI
 
 enum TrackerAvatarMetrics {
-    /// The fixed avatar slot matches the master plate's width.
-    static let slotWidth = TrackerPlateDesign.topLevelSize.width
+    /// The fixed avatar slot spans the tracker column: the plates and the PR badge column, the same width as the session banner.
+    static let slotWidth = TrackerListMetrics.columnWidth
     /// The tallest bundled class's idle figure, in sprite pixels above its sole.
     @MainActor static let tallestFigureHeight = TrackerAvatarSprites.bundled().values.compactMap(\.idleFigureHeight).max() ?? 0
     /// The slot's reserved height: the tallest figure rounded up to the 5 pt step, one point a sprite pixel. It is the same for every class.
@@ -126,6 +126,36 @@ final class TrackerAvatarSprites {
 
     /// The first and last rows, counted from the top, that hold a pixel which isn't clear. Nil when the image is clear throughout.
     static func opaqueRows(of image: CGImage) -> ClosedRange<Int>? {
+        guard let pixels = premultipliedPixels(of: image) else {
+            return nil
+        }
+        let bytesPerRow = image.width * bytesPerPixel
+        let rows = (0..<image.height).filter { row in
+            (0..<image.width).contains { column in pixels[row * bytesPerRow + column * bytesPerPixel + alphaByte] > 0 }
+        }
+        guard let first = rows.first, let last = rows.last else {
+            return nil
+        }
+        return first...last
+    }
+
+    /// The first and last columns, counted from the left, that hold a pixel which isn't clear. Nil when the image is clear throughout.
+    static func opaqueColumns(of image: CGImage) -> ClosedRange<Int>? {
+        guard let pixels = premultipliedPixels(of: image) else {
+            return nil
+        }
+        let bytesPerRow = image.width * bytesPerPixel
+        let columns = (0..<image.width).filter { column in
+            (0..<image.height).contains { row in pixels[row * bytesPerRow + column * bytesPerPixel + alphaByte] > 0 }
+        }
+        guard let first = columns.first, let last = columns.last else {
+            return nil
+        }
+        return first...last
+    }
+
+    /// The image's premultiplied RGBA pixels, row by row from the top; nil when they can't be drawn.
+    private static func premultipliedPixels(of image: CGImage) -> [UInt8]? {
         let width = image.width
         let height = image.height
         let bytesPerRow = width * bytesPerPixel
@@ -140,16 +170,7 @@ final class TrackerAvatarSprites {
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
         }
-        guard drawn else {
-            return nil
-        }
-        let rows = (0..<height).filter { row in
-            (0..<width).contains { column in pixels[row * bytesPerRow + column * bytesPerPixel + alphaByte] > 0 }
-        }
-        guard let first = rows.first, let last = rows.last else {
-            return nil
-        }
-        return first...last
+        return drawn ? pixels : nil
     }
 
     /// Premultiplied RGBA pixels, four bytes each, with alpha last.
@@ -171,6 +192,16 @@ final class TrackerAvatarSprites {
 
     /// The familiars' sprites, by class id, with a readable `animation.json` in `Resources/Familiars`. Their bubble is the shared one.
     static func bundledFamiliars() -> [String: TrackerAvatarSprites] {
+        bundledFamiliarSprites(inSubfolder: nil)
+    }
+
+    /// The designed familiars' company frames, by class id: each class's `company` folder, the same art on the 2x device grid at the
+    /// familiar's scale, drawn at `TrackerCompanyLayout.companyPixelPoints` a pixel. A class with no such folder has none.
+    static func bundledCompanions() -> [String: TrackerAvatarSprites] {
+        bundledFamiliarSprites(inSubfolder: "company")
+    }
+
+    private static func bundledFamiliarSprites(inSubfolder subfolder: String?) -> [String: TrackerAvatarSprites] {
         guard let resources = AppSymbolStyle.resourceBundle().resourceURL else {
             return [:]
         }
@@ -179,12 +210,11 @@ final class TrackerAvatarSprites {
         var sprites: [String: TrackerAvatarSprites] = [:]
         for sessionClass in SessionClass.allCases {
             let classID = sessionClass.rawValue
-            sprites[classID] = TrackerAvatarSprites(
-                classID: classID,
-                folder: root.appendingPathComponent(classID, isDirectory: true),
-                kind: .familiar,
-                bubbleFolder: shared
-            )
+            var folder = root.appendingPathComponent(classID, isDirectory: true)
+            if let subfolder {
+                folder = folder.appendingPathComponent(subfolder, isDirectory: true)
+            }
+            sprites[classID] = TrackerAvatarSprites(classID: classID, folder: folder, kind: .familiar, bubbleFolder: shared)
         }
         return sprites.compactMapValues { $0 }
     }
@@ -238,6 +268,10 @@ final class TrackerAvatarSprites {
         }
         return art.count == frames.count ? art : nil
     }()
+
+    /// The opaque columns of `01-idle-f1`, counted from its canvas's left edge: how wide the figure rests. Read from the file, so a class
+    /// with an authored idle loop (no layered idle) has them too. Nil while the still has no art.
+    lazy var restColumns: ClosedRange<Int>? = idleFrame(1).flatMap { Self.opaqueColumns(of: $0) }
 
     /// The still idle image and its blink stencil when no breathing track is configured.
     lazy var idleStillArt: TrackerAvatarIdleFrameArt? = {
@@ -329,9 +363,10 @@ struct TrackerAvatarSlot: View {
     var beat = 0
     var finish: TimeInterval?
     var enter: TimeInterval?
+    var scale: CGFloat = 1
 
     var body: some View {
-        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish, enter: enter)
+        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish, enter: enter, scale: scale)
             .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
     }
 }
@@ -344,6 +379,7 @@ struct TrackerAvatar: NSViewRepresentable {
     var beat = 0
     var finish: TimeInterval?
     var enter: TimeInterval?
+    var scale: CGFloat = 1
 
     func makeNSView(context: Context) -> TrackerAvatarView {
         TrackerAvatarView()
@@ -351,6 +387,7 @@ struct TrackerAvatar: NSViewRepresentable {
 
     func updateNSView(_ view: TrackerAvatarView, context: Context) {
         view.sprites = sprites
+        view.scale = scale
         view.configure(pose: pose, fidget: fidget, beat: beat, finish: finish, enter: enter, reduceMotion: Motion.reducesMotion())
     }
 }
@@ -382,7 +419,7 @@ protocol TrackerAvatarPoseRig: AnyObject {
     /// The whole sprite. Shows and hides as one.
     var root: CALayer { get }
     /// Lays the sprite out in `bounds`, with its body and feet placed.
-    func place(in bounds: CGRect)
+    func place(in bounds: CGRect, scale: CGFloat)
     /// Starts the pose's own motion. Calls on a running rig change nothing.
     func startMotion()
     /// Stops the pose's motion.
@@ -396,8 +433,8 @@ fileprivate extension TrackerAvatarPoseRig {
     /// Frames the sprite (`pixels` on its canvas) with its body centre column (`bodyColumn`) on the centre column of `bounds`,
     /// and its feet (`footRow`) on the baseline at the bottom edge. Rows below the feet hang under the baseline. Both positions
     /// are whole points, so every art pixel edge falls on a whole device pixel at 1x and 2x.
-    func placeRoot(pixels: CGSize, footRow: Int, bodyColumn: Int, in bounds: CGRect) {
-        let pixel = TrackerAvatarDesign.pixelPoints
+    func placeRoot(pixels: CGSize, footRow: Int, bodyColumn: Int, in bounds: CGRect, scale: CGFloat) {
+        let pixel = TrackerAvatarDesign.pixelPoints * scale
         let hang = (pixels.height - 1 - CGFloat(footRow)) * pixel
         let size = CGSize(width: pixels.width * pixel, height: pixels.height * pixel)
         root.frame = CGRect(x: bounds.midX - CGFloat(bodyColumn) * pixel, y: -hang, width: size.width, height: size.height)
@@ -457,12 +494,13 @@ fileprivate final class TrackerAvatarIdleRig: TrackerAvatarPoseRig {
         }
     }
 
-    func place(in bounds: CGRect) {
+    func place(in bounds: CGRect, scale: CGFloat) {
         placeRoot(
             pixels: CGSize(width: stillArt.image.width, height: stillArt.image.height),
             footRow: placement.footRow,
             bodyColumn: placement.bodyColumn,
-            in: bounds
+            in: bounds,
+            scale: scale
         )
         character.frame = root.bounds
         lids?.frame = root.bounds
@@ -540,9 +578,9 @@ fileprivate final class TrackerAvatarIdleEffectRig: TrackerAvatarPoseRig {
         root.contents = images[0]
     }
 
-    func place(in bounds: CGRect) {
+    func place(in bounds: CGRect, scale: CGFloat) {
         let canvas = CGSize(width: images[0].width, height: images[0].height)
-        placeRoot(pixels: canvas, footRow: placement.footRow + figureAt.y, bodyColumn: placement.bodyColumn + figureAt.x, in: bounds)
+        placeRoot(pixels: canvas, footRow: placement.footRow + figureAt.y, bodyColumn: placement.bodyColumn + figureAt.x, in: bounds, scale: scale)
     }
 
     func startMotion() {
@@ -585,6 +623,8 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
     private let block: TrackerAvatarBlock
     /// Set once a one-shot has started in this showing, so it plays once.
     private var oneShotStarted = false
+    /// The scale its last placement drew at, so a move steps in the same units.
+    private var scale: CGFloat = 1
 
     /// Nil when the pose plays no frames, or a frame its blocks need has no art.
     init?(pose: TrackerAvatarPose, placement: TrackerAvatarPoseAnimation, sprites: TrackerAvatarSprites) {
@@ -636,23 +676,24 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         return sprites.frame(pose, kind, frame)
     }
 
-    func place(in bounds: CGRect) {
+    func place(in bounds: CGRect, scale: CGFloat) {
+        self.scale = scale
         let canvas = restImage(.character).map { CGSize(width: $0.width, height: $0.height) } ?? .zero
-        placeRoot(pixels: canvas, footRow: placement.footRow, bodyColumn: placement.bodyColumn, in: bounds)
+        placeRoot(pixels: canvas, footRow: placement.footRow, bodyColumn: placement.bodyColumn, in: bounds, scale: scale)
         let local = CGRect(origin: .zero, size: root.bounds.size)
         for layer in [behind, figure, character, front] {
             layer.frame = local
         }
-        placeBubble(canvas: canvas)
+        placeBubble(canvas: canvas, scale: scale)
     }
 
     /// Puts the bubble's bottom centre on the pose's anchor, in the canvas's own rows and columns (row 0 at the top), so it keeps the
     /// figure's place and never moves with its frames. Nothing is placed without an anchor or art.
-    private func placeBubble(canvas: CGSize) {
+    private func placeBubble(canvas: CGSize, scale: CGFloat) {
         guard let anchor = placement.bubble, let image = sprites.bubble else {
             return
         }
-        let pixel = TrackerAvatarDesign.pixelPoints
+        let pixel = TrackerAvatarDesign.pixelPoints * scale
         let bottom = CGFloat(Int(canvas.height) - 1 - anchor.y) * pixel
         bubble.transform = CATransform3DIdentity
         bubble.frame = CGRect(
@@ -764,7 +805,7 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         guard let last = steps.last, figure.animation(forKey: TrackerAvatarMotionKey.move) == nil else {
             return
         }
-        let pixel = Double(TrackerAvatarDesign.pixelPoints)
+        let pixel = Double(TrackerAvatarDesign.pixelPoints * scale)
         // Each step holds until the next, and the last one holds to the end: its key at the duration is the terminal key.
         let offsets = (steps + [last]).map { NSNumber(value: Double($0.x) * pixel) }
         let move = CAKeyframeAnimation(keyPath: "position.x")
@@ -787,6 +828,7 @@ fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
     private let sprites: TrackerAvatarSprites
     private var bounds = CGRect.zero
     private var canvas = CGSize.zero
+    private var scale: CGFloat = 1
     private var frame: Int?
 
     init(placement: TrackerAvatarPoseAnimation, sprites: TrackerAvatarSprites) {
@@ -806,12 +848,13 @@ fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
         let image = sprites.idleFrame(frame)
         root.contents = image
         canvas = image.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
-        place(in: bounds)
+        place(in: bounds, scale: scale)
     }
 
-    func place(in bounds: CGRect) {
+    func place(in bounds: CGRect, scale: CGFloat) {
         self.bounds = bounds
-        placeRoot(pixels: canvas, footRow: placement.footRow, bodyColumn: placement.bodyColumn, in: bounds)
+        self.scale = scale
+        placeRoot(pixels: canvas, footRow: placement.footRow, bodyColumn: placement.bodyColumn, in: bounds, scale: scale)
     }
 
     /// A fidget has no motion of its own: the core steps its frames.
@@ -856,6 +899,15 @@ final class TrackerAvatarView: NSView {
     private var enter: TimeInterval?
     private var reduceMotion = false
     private var blinkTimer: Timer?
+    /// The size the art draws at, in points an art pixel: 1 for a class, a familiar's scale for a worker's company. Changing it
+    /// re-places the rigs.
+    var scale: CGFloat = 1 {
+        didSet {
+            if scale != oldValue {
+                needsLayout = true
+            }
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -873,8 +925,8 @@ final class TrackerAvatarView: NSView {
 
     override func layout() {
         super.layout()
-        rigs.values.forEach { $0.place(in: bounds) }
-        effectRigs.forEach { $0.place(in: bounds) }
+        rigs.values.forEach { $0.place(in: bounds, scale: scale) }
+        effectRigs.forEach { $0.place(in: bounds, scale: scale) }
     }
 
     override func viewDidMoveToWindow() {
@@ -927,7 +979,7 @@ final class TrackerAvatarView: NSView {
                 TrackerAvatarIdleEffectRig(kind: $0, placement: placement, sprites: sprites)
             }
             for rig in effectRigs {
-                rig.place(in: bounds)
+                rig.place(in: bounds, scale: scale)
                 rig.root.isHidden = true
                 layer?.addSublayer(rig.root)
             }
@@ -950,7 +1002,7 @@ final class TrackerAvatarView: NSView {
         guard let sprites, let rig = makeRig(for: key, sprites: sprites) else {
             return nil
         }
-        rig.place(in: bounds)
+        rig.place(in: bounds, scale: scale)
         rig.root.isHidden = true
         layer?.addSublayer(rig.root)
         rigs[key] = rig

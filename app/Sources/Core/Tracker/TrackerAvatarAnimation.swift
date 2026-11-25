@@ -339,6 +339,10 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case invalidEyeColumns
     /// The lid colour is `#rrggbb`.
     case invalidLidColour
+    /// A familiar's `scale` is a percentage above 0 and at most 100; it may have a decimal part.
+    case invalidScale(Double)
+    /// A familiar's `company` needs a pitch above 0 and a capacity of at least one.
+    case invalidCompany
 }
 
 /// A class's avatar art and timings, read from its `animation.json` (`Resources/Sprites/<class>/`). The file names every pose, and
@@ -365,6 +369,12 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     public let idle: TrackerAvatarIdleAnimation?
     /// The fidgets an idle figure may play, by name. None when `01-idle` has a loop, which plays no fidgets.
     public let fidgets: [TrackerAvatarIdleFidget]
+    /// The size the art draws at, in percent of one art pixel per point: a class always draws at 100; a familiar's file gives its own
+    /// `scale` (50 when it has none), so the master's company can stand smaller in the slot.
+    public let scalePercent: Double
+    /// A familiar's place in the master's company: its pitch and full row. Nil for a class, and for a familiar whose file gives none, which
+    /// keeps the fit rule the company had before the spacing designs.
+    public let companyRow: TrackerCompanyRow?
     private let poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation]
 
     /// Reads and checks an `animation.json`: a class's (`.master`) or a familiar's (`.familiar`), which name their own poses.
@@ -384,6 +394,8 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             throw TrackerAvatarAnimationError.missingPose(pose.resourceName)
         }
         self.poses = poses
+        scalePercent = try Self.scalePercent(file.scale, kind: kind)
+        companyRow = try Self.readCompanyRow(file.company, kind: kind)
         // Bard and Barbarian's authored idle loops keep their existing frame-loop behavior and do not read layered-idle metadata.
         if poses[.idle]?.loop != nil {
             idle = nil
@@ -596,11 +608,42 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     }
 
     /// The file as JSON spells it. Its names and shapes are checked in `init(data:)`.
+    private static func scalePercent(_ scale: Double?, kind: TrackerAvatarArtKind) throws -> Double {
+        switch kind {
+        case .master:
+            return 100
+        case .familiar:
+            let percent = scale ?? 50
+            guard percent > 0, percent <= 100 else {
+                throw TrackerAvatarAnimationError.invalidScale(percent)
+            }
+            return percent
+        }
+    }
+
+    /// A familiar's company row, when its file gives one. A class has none.
+    private static func readCompanyRow(_ company: File.Company?, kind: TrackerAvatarArtKind) throws -> TrackerCompanyRow? {
+        guard kind == .familiar, let company else {
+            return nil
+        }
+        guard company.pitch > 0, company.capacity >= 1 else {
+            throw TrackerAvatarAnimationError.invalidCompany
+        }
+        return TrackerCompanyRow(pitch: company.pitch, capacity: company.capacity)
+    }
+
     private struct File: Decodable {
         let version: Int
+        let scale: Double?
+        let company: Company?
         let idle: Idle?
         let fidgets: [String: [TrackerAvatarStep]]?
         let poses: [String: Pose]
+
+        struct Company: Decodable {
+            let pitch: Double
+            let capacity: Int
+        }
 
         struct Idle: Decodable {
             let eyeRow: Int?
