@@ -17,15 +17,24 @@ struct TrackerAvatarFamiliarTests {
         aWorkerPosesFollowTheDirectorRules()
         aFamiliarAnswersNoEvents()
         aFamiliarBowsWhenItsTurnEnds()
+        aFamiliarPondersUntilItsFirstTool()
+        aFamiliarWorksFromItsFirstToolToTheTurnsEnd()
+        aFamiliarPondersAgainOnItsNextTurn()
+        aFamiliarKeepsItsTurnThroughAnIdleRead()
+        aFamiliarWorksWhileSubagentsRun()
+        aFamiliarCallingOutKeepsItsTurn()
+        aMasterIgnoresTheTurnsToolMemory()
         print("TrackerAvatarFamiliarTests: all tests passed")
     }
 
-    /// A worker of a bard master, with the fields a case changes. The bard's familiar is the Imp.
+    /// A worker of a bard master, with the fields a case changes. The bard's familiar is the Imp. `turnUsedTool` is the director's memory
+    /// that the turn has used a tool.
     private static func workerPose(
         state: String = "working",
         status: String = "active",
         tool: String? = nil,
-        subagents: Int = 0
+        subagents: Int = 0,
+        turnUsedTool: Bool = false
     ) -> TrackerAvatarPose? {
         TrackerAvatarPose.pose(for: AvatarSessionFixture.session(
             sessionClass: "bard",
@@ -34,7 +43,17 @@ struct TrackerAvatarFamiliarTests {
             parentID: "qm-0",
             tool: tool,
             activeSubagents: subagents
-        ), catalog: AvatarAnimationFixture.catalogWithFamiliar())
+        ), catalog: AvatarAnimationFixture.catalogWithFamiliar(), turnUsedTool: turnUsedTool)
+    }
+
+    /// A worker of a bard master in its turn: a tool in flight (`tool`) or none, the sub-agents it runs, and its status.
+    private static func turnWorker(state: String = "working", tool: String? = nil, subagents: Int = 0) -> TrackerSession {
+        AvatarSessionFixture.session(id: "qm-w", sessionClass: "bard", state: state, parentID: "qm-0", tool: tool, activeSubagents: subagents)
+    }
+
+    /// A pose's name for a failure message.
+    private static func name(_ pose: TrackerAvatarPose?) -> String {
+        pose.map { "\($0)" } ?? "nil"
     }
 
     private static func everyBundledFamiliarReads() {
@@ -101,9 +120,11 @@ struct TrackerAvatarFamiliarTests {
                "a worker with no class should show no avatar")
     }
 
-    /// The director's rules as a familiar's pose: calling out, working with a tool or sub-agents, thinking with no tool, and idle.
+    /// The director's rules as a familiar's pose: calling out, working with a tool or sub-agents, thinking before the turn's first tool, and
+    /// idle.
     private static func aWorkerPosesFollowTheDirectorRules() {
         expect(workerPose() == .pondering, "a working worker with no tool should think")
+        expect(workerPose(turnUsedTool: true) == .working, "a working worker whose turn has used a tool should work between tools")
         expect(workerPose(tool: "Bash") == .working, "a worker working with a shell command should work")
         expect(workerPose(tool: "Read") == .working, "a familiar works with any tool, not a tool group's pose")
         expect(workerPose(subagents: 1) == .working, "a working worker with a sub-agent running should work")
@@ -154,6 +175,96 @@ struct TrackerAvatarFamiliarTests {
         expect(beforeBow.pose == .pondering, "the thinking pose should finish before the bow, got \(String(describing: beforeBow.pose))")
         let bow = director.frame(at: 5 + finish + 0.01)
         expect(bow.pose == .bow, "a familiar should bow once its turn ends, got \(String(describing: bow.pose))")
+    }
+
+    /// A busy turn opens with thinking: a worker that has used no tool shows its thinking pose, however long it has been working.
+    private static func aFamiliarPondersUntilItsFirstTool() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: AvatarAnimationFixture.catalogWithFamiliar())
+        director.observe(turnWorker(), at: 0)
+        let pose = director.frame(at: 60).pose
+        expect(pose == .pondering, "a worker with no tool yet should think, got \(name(pose))")
+    }
+
+    /// From the turn's first tool, the worker works while the tool runs and stays at work in the gaps before the next one.
+    private static func aFamiliarWorksFromItsFirstToolToTheTurnsEnd() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: AvatarAnimationFixture.catalogWithFamiliar())
+        director.observe(turnWorker(), at: 0)
+        director.observe(turnWorker(tool: "Read"), at: 10)
+        let during = director.frame(at: 15).pose
+        expect(during == .working, "a worker should work while its first tool runs, got \(name(during))")
+        director.observe(turnWorker(), at: 20)
+        let between = director.frame(at: 25).pose
+        expect(between == .working, "a worker should keep working between its tools, not think, got \(name(between))")
+        director.observe(turnWorker(tool: "Edit"), at: 30)
+        director.observe(turnWorker(), at: 35)
+        let after = director.frame(at: 40).pose
+        expect(after == .working, "a worker should keep working after its second tool, got \(name(after))")
+    }
+
+    /// A finished turn clears the tool memory: the next turn thinks again until its own first tool, and works from it.
+    private static func aFamiliarPondersAgainOnItsNextTurn() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: AvatarAnimationFixture.catalogWithFamiliar())
+        director.observe(turnWorker(tool: "Read"), at: 0)
+        director.observe(turnWorker(state: "done"), at: 10)
+        // The turn's bow plays, then the done worker rests.
+        let rest = director.frame(at: 60).pose
+        expect(rest == .idle, "a done worker should rest after its bow, got \(name(rest))")
+        director.observe(turnWorker(), at: 60)
+        let thinking = director.frame(at: 70).pose
+        expect(thinking == .pondering, "a new turn should think until its first tool, got \(name(thinking))")
+        director.observe(turnWorker(tool: "Grep"), at: 80)
+        let working = director.frame(at: 85).pose
+        expect(working == .working, "a new turn should work once its first tool runs, got \(name(working))")
+    }
+
+    /// An idle read in the middle of a turn (an unreadable state reads as idle) is no turn end: the worker keeps working after it.
+    private static func aFamiliarKeepsItsTurnThroughAnIdleRead() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: AvatarAnimationFixture.catalogWithFamiliar())
+        director.observe(turnWorker(tool: "Read"), at: 0)
+        director.observe(turnWorker(state: "unknown"), at: 10)
+        director.observe(turnWorker(), at: 20)
+        let pose = director.frame(at: 25).pose
+        expect(pose == .working, "a worker should keep working after an idle read mid-turn, got \(name(pose))")
+    }
+
+    /// Sub-agents keep a worker working while they run. They start from a tool call, so the turn has used one: once they stop, the turn
+    /// keeps working rather than thinking again.
+    private static func aFamiliarWorksWhileSubagentsRun() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: AvatarAnimationFixture.catalogWithFamiliar())
+        director.observe(turnWorker(subagents: 1), at: 0)
+        let running = director.frame(at: 5).pose
+        expect(running == .working, "a worker should work while its sub-agents run, got \(name(running))")
+        director.observe(turnWorker(), at: 10)
+        let stopped = director.frame(at: 15).pose
+        expect(stopped == .working, "a worker whose sub-agents stopped should keep working in its turn, got \(name(stopped))")
+    }
+
+    /// Calling out doesn't end the turn's tool memory: a worker blocked after a tool works again when it resumes, and one blocked before
+    /// any tool thinks when it resumes.
+    private static func aFamiliarCallingOutKeepsItsTurn() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: AvatarAnimationFixture.catalogWithFamiliar())
+        director.observe(turnWorker(tool: "Read"), at: 0)
+        director.observe(turnWorker(state: "blocked"), at: 10)
+        let blocked = director.frame(at: 15).pose
+        expect(blocked == .callingOut, "a blocked worker should call out, got \(name(blocked))")
+        director.observe(turnWorker(), at: 20)
+        let resumed = director.frame(at: 25).pose
+        expect(resumed == .working, "a worker that resumes after calling out should keep working, got \(name(resumed))")
+
+        var fresh = TrackerAvatarDirector(reducesMotion: false, catalog: AvatarAnimationFixture.catalogWithFamiliar())
+        fresh.observe(turnWorker(state: "needs-input"), at: 0)
+        let asking = fresh.frame(at: 5).pose
+        expect(asking == .callingOut, "a worker needing input should call out, got \(name(asking))")
+        fresh.observe(turnWorker(), at: 10)
+        let thinking = fresh.frame(at: 15).pose
+        expect(thinking == .pondering, "a worker that resumes before any tool should think, got \(name(thinking))")
+    }
+
+    /// A master's class keeps its own rules: between tools it thinks, whatever its turn has used.
+    private static func aMasterIgnoresTheTurnsToolMemory() {
+        let master = AvatarSessionFixture.session(sessionClass: "bard")
+        let pose = TrackerAvatarPose.pose(for: master, catalog: AvatarAnimationFixture.catalogWithFamiliar(), turnUsedTool: true)
+        expect(pose == .pondering, "a master with no cast between tools should still think, got \(name(pose))")
     }
 
     private static func expectError(_ expected: TrackerAvatarAnimationError, _ message: String, _ body: () throws -> Void) {
