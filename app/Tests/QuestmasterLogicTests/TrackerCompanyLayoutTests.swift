@@ -13,7 +13,10 @@ struct TrackerCompanyLayoutTests {
         noWorkersLeavesTheSlotAsItWas()
         liveWorkersAreTheMastersStartedWorkersInSpawnOrder()
         designedFullRowStartsAtTen()
-        designedRowShowsFewerWorkersAtItsRight()
+        designedFullRowIsTheDesignsRowExactly()
+        designedRowShowsFewerWorkersSideBySideWithTheMaster()
+        oneWorkerStandsNextToTheMasterInFourClasses()
+        designedRowMovesInSmallStepsAndKeepsItsGap()
         designedRowCountsWorkersPastItsCapacity()
         designedRowsEndLeftOfTheMarker()
         visibleBottomsDropBelowTheFeet()
@@ -126,17 +129,99 @@ struct TrackerCompanyLayoutTests {
         expect(none.familiars.isEmpty && none.masterShift == 0, "no workers should leave the designed slot as it was")
     }
 
-    /// With fewer workers they take the right-most places of the full row, so a familiar keeps its place as others are added on its left;
-    /// the master moves one seventh of its distance per worker.
-    private static func designedRowShowsFewerWorkersAtItsRight() {
+    /// A full row's places are the design's: the first familiar at 10 pt, one pitch apart, and the master at the slot's left edge. Whatever the
+    /// master's reach, the full row must come out exactly as it always did, with no rounding in the places or the shift.
+    private static func designedFullRowIsTheDesignsRowExactly() {
+        let rows: [(row: TrackerCompanyRow, width: Double)] = [
+            (TrackerCompanyRow(pitch: 47, capacity: 5), 50), (TrackerCompanyRow(pitch: 35, capacity: 7), 25),
+            (TrackerCompanyRow(pitch: 31, capacity: 8), 22), (TrackerCompanyRow(pitch: 38, capacity: 6), 50),
+        ]
+        let masters = [TrackerCompanyLayout.MasterReach(left: 40, right: 45), TrackerCompanyLayout.MasterReach(left: 28, right: 58),
+                       TrackerCompanyLayout.MasterReach(left: 36, right: 30)]
+        for master in masters {
+            for entry in rows {
+                let full = designed(entry.row.capacity, entry.row, master, width: entry.width)
+                for (index, place) in full.familiars.enumerated() {
+                    expect(place.left == TrackerCompanyLayout.designInset + Double(index) * entry.row.pitch,
+                           "a full row's place \(index + 1) should be \(TrackerCompanyLayout.designInset + Double(index) * entry.row.pitch) exactly, got \(place.left)")
+                }
+                expect(full.masterShift == max(0, slot / 2 - master.left), "a full row should move the master to the slot's left edge exactly, got \(full.masterShift)")
+            }
+        }
+    }
+
+    /// With fewer workers the master and the shown workers form one group centred in the slot: the master's visible right edge, 10 pt, then the
+    /// familiars at pitch. Three Fire Elementals (26 pt, pitch 35) start 10 pt past the master's visible edge, and the group's visible
+    /// extents (the master's left to the last familiar's right) sum to the slot's width, so they are centred.
+    private static func designedRowShowsFewerWorkersSideBySideWithTheMaster() {
         let fire = TrackerCompanyRow(pitch: 35, capacity: 7)
         let master = TrackerCompanyLayout.MasterReach(left: 40, right: 45)
         let one = designed(1, fire, master)
-        expect(one.familiars.count == 1 && abs(one.familiars[0].left - 220) < 1e-6, "one Fire should stand in the right-most place (220), got \(one.familiars.map(\.left))")
-        expect(abs(one.masterShift - 100.0 / 7) < 1e-6, "one of seven should move the master a seventh, got \(one.masterShift)")
+        expect(one.familiars.count == 1 && abs(one.familiars[0].left - 174.5) < 1e-9, "one Fire should stand 10 pt past the master's edge (174.5), got \(one.familiars.map(\.left))")
+        expect(abs(one.masterShift - 20.5) < 1e-9, "one Fire should move the master 20.5 pt to centre the pair, got \(one.masterShift)")
         let three = designed(3, fire, master)
-        expect(three.familiars.map(\.left).elementsAlmostEqual([150, 185, 220]), "three Fire should stand at 150, 185 and 220, got \(three.familiars.map(\.left))")
-        expect(abs(three.masterShift - 300.0 / 7) < 1e-6, "three of seven should move the master three sevenths, got \(three.masterShift)")
+        expect(three.familiars.map(\.left).elementsAlmostEqual([139.5, 174.5, 209.5]), "three Fire should stand at 139.5, 174.5 and 209.5, got \(three.familiars.map(\.left))")
+        expect(abs(three.masterShift - 55.5) < 1e-9, "three Fire should move the master 55.5 pt, got \(three.masterShift)")
+        let groupLeft = slot / 2 - three.masterShift - master.left
+        let groupRight = (three.familiars.last?.left ?? 0) + 26
+        expect(abs(groupLeft + groupRight - slot) < 1e-9, "the group's visible extents should be centred on the slot, got \(groupLeft) to \(groupRight)")
+    }
+
+    /// The study's four classes with one worker each, from their files: the master's visible left edge and the familiar's left edge, with the
+    /// 10 pt gap between them and the pair centred on the slot. Necromancer 79.5 and 175.5; Wizard 89 and 165; Fighter 59.5 and 170.5;
+    /// Ranger 93.5 and 164.5.
+    private static func oneWorkerStandsNextToTheMasterInFourClasses() {
+        let cases: [(name: String, master: TrackerCompanyLayout.MasterReach, width: Double, row: TrackerCompanyRow, masterLeft: Double, familiarLeft: Double)] = [
+            ("necromancer", TrackerCompanyLayout.MasterReach(left: 28, right: 58), 25, TrackerCompanyRow(pitch: 35, capacity: 7), 79.5, 175.5),
+            ("wizard", TrackerCompanyLayout.MasterReach(left: 36, right: 30), 26, TrackerCompanyRow(pitch: 35, capacity: 7), 89, 165),
+            ("fighter", TrackerCompanyLayout.MasterReach(left: 38, right: 63), 50, TrackerCompanyRow(pitch: 38, capacity: 6), 59.5, 170.5),
+            ("ranger", TrackerCompanyLayout.MasterReach(left: 30, right: 31), 22, TrackerCompanyRow(pitch: 31, capacity: 8), 93.5, 164.5),
+        ]
+        for entry in cases {
+            let one = designed(1, entry.row, entry.master, width: entry.width)
+            guard let place = one.familiars.first else {
+                fail("\(entry.name) should show its one worker")
+            }
+            let masterLeft = slot / 2 - one.masterShift - entry.master.left
+            let masterRight = slot / 2 - one.masterShift + entry.master.right
+            expect(abs(masterLeft - entry.masterLeft) < 1e-9, "\(entry.name)'s master should stand with its visible left edge at \(entry.masterLeft), got \(masterLeft)")
+            expect(abs(place.left - entry.familiarLeft) < 1e-9, "\(entry.name)'s familiar should stand at \(entry.familiarLeft), got \(place.left)")
+            expect(abs(place.left - masterRight - 10) < 1e-9, "\(entry.name)'s familiar should keep 10 pt from the master's visible edge, got \(place.left - masterRight)")
+            expect(abs(masterLeft + place.left + entry.width - slot) < 1e-9, "\(entry.name)'s pair should be centred on the slot by its visible extents")
+        }
+    }
+
+    /// As workers arrive the row moves in steps: a group centred side by side moves each place half a pitch a worker; a row pinned at its
+    /// right-most place moves a pitch at once. No worker's place moves more than one pitch, the last familiar stays inside its full row's
+    /// right-most place, and until the master reaches the slot's edge it keeps its 10 pt gap to the first familiar.
+    private static func designedRowMovesInSmallStepsAndKeepsItsGap() {
+        let cases: [(master: TrackerCompanyLayout.MasterReach, width: Double, row: TrackerCompanyRow)] = [
+            (TrackerCompanyLayout.MasterReach(left: 28, right: 58), 25, TrackerCompanyRow(pitch: 35, capacity: 7)),
+            (TrackerCompanyLayout.MasterReach(left: 36, right: 30), 26, TrackerCompanyRow(pitch: 35, capacity: 7)),
+            (TrackerCompanyLayout.MasterReach(left: 38, right: 63), 50, TrackerCompanyRow(pitch: 38, capacity: 6)),
+            (TrackerCompanyLayout.MasterReach(left: 30, right: 31), 22, TrackerCompanyRow(pitch: 31, capacity: 8)),
+        ]
+        for entry in cases {
+            let rightMost = TrackerCompanyLayout.designInset + Double(entry.row.capacity - 1) * entry.row.pitch
+            var previous: TrackerCompanyLayout.Result?
+            for count in 1...(entry.row.capacity + 1) {
+                let result = designed(count, entry.row, entry.master, width: entry.width)
+                let masterLeft = slot / 2 - result.masterShift - entry.master.left
+                let masterRight = slot / 2 - result.masterShift + entry.master.right
+                expect(masterLeft >= -1e-9, "the master's visible left edge should stay in the slot, got \(masterLeft) at \(count) workers")
+                if let last = result.familiars.last {
+                    expect(last.left <= rightMost + 1e-9, "the last familiar should stay at or left of the right-most place (\(rightMost)), got \(last.left) at \(count) workers")
+                }
+                if let first = result.familiars.first, masterLeft > 1e-9 {
+                    expect(abs(first.left - masterRight - 10) < 1e-9, "the master should keep its 10 pt gap while its edge is free, got \(first.left - masterRight) at \(count) workers")
+                }
+                if let previous, let before = previous.familiars.first, let now = result.familiars.first {
+                    expect(abs(now.left - before.left) <= entry.row.pitch + 1e-9,
+                           "a worker's place should move no more than one pitch (\(entry.row.pitch)), got \(now.left - before.left) at \(count) workers")
+                }
+                previous = result
+            }
+        }
     }
 
     /// Past its capacity a designed row shows the capacity and counts the rest in the marker; the places stay where the full row put them.

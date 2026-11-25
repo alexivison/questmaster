@@ -14,10 +14,15 @@ Which pose shows when, how cues play, and where the avatar sits.
 - **Company:** an attached master shows its live workers' familiars in its slot: the workers that are children of the master and not stopped
   (`TrackerCompanyLayout.liveWorkers`, in the payload's order, which is spawn order). Each live worker has its own `TrackerAvatarDirector`,
   fed its own session, so each plays its worker's pose by the familiar rules, bubble included. A familiar whose file has a `company` row
-  (its pitch and full row, from the user's spacing designs) keeps the designed row (`TrackerCompanyLayout.designLayout`): the full row's
-  places start 10 pt from the slot's left edge and step by the pitch, and the shown workers take its right-most places, so a familiar
-  keeps its place as others are added on its left. The master's body is at the slot's centre with no workers, and it moves left one
-  share of that distance per shown worker, reaching the slot's left edge when the row is full. A designed familiar draws from its `company/` frames at 0.5 pt a pixel (the 2x device grid),
+  (its pitch and full row, from the user's spacing designs) keeps the designed row (`TrackerCompanyLayout.designLayout`). The full row's
+  places start 10 pt from the slot's left edge and step by the pitch; with no workers the master's body is at the slot's centre. With fewer
+  workers, while they fit, the master and the shown workers form one group: the master's visible right edge, a 10 pt gap, then the
+  familiars at the pitch, the group centred in the slot by its visible extents (the master's visible left edge to the last familiar's
+  visible right). A new worker moves each place half a pitch. Once the group would put the last familiar past the full row's right-most
+  place, the shown workers stand at pitch from that place leftwards, the master keeps its 10 pt gap to the first familiar until its visible
+  left edge reaches the slot's left edge, and past that it stays there with the familiars in front of it; a new worker then moves each place
+  a pitch. A full row is always this second case, so it is the design's row exactly: the first familiar at 10 pt, the master at the slot's
+  left edge. A designed familiar draws from its `company/` frames at 0.5 pt a pixel (the 2x device grid),
   so each frame pixel lands on a device pixel. Each familiar's visible bottom sits 5 pt
   below the master's feet, and a hover's gap above its feet is taken out (`TrackerCompanyLayout.drop`). Past the row's capacity the rest
   are counted in a `+n` marker: a 20 pt portrait disc 5 pt in from the slot's right edge, with its chip centred above it. A familiar

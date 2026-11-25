@@ -1,11 +1,11 @@
 import Foundation
 
 /// The master's company in its avatar slot: each live worker's familiar stands in front of the master, small, in one row. A familiar
-/// with a company row (its pitch and full row, from the user's spacing designs) keeps its designed row: the full row's places are
-/// fixed, the shown workers take the right-most of them, and the master moves left one share per worker until it reaches the slot's
-/// left edge at the full row. A familiar without one keeps the fit rule: the row is anchored at the slot's right, grows leftward by one
-/// fixed advance per worker, and once it reaches the left inset further workers are counted in a "+n" marker. Pure: the App measures
-/// each familiar's resting width at its scale.
+/// with a company row (its pitch and full row, from the user's spacing designs) keeps its designed row: while the master and the shown
+/// workers fit side by side, they form one group centred in the slot; once they don't, the workers stand at the full row's places
+/// and the master keeps its gap until it reaches the slot's left edge. A familiar without one keeps the fit rule: the row is anchored at
+/// the slot's right, grows leftward by one fixed advance per worker, and once it reaches the left inset further workers are counted in a
+/// "+n" marker. Pure: the App measures each familiar's resting width at its scale.
 public enum TrackerCompanyLayout {
     /// The fit rule's numbers, from the master-screen study the user approved: the row stops at this inset from the slot's left edge.
     public static let leftInset: Double = 15
@@ -20,6 +20,8 @@ public enum TrackerCompanyLayout {
     /// The design's first familiar's left edge, in points from the slot's left edge. The row and the marker moved left together (the
     /// design's 20 pt, less 10), so every gap in the row and to the marker is as designed.
     public static let designInset: Double = 10
+    /// The gap from the master's visible right edge to the first familiar, while the two stand side by side.
+    public static let sideBySideGap: Double = 10
     /// How far the familiars' visible bottoms sit below the master's feet, in points: the design's 155 against the feet's 150.
     public static let belowFeet: Double = 5
     /// The points one pixel of a designed familiar's company frame draws at: the frames are on the 2x device grid, one device pixel
@@ -101,17 +103,38 @@ public enum TrackerCompanyLayout {
         return Result(masterShift: max(0, shift), familiars: familiars, overflow: count - shown)
     }
 
-    /// Lays out `count` workers' familiars by a company row: the full row's places are `designInset` plus `pitch` steps, and the shown
-    /// workers take its right-most places. The master's body sits at the slot's centre with no workers and moves left one share of
-    /// that distance per shown worker, so it reaches the slot's left edge when the row is full.
+    /// Lays out `count` workers' familiars by a company row. With workers that fit side by side, the master and the shown workers form one
+    /// group: the master's visible right edge, `sideBySideGap`, then the familiars at the row's pitch. The group is centred in the slot by
+    /// its visible extents, and its last familiar may not go past the full row's right-most place. When it does not fit, the shown
+    /// workers stand at pitch from that right-most place leftwards, and the master keeps its gap to the first familiar until its visible
+    /// left edge reaches the slot's left edge; past that it stays there, and the familiars stand in front of it. A full row is always the
+    /// second case, so it is the design's row: the first familiar at `designInset`, one pitch apart, and the master at the slot's left edge.
     public static func designLayout(count: Int, row: TrackerCompanyRow, restWidth: Double, master: MasterReach, slotWidth: Double) -> Result {
         let shown = min(count, row.capacity)
+        let overflow = count - shown
+        guard shown > 0 else {
+            return Result(masterShift: 0, familiars: [], overflow: overflow)
+        }
+        let masterWidth = master.left + master.right
+        let groupWidth = masterWidth + sideBySideGap + Double(shown - 1) * row.pitch + restWidth
+        let sideShift = groupWidth / 2 - master.left
+        let groupLeft = slotWidth / 2 - sideShift - master.left
+        let firstLeft = groupLeft + masterWidth + sideBySideGap
+        let lastLeft = firstLeft + Double(shown - 1) * row.pitch
+        let rightMost = designInset + Double(row.capacity - 1) * row.pitch
+        if groupLeft >= 0 && lastLeft <= rightMost {
+            let familiars = (0..<shown).map { index in
+                Familiar(index: index, restWidth: restWidth, left: firstLeft + Double(index) * row.pitch)
+            }
+            return Result(masterShift: sideShift, familiars: familiars, overflow: overflow)
+        }
         let familiars = (0..<shown).map { index in
             Familiar(index: index, restWidth: restWidth, left: designInset + Double(row.capacity - shown + index) * row.pitch)
         }
-        let homeLeft = max(0, slotWidth / 2 - master.left)
-        let shift = homeLeft * Double(shown) / Double(row.capacity)
-        return Result(masterShift: shift, familiars: familiars, overflow: count - shown)
+        // The master's shift that keeps its gap to the first familiar, and the most it may move: its visible left edge at the slot's edge.
+        let gapShift = slotWidth / 2 + master.right + sideBySideGap - familiars[0].left
+        let homeShift = max(0, slotWidth / 2 - master.left)
+        return Result(masterShift: min(homeShift, max(0, gapShift)), familiars: familiars, overflow: overflow)
     }
 
     /// How far a familiar's art moves down from the baseline, in points, so its visible bottom sits `belowFeet` below the master's feet.
