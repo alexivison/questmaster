@@ -236,6 +236,7 @@ struct TrackerRootView: View {
     @State private var currentTerminalSessionID: String?
     @State private var runtimeObservation: RuntimeStoreObservation?
     @State private var avatarStage = TrackerAvatarStage()
+    @State private var companyStage = TrackerCompanyStage()
 
     init(
         store: RuntimeStore,
@@ -397,14 +398,7 @@ struct TrackerRootView: View {
 
     /// The avatar's sole stands `avatarBannerGap` above the banner below its fixed slot, above the pinned shell section.
     private func avatarBlock() -> some View {
-        TrackerAvatarSlot(
-            pose: avatarStage.pose,
-            sprites: avatarStage.sprites,
-            fidget: avatarStage.fidgetFrame,
-            beat: avatarStage.beat,
-            finish: avatarStage.finish,
-            enter: avatarStage.enter
-        )
+        TrackerCompanySlot(avatar: avatarStage, company: companyStage)
         .padding(.leading, TrackerListMetrics.sidePadding)
         .padding(.bottom, TrackerListMetrics.avatarBannerGap)
         // Tall poses reach over the scrolling plates; the banner above this layer covers art below the sole.
@@ -450,12 +444,12 @@ struct TrackerRootView: View {
             .contains(where: { $0.parentID == sessionID })
     }
 
-    /// Feeds the class avatar the tracker's sessions and the attached session's id.
+    /// Feeds the class avatar and the master's company the tracker's sessions and the attached session's id.
     private func feedAvatar() {
-        avatarStage.observe(
-            sessions: TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot)),
-            attachedID: TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID)
-        )
+        let sessions = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let attachedID = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID)
+        avatarStage.observe(sessions: sessions, attachedID: attachedID)
+        companyStage.observe(sessions: sessions, attachedID: attachedID)
     }
 
     private func installRuntimeObservation() {

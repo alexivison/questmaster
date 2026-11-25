@@ -212,4 +212,4 @@ tool whenever its row applies**.
 | Editing the tracker, Worker Log, Watcher, dock column, action bar header or Quest Log | `.agents/skills/app-surfaces/SKILL.md` |
 | Changing tmux routing, server inventory, manifests, runtime dirs, or close/delete/prune/audit | `.agents/skills/tmux-lifecycle/SKILL.md` |
 | Building, installing, rolling back or running `Questmaster.app`, or touching `app/Scripts/` | `.agents/skills/app-bundle/SKILL.md` |
-| Changing the class avatar or a worker's familiar, their sprites, `animation.json`, cues or the session banner | `.agents/skills/class-avatar/SKILL.md` |
+| Changing the class avatar, a worker's familiar or a master's company, their sprites, `animation.json`, cues or the session banner | `.agents/skills/class-avatar/SKILL.md` |

@@ -116,6 +116,8 @@ enum LogicSelfTests {
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
         ("testEveryBundledFamiliarFitsTheSlot", testEveryBundledFamiliarFitsTheSlot),
         ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
+        ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
+        ("testTheWarHoundDrawsAtItsScaleOnTheBaseline", testTheWarHoundDrawsAtItsScaleOnTheBaseline),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -1653,7 +1655,7 @@ enum LogicSelfTests {
               let calling = TrackerAvatarFrameRig(pose: .callingOut, placement: callingPlacement, sprites: sprites) else {
             throw TestFailure("the synthetic class's summoning and calling out should both draw")
         }
-        summoning.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
+        summoning.place(in: CGRect(x: 0, y: 0, width: 260, height: 160), scale: 1)
         try expect(summoning.root.sublayers?.first === summoning.behind && summoning.root.sublayers?.dropFirst().first === summoning.figure,
                    "the ground circle should draw under the figure, on the root, with the bubble above both")
         try expect(summoning.figure.sublayers?.first === summoning.character, "the character should be the figure's first layer")
@@ -1666,7 +1668,7 @@ enum LogicSelfTests {
         try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil && summoning.character.animation(forKey: TrackerAvatarMotionKey.frames) == nil,
                    "stopping should remove the move and the frames")
 
-        calling.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
+        calling.place(in: CGRect(x: 0, y: 0, width: 260, height: 160), scale: 1)
         try expect(calling.figure.sublayers?.last === calling.front, "the bubble should draw in front of the character, inside the figure")
         calling.startMotion()
         try expect(calling.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "calling out should not bob: its feet stay on the baseline")
@@ -1684,7 +1686,7 @@ enum LogicSelfTests {
               let rig = TrackerAvatarFrameRig(pose: .studying, placement: placement, sprites: sprites) else {
             throw TestFailure("the wizard's studying should draw")
         }
-        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
+        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight), scale: 1)
         rig.showFinish(elapsed: 0)
         try expect(rig.character.contents != nil, "a finish should show its first frame")
         try expect(rig.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "a finish should not move the figure")
@@ -2048,7 +2050,7 @@ enum LogicSelfTests {
             throw TestFailure("the synthetic class's release should draw")
         }
         try expect(placement.strikeFrame == 3, "the synthetic release should name frame 3 as its strike")
-        release.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
+        release.place(in: CGRect(x: 0, y: 0, width: 260, height: 160), scale: 1)
         release.startMotion()
         guard let move = release.figure.animation(forKey: TrackerAvatarMotionKey.move) as? CAKeyframeAnimation else {
             throw TestFailure("a release should move the figure")
@@ -2241,7 +2243,7 @@ enum LogicSelfTests {
         guard let rig = TrackerAvatarFrameRig(pose: .callingOut, placement: pose, sprites: sprites) else {
             throw TestFailure("the druid's calling out should draw")
         }
-        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
+        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight), scale: 1)
         try expect(CATransform3DEqualToTransform(rig.bubble.transform, CATransform3DMakeScale(-1, 1, 1)), "the druid's bubble should draw flipped")
     }
 
@@ -2406,8 +2408,8 @@ enum LogicSelfTests {
             throw TestFailure("both bubble fixtures should draw calling out")
         }
         let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
-        plainRig.place(in: slot)
-        mirroredRig.place(in: slot)
+        plainRig.place(in: slot, scale: 1)
+        mirroredRig.place(in: slot, scale: 1)
         try expect(plainPose.bubbleTail == .left && mirroredPose.bubbleTail == .right, "the fixtures should carry their tails")
         try expect(plainRig.bubble.frame == mirroredRig.bubble.frame, "a mirrored bubble should keep the unmirrored box, got \(mirroredRig.bubble.frame) vs \(plainRig.bubble.frame)")
         try expect(CATransform3DIsIdentity(plainRig.bubble.transform), "a left-tail bubble should be drawn as the art is")
@@ -2553,7 +2555,7 @@ enum LogicSelfTests {
             throw TestFailure("\(name) should draw its calling out with the shared bubble")
         }
         let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
-        rig.place(in: slot)
+        rig.place(in: slot, scale: 1)
         try expect(rig.root.sublayers?.last === rig.bubble, "\(name)'s bubble should draw over the figure and its effects")
         // Layers measure from the bottom left: the bubble is in the root's space, and the root in the slot's.
         let bubble = rig.bubble.frame.offsetBy(dx: rig.root.frame.minX, dy: rig.root.frame.minY)
@@ -2613,7 +2615,7 @@ enum LogicSelfTests {
                 }
                 // Each frame pose stands its feet on the slot's baseline: the foot row, counted up from the canvas's bottom edge.
                 if pose != .idle, let rig = TrackerAvatarFrameRig(pose: pose, placement: placement, sprites: sprites) {
-                    rig.place(in: slot)
+                    rig.place(in: slot, scale: 1)
                     let canvasBottom = CGFloat(canvasHeight - 1 - placement.footRow)
                     try expect(abs(rig.root.frame.minY + canvasBottom) < 0.5,
                                "the \(classID)'s \(pose.resourceName) should stand its feet on the slot's baseline, got \(rig.root.frame.minY)")
@@ -2657,6 +2659,64 @@ enum LogicSelfTests {
         }
         try expect(classArt.animation.animation(for: .working) == nil, "a master should draw its class's art, which names no working pose")
         try expect(classArt.animation.animation(for: .studying) != nil, "a paladin master should draw the paladin's class art")
+    }
+
+    /// A master's company stands in its slot: six Fire Elementals show of eight, the marker counts two above the master's familiar's disc,
+    /// each familiar's rest stays inside the row's inset and the reserve, and the master moves left to make room.
+    @MainActor
+    private static func testTheMastersCompanyFitsItsSlot() throws {
+        final class Clock {
+            var now: TimeInterval = 0
+        }
+        let clock = Clock()
+        let stage = TrackerCompanyStage(clock: { clock.now })
+        let master = try testRow(["id": "qm-m", "title": "Wizard", "session_type": "master", "class": "wizard"])
+        let workers = try (0..<8).map { index in
+            try testRow(["id": "qm-w\(index)", "title": "Ember", "session_type": "worker", "parent_id": "qm-m", "class": "wizard"])
+        }
+        stage.observe(sessions: [master] + workers, attachedID: "qm-m")
+        try expect(stage.companions.count == 6 && stage.overflow == 2, "eight Fire workers should show six and count two, got \(stage.companions.count) and \(stage.overflow)")
+        try expect(stage.overflowPortrait == .familiar(.wizard), "the marker should sit above the wizard's familiar disc")
+        try expect(stage.companions.map(\.id) == (0..<6).map { "qm-w\($0)" }, "the row should keep spawn order, got \(stage.companions.map(\.id))")
+        try expect(stage.masterShift > 0 && stage.masterShift <= TrackerAvatarMetrics.slotWidth / 2, "the master should move left to make room, got \(stage.masterShift)")
+        for companion in stage.companions {
+            guard let columns = companion.sprites.restColumns, let body = companion.sprites.animation.animation(for: .idle)?.bodyColumn else {
+                throw TestFailure("a companion should carry its rest art")
+            }
+            let restLeft = companion.bodyX + CGFloat(columns.lowerBound - body) * companion.scale
+            let restRight = companion.bodyX + CGFloat(columns.upperBound + 1 - body) * companion.scale
+            try expect(restLeft >= 15 - 0.5 && restRight <= 204 + 0.5,
+                       "a Fire companion should rest inside the row's inset and reserve, got \(restLeft)..<\(restRight)")
+        }
+        try expect(stage.companions.allSatisfy { $0.scale == 0.5 }, "a Fire familiar should draw at 50%")
+
+        // A worker attached shows its own familiar in the slot, not a company; a master with no workers shows none.
+        stage.observe(sessions: [master] + workers, attachedID: "qm-w0")
+        try expect(stage.companions.isEmpty && stage.overflow == 0 && stage.masterShift == 0, "an attached worker should show no company")
+        stage.observe(sessions: [master], attachedID: "qm-m")
+        try expect(stage.companions.isEmpty && stage.overflow == 0, "a master with no workers should show no company")
+    }
+
+    /// The War Hound draws at its file's 75%: its art is three quarters of an art pixel per point, with its feet on the slot's baseline.
+    @MainActor
+    private static func testTheWarHoundDrawsAtItsScaleOnTheBaseline() throws {
+        guard let hound = TrackerAvatarSprites.bundledFamiliars()["fighter"], let placement = hound.animation.animation(for: .pondering),
+              let rig = TrackerAvatarFrameRig(pose: .pondering, placement: placement, sprites: hound) else {
+            throw TestFailure("the War Hound's thinking pose should draw")
+        }
+        try expect(hound.animation.scalePercent == 75, "the War Hound should draw at 75%, got \(hound.animation.scalePercent)")
+        let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        rig.place(in: slot, scale: 0.75)
+        try expect(abs(rig.root.frame.width - 260 * 0.75) < 0.01, "the War Hound's art should be 195 pt wide, got \(rig.root.frame.width)")
+        let feet = rig.root.frame.minY + CGFloat(188 - 1 - placement.footRow) * 0.75
+        try expect(abs(feet) < 0.01, "the War Hound's feet should stand on the slot's baseline, got \(feet)")
+    }
+
+    /// A row from a JSON object, as the tracker decodes its sessions.
+    private static func testRow(_ fields: [String: Any]) throws -> TrackerSession {
+        var payload: [String: Any] = ["status": "active", "state": "working", "agent": "claude", "elapsed_ms": 0, "worker_count": 0]
+        payload.merge(fields) { _, new in new }
+        return try JSONDecoder().decode(TrackerSession.self, from: JSONSerialization.data(withJSONObject: payload))
     }
 
     /// The poses a familiar's art plays, with the figure's own frames: its character, its front and behind effects, and its idle.

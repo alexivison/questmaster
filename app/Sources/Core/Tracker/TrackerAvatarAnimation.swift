@@ -339,6 +339,8 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case invalidEyeColumns
     /// The lid colour is `#rrggbb`.
     case invalidLidColour
+    /// A familiar's `scale` is a percentage from 1 to 100.
+    case invalidScale(Int)
 }
 
 /// A class's avatar art and timings, read from its `animation.json` (`Resources/Sprites/<class>/`). The file names every pose, and
@@ -365,6 +367,9 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     public let idle: TrackerAvatarIdleAnimation?
     /// The fidgets an idle figure may play, by name. None when `01-idle` has a loop, which plays no fidgets.
     public let fidgets: [TrackerAvatarIdleFidget]
+    /// The size the art draws at, in percent of one art pixel per point: a class always draws at 100; a familiar's file gives its own
+    /// `scale` (50 when it has none), so the master's company can stand smaller in the slot.
+    public let scalePercent: Int
     private let poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation]
 
     /// Reads and checks an `animation.json`: a class's (`.master`) or a familiar's (`.familiar`), which name their own poses.
@@ -384,6 +389,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             throw TrackerAvatarAnimationError.missingPose(pose.resourceName)
         }
         self.poses = poses
+        scalePercent = try Self.scalePercent(file.scale, kind: kind)
         // Bard and Barbarian's authored idle loops keep their existing frame-loop behavior and do not read layered-idle metadata.
         if poses[.idle]?.loop != nil {
             idle = nil
@@ -596,8 +602,22 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     }
 
     /// The file as JSON spells it. Its names and shapes are checked in `init(data:)`.
+    private static func scalePercent(_ scale: Int?, kind: TrackerAvatarArtKind) throws -> Int {
+        switch kind {
+        case .master:
+            return 100
+        case .familiar:
+            let percent = scale ?? 50
+            guard (1...100).contains(percent) else {
+                throw TrackerAvatarAnimationError.invalidScale(percent)
+            }
+            return percent
+        }
+    }
+
     private struct File: Decodable {
         let version: Int
+        let scale: Int?
         let idle: Idle?
         let fidgets: [String: [TrackerAvatarStep]]?
         let poses: [String: Pose]

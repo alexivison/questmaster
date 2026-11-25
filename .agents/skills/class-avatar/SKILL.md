@@ -6,7 +6,9 @@ description: For working on the Questmaster codebase itself (not for users of th
 # Class avatar
 
 The attached master's class stands as an animated sprite just above the session banner at the bottom of the tracker. An attached
-worker shows its master's class's familiar in the same slot: the same director and timings, its own poses, and no cues. Core decides
+worker shows its master's class's familiar in the same slot: the same director and timings, its own poses, and no cues. An attached
+master also shows its live workers' familiars, small, in front of it: the master's company, laid out by `TrackerCompanyLayout` (Core)
+and drawn by `TrackerCompanySlot` (App). Core decides
 what it does (`TrackerAvatarDirector`, `TrackerAvatarPose`, `TrackerAvatarAnimation`, `TrackerAvatarCatalog`, all pure and tested); the App
 target draws it (`TrackerAvatar*`). Each class's art is one folder of PNGs plus its `animation.json` in `Resources/Sprites/<class>/`, and each
 familiar's in `Resources/Familiars/<class>/`; both are made by a sprite pipeline outside this repo, and the palettes are documented in
@@ -19,6 +21,7 @@ from the frozen art; rerun it, then copy the PNGs and `animation.json` byte for 
 | A familiar's `animation.json` and art, its pose set, its bubble and size | `references/animation-file.md` (Familiars) |
 | Which pose shows when, cues, bows, finishes and enters, the slot, Reduce Motion | `references/behaviour.md` |
 | A worker's familiar's poses and which art a worker draws | `references/behaviour.md` (Familiars) |
+| The master's company: the row, its push, the `+n` marker, each familiar's size | `references/behaviour.md` (Company) |
 
 Self-tests read every bundled class (decoding, missing frames, feet on the baseline, the slot's height), so a
 new or changed class needs its expected values updated in `LogicSelfTests.swift` and `TrackerAvatarAnimationTests.swift`. Every bundled

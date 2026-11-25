@@ -18,7 +18,9 @@ the slot's size. The moves are horizontal only (`TrackerAvatarMotion`, Core), so
   anchor, drawn from the shared `Resources/Sprites/shared/bubble.png` (`TrackerAvatarSprites.bubbleFolder`), not a copy in the familiar's
   folder. The converter (`~/Documents/Questmaster/Sprites/tools/familiar-ship/`, outside the repo) writes the folders from the frozen tracks
   and the effects export, copying each PNG byte for byte under the app's frame names. Fire and Lightning Elementals ship without effect
-  layers until their export arrives. A familiar's `scale` (for the master-screen company) is not in the file yet.
+  layers until their export arrives. Its top-level `scale` is its size in percent of one art pixel per point (50 when absent; the War Hound
+  is 75). A class draws at 100, and its file has no `scale`. The App draws a familiar at `scale / 100` with nearest-neighbour filtering, so
+  at 50% and 2x one art pixel is one device pixel.
 - **Bubble:** calling out may show one shared `!` bubble for every class, `Resources/Sprites/shared/bubble.png`, drawn at one
   point a sprite pixel. Its bottom centre sits on the pose's `bubble` anchor (`{"x", "y"}`, in `11-calling-out`'s canvas
   pixels, read as `TrackerAvatarPoseAnimation.bubble`; an optional `"tail"`, `"left"` or `"right"`, read as `bubbleTail`,

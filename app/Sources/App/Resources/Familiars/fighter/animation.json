@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "scale": 75,
   "poses": {
     "01-idle": {
       "foot_row": 174,

@@ -225,6 +225,7 @@ enum RenderPreview {
         render(selectedSessionPanelView(portrait: .familiar(.wizard)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-familiar.png")
         render(selectedSessionPanelView(isShell: true), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-shell.png")
         render(familiarSlotsView(), size: CGSize(width: 1290, height: 1925), to: "\(outputDir)/familiar-slots.png")
+        render(masterCompanyView(), size: CGSize(width: 810, height: 700), to: "\(outputDir)/master-company.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -1589,8 +1590,49 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// A master's and a worker's portrait with the Command-held shortcut number on, on whole-point origins,
-    /// to measure the number's centring on the disc.
+    /// A master with one, six and nine workers, for four classes, in the tracker's own slot: the Wizard with Fire Elementals, the Ranger with
+    /// Hawks, the Fighter with War Hounds at 75%, and the Barbarian with Bears. Each row feeds its own stages, as the tracker does.
+    /// Named by RENDER_ONLY=master-company.
+    @MainActor
+    private static func masterCompanyView() -> some View {
+        let rows: [(classID: String, workers: [Int])] = [("wizard", [1, 6, 9]), ("ranger", [1, 6, 9]), ("fighter", [1, 6, 9]), ("barbarian", [1, 6, 9])]
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(rows, id: \.classID) { row in
+                HStack(spacing: 0) {
+                    Text(row.classID).font(Font(AppFonts.monoSmall)).frame(width: 90, alignment: .leading)
+                    ForEach(row.workers, id: \.self) { count in
+                        companyCell(classID: row.classID, workers: count)
+                            .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                    }
+                }
+            }
+        }
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// One master's company: its stages fed with the master and its workers, drawn as the tracker draws them.
+    @MainActor
+    private static func companyCell(classID: String, workers count: Int) -> some View {
+        let master = try! testFixtureRow(["id": "qm-m", "title": classID, "session_type": "master", "class": classID, "state": "working"])
+        let workers = (0..<count).map { index -> TrackerSession in
+            // The first worker of the six-worker row is blocked, so its bubble shows at the familiar's scale.
+            let state = index == 0 && count == 6 ? "blocked" : "working"
+            return try! testFixtureRow(["id": "qm-w\(index)", "title": "Worker \(index)", "session_type": "worker", "parent_id": "qm-m", "class": classID, "state": state])
+        }
+        let avatar = TrackerAvatarStage(clock: { 0 })
+        let company = TrackerCompanyStage(clock: { 0 })
+        avatar.observe(sessions: [master] + workers, attachedID: "qm-m")
+        company.observe(sessions: [master] + workers, attachedID: "qm-m")
+        return TrackerCompanySlot(avatar: avatar, company: company)
+    }
+
+    /// A session row from a JSON object, as the tracker decodes its sessions. For the render fixtures.
+    private static func testFixtureRow(_ fields: [String: Any]) throws -> TrackerSession {
+        var payload: [String: Any] = ["status": "active", "state": "working", "agent": "claude", "elapsed_ms": 0, "worker_count": 0]
+        payload.merge(fields) { _, new in new }
+        return try JSONDecoder().decode(TrackerSession.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+
     @MainActor
     /// Each familiar's five poses in the tracker's own slot, one row per class, each on its first frame: idle, thinking, working, calling
     /// out and the bow. Off-screen, so the sole sits where the tracker puts it. Named by RENDER_ONLY=familiar-slots.
@@ -1610,6 +1652,9 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// A master's and a worker's portrait with the Command-held shortcut number on, on whole-point origins,
+    /// to measure the number's centring on the disc.
+    @MainActor
     private static func portraitNumbersView() -> some View {
         let master = TrackerNameplateRole.master
         let worker = TrackerNameplateRole.worker
@@ -2151,7 +2196,7 @@ enum RenderPreview {
                     let step = effect?.steps.firstIndex { $0.frame == summonFrame } ?? 0
                     let elapsed = (effect?.starts[step] ?? 0) + firstDrawSeconds
                     avatar.configure(pose: nil, beat: 0, finish: nil, reduceMotion: true)
-                    rig.place(in: avatar.bounds)
+                    rig.place(in: avatar.bounds, scale: 1)
                     for (kind, layer) in [(TrackerAvatarLayer.behind, rig.behind), (.character, rig.character), (.front, rig.front)] {
                         layer.contents = loop.track(for: kind).flatMap { sprites.frame(.summoning, kind, $0.frame(at: elapsed, looping: true)) }
                     }
