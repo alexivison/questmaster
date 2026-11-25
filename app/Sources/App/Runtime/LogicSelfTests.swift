@@ -2664,7 +2664,7 @@ enum LogicSelfTests {
 
     /// A master's company stands in its slot: seven Fire Elementals show of eight (the design's full row), the marker counts one above the
     /// master's familiar's disc, each familiar's rest stays inside the row's first place and the marker's left edge, each drops below the
-    /// feet, and the master moves to the slot's left edge.
+    /// feet, and the master stays at the slot's centre.
     @MainActor
     private static func testTheMastersCompanyFitsItsSlot() throws {
         final class Clock {
@@ -2680,13 +2680,6 @@ enum LogicSelfTests {
         try expect(stage.companions.count == 7 && stage.overflow == 1, "eight Fire workers should show seven and count one, got \(stage.companions.count) and \(stage.overflow)")
         try expect(stage.overflowPortrait == .familiar(.wizard), "the marker should sit above the wizard's familiar disc")
         try expect(stage.companions.map(\.id) == (0..<7).map { "qm-w\($0)" }, "the row should keep spawn order, got \(stage.companions.map(\.id))")
-        // The master's visible left edge sits where its body column's offset puts it with no workers; a full row moves it to the slot's edge.
-        guard let masterArt = TrackerAvatarLibrary.sprites[TrackerAvatarArtKey(kind: .master, classID: "wizard")],
-              let masterColumns = masterArt.restColumns, let masterBody = masterArt.animation.animation(for: .idle)?.bodyColumn else {
-            throw TestFailure("the wizard's master should carry its rest art")
-        }
-        let homeLeft = TrackerAvatarMetrics.slotWidth / 2 - CGFloat(masterBody - masterColumns.lowerBound)
-        try expect(abs(stage.masterShift - homeLeft) < 0.5, "a full row should move the master's left edge (\(homeLeft)) to the slot's edge, got a shift of \(stage.masterShift)")
         for companion in stage.companions {
             guard let columns = companion.sprites.restColumns, let body = companion.sprites.animation.animation(for: .idle)?.bodyColumn else {
                 throw TestFailure("a companion should carry its rest art")
@@ -2701,7 +2694,7 @@ enum LogicSelfTests {
 
         // A worker attached shows its own familiar in the slot, not a company; a master with no workers shows none.
         stage.observe(sessions: [master] + workers, attachedID: "qm-w0")
-        try expect(stage.companions.isEmpty && stage.overflow == 0 && stage.masterShift == 0, "an attached worker should show no company")
+        try expect(stage.companions.isEmpty && stage.overflow == 0, "an attached worker should show no company")
         stage.observe(sessions: [master], attachedID: "qm-m")
         try expect(stage.companions.isEmpty && stage.overflow == 0, "a master with no workers should show no company")
     }
