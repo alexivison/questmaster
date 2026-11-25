@@ -192,6 +192,16 @@ final class TrackerAvatarSprites {
 
     /// The familiars' sprites, by class id, with a readable `animation.json` in `Resources/Familiars`. Their bubble is the shared one.
     static func bundledFamiliars() -> [String: TrackerAvatarSprites] {
+        bundledFamiliarSprites(inSubfolder: nil)
+    }
+
+    /// The designed familiars' company frames, by class id: each class's `company` folder, the same art on the 2x device grid at the
+    /// familiar's scale, drawn at `TrackerCompanyLayout.companyPixelPoints` a pixel. A class with no such folder has none.
+    static func bundledCompanions() -> [String: TrackerAvatarSprites] {
+        bundledFamiliarSprites(inSubfolder: "company")
+    }
+
+    private static func bundledFamiliarSprites(inSubfolder subfolder: String?) -> [String: TrackerAvatarSprites] {
         guard let resources = AppSymbolStyle.resourceBundle().resourceURL else {
             return [:]
         }
@@ -200,12 +210,11 @@ final class TrackerAvatarSprites {
         var sprites: [String: TrackerAvatarSprites] = [:]
         for sessionClass in SessionClass.allCases {
             let classID = sessionClass.rawValue
-            sprites[classID] = TrackerAvatarSprites(
-                classID: classID,
-                folder: root.appendingPathComponent(classID, isDirectory: true),
-                kind: .familiar,
-                bubbleFolder: shared
-            )
+            var folder = root.appendingPathComponent(classID, isDirectory: true)
+            if let subfolder {
+                folder = folder.appendingPathComponent(subfolder, isDirectory: true)
+            }
+            sprites[classID] = TrackerAvatarSprites(classID: classID, folder: folder, kind: .familiar, bubbleFolder: shared)
         }
         return sprites.compactMapValues { $0 }
     }

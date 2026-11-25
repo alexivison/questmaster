@@ -1598,7 +1598,7 @@ enum RenderPreview {
     @MainActor
     private static func masterCompanyView() -> some View {
         let rows: [(classID: String, full: Int)] = [
-            ("barbarian", 5), ("bard", 7), ("cleric", 7), ("druid", 6), ("fighter", 5), ("necromancer", 7),
+            ("barbarian", 5), ("bard", 7), ("cleric", 7), ("druid", 6), ("fighter", 6), ("necromancer", 7),
             ("paladin", 6), ("ranger", 8), ("rogue", 6), ("sorcerer", 6), ("wizard", 7),
         ]
         return VStack(alignment: .leading, spacing: 0) {

@@ -21,7 +21,10 @@ the slot's size. The moves are horizontal only (`TrackerAvatarMotion`, Core), so
   layers until their export arrives. Its top-level `scale` is its size in percent of one art pixel per point, decimals allowed (50 when absent; the designed familiars
   are 46.5 to 82, the War Hound 82). It may also carry a `company` object, `{"pitch": points, "capacity": workers}`: the pitch between
   neighbours in the master's company and the most workers its full row holds before the `+n` marker (`TrackerCompanyRow`). A familiar
-  with no `company` keeps the fit rule. A class draws at 100, and its file has no `scale`. The App draws a familiar at `scale / 100` with nearest-neighbour filtering, so
+  with no `company` keeps the fit rule. A designed familiar (one with a `company` object) also has a `company/` folder: the same frame names on the 2x device grid at its
+  scale (each frame `round(260 x 2 x scale)` by `round(188 x 2 x scale)` pixels, palette-snapped), with its own `animation.json`
+  whose pixel coordinates are on that grid. The master's company draws those frames at 0.5 pt a pixel, nearest-neighbour; the worker
+  slot keeps the full frames. A class draws at 100, and its file has no `scale`. The App draws a familiar at `scale / 100` with nearest-neighbour filtering, so
   at 50% and 2x one art pixel is one device pixel.
 - **Bubble:** calling out may show one shared `!` bubble for every class, `Resources/Sprites/shared/bubble.png`, drawn at one
   point a sprite pixel. Its bottom centre sits on the pose's `bubble` anchor (`{"x", "y"}`, in `11-calling-out`'s canvas

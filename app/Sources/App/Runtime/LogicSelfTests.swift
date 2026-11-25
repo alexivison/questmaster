@@ -117,6 +117,7 @@ enum LogicSelfTests {
         ("testEveryBundledFamiliarFitsTheSlot", testEveryBundledFamiliarFitsTheSlot),
         ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
+        ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
         ("testTheWarHoundDrawsAtItsScaleOnTheBaseline", testTheWarHoundDrawsAtItsScaleOnTheBaseline),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
@@ -2690,19 +2691,62 @@ enum LogicSelfTests {
             guard let columns = companion.sprites.restColumns, let body = companion.sprites.animation.animation(for: .idle)?.bodyColumn else {
                 throw TestFailure("a companion should carry its rest art")
             }
-            let restLeft = companion.bodyX + CGFloat(columns.lowerBound - body) * companion.scale
-            let restRight = companion.bodyX + CGFloat(columns.upperBound + 1 - body) * companion.scale
+            let restLeft = companion.bodyX + CGFloat(columns.lowerBound - body) * companion.pixel
+            let restRight = companion.bodyX + CGFloat(columns.upperBound + 1 - body) * companion.pixel
             try expect(restLeft >= 10 - 0.5 && restRight <= 255 + 0.5,
                        "a Fire companion should rest from the designed first place to the marker, got \(restLeft)..<\(restRight)")
             try expect(companion.drop >= 5 - 0.01, "a Fire familiar should drop below the feet, got \(companion.drop)")
         }
-        try expect(stage.companions.allSatisfy { $0.scale == 0.5 }, "a Fire familiar should draw at 50%")
+        try expect(stage.companions.allSatisfy { $0.pixel == 0.5 }, "a Fire familiar's company frames should draw a half point a pixel")
 
         // A worker attached shows its own familiar in the slot, not a company; a master with no workers shows none.
         stage.observe(sessions: [master] + workers, attachedID: "qm-w0")
         try expect(stage.companions.isEmpty && stage.overflow == 0 && stage.masterShift == 0, "an attached worker should show no company")
         stage.observe(sessions: [master], attachedID: "qm-m")
         try expect(stage.companions.isEmpty && stage.overflow == 0, "a master with no workers should show no company")
+    }
+
+    /// Every designed familiar's company frames are on the 2x device grid at its scale: each full frame has a company frame of the same
+    /// name, sized by the scale (the full canvas times two times the scale, rounded to whole pixels), and its feet stay on its canvas.
+    @MainActor
+    private static func testEveryCompanyFrameIsPresentAtItsDeviceSize() throws {
+        guard let resources = AppSymbolStyle.resourceBundle().resourceURL else {
+            throw TestFailure("the resource bundle should be readable")
+        }
+        let companions = TrackerAvatarSprites.bundledCompanions()
+        let designed = TrackerAvatarSprites.bundledFamiliars().filter { $0.value.animation.companyRow != nil }
+        try expect(designed.count == 9, "nine familiars should carry a company row, got \(designed.count)")
+        for (classID, sprites) in designed.sorted(by: { $0.key < $1.key }) {
+            guard let company = companions[classID] else {
+                throw TestFailure("\(classID) should have its company frames")
+            }
+            let scale = Double(sprites.animation.scalePercent) / 100
+            let folder = resources.appendingPathComponent("Familiars/\(classID)", isDirectory: true)
+            let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".png") }
+            try expect(!names.isEmpty, "\(classID) should have art frames")
+            for name in names {
+                guard let full = pixelSize(of: folder.appendingPathComponent(name)),
+                      let frame = pixelSize(of: folder.appendingPathComponent("company/\(name)")) else {
+                    throw TestFailure("\(classID)'s \(name) should have a company frame")
+                }
+                let width = Int((Double(full.width) * 2 * scale).rounded(.toNearestOrEven))
+                let height = Int((Double(full.height) * 2 * scale).rounded(.toNearestOrEven))
+                try expect(frame.width == width && frame.height == height,
+                           "\(classID)'s company \(name) should be \(width) x \(height) at \(scale * 100)%, got \(frame.width) x \(frame.height)")
+            }
+            guard let footRow = company.animation.animation(for: .idle)?.footRow, let idle = company.idleFrame(1) else {
+                throw TestFailure("\(classID)'s company frames should carry an idle pose and its first frame")
+            }
+            try expect(footRow >= 0 && footRow < idle.height, "\(classID)'s company feet row should stay on its canvas, got \(footRow) of \(idle.height)")
+        }
+    }
+
+    /// A PNG's pixel size, read from its file. Nil when it can't be read.
+    private static func pixelSize(of url: URL) -> (width: Int, height: Int)? {
+        guard let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else {
+            return nil
+        }
+        return (rep.pixelsWide, rep.pixelsHigh)
     }
 
     /// The War Hound draws at its file's 82%: its art is 0.82 of an art pixel per point, with its feet on the slot's baseline.

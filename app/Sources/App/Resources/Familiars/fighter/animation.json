@@ -429,8 +429,8 @@
     }
   },
   "company": {
-    "pitch": 40,
-    "capacity": 5
+    "pitch": 38,
+    "capacity": 6
   },
   "idle": {
     "lid_colour": "#000000",

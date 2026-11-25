@@ -13,8 +13,9 @@ final class TrackerCompanyStage {
     struct Companion: Identifiable {
         let id: String
         let sprites: TrackerAvatarSprites
-        /// The art's size: a familiar's scale, as a fraction of one art pixel per point.
-        let scale: CGFloat
+        /// The points one frame pixel draws at: a designed familiar's company frame draws at its half point a pixel, and a fit-rule
+        /// familiar's full frames at its scale as a fraction of one art pixel per point.
+        let pixel: CGFloat
         /// The body column's x in the slot, in points. The familiar's art stands on it.
         let bodyX: CGFloat
         /// How far the art drops below the slot's baseline, in points: a designed familiar's visible bottom sits below the master's feet.
@@ -36,6 +37,7 @@ final class TrackerCompanyStage {
 
     @ObservationIgnored private let catalog: TrackerAvatarCatalog
     @ObservationIgnored private let art: [TrackerAvatarArtKey: TrackerAvatarSprites]
+    @ObservationIgnored private let companionArt: [String: TrackerAvatarSprites]
     @ObservationIgnored private var directors: [String: TrackerAvatarDirector] = [:]
     @ObservationIgnored private var latest: (sessions: [TrackerSession], attachedID: String?) = ([], nil)
     @ObservationIgnored private let clock: () -> TimeInterval
@@ -44,6 +46,7 @@ final class TrackerCompanyStage {
     init(clock: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 }) {
         catalog = TrackerAvatarLibrary.catalog
         art = TrackerAvatarLibrary.sprites
+        companionArt = TrackerAvatarLibrary.companions
         self.clock = clock
     }
 
@@ -75,13 +78,18 @@ final class TrackerCompanyStage {
             clear()
             return
         }
-        // Each worker's familiar, in spawn order. A worker whose familiar has no art shows nothing and takes no place.
-        let familiars: [(id: String, sprites: TrackerAvatarSprites)] = TrackerCompanyLayout.liveWorkers(of: master, in: sessions).compactMap { worker in
-            guard let key = catalog.art(for: worker), key.kind == .familiar, let sprites = art[key] else {
-                return nil
+        // Each worker's familiar, in spawn order. A designed familiar draws from its company frames, a half point a pixel; any other from
+        // its full frames at its scale. A worker whose familiar has no art shows nothing and takes no place.
+        let familiars: [(id: String, sprites: TrackerAvatarSprites, pixel: CGFloat)] = TrackerCompanyLayout.liveWorkers(of: master, in: sessions)
+            .compactMap { worker in
+                guard let key = catalog.art(for: worker), key.kind == .familiar, let full = art[key] else {
+                    return nil
+                }
+                if full.animation.companyRow != nil, let company = companionArt[key.classID] {
+                    return (worker.id, company, CGFloat(TrackerCompanyLayout.companyPixelPoints))
+                }
+                return (worker.id, full, full.scaleFraction)
             }
-            return (worker.id, sprites)
-        }
         guard let reach = Self.reach(of: masterArt), let first = familiars.first else {
             clear()
             return
@@ -92,12 +100,12 @@ final class TrackerCompanyStage {
         let layout: TrackerCompanyLayout.Result
         if let row = first.sprites.animation.companyRow {
             layout = TrackerCompanyLayout.designLayout(
-                count: familiars.count, row: row, restWidth: Double(first.sprites.restWidth), master: reach, slotWidth: slotWidth
+                count: familiars.count, row: row, restWidth: Double(first.sprites.restWidth(pixel: first.pixel)), master: reach, slotWidth: slotWidth
             )
         } else {
             layout = TrackerCompanyLayout.layout(
-                restWidths: familiars.map { Double($0.sprites.restWidth) },
-                pushPerWorker: TrackerCompanyLayout.gradualPush(scale: Double(first.sprites.scaleFraction)),
+                restWidths: familiars.map { Double($0.sprites.restWidth(pixel: $0.pixel)) },
+                pushPerWorker: TrackerCompanyLayout.gradualPush(scale: Double(first.pixel)),
                 master: reach,
                 slotWidth: slotWidth
             )
@@ -121,14 +129,14 @@ final class TrackerCompanyStage {
         companions = layout.familiars.map { placed in
             let entry = familiars[placed.index]
             let frame = frames[entry.id]
-            let scale = entry.sprites.scaleFraction
+            let pixel = entry.pixel
             // Its rest's left edge stands on the layout's `left`: the body column sits the rest's offset to the right of that edge.
-            let bodyX = Self.halfPoint(placed.left - Self.restOffset(of: entry.sprites) * Double(scale))
-            let drop = isDesigned ? Self.halfPoint(Self.drop(of: entry.sprites)) : 0
+            let bodyX = Self.halfPoint(placed.left - Self.restOffset(of: entry.sprites) * Double(pixel))
+            let drop = isDesigned ? Self.halfPoint(Self.drop(of: entry.sprites, pixel: Double(pixel))) : 0
             return Companion(
                 id: entry.id,
                 sprites: entry.sprites,
-                scale: scale,
+                pixel: pixel,
                 bodyX: CGFloat(bodyX),
                 drop: CGFloat(drop),
                 pose: frame?.pose,
@@ -188,11 +196,11 @@ final class TrackerCompanyStage {
     }
 
     /// How far the familiar's art drops below the baseline: its visible bottom lands `belowFeet` under the master's feet, hover gap included.
-    private static func drop(of sprites: TrackerAvatarSprites) -> Double {
+    private static func drop(of sprites: TrackerAvatarSprites, pixel: Double) -> Double {
         guard let footRow = sprites.animation.animation(for: .idle)?.footRow, let lowest = sprites.restLowestRow else {
             return 0
         }
-        return TrackerCompanyLayout.drop(footRow: footRow, lowestRow: lowest, scale: Double(sprites.scaleFraction))
+        return TrackerCompanyLayout.drop(footRow: footRow, lowestRow: lowest, scale: pixel)
     }
 
     /// Snaps to half a point, so the art lands on whole device pixels at 2x.
@@ -207,12 +215,12 @@ extension TrackerAvatarSprites {
         CGFloat(animation.scalePercent) / 100
     }
 
-    /// The resting figure's width in points at its scale: its opaque columns, times the scale.
-    var restWidth: CGFloat {
+    /// The resting figure's width in points, drawn at `pixel` points a frame pixel: its opaque columns, times the pixel size.
+    func restWidth(pixel: CGFloat) -> CGFloat {
         guard let columns = restColumns else {
             return 0
         }
-        return CGFloat(columns.count) * scaleFraction
+        return CGFloat(columns.count) * pixel
     }
 
     /// The resting figure's lowest visible row, in art pixels from the top. A hover leaves it above the feet row.
@@ -245,7 +253,7 @@ struct TrackerCompanySlot: View {
                     beat: companion.beat,
                     finish: companion.finish,
                     enter: companion.enter,
-                    scale: companion.scale
+                    scale: companion.pixel
                 )
                 .offset(x: companion.bodyX - TrackerAvatarMetrics.slotWidth / 2, y: companion.drop)
             }

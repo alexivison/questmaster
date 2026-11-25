@@ -117,6 +117,9 @@ enum TrackerAvatarLibrary {
         return art
     }()
 
+    /// A designed familiar's company frames, by class id: what the master's company draws in place of its full frames.
+    static let companions: [String: TrackerAvatarSprites] = TrackerAvatarSprites.bundledCompanions()
+
     static let catalog: TrackerAvatarCatalog = {
         var animations: [String: TrackerAvatarAnimation] = [:]
         var familiars: [String: TrackerAvatarAnimation] = [:]

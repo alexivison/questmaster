@@ -22,6 +22,9 @@ public enum TrackerCompanyLayout {
     public static let designInset: Double = 10
     /// How far the familiars' visible bottoms sit below the master's feet, in points: the design's 155 against the feet's 150.
     public static let belowFeet: Double = 5
+    /// The points one pixel of a designed familiar's company frame draws at: the frames are on the 2x device grid, one device pixel
+    /// per half point, so every frame pixel lands on a device pixel.
+    public static let companyPixelPoints: Double = 0.5
 
     /// One familiar on the row.
     public struct Familiar: Equatable {

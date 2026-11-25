@@ -17,7 +17,8 @@ Which pose shows when, how cues play, and where the avatar sits.
   (its pitch and full row, from the user's spacing designs) keeps the designed row (`TrackerCompanyLayout.designLayout`): the full row's
   places start 10 pt from the slot's left edge and step by the pitch, and the shown workers take its right-most places, so a familiar
   keeps its place as others are added on its left. The master's body is at the slot's centre with no workers, and it moves left one
-  share of that distance per shown worker, reaching the slot's left edge when the row is full. Each familiar's visible bottom sits 5 pt
+  share of that distance per shown worker, reaching the slot's left edge when the row is full. A designed familiar draws from its `company/` frames at 0.5 pt a pixel (the 2x device grid),
+  so each frame pixel lands on a device pixel. Each familiar's visible bottom sits 5 pt
   below the master's feet, and a hover's gap above its feet is taken out (`TrackerCompanyLayout.drop`). Past the row's capacity the rest
   are counted in a `+n` marker: a 20 pt portrait disc 5 pt in from the slot's right edge, with its chip centred above it. A familiar
   without a `company` row (the Werebear and the slim Shadow until their art ships) keeps the fit rule (`TrackerCompanyLayout.layout`): each

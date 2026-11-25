@@ -158,7 +158,7 @@ struct TrackerCompanyLayoutTests {
             ("bard", TrackerCompanyRow(pitch: 34, capacity: 7), 32),
             ("cleric", TrackerCompanyRow(pitch: 35, capacity: 7), 25),
             ("druid", TrackerCompanyRow(pitch: 40, capacity: 6), 40),
-            ("fighter", TrackerCompanyRow(pitch: 40, capacity: 5), 50),
+            ("fighter", TrackerCompanyRow(pitch: 38, capacity: 6), 50),
             ("necromancer", TrackerCompanyRow(pitch: 35, capacity: 7), 25),
             ("paladin", TrackerCompanyRow(pitch: 39, capacity: 6), 34),
             ("ranger", TrackerCompanyRow(pitch: 31, capacity: 8), 22),
