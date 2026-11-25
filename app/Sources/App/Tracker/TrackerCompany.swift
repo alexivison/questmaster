@@ -3,8 +3,9 @@ import Observation
 import QuestmasterCore
 import SwiftUI
 
-/// The master's company in the running app: each live worker's familiar, placed by Core's `TrackerCompanyLayout` in front of the master,
-/// each playing its own worker's pose through its own director. The attached master's stage (`TrackerAvatarStage`) keeps the master.
+/// The master's company in the running app: each live worker's familiar, placed by Core's `TrackerCompanyLayout` beside the master and in
+/// front of it once the row is full, each playing its own worker's pose through its own director. The attached master's stage
+/// (`TrackerAvatarStage`) keeps the master, which does not move.
 /// Views read the lists below and decide none of them.
 @MainActor
 @Observable
@@ -28,8 +29,6 @@ final class TrackerCompanyStage {
 
     /// The familiars that show, in spawn order: each stands further right than the one before, so the right-most is drawn on top.
     private(set) var companions: [Companion] = []
-    /// How far the master moves left, in points.
-    private(set) var masterShift: CGFloat = 0
     /// The workers counted in the "+n" marker.
     private(set) var overflow = 0
     /// The portrait disc the marker sits above: the master's class's familiar.
@@ -104,10 +103,7 @@ final class TrackerCompanyStage {
             )
         } else {
             layout = TrackerCompanyLayout.layout(
-                restWidths: familiars.map { Double($0.sprites.restWidth(pixel: $0.pixel)) },
-                pushPerWorker: TrackerCompanyLayout.gradualPush(scale: Double(first.pixel)),
-                master: reach,
-                slotWidth: slotWidth
+                restWidths: familiars.map { Double($0.sprites.restWidth(pixel: $0.pixel)) }, slotWidth: slotWidth
             )
         }
         var stepped: [String: TrackerAvatarDirector] = [:]
@@ -145,7 +141,6 @@ final class TrackerCompanyStage {
                 enter: frame?.enterElapsed
             )
         }
-        masterShift = Self.halfPoint(layout.masterShift)
         overflow = layout.overflow
         overflowPortrait = overflow > 0 ? SessionClass(id: master.sessionClass).map(SessionPortrait.familiar) : nil
         scheduleWake(at: nextChange)
@@ -153,7 +148,6 @@ final class TrackerCompanyStage {
 
     private func clear() {
         companions = []
-        masterShift = 0
         overflow = 0
         overflowPortrait = nil
         scheduleWake(at: nil)
@@ -229,8 +223,8 @@ extension TrackerAvatarSprites {
     }
 }
 
-/// The master's slot with its company: the master (moved left by the layout's push), each familiar in front of it in spawn order, and
-/// the `+n` marker at the right. Each figure is a slot-sized avatar offset to its place, so the slot itself never moves or resizes.
+/// The master's slot with its company: the master where it stands, each familiar beside it or in front of it in spawn order, and the `+n`
+/// marker at the right. Each figure is a slot-sized avatar offset to its place, so the slot itself never moves or resizes.
 struct TrackerCompanySlot: View {
     let avatar: TrackerAvatarStage
     let company: TrackerCompanyStage
@@ -245,7 +239,6 @@ struct TrackerCompanySlot: View {
                 finish: avatar.finish,
                 enter: avatar.enter
             )
-            .offset(x: -company.masterShift)
             ForEach(company.companions) { companion in
                 TrackerAvatarSlot(
                     pose: companion.pose,

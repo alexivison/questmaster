@@ -226,6 +226,11 @@ enum RenderPreview {
         render(selectedSessionPanelView(isShell: true), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-shell.png")
         render(familiarSlotsView(), size: CGSize(width: 1290, height: 1925), to: "\(outputDir)/familiar-slots.png")
         render(masterCompanyView(), size: CGSize(width: 1210, height: 2035), to: "\(outputDir)/master-company.png")
+        // The worker-count sequences: each class's company from none to its full row plus one, in the slot, for the fewer-workers rule.
+        for (classID, full) in [("necromancer", 7), ("wizard", 7), ("fighter", 6), ("ranger", 8)] {
+            render(companySequenceView(classID: classID, full: full), size: CGSize(width: 360, height: 1), autoHeight: true,
+                   to: "\(outputDir)/company-sequence-\(classID).png")
+        }
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -1614,6 +1619,30 @@ enum RenderPreview {
                 }
             }
         }
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// One class's company as the worker count grows, from none to its full row plus one, each row in the tracker's own slot and labelled with
+    /// its count. A thin guide marks the slot's middle. Named by RENDER_ONLY=company-sequence-<class>.
+    @MainActor
+    private static func companySequenceView(classID: String, full: Int) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0...(full + 1), id: \.self) { count in
+                HStack(spacing: 0) {
+                    Text("\(count) \(count == 1 ? "worker" : "workers")").font(Font(AppFonts.monoSmall))
+                        .foregroundStyle(AppPalette.text.swiftUI).frame(width: 70, alignment: .leading)
+                    companyCell(classID: classID, workers: count)
+                        .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(AppPalette.line.swiftUI.opacity(0.5))
+                                .frame(width: 1, height: TrackerAvatarMetrics.slotHeight)
+                                .offset(x: TrackerAvatarMetrics.slotWidth / 2)
+                        }
+                }
+                .padding(.bottom, TrackerListMetrics.avatarBannerGap)
+            }
+        }
+        .padding(.leading, Space.item)
         .background(AppPalette.window.swiftUI)
     }
 
