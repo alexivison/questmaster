@@ -32,8 +32,9 @@ public struct TrackerAvatarFrame: Equatable {
 /// - Nothing that has an end is cut: an enter, a finish and a one-shot (a cue's beat, the bow) always play to their end. A loop has
 ///   no end, so it is left whenever another pose is wanted or a cue starts: its own finish plays first, if it has one. A cue, a
 ///   steady change and calling out each wait for the block on screen to end, never for each other beyond that.
-/// - The steady pose follows the attached session (`TrackerAvatarPose.pose(for:catalog:)`), when it has art: a master's class or a
-///   worker's familiar, which takes the same rules without cues. A change
+/// - The steady pose follows the attached session (`TrackerAvatarPose.pose(for:catalog:turnUsedTool:)`), when it has art: a master's class or a
+///   worker's familiar, which takes the same rules without cues. A familiar works from its turn's first tool to the turn's end, and
+///   thinks before that (`noteToolUse`). A change
 ///   holds the pose on screen for `holdSeconds` before the next one shows (and until its enter has ended), and only the latest
 ///   desired pose is kept meanwhile. Calling out skips the hold, and jumps ahead of the queued cues, but follows the same rule
 ///   otherwise: the loop it leaves finishes first and an enter or a finish on screen ends first. A steady change also waits for
@@ -80,6 +81,8 @@ public struct TrackerAvatarDirector {
     private var attachedIsDone = false
     /// The director saw the attached session working since its last turn ended, so the turn's end earns a bow.
     private var turnWorked = false
+    /// The attached turn has used a tool (`noteToolUse`), so a familiar's pose stays working between its tools. A master's pose ignores it.
+    private var turnUsedTool = false
     /// A turn that ended, waiting for its sub-agents to stop before its bow.
     private var bowPending = false
     /// The bow is wanted: from the turn's end until it has played.
@@ -184,6 +187,8 @@ public struct TrackerAvatarDirector {
         attachedIsWorking = isWorking(session)
         attachedIsDone = isDone(session)
         turnWorked = attachedIsWorking
+        turnUsedTool = false
+        noteToolUse(of: session)
         steadyWanted = wantedSteady()
         show(steadyWanted, at: now)
     }
@@ -191,6 +196,7 @@ public struct TrackerAvatarDirector {
     /// Reads the attached session's turn: whether it has worked, and whether a turn that ends now earns a bow.
     private mutating func updateTurn(_ session: TrackerSession?) {
         self.session = session
+        noteToolUse(of: session)
         let working = isWorking(session)
         let done = isDone(session)
         if working {
@@ -210,6 +216,28 @@ public struct TrackerAvatarDirector {
         }
         attachedIsWorking = working
         attachedIsDone = done
+    }
+
+    /// Remembers whether the attached turn has used a tool: a tool in flight (`cast`), or sub-agents, which only a tool starts. A cast
+    /// or sub-agents seen while the turn is under way (working, or blocked on a question) mark it, and a turn that ends (done, stopped or
+    /// error) clears it. Blocked is no end, since work resumes in the same turn, and idle is none either: a done turn goes idle later, and
+    /// an unreadable state reads as idle mid-turn. A payload carries only the tool running when it was cut, so a tool that starts and ends
+    /// between two payloads is never seen: the turn then thinks until a tool that is seen.
+    private mutating func noteToolUse(of session: TrackerSession?) {
+        guard let session else {
+            turnUsedTool = false
+            return
+        }
+        switch TrackerStatusClassifier.classify(session).kind {
+        case .working, .blocked, .needsInput:
+            if session.cast != nil || session.activeSubagents > 0 {
+                turnUsedTool = true
+            }
+        case .done, .stopped, .error:
+            turnUsedTool = false
+        case .idle:
+            break
+        }
     }
 
     private func cue(for event: TrackerAvatarEvent, animation: TrackerAvatarAnimation) -> [Beat] {
@@ -350,7 +378,7 @@ public struct TrackerAvatarDirector {
     /// The steady pose the attached session calls for: the bow while one is requested, otherwise the session's own pose. Nil
     /// when the session shows no avatar.
     private func wantedSteady() -> TrackerAvatarPose? {
-        guard let steady = TrackerAvatarPose.pose(for: session, catalog: catalog) else {
+        guard let steady = TrackerAvatarPose.pose(for: session, catalog: catalog, turnUsedTool: turnUsedTool) else {
             return nil
         }
         return bowRequested ? .bow : steady

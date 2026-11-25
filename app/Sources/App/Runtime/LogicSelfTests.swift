@@ -2652,7 +2652,20 @@ enum LogicSelfTests {
             throw TestFailure("a paladin's worker should draw the paladin's familiar")
         }
         try expect(familiar.animation.animation(for: .working) != nil, "a worker should draw the familiar's art, which names the working pose")
-        try expect(stage.pose == .pondering, "a working worker with no tool should think, got \(String(describing: stage.pose))")
+        try expect(stage.pose == .pondering, "a working worker should think until its turn's first tool, got \(String(describing: stage.pose))")
+        // Its first tool runs, then the worker is between tools: the turn stays at work with no tool in flight, until it ends.
+        clock.now = 10
+        let firstTool = try row([
+            "id": "qm-w", "title": "Plate", "session_type": "worker", "parent_id": "qm-m", "class": "paladin",
+            "cast": ["tool": "Read", "started_at": "2026-11-25T09:00:00Z", "typical_ms": 0],
+        ])
+        stage.observe(sessions: [master, firstTool], attachedID: "qm-w")
+        clock.now = 15
+        stage.observe(sessions: [master, firstTool], attachedID: "qm-w")
+        try expect(stage.pose == .working, "a worker should work while its first tool runs, got \(String(describing: stage.pose))")
+        clock.now = 25
+        stage.observe(sessions: [master, worker], attachedID: "qm-w")
+        try expect(stage.pose == .working, "a worker should keep working between its tools, got \(String(describing: stage.pose))")
 
         stage.observe(sessions: [master, worker], attachedID: "qm-m")
         guard let classArt = stage.sprites else {
