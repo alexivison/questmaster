@@ -225,7 +225,7 @@ enum RenderPreview {
         render(selectedSessionPanelView(portrait: .familiar(.wizard)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-familiar.png")
         render(selectedSessionPanelView(isShell: true), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-shell.png")
         render(familiarSlotsView(), size: CGSize(width: 1290, height: 1925), to: "\(outputDir)/familiar-slots.png")
-        render(masterCompanyView(), size: CGSize(width: 810, height: 700), to: "\(outputDir)/master-company.png")
+        render(masterCompanyView(), size: CGSize(width: 1210, height: 2035), to: "\(outputDir)/master-company.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -1593,16 +1593,23 @@ enum RenderPreview {
     /// A master with one, six and nine workers, for four classes, in the tracker's own slot: the Wizard with Fire Elementals, the Ranger with
     /// Hawks, the Fighter with War Hounds at 75%, and the Barbarian with Bears. Each row feeds its own stages, as the tracker does.
     /// Named by RENDER_ONLY=master-company.
+    /// Every class's company at one worker, three workers, its full row (the user's spacing designs' capacity) and two past it (the "+n"
+    /// marker), each in its slot.
     @MainActor
     private static func masterCompanyView() -> some View {
-        let rows: [(classID: String, workers: [Int])] = [("wizard", [1, 6, 9]), ("ranger", [1, 6, 9]), ("fighter", [1, 6, 9]), ("barbarian", [1, 6, 9])]
+        let rows: [(classID: String, full: Int)] = [
+            ("barbarian", 5), ("bard", 7), ("cleric", 7), ("druid", 6), ("fighter", 5), ("necromancer", 7),
+            ("paladin", 6), ("ranger", 8), ("rogue", 6), ("sorcerer", 6), ("wizard", 7),
+        ]
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(rows, id: \.classID) { row in
                 HStack(spacing: 0) {
                     Text(row.classID).font(Font(AppFonts.monoSmall)).frame(width: 90, alignment: .leading)
-                    ForEach(row.workers, id: \.self) { count in
+                    ForEach([1, 3, row.full, row.full + 2], id: \.self) { count in
+                        // The room under the slot holds the familiars' drop below the feet, as the banner gap does in the tracker.
                         companyCell(classID: row.classID, workers: count)
                             .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                            .padding(.bottom, TrackerListMetrics.avatarBannerGap)
                     }
                 }
             }
@@ -1615,9 +1622,7 @@ enum RenderPreview {
     private static func companyCell(classID: String, workers count: Int) -> some View {
         let master = try! testFixtureRow(["id": "qm-m", "title": classID, "session_type": "master", "class": classID, "state": "working"])
         let workers = (0..<count).map { index -> TrackerSession in
-            // The first worker of the six-worker row is blocked, so its bubble shows at the familiar's scale.
-            let state = index == 0 && count == 6 ? "blocked" : "working"
-            return try! testFixtureRow(["id": "qm-w\(index)", "title": "Worker \(index)", "session_type": "worker", "parent_id": "qm-m", "class": classID, "state": state])
+            try! testFixtureRow(["id": "qm-w\(index)", "title": "Worker \(index)", "session_type": "worker", "parent_id": "qm-m", "class": classID, "state": "working"])
         }
         let avatar = TrackerAvatarStage(clock: { 0 })
         let company = TrackerCompanyStage(clock: { 0 })

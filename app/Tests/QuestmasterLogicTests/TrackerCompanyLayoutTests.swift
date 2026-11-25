@@ -1,7 +1,8 @@
 import Foundation
 import QuestmasterCore
 
-/// The master's company in its slot: the fixed-step row, its "+n" overflow, the master's gradual push, and the familiars' scales.
+/// The master's company in its slot: the fit rule's fixed-step row, its "+n" overflow, the master's gradual push, the designed rows from
+/// the user's spacing designs, the drop below the feet, and the familiars' scales and rows from their files.
 struct TrackerCompanyLayoutTests {
     static func run() {
         fireRowGrowsLeftwardOneFixedAdvancePerWorker()
@@ -11,7 +12,13 @@ struct TrackerCompanyLayoutTests {
         theMasterPushesLeftGraduallyAndStopsAtItsEdge()
         noWorkersLeavesTheSlotAsItWas()
         liveWorkersAreTheMastersStartedWorkersInSpawnOrder()
+        designedFullRowStartsAtTen()
+        designedRowShowsFewerWorkersAtItsRight()
+        designedRowCountsWorkersPastItsCapacity()
+        designedRowsEndLeftOfTheMarker()
+        visibleBottomsDropBelowTheFeet()
         familiarScalesComeFromTheirFiles()
+        companyRowComesFromTheFile()
         print("TrackerCompanyLayoutTests: all tests passed")
     }
 
@@ -98,10 +105,93 @@ struct TrackerCompanyLayoutTests {
         expect(live == ["qm-w2", "qm-w1"], "a master's live workers should be its unstopped children in payload order, got \(live)")
     }
 
-    /// The familiars' scales come from their files: the War Hound is 75%, the Imp 50%, and a class always draws at 100.
+    // MARK: The designed rows
+
+    /// The design's slot is 280 pt wide (the tracker column), and its marker's disc starts 25 pt from the right edge (20 pt disc, 5 pt in).
+    private static let slot = 280.0
+    private static let markerLeft = 255.0
+
+    /// The full row starts its first familiar at 10 pt, every next one a pitch further right; with no workers the master's body is at the
+    /// slot's centre, and a full row moves it to the slot's left edge.
+    private static func designedFullRowStartsAtTen() {
+        let fire = TrackerCompanyRow(pitch: 35, capacity: 7)
+        let master = TrackerCompanyLayout.MasterReach(left: 40, right: 45)
+        let full = designed(7, fire, master)
+        expect(full.familiars.count == 7 && full.overflow == 0, "a full Fire row should show seven, got \(full.familiars.count) and \(full.overflow) counted")
+        for (index, place) in full.familiars.enumerated() {
+            expect(abs(place.left - Double(10 + index * 35)) < 1e-6, "Fire \(index + 1) should start at \(10 + index * 35), got \(place.left)")
+        }
+        expect(abs(full.masterShift - 100) < 1e-6, "a full row should move the master to the slot's left edge (140 - 40 = 100), got \(full.masterShift)")
+        let none = designed(0, fire, master)
+        expect(none.familiars.isEmpty && none.masterShift == 0, "no workers should leave the designed slot as it was")
+    }
+
+    /// With fewer workers they take the right-most places of the full row, so a familiar keeps its place as others are added on its left;
+    /// the master moves one seventh of its distance per worker.
+    private static func designedRowShowsFewerWorkersAtItsRight() {
+        let fire = TrackerCompanyRow(pitch: 35, capacity: 7)
+        let master = TrackerCompanyLayout.MasterReach(left: 40, right: 45)
+        let one = designed(1, fire, master)
+        expect(one.familiars.count == 1 && abs(one.familiars[0].left - 220) < 1e-6, "one Fire should stand in the right-most place (220), got \(one.familiars.map(\.left))")
+        expect(abs(one.masterShift - 100.0 / 7) < 1e-6, "one of seven should move the master a seventh, got \(one.masterShift)")
+        let three = designed(3, fire, master)
+        expect(three.familiars.map(\.left).elementsAlmostEqual([150, 185, 220]), "three Fire should stand at 150, 185 and 220, got \(three.familiars.map(\.left))")
+        expect(abs(three.masterShift - 300.0 / 7) < 1e-6, "three of seven should move the master three sevenths, got \(three.masterShift)")
+    }
+
+    /// Past its capacity a designed row shows the capacity and counts the rest in the marker; the places stay where the full row put them.
+    private static func designedRowCountsWorkersPastItsCapacity() {
+        let fire = TrackerCompanyRow(pitch: 35, capacity: 7)
+        let master = TrackerCompanyLayout.MasterReach(left: 40, right: 45)
+        let nine = designed(9, fire, master)
+        expect(nine.familiars.count == 7 && nine.overflow == 2, "nine Fire should show seven and count two, got \(nine.familiars.count) and \(nine.overflow)")
+        expect(nine.familiars.map(\.left).elementsAlmostEqual(designed(7, fire, master).familiars.map(\.left)), "a full row shows the same places however many more there are")
+        expect(abs(nine.masterShift - 100) < 1e-6, "a full row holds the master at the slot's left edge, got \(nine.masterShift)")
+    }
+
+    /// Each design's full row ends left of the marker's disc, with its gap as designed: a row's last right edge, from its pitch, capacity and
+    /// resting width, stays at least 5 pt from the marker (the Druid's row is the tightest, at 5 pt).
+    private static func designedRowsEndLeftOfTheMarker() {
+        // The study's rows: pitch, full row and resting width at scale (points), per class.
+        let rows: [(name: String, row: TrackerCompanyRow, width: Double)] = [
+            ("barbarian", TrackerCompanyRow(pitch: 47, capacity: 5), 50),
+            ("bard", TrackerCompanyRow(pitch: 34, capacity: 7), 32),
+            ("cleric", TrackerCompanyRow(pitch: 35, capacity: 7), 25),
+            ("druid", TrackerCompanyRow(pitch: 40, capacity: 6), 40),
+            ("fighter", TrackerCompanyRow(pitch: 40, capacity: 5), 50),
+            ("necromancer", TrackerCompanyRow(pitch: 35, capacity: 7), 25),
+            ("paladin", TrackerCompanyRow(pitch: 39, capacity: 6), 34),
+            ("ranger", TrackerCompanyRow(pitch: 31, capacity: 8), 22),
+            ("rogue", TrackerCompanyRow(pitch: 40.6, capacity: 6), 32),
+            ("sorcerer", TrackerCompanyRow(pitch: 40, capacity: 6), 37),
+            ("wizard", TrackerCompanyRow(pitch: 35, capacity: 7), 26),
+        ]
+        let master = TrackerCompanyLayout.MasterReach(left: 40, right: 45)
+        for entry in rows {
+            let full = designed(entry.row.capacity, entry.row, master, width: entry.width)
+            guard let last = full.familiars.last else {
+                fail("\(entry.name) should show a full row")
+            }
+            let gap = markerLeft - (last.left + entry.width)
+            expect(gap >= 5 - 1e-9, "\(entry.name)'s full row should end at least 5 pt left of the marker, got a gap of \(gap)")
+            expect(abs(full.familiars[0].left - 10) < 1e-6, "\(entry.name)'s first familiar should start at 10 pt")
+        }
+    }
+
+    /// The feet stand on the baseline, so a familiar with no hover drops `belowFeet` (5 pt, its visible bottom at 155 against the feet's
+    /// 150); a hover's gap above the feet, 10 art pixels at 50%, is taken out, so the hoverer lands on the same line too.
+    private static func visibleBottomsDropBelowTheFeet() {
+        expect(abs(TrackerCompanyLayout.drop(footRow: 174, lowestRow: 174, scale: 0.5) - 5) < 1e-9, "a familiar standing on its feet should drop 5 pt")
+        expect(abs(TrackerCompanyLayout.drop(footRow: 174, lowestRow: 164, scale: 0.5) - 10) < 1e-9,
+               "a hoverer 10 px above its feet at 50% should drop 5 pt more, to 10 pt")
+        expect(abs(TrackerCompanyLayout.drop(footRow: 174, lowestRow: 174, scale: 0.694) - 5) < 1e-9, "the drop should not depend on the scale when there is no hover")
+    }
+
+    /// The familiars' scales come from their files: the War Hound is 82%, the Imp 60.4%, and a class always draws at 100. A 0% scale is
+    /// refused, and so is one above 100.
     private static func familiarScalesComeFromTheirFiles() {
-        expect(AvatarAnimationFixture.familiar("fighter").scalePercent == 75, "the War Hound should draw at 75%")
-        expect(AvatarAnimationFixture.familiar("bard").scalePercent == 50, "the Imp should draw at 50%")
+        expect(AvatarAnimationFixture.familiar("fighter").scalePercent == 82, "the War Hound should draw at 82%, got \(AvatarAnimationFixture.familiar("fighter").scalePercent)")
+        expect(AvatarAnimationFixture.familiar("bard").scalePercent == 60.4, "the Imp should draw at 60.4%, got \(AvatarAnimationFixture.familiar("bard").scalePercent)")
         expect(AvatarAnimationFixture.bard().scalePercent == 100, "a class should draw at 100%")
         var json = AvatarAnimationFixture.familiarJSON("bard")
         json["scale"] = 0
@@ -115,8 +205,34 @@ struct TrackerCompanyLayoutTests {
         }
     }
 
+    /// A familiar's company row comes from its file, and a file without one (the Werebear and Shadow until their art ships) has none. A
+    /// row needs a pitch above 0 and a capacity of at least one.
+    private static func companyRowComesFromTheFile() {
+        expect(AvatarAnimationFixture.familiar("bard").companyRow == TrackerCompanyRow(pitch: 34, capacity: 7), "the Imp's row should be 34 pt and seven")
+        expect(AvatarAnimationFixture.familiar("barbarian").companyRow == nil, "the old Bear keeps the fit rule: no company row")
+        expect(AvatarAnimationFixture.familiar("rogue").companyRow == nil, "the old Shadow keeps the fit rule: no company row")
+        expect(AvatarAnimationFixture.bard().companyRow == nil, "a class has no company row")
+        var json = AvatarAnimationFixture.familiarJSON("bard")
+        json["company"] = ["pitch": 34, "capacity": 0]
+        do {
+            _ = try AvatarAnimationFixture.decodeFamiliar(json)
+            fail("a company row with no capacity should not read")
+        } catch let error as TrackerAvatarAnimationError {
+            expect(error == .invalidCompany, "a zero capacity should be rejected as an invalid company row, got \(error)")
+        } catch {
+            fail("a zero capacity should give an invalid company row, got \(error)")
+        }
+    }
+
+    // MARK: Helpers
+
     private static func layout(_ widths: [Double], master: TrackerCompanyLayout.MasterReach) -> TrackerCompanyLayout.Result {
+        // The fit rule's numbers are the study's at its first 240 pt slot.
         TrackerCompanyLayout.layout(restWidths: widths, pushPerWorker: 16, master: master, slotWidth: 240)
+    }
+
+    private static func designed(_ count: Int, _ row: TrackerCompanyRow, _ master: TrackerCompanyLayout.MasterReach, width: Double = 26) -> TrackerCompanyLayout.Result {
+        TrackerCompanyLayout.designLayout(count: count, row: row, restWidth: width, master: master, slotWidth: slot)
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -128,5 +244,12 @@ struct TrackerCompanyLayoutTests {
     private static func fail(_ message: String) -> Never {
         fputs("TrackerCompanyLayoutTests failed: \(message)\n", stderr)
         exit(1)
+    }
+}
+
+private extension Array where Element == Double {
+    /// Whether the numbers match `others` within a rounding error, in order.
+    func elementsAlmostEqual(_ others: [Double]) -> Bool {
+        count == others.count && zip(self, others).allSatisfy { abs($0 - $1) < 1e-6 }
     }
 }

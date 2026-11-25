@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "scale": 75,
+  "scale": 82.0,
   "poses": {
     "01-idle": {
       "foot_row": 174,
@@ -427,6 +427,10 @@
         ]
       }
     }
+  },
+  "company": {
+    "pitch": 40,
+    "capacity": 5
   },
   "idle": {
     "lid_colour": "#000000",

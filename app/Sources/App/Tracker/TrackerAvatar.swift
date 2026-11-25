@@ -4,8 +4,8 @@ import QuestmasterCore
 import SwiftUI
 
 enum TrackerAvatarMetrics {
-    /// The fixed avatar slot matches the master plate's width.
-    static let slotWidth = TrackerPlateDesign.topLevelSize.width
+    /// The fixed avatar slot spans the tracker column: the plates and the PR badge column, the same width as the session banner.
+    static let slotWidth = TrackerListMetrics.columnWidth
     /// The tallest bundled class's idle figure, in sprite pixels above its sole.
     @MainActor static let tallestFigureHeight = TrackerAvatarSprites.bundled().values.compactMap(\.idleFigureHeight).max() ?? 0
     /// The slot's reserved height: the tallest figure rounded up to the 5 pt step, one point a sprite pixel. It is the same for every class.

@@ -39,7 +39,7 @@ loading skeleton, so the plates' visible top is `headerHeight` + 20 below the pa
 the silhouette margin is only in its layers. Under the list,
 `TrackerListMetrics.avatarClearance` (`Space.group`) precedes the fixed avatar slot. Its sole stands
 `TrackerListMetrics.avatarBannerGap` (`Space.item`, 10) above the session banner's id tab: the gap sits below the slot, so
-the slot keeps its size, every pose moves up with it, and the plate list gives up the room. The slot and banner are 240pt wide and left-aligned with the master plates at
+the slot keeps its size, every pose moves up with it, and the plate list gives up the room. The slot and banner are 280pt wide (the plates and the PR badge column, `TrackerListMetrics.columnWidth`), left-aligned with the master plates at
 `TrackerListMetrics.sidePadding`; the slot reserves the tallest bundled class's idle figure, rounded up to 5pt (175pt now),
 so changing classes never moves the layout. `Space.section` separates the banner's bottom from the shells. With no
 shells, the banner ends `verticalPadding` above the column's bottom. Only an attached plate (master or worker) reserves
@@ -56,7 +56,7 @@ nothing attached or an unknown id, so neither banner nor avatar slot appears. A 
 draws over the list; the banner draws in front of the sprite, keeping its raised shadow; art hanging below the sole shows in the gap.
 `SelectedSessionPanel` remains for its standalone previews and self-tests. An attached worker's slot draws its master's class's familiar
 in the same slot and above the same banner (`.agents/skills/class-avatar/SKILL.md`); its size and place never change for a worker. An
-attached master's slot also holds its live workers' familiars in front of it, small, in one row anchored at the slot's right, with a `+n`
+attached master's slot also holds its live workers' familiars in front of it, small, in one row (a designed row from 10pt, or the fit rule's row anchored at the slot's right), with a `+n`
 chip above the master's familiar's disc once the row is full (`TrackerCompanySlot`, `TrackerCompanyStage`). The master moves left as the row
 grows; the slot, banner and plate list stay put.
 

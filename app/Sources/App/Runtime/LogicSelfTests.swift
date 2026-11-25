@@ -1135,7 +1135,7 @@ enum LogicSelfTests {
         try expectClose(TrackerListMetrics.firstSectionTopInset, Space.section, "first plate starts a section gap under the tracker header")
         try expectClose(TrackerListMetrics.avatarClearance, 40, "clearance between the list and the avatar slot")
         try expectClose(TrackerListMetrics.avatarBannerGap, Space.item, "gap between the avatar's sole and the banner")
-        try expectClose(SelectedSessionTagMetrics.width, 240, "banner matches a master plate's width")
+        try expectClose(SelectedSessionTagMetrics.width, TrackerListMetrics.columnWidth, "banner spans the plates and the badge column, the avatar slot's width")
         try expectClose(SelectedSessionTagMetrics.tabInset, 5, "id tab inset on each side")
         try expectClose(TrackerListMetrics.contentWidth, 282, "tracker content width reserves the badge column and band allowance")
 
@@ -2661,8 +2661,9 @@ enum LogicSelfTests {
         try expect(classArt.animation.animation(for: .studying) != nil, "a paladin master should draw the paladin's class art")
     }
 
-    /// A master's company stands in its slot: six Fire Elementals show of eight, the marker counts two above the master's familiar's disc,
-    /// each familiar's rest stays inside the row's inset and the reserve, and the master moves left to make room.
+    /// A master's company stands in its slot: seven Fire Elementals show of eight (the design's full row), the marker counts one above the
+    /// master's familiar's disc, each familiar's rest stays inside the row's first place and the marker's left edge, each drops below the
+    /// feet, and the master moves to the slot's left edge.
     @MainActor
     private static func testTheMastersCompanyFitsItsSlot() throws {
         final class Clock {
@@ -2675,18 +2676,25 @@ enum LogicSelfTests {
             try testRow(["id": "qm-w\(index)", "title": "Ember", "session_type": "worker", "parent_id": "qm-m", "class": "wizard"])
         }
         stage.observe(sessions: [master] + workers, attachedID: "qm-m")
-        try expect(stage.companions.count == 6 && stage.overflow == 2, "eight Fire workers should show six and count two, got \(stage.companions.count) and \(stage.overflow)")
+        try expect(stage.companions.count == 7 && stage.overflow == 1, "eight Fire workers should show seven and count one, got \(stage.companions.count) and \(stage.overflow)")
         try expect(stage.overflowPortrait == .familiar(.wizard), "the marker should sit above the wizard's familiar disc")
-        try expect(stage.companions.map(\.id) == (0..<6).map { "qm-w\($0)" }, "the row should keep spawn order, got \(stage.companions.map(\.id))")
-        try expect(stage.masterShift > 0 && stage.masterShift <= TrackerAvatarMetrics.slotWidth / 2, "the master should move left to make room, got \(stage.masterShift)")
+        try expect(stage.companions.map(\.id) == (0..<7).map { "qm-w\($0)" }, "the row should keep spawn order, got \(stage.companions.map(\.id))")
+        // The master's visible left edge sits where its body column's offset puts it with no workers; a full row moves it to the slot's edge.
+        guard let masterArt = TrackerAvatarLibrary.sprites[TrackerAvatarArtKey(kind: .master, classID: "wizard")],
+              let masterColumns = masterArt.restColumns, let masterBody = masterArt.animation.animation(for: .idle)?.bodyColumn else {
+            throw TestFailure("the wizard's master should carry its rest art")
+        }
+        let homeLeft = TrackerAvatarMetrics.slotWidth / 2 - CGFloat(masterBody - masterColumns.lowerBound)
+        try expect(abs(stage.masterShift - homeLeft) < 0.5, "a full row should move the master's left edge (\(homeLeft)) to the slot's edge, got a shift of \(stage.masterShift)")
         for companion in stage.companions {
             guard let columns = companion.sprites.restColumns, let body = companion.sprites.animation.animation(for: .idle)?.bodyColumn else {
                 throw TestFailure("a companion should carry its rest art")
             }
             let restLeft = companion.bodyX + CGFloat(columns.lowerBound - body) * companion.scale
             let restRight = companion.bodyX + CGFloat(columns.upperBound + 1 - body) * companion.scale
-            try expect(restLeft >= 15 - 0.5 && restRight <= 204 + 0.5,
-                       "a Fire companion should rest inside the row's inset and reserve, got \(restLeft)..<\(restRight)")
+            try expect(restLeft >= 10 - 0.5 && restRight <= 255 + 0.5,
+                       "a Fire companion should rest from the designed first place to the marker, got \(restLeft)..<\(restRight)")
+            try expect(companion.drop >= 5 - 0.01, "a Fire familiar should drop below the feet, got \(companion.drop)")
         }
         try expect(stage.companions.allSatisfy { $0.scale == 0.5 }, "a Fire familiar should draw at 50%")
 
@@ -2697,18 +2705,18 @@ enum LogicSelfTests {
         try expect(stage.companions.isEmpty && stage.overflow == 0, "a master with no workers should show no company")
     }
 
-    /// The War Hound draws at its file's 75%: its art is three quarters of an art pixel per point, with its feet on the slot's baseline.
+    /// The War Hound draws at its file's 82%: its art is 0.82 of an art pixel per point, with its feet on the slot's baseline.
     @MainActor
     private static func testTheWarHoundDrawsAtItsScaleOnTheBaseline() throws {
         guard let hound = TrackerAvatarSprites.bundledFamiliars()["fighter"], let placement = hound.animation.animation(for: .pondering),
               let rig = TrackerAvatarFrameRig(pose: .pondering, placement: placement, sprites: hound) else {
             throw TestFailure("the War Hound's thinking pose should draw")
         }
-        try expect(hound.animation.scalePercent == 75, "the War Hound should draw at 75%, got \(hound.animation.scalePercent)")
+        try expect(hound.animation.scalePercent == 82, "the War Hound should draw at 82%, got \(hound.animation.scalePercent)")
         let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
-        rig.place(in: slot, scale: 0.75)
-        try expect(abs(rig.root.frame.width - 260 * 0.75) < 0.01, "the War Hound's art should be 195 pt wide, got \(rig.root.frame.width)")
-        let feet = rig.root.frame.minY + CGFloat(188 - 1 - placement.footRow) * 0.75
+        rig.place(in: slot, scale: 0.82)
+        try expect(abs(rig.root.frame.width - 260 * 0.82) < 0.01, "the War Hound's art should be 213.2 pt wide, got \(rig.root.frame.width)")
+        let feet = rig.root.frame.minY + CGFloat(188 - 1 - placement.footRow) * 0.82
         try expect(abs(feet) < 0.01, "the War Hound's feet should stand on the slot's baseline, got \(feet)")
     }
 

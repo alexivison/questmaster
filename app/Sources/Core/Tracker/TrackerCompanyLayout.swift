@@ -1,19 +1,27 @@
 import Foundation
 
-/// The master's company in its avatar slot: each live worker's familiar stands in front of the master, small, in one row. The row is
-/// anchored at the slot's right, past the overflow reserve, and grows leftward by one fixed advance per worker, pushing the master left
-/// as it goes. Once the row reaches the left inset, further workers are counted in a "+n" marker. Nothing stretches to fill the slot, so
-/// a slim familiar shows more workers than a wide one. Pure: the App measures each familiar's resting width at its scale.
+/// The master's company in its avatar slot: each live worker's familiar stands in front of the master, small, in one row. A familiar
+/// with a company row (its pitch and full row, from the user's spacing designs) keeps its designed row: the full row's places are
+/// fixed, the shown workers take the right-most of them, and the master moves left one share per worker until it reaches the slot's
+/// left edge at the full row. A familiar without one keeps the fit rule: the row is anchored at the slot's right, grows leftward by one
+/// fixed advance per worker, and once it reaches the left inset further workers are counted in a "+n" marker. Pure: the App measures
+/// each familiar's resting width at its scale.
 public enum TrackerCompanyLayout {
-    /// The fit's numbers, from the master-screen study the user approved: the row stops at this inset from the slot's left edge.
+    /// The fit rule's numbers, from the master-screen study the user approved: the row stops at this inset from the slot's left edge.
     public static let leftInset: Double = 15
-    /// The preferred gap between neighbours. A wide familiar shrinks it (overlaps) only as far as `minimumShown` workers fit.
+    /// The fit rule's preferred gap between neighbours. A wide familiar shrinks it (overlaps) only as far as `minimumShown` workers fit.
     public static let preferredGap: Double = 6
     public static let minimumShown = 6
-    /// The room at the slot's right kept for the "+n" marker's portrait disc.
+    /// The room at the slot's right kept for the "+n" marker's portrait disc, under the fit rule.
     public static let markerReserve: Double = 36
-    /// The most workers the row considers. Past it everything is counted, so the row is bounded whatever the count.
+    /// The most workers the fit rule considers. Past it everything is counted, so the row is bounded whatever the count.
     static let considered = 20
+
+    /// The design's first familiar's left edge, in points from the slot's left edge. The row and the marker moved left together (the
+    /// design's 20 pt, less 10), so every gap in the row and to the marker is as designed.
+    public static let designInset: Double = 10
+    /// How far the familiars' visible bottoms sit below the master's feet, in points: the design's 155 against the feet's 150.
+    public static let belowFeet: Double = 5
 
     /// One familiar on the row.
     public struct Familiar: Equatable {
@@ -27,8 +35,7 @@ public enum TrackerCompanyLayout {
 
     /// The company's layout in the slot.
     public struct Result: Equatable {
-        /// How far the master moves left, in points: the gradual push, or the room the row needs, whichever is more, up to the most
-        /// the master can move before its art reaches the slot's left edge.
+        /// How far the master moves left, in points.
         public let masterShift: Double
         /// The familiars that show, in spawn order.
         public let familiars: [Familiar]
@@ -47,8 +54,8 @@ public enum TrackerCompanyLayout {
         }
     }
 
-    /// Lays out `restWidths` (in spawn order, each familiar's resting opaque width in points at its scale) in a slot `slotWidth` wide.
-    /// `pushPerWorker` is the gradual push each worker adds to the master, in points (32 × the familiar's scale, as the study has it).
+    /// Lays out `restWidths` (in spawn order, each familiar's resting opaque width in points at its scale) in a slot `slotWidth` wide,
+    /// by the fit rule. `pushPerWorker` is the gradual push each worker adds to the master, in points (32 × the familiar's scale).
     public static func layout(restWidths: [Double], pushPerWorker: Double, master: MasterReach, slotWidth: Double) -> Result {
         let count = restWidths.count
         let rightLimit = slotWidth - markerReserve
@@ -91,8 +98,28 @@ public enum TrackerCompanyLayout {
         return Result(masterShift: max(0, shift), familiars: familiars, overflow: count - shown)
     }
 
-    /// The gradual push each worker adds to the master, in points: 32 pt at a familiar's 100% scale, so 16 pt for a 50% familiar and 24 pt
-    /// for the War Hound at 75%. The master moves with each worker until the row's room asks for more.
+    /// Lays out `count` workers' familiars by a company row: the full row's places are `designInset` plus `pitch` steps, and the shown
+    /// workers take its right-most places. The master's body sits at the slot's centre with no workers and moves left one share of
+    /// that distance per shown worker, so it reaches the slot's left edge when the row is full.
+    public static func designLayout(count: Int, row: TrackerCompanyRow, restWidth: Double, master: MasterReach, slotWidth: Double) -> Result {
+        let shown = min(count, row.capacity)
+        let familiars = (0..<shown).map { index in
+            Familiar(index: index, restWidth: restWidth, left: designInset + Double(row.capacity - shown + index) * row.pitch)
+        }
+        let homeLeft = max(0, slotWidth / 2 - master.left)
+        let shift = homeLeft * Double(shown) / Double(row.capacity)
+        return Result(masterShift: shift, familiars: familiars, overflow: count - shown)
+    }
+
+    /// How far a familiar's art moves down from the baseline, in points, so its visible bottom sits `belowFeet` below the master's feet.
+    /// `footRow` is the art's feet row, which sits on the baseline, and `lowestRow` its lowest visible row. A hover leaves `lowestRow`
+    /// above `footRow`, and the drop takes that gap out.
+    public static func drop(footRow: Int, lowestRow: Int, scale: Double) -> Double {
+        Double(footRow - lowestRow) * scale + belowFeet
+    }
+
+    /// The gradual push each worker adds to the master under the fit rule, in points: 32 pt at a familiar's 100% scale, so 16 pt for a
+    /// 50% familiar and 24 pt for the War Hound at 75%. The master moves with each worker until the row's room asks for more.
     public static func gradualPush(scale: Double) -> Double {
         32 * scale
     }
@@ -101,5 +128,17 @@ public enum TrackerCompanyLayout {
     /// payload lists a master's workers in that order.
     public static func liveWorkers(of master: TrackerSession, in rows: [TrackerSession]) -> [TrackerSession] {
         rows.filter { $0.parentID == master.id && $0.lifecycle != "stopped" }
+    }
+}
+
+/// A familiar's place in the master's company, from its `animation.json`: its pitch between neighbours and the most workers its full row
+/// holds before the "+n" marker.
+public struct TrackerCompanyRow: Equatable, Sendable {
+    public let pitch: Double
+    public let capacity: Int
+
+    public init(pitch: Double, capacity: Int) {
+        self.pitch = pitch
+        self.capacity = capacity
     }
 }

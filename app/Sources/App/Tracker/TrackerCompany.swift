@@ -3,14 +3,6 @@ import Observation
 import QuestmasterCore
 import SwiftUI
 
-/// The master's company in its avatar slot's sizes and marks: the `+n` marker's chip and its gap above the portrait disc.
-enum TrackerCompanyMetrics {
-    /// The chip above the portrait disc: its height, and its inset and gap as the scale's row step.
-    static let chipHeight: CGFloat = 15
-    static let chipInset = Space.row
-    static let chipGap = Space.row
-}
-
 /// The master's company in the running app: each live worker's familiar, placed by Core's `TrackerCompanyLayout` in front of the master,
 /// each playing its own worker's pose through its own director. The attached master's stage (`TrackerAvatarStage`) keeps the master.
 /// Views read the lists below and decide none of them.
@@ -23,8 +15,10 @@ final class TrackerCompanyStage {
         let sprites: TrackerAvatarSprites
         /// The art's size: a familiar's scale, as a fraction of one art pixel per point.
         let scale: CGFloat
-        /// The body column's x in the slot, in points. The familiar's art stands on it, and its feet on the slot's baseline.
+        /// The body column's x in the slot, in points. The familiar's art stands on it.
         let bodyX: CGFloat
+        /// How far the art drops below the slot's baseline, in points: a designed familiar's visible bottom sits below the master's feet.
+        let drop: CGFloat
         let pose: TrackerAvatarPose?
         let beat: Int
         let finish: TimeInterval?
@@ -88,16 +82,26 @@ final class TrackerCompanyStage {
             }
             return (worker.id, sprites)
         }
-        guard let reach = Self.reach(of: masterArt), let pushScale = familiars.first?.sprites.scaleFraction else {
+        guard let reach = Self.reach(of: masterArt), let first = familiars.first else {
             clear()
             return
         }
-        let layout = TrackerCompanyLayout.layout(
-            restWidths: familiars.map { Double($0.sprites.restWidth) },
-            pushPerWorker: TrackerCompanyLayout.gradualPush(scale: Double(pushScale)),
-            master: reach,
-            slotWidth: Double(TrackerAvatarMetrics.slotWidth)
-        )
+        let slotWidth = Double(TrackerAvatarMetrics.slotWidth)
+        // A familiar with a company row keeps its designed row. The workers of one master share its class, so one row decides for all.
+        let isDesigned = first.sprites.animation.companyRow != nil
+        let layout: TrackerCompanyLayout.Result
+        if let row = first.sprites.animation.companyRow {
+            layout = TrackerCompanyLayout.designLayout(
+                count: familiars.count, row: row, restWidth: Double(first.sprites.restWidth), master: reach, slotWidth: slotWidth
+            )
+        } else {
+            layout = TrackerCompanyLayout.layout(
+                restWidths: familiars.map { Double($0.sprites.restWidth) },
+                pushPerWorker: TrackerCompanyLayout.gradualPush(scale: Double(first.sprites.scaleFraction)),
+                master: reach,
+                slotWidth: slotWidth
+            )
+        }
         var stepped: [String: TrackerAvatarDirector] = [:]
         var frames: [String: TrackerAvatarFrame] = [:]
         var nextChange: TimeInterval?
@@ -120,11 +124,13 @@ final class TrackerCompanyStage {
             let scale = entry.sprites.scaleFraction
             // Its rest's left edge stands on the layout's `left`: the body column sits the rest's offset to the right of that edge.
             let bodyX = Self.halfPoint(placed.left - Self.restOffset(of: entry.sprites) * Double(scale))
+            let drop = isDesigned ? Self.halfPoint(Self.drop(of: entry.sprites)) : 0
             return Companion(
                 id: entry.id,
                 sprites: entry.sprites,
                 scale: scale,
                 bodyX: CGFloat(bodyX),
+                drop: CGFloat(drop),
                 pose: frame?.pose,
                 beat: frame?.beat ?? 0,
                 finish: frame?.finishElapsed,
@@ -181,6 +187,14 @@ final class TrackerCompanyStage {
         return Double(columns.lowerBound - body)
     }
 
+    /// How far the familiar's art drops below the baseline: its visible bottom lands `belowFeet` under the master's feet, hover gap included.
+    private static func drop(of sprites: TrackerAvatarSprites) -> Double {
+        guard let footRow = sprites.animation.animation(for: .idle)?.footRow, let lowest = sprites.restLowestRow else {
+            return 0
+        }
+        return TrackerCompanyLayout.drop(footRow: footRow, lowestRow: lowest, scale: Double(sprites.scaleFraction))
+    }
+
     /// Snaps to half a point, so the art lands on whole device pixels at 2x.
     private static func halfPoint(_ value: Double) -> Double {
         (value * 2).rounded() / 2
@@ -199,6 +213,11 @@ extension TrackerAvatarSprites {
             return 0
         }
         return CGFloat(columns.count) * scaleFraction
+    }
+
+    /// The resting figure's lowest visible row, in art pixels from the top. A hover leaves it above the feet row.
+    var restLowestRow: Int? {
+        idleFrame(1).flatMap { Self.opaqueRows(of: $0)?.upperBound }
     }
 }
 
@@ -228,7 +247,7 @@ struct TrackerCompanySlot: View {
                     enter: companion.enter,
                     scale: companion.scale
                 )
-                .offset(x: companion.bodyX - TrackerAvatarMetrics.slotWidth / 2)
+                .offset(x: companion.bodyX - TrackerAvatarMetrics.slotWidth / 2, y: companion.drop)
             }
             if company.overflow > 0 {
                 TrackerCompanyOverflow(count: company.overflow, portrait: company.overflowPortrait)
@@ -238,7 +257,8 @@ struct TrackerCompanySlot: View {
     }
 }
 
-/// The "+n" marker: a small chip with the count, above the master's familiar's portrait disc, bottom-aligned to the slot's baseline.
+/// The "+n" marker: a chip with the count above the master's familiar's portrait disc. The disc sits `Space.row` in from the slot's right
+/// edge, and its bottom `belowFeet` under the feet, as the design has them; the chip is centred over it.
 struct TrackerCompanyOverflow: View {
     let count: Int
     let portrait: SessionPortrait?
@@ -248,13 +268,16 @@ struct TrackerCompanyOverflow: View {
             Text("+\(count)")
                 .font(Font(AppFonts.monoSmall))
                 .foregroundStyle(AppPalette.text.swiftUI)
-                .padding(.horizontal, TrackerCompanyMetrics.chipInset)
-                .frame(height: TrackerCompanyMetrics.chipHeight)
-                .background(RoundedRectangle(cornerRadius: Token.Radius.segment).fill(AppPalette.panel.swiftUI))
+                .frame(minWidth: TrackerCompanyMetrics.chipWidth, minHeight: TrackerCompanyMetrics.chipHeight)
+                .background(RoundedRectangle(cornerRadius: TrackerCompanyMetrics.chipRadius).fill(AppPalette.panel.swiftUI))
+                .overlay(RoundedRectangle(cornerRadius: TrackerCompanyMetrics.chipRadius).stroke(AppPalette.line.swiftUI, lineWidth: TrackerCompanyMetrics.chipStroke))
             if let portrait {
                 SessionPortraitDisc(portrait: portrait)
+                    .frame(width: TrackerCompanyMetrics.discSize, height: TrackerCompanyMetrics.discSize)
             }
         }
+        .padding(.trailing, Space.row)
         .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight, alignment: .bottomTrailing)
+        .offset(y: TrackerCompanyLayout.belowFeet)
     }
 }
