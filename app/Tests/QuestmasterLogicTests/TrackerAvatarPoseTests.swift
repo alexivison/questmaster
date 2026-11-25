@@ -107,7 +107,7 @@ struct TrackerAvatarPoseTests {
         expect(TrackerAvatarPose.pose(for: nil, catalog: AvatarAnimationFixture.catalog()) == nil, "nothing attached should show no avatar")
         expect(pose(sessionClass: "wizard") == nil, "a wizard master should show no avatar")
         expect(pose(sessionClass: nil) == nil, "a master with no class should show no avatar")
-        expect(pose(parentID: "qm-0") == nil, "a bard worker (familiar) should show no avatar")
+        expect(pose(parentID: "qm-0") == nil, "a bard worker should show no avatar when its familiar has no art")
         expect(pose(agent: "shell", sessionClass: nil, state: "idle") == nil, "a shell should show no avatar")
     }
 
@@ -116,7 +116,7 @@ struct TrackerAvatarPoseTests {
             (.idle, "01-idle"), (.pondering, "02-pondering"), (.studying, "03-studying"), (.inscribing, "04-inscribing"),
             (.channelling, "05-channelling"), (.scrying, "06-scrying"), (.spellsong, "07-spellsong"),
             (.release, "08-release"), (.summoning, "09-summoning"), (.catching, "10-catching"),
-            (.callingOut, "11-calling-out"), (.bow, "12-bow"),
+            (.callingOut, "11-calling-out"), (.bow, "12-bow"), (.working, "03-working"),
         ]
         for (pose, name) in names {
             expect(pose.resourceName == name, "\(pose) should be art \(name), got \(pose.resourceName)")

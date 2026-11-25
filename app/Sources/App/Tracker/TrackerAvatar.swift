@@ -82,34 +82,37 @@ final class TrackerAvatarSprites {
     /// The idle figure's height in sprite pixels above its sole, read once when the class loads to size the shared slot.
     private(set) var idleFigureHeight: Int?
     private let folder: URL
+    /// The folder of the shared calling-out bubble: `Sprites/shared`, for classes and familiars alike.
+    private let bubbleFolder: URL
     private var images: [String: CGImage] = [:]
 
-    /// The class's sprites from its parsed file, with its idle figure measured from the art beside it.
-    init(classID: String, animation: TrackerAvatarAnimation, folder: URL) {
+    /// The art from its parsed file, with its idle figure measured from the art beside it.
+    init(classID: String, animation: TrackerAvatarAnimation, folder: URL, bubbleFolder: URL? = nil) {
         self.classID = classID
         self.animation = animation
         self.folder = folder
+        self.bubbleFolder = bubbleFolder ?? folder.deletingLastPathComponent().appendingPathComponent("shared", isDirectory: true)
         idleFigureHeight = measureIdleFigure()
     }
 
-    /// The sprites in `folder`, or nil when it has no `animation.json`, or the file doesn't read.
-    convenience init?(classID: String, folder: URL) {
+    /// The sprites in `folder`, or nil when it has no `animation.json`, or the file doesn't read. A familiar's file is read as one.
+    convenience init?(classID: String, folder: URL, kind: TrackerAvatarArtKind = .master, bubbleFolder: URL? = nil) {
         let file = folder.appendingPathComponent("animation.json")
         guard FileManager.default.fileExists(atPath: file.path) else {
             return nil
         }
         guard let data = try? Data(contentsOf: file) else {
-            NSLog("Questmaster: %@ has no usable animation.json, so its class shows no avatar", file.path)
+            NSLog("Questmaster: %@ has no usable animation.json, so its art shows no avatar", file.path)
             return nil
         }
         let animation: TrackerAvatarAnimation
         do {
-            animation = try TrackerAvatarAnimation(data: data)
+            animation = try TrackerAvatarAnimation(data: data, kind: kind)
         } catch {
-            NSLog("Questmaster: %@ has no usable animation.json (%@), so its class shows no avatar", file.path, String(describing: error))
+            NSLog("Questmaster: %@ has no usable animation.json (%@), so its art shows no avatar", file.path, String(describing: error))
             return nil
         }
-        self.init(classID: classID, animation: animation, folder: folder)
+        self.init(classID: classID, animation: animation, folder: folder, bubbleFolder: bubbleFolder)
     }
 
     /// The idle figure's height: from idle's foot row to idle f1's top opaque row. Nil while idle's first frame has no art.
@@ -162,6 +165,26 @@ final class TrackerAvatarSprites {
         for sessionClass in SessionClass.allCases {
             let classID = sessionClass.rawValue
             sprites[classID] = TrackerAvatarSprites(classID: classID, folder: root.appendingPathComponent(classID, isDirectory: true))
+        }
+        return sprites.compactMapValues { $0 }
+    }
+
+    /// The familiars' sprites, by class id, with a readable `animation.json` in `Resources/Familiars`. Their bubble is the shared one.
+    static func bundledFamiliars() -> [String: TrackerAvatarSprites] {
+        guard let resources = AppSymbolStyle.resourceBundle().resourceURL else {
+            return [:]
+        }
+        let root = resources.appendingPathComponent("Familiars", isDirectory: true)
+        let shared = resources.appendingPathComponent("Sprites/shared", isDirectory: true)
+        var sprites: [String: TrackerAvatarSprites] = [:]
+        for sessionClass in SessionClass.allCases {
+            let classID = sessionClass.rawValue
+            sprites[classID] = TrackerAvatarSprites(
+                classID: classID,
+                folder: root.appendingPathComponent(classID, isDirectory: true),
+                kind: .familiar,
+                bubbleFolder: shared
+            )
         }
         return sprites.compactMapValues { $0 }
     }
@@ -272,7 +295,7 @@ final class TrackerAvatarSprites {
 
     /// The shared calling-out bubble, `Resources/Sprites/shared/bubble.png`, beside the class folders. Nil while it has no art.
     var bubble: CGImage? {
-        image(named: "bubble", in: folder.deletingLastPathComponent().appendingPathComponent("shared", isDirectory: true))
+        image(named: "bubble", in: bubbleFolder)
     }
 
     /// The fidgets whose every frame has its art, so the core may play them.

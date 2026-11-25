@@ -3,8 +3,9 @@ import Observation
 import QuestmasterCore
 
 /// The class avatar's state in the running app: Core's event detector, director and fidgets, fed from each tracker payload and the
-/// attached session, with one timer for the next change. The attached session's class decides the sprites the avatar draws from.
-/// The views read `pose`, `fidgetFrame`, `finish`, `enter`, `sprites`; they decide none of them.
+/// attached session, with one timer for the next change. The attached session's art decides the sprites the avatar draws from: its
+/// class's for a master, its master's class's familiar for a worker. The views read `pose`, `fidgetFrame`, `finish`, `enter`,
+/// `sprites`; they decide none of them.
 @MainActor
 @Observable
 final class TrackerAvatarStage {
@@ -18,10 +19,10 @@ final class TrackerAvatarStage {
     private(set) var finish: TimeInterval?
     /// How far into the pose's enter the avatar is, while it enters; nil otherwise.
     private(set) var enter: TimeInterval?
-    /// The attached session's class sprites, while its class has an avatar. The avatar draws from them.
+    /// The attached session's sprites, while its art has any: a master's class, or a worker's familiar. The avatar draws from them.
     private(set) var sprites: TrackerAvatarSprites?
 
-    @ObservationIgnored private let classSprites: [String: TrackerAvatarSprites]
+    @ObservationIgnored private let artSprites: [TrackerAvatarArtKey: TrackerAvatarSprites]
     @ObservationIgnored private let catalog: TrackerAvatarCatalog
     @ObservationIgnored private var director: TrackerAvatarDirector
     @ObservationIgnored private var fidgets: TrackerAvatarFidgets<SystemRandomNumberGenerator>
@@ -32,8 +33,19 @@ final class TrackerAvatarStage {
     /// The clock is the wall clock: a session's working start (`elapsedSince`) is a wall-clock time.
     init(clock: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 }) {
         let classSprites = TrackerAvatarSprites.bundled()
-        let catalog = TrackerAvatarCatalog(animations: classSprites.mapValues(\.animation))
-        self.classSprites = classSprites
+        let familiarSprites = TrackerAvatarSprites.bundledFamiliars()
+        let catalog = TrackerAvatarCatalog(
+            animations: classSprites.mapValues(\.animation),
+            familiars: familiarSprites.mapValues(\.animation)
+        )
+        var artSprites: [TrackerAvatarArtKey: TrackerAvatarSprites] = [:]
+        for (classID, sprites) in classSprites {
+            artSprites[TrackerAvatarArtKey(kind: .master, classID: classID)] = sprites
+        }
+        for (classID, sprites) in familiarSprites {
+            artSprites[TrackerAvatarArtKey(kind: .familiar, classID: classID)] = sprites
+        }
+        self.artSprites = artSprites
         self.catalog = catalog
         director = TrackerAvatarDirector(reducesMotion: Motion.reducesMotion(), catalog: catalog)
         detector = TrackerAvatarEventDetector(catalog: catalog)
@@ -55,9 +67,9 @@ final class TrackerAvatarStage {
         refresh(at: now)
     }
 
-    /// Follows the attached session's class. A class change starts its fidgets afresh, from its own art.
+    /// Follows the attached session's art. A change of art starts its fidgets afresh, from its own art.
     private func useSprites(for session: TrackerSession?) {
-        let next = catalog.classID(for: session).flatMap { classSprites[$0] }
+        let next = catalog.art(for: session).flatMap { artSprites[$0] }
         guard next !== sprites else {
             return
         }

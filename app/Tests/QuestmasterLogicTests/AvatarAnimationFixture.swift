@@ -13,6 +13,16 @@ enum AvatarAnimationFixture {
         return json(at: url, named: "\(classID)'s animation.json")
     }
 
+    /// A familiar's bundled file as a JSON object, from `Resources/Familiars/<class>/`, so a test can read or edit it before it is decoded.
+    static func familiarJSON(_ classID: String) -> [String: Any] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/App/Resources/Familiars/\(classID)/animation.json")
+        return json(at: url, named: "\(classID)'s familiar animation.json")
+    }
+
     /// The director's fixture as a JSON object, so a test can edit it before it is decoded. It is the bard's file as it shipped before
     /// his redo (hand-timed blocks, fidgets, a still idle), kept in the tests so the director's cases don't move when a class's art
     /// changes. The catalog gives it the bard's class ID.
@@ -33,6 +43,24 @@ enum AvatarAnimationFixture {
 
     static func decode(_ json: [String: Any]) throws -> TrackerAvatarAnimation {
         try TrackerAvatarAnimation(data: JSONSerialization.data(withJSONObject: json))
+    }
+
+    static func decodeFamiliar(_ json: [String: Any]) throws -> TrackerAvatarAnimation {
+        try TrackerAvatarAnimation(data: JSONSerialization.data(withJSONObject: json), kind: .familiar)
+    }
+
+    /// The bundled familiar for `classID`, decoded as a familiar's file.
+    static func familiar(_ classID: String = "bard") -> TrackerAvatarAnimation {
+        guard let animation = try? decodeFamiliar(familiarJSON(classID)) else {
+            fputs("AvatarAnimationFixture: the \(classID)'s familiar animation.json should decode\n", stderr)
+            exit(1)
+        }
+        return animation
+    }
+
+    /// A catalog that gives the bard its class art and the bard's master its familiar, the Imp.
+    static func catalogWithFamiliar() -> TrackerAvatarCatalog {
+        TrackerAvatarCatalog(animations: ["bard": bard()], familiars: ["bard": familiar()])
     }
 
     static func bard() -> TrackerAvatarAnimation {

@@ -239,7 +239,7 @@ struct TrackerAvatarAnimationTests {
     /// Every pose with a loop may carry a finish, not only the casts: it plays when the pose leaves. The finish is its own block, with
     /// tracks on their own clocks, and the loop beside it is untouched.
     private static func everyLoopPoseMayCarryAFinish() {
-        let loopPoses = TrackerAvatarPose.allCases.filter { $0.playKind == .loop }
+        let loopPoses = TrackerAvatarPose.masterPoses.filter { $0.playKind == .loop }
         expect(loopPoses.contains(.pondering) && loopPoses.contains(.callingOut), "pondering and calling out should be loop poses")
         for pose in loopPoses {
             let name = pose.resourceName
@@ -306,7 +306,7 @@ struct TrackerAvatarAnimationTests {
         guard let fixture = try? decode(bardJSON()) else {
             fail("the director's fixture should decode")
         }
-        expect(TrackerAvatarPose.allCases.allSatisfy { fixture.animation(for: $0)?.strikeFrame == nil }, "the director's fixture should name no strike frame")
+        expect(TrackerAvatarPose.masterPoses.allSatisfy { fixture.animation(for: $0)?.strikeFrame == nil }, "the director's fixture should name no strike frame")
         for (classID, catchFrame) in [("bard", 5), ("wizard", 4)] {
             guard let animation = try? decode(AvatarAnimationFixture.classJSON(classID)) else {
                 fail("the \(classID)'s file should decode")

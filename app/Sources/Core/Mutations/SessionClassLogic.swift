@@ -29,11 +29,11 @@ public enum SessionClass: String, CaseIterable, Equatable, Sendable {
     /// The familiar that represents a worker of this class.
     public var familiarName: String {
         switch self {
-        case .paladin: "Clockwork Construct"
+        case .paladin: "Animated Armour"
         case .wizard: "Fire Elemental"
         case .druid: "Treant"
         case .barbarian: "Bear"
-        case .rogue: "Raven"
+        case .rogue: "Shadow"
         case .cleric: "Light Spirit"
         case .bard: "Imp"
         case .ranger: "Hawk"

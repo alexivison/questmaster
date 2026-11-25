@@ -1,7 +1,8 @@
 import Foundation
 
-/// The pose the tracker's class avatar strikes, from what its session is doing. Only a master whose class has art has an avatar; any
-/// other session (a worker, a shell, a class with no art, nothing attached) has no pose.
+/// The pose a tracker avatar strikes, from what its session is doing. A master whose class has art shows the class's poses; a worker
+/// whose master's class has a familiar shows the familiar's (`familiarPose`). Any other session (a shell, a class with no art,
+/// nothing attached) has no pose.
 public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
     case idle
     case pondering
@@ -17,6 +18,17 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
     case release
     case catching
     case bow
+    /// A familiar's pose while its worker works with a tool, or runs sub-agents. Only familiars have it: a class's file doesn't name it.
+    case working
+
+    /// The poses a class's `animation.json` names: every class pose, not the familiar's working pose.
+    public static let masterPoses: [TrackerAvatarPose] = [
+        .idle, .pondering, .studying, .inscribing, .channelling, .scrying, .spellsong, .callingOut, .summoning, .release, .catching, .bow,
+    ]
+
+    /// The poses a familiar's `animation.json` names: idle, thinking (pondering), working, calling out and the bow. A familiar has no
+    /// studying, summoning or cue poses.
+    public static let familiarPoses: [TrackerAvatarPose] = [.idle, .pondering, .working, .callingOut, .bow]
 
     /// How the pose's art plays: idle draws as layers (unless its file gives it a loop, which it then cycles like the rest), a one-shot
     /// plays once, and the rest cycle a loop.
@@ -28,22 +40,22 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// The steady pose for `session`, or nil when it shows no avatar: its class has no art, or it is not a master. In order: calling
-    /// out (blocked or needing input); a running tool's pose while working; spellsong while sub-agents run (working, idle or done);
-    /// pondering while working with no cast; idle. A done session idles at rest: it bows once when it turns done (`TrackerAvatarDirector`).
+    /// The steady pose for `session`, or nil when it shows no avatar: it has no art (`TrackerAvatarCatalog.art(for:)`). A master's pose
+    /// is `masterPose`; a worker's is `familiarPose`. A done session idles at rest: it bows once when it turns done (`TrackerAvatarDirector`).
     public static func pose(for session: TrackerSession?, catalog: TrackerAvatarCatalog) -> TrackerAvatarPose? {
-        guard let session, catalog.animation(for: session) != nil else {
+        guard let session, let art = catalog.art(for: session) else {
             return nil
         }
-        return pose(
-            status: TrackerStatusClassifier.classify(session).kind,
-            cast: session.cast,
-            activity: session.snippet,
-            subagents: session.activeSubagents
-        )
+        let status = TrackerStatusClassifier.classify(session).kind
+        switch art.kind {
+        case .master:
+            return masterPose(status: status, cast: session.cast, activity: session.snippet, subagents: session.activeSubagents)
+        case .familiar:
+            return familiarPose(status: status, cast: session.cast, subagents: session.activeSubagents)
+        }
     }
 
-    /// The art's file in the class's folder, without its extension (`Resources/Sprites/<class>/`).
+    /// The art's file in the class's folder, without its extension (`Resources/Sprites/<class>/`, or `Resources/Familiars/<class>/`).
     public var resourceName: String {
         switch self {
         case .idle: "01-idle"
@@ -58,10 +70,13 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
         case .catching: "10-catching"
         case .callingOut: "11-calling-out"
         case .bow: "12-bow"
+        case .working: "03-working"
         }
     }
 
-    private static func pose(status: TrackerStatusKind, cast: TrackerCast?, activity: String, subagents: Int) -> TrackerAvatarPose {
+    /// A master's pose: calling out (blocked or needing input); a running tool's pose while working; spellsong while sub-agents run
+    /// (working, idle or done); pondering while working with no cast; idle.
+    private static func masterPose(status: TrackerStatusKind, cast: TrackerCast?, activity: String, subagents: Int) -> TrackerAvatarPose {
         switch status {
         case .blocked, .needsInput:
             return .callingOut
@@ -78,6 +93,27 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
             return .spellsong
         }
         return status == .working ? .pondering : .idle
+    }
+
+    /// A familiar's pose, the same director rules as a master's with fewer poses: calling out while blocked or needing input; working
+    /// with a tool, or while sub-agents run (whatever the status, so a done turn keeps working until they stop); pondering while working
+    /// with no tool; otherwise idle. Stopped and errored sessions are idle.
+    private static func familiarPose(status: TrackerStatusKind, cast: TrackerCast?, subagents: Int) -> TrackerAvatarPose {
+        switch status {
+        case .blocked, .needsInput:
+            return .callingOut
+        case .stopped, .error:
+            return .idle
+        case .working, .idle, .done:
+            break
+        }
+        if subagents > 0 {
+            return .working
+        }
+        guard status == .working else {
+            return .idle
+        }
+        return cast == nil ? .pondering : .working
     }
 
     private static func pose(forTool tool: String, activity: String) -> TrackerAvatarPose {
