@@ -285,12 +285,12 @@ struct TrackerCompanyLayoutTests {
         }
     }
 
-    /// A familiar's company row comes from its file, and a file without one (the Werebear and Shadow until their art ships) has none. A
+    /// A familiar's company row comes from its file, and a file without one (the Werebear until its art ships) has none. A
     /// row needs a pitch above 0 and a capacity of at least one.
     private static func companyRowComesFromTheFile() {
         expect(AvatarAnimationFixture.familiar("bard").companyRow == TrackerCompanyRow(pitch: 34, capacity: 7), "the Imp's row should be 34 pt and seven")
         expect(AvatarAnimationFixture.familiar("barbarian").companyRow == nil, "the old Bear keeps the fit rule: no company row")
-        expect(AvatarAnimationFixture.familiar("rogue").companyRow == nil, "the old Shadow keeps the fit rule: no company row")
+        expect(AvatarAnimationFixture.familiar("rogue").companyRow == TrackerCompanyRow(pitch: 40.6, capacity: 6), "the slim Shadow's row should be 40.6 pt and six")
         expect(AvatarAnimationFixture.bard().companyRow == nil, "a class has no company row")
         var json = AvatarAnimationFixture.familiarJSON("bard")
         json["company"] = ["pitch": 34, "capacity": 0]

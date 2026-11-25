@@ -227,7 +227,7 @@ enum RenderPreview {
         render(familiarSlotsView(), size: CGSize(width: 1290, height: 1925), to: "\(outputDir)/familiar-slots.png")
         render(masterCompanyView(), size: CGSize(width: 1210, height: 2035), to: "\(outputDir)/master-company.png")
         // The worker-count sequences: each class's company from none to its full row plus one, in the slot, for the fewer-workers rule.
-        for (classID, full) in [("necromancer", 7), ("wizard", 7), ("fighter", 6), ("ranger", 8)] {
+        for (classID, full) in [("necromancer", 7), ("wizard", 7), ("fighter", 6), ("ranger", 8), ("rogue", 6)] {
             render(companySequenceView(classID: classID, full: full), size: CGSize(width: 360, height: 1), autoHeight: true,
                    to: "\(outputDir)/company-sequence-\(classID).png")
         }

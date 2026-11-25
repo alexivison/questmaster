@@ -2721,7 +2721,7 @@ enum LogicSelfTests {
         }
         let companions = TrackerAvatarSprites.bundledCompanions()
         let designed = TrackerAvatarSprites.bundledFamiliars().filter { $0.value.animation.companyRow != nil }
-        try expect(designed.count == 9, "nine familiars should carry a company row, got \(designed.count)")
+        try expect(designed.count == 10, "ten familiars should carry a company row, got \(designed.count)")
         for (classID, sprites) in designed.sorted(by: { $0.key < $1.key }) {
             guard let company = companions[classID] else {
                 throw TestFailure("\(classID) should have its company frames")
