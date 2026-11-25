@@ -49,6 +49,8 @@ enum SessionPortraitMetrics {
 /// `line` border.
 struct SessionPortraitDisc: View {
     let portrait: SessionPortrait
+    /// The disc's diameter. The sheets' size by default; the master's company marker draws a smaller one.
+    var diameter: CGFloat = SessionPortraitMetrics.sheetDiameter
 
     var body: some View {
         Canvas { context, size in
@@ -60,7 +62,7 @@ struct SessionPortraitDisc: View {
             let border = Token.Size.divider
             context.stroke(Path(ellipseIn: frame.insetBy(dx: border / 2, dy: border / 2)), with: .color(AppPalette.line.swiftUI), lineWidth: border)
         }
-        .frame(width: SessionPortraitMetrics.sheetDiameter, height: SessionPortraitMetrics.sheetDiameter)
+        .frame(width: diameter, height: diameter)
     }
 }
 

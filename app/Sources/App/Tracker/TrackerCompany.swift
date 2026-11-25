@@ -280,8 +280,7 @@ struct TrackerCompanyOverflow: View {
                 .background(RoundedRectangle(cornerRadius: TrackerCompanyMetrics.chipRadius).fill(AppPalette.panel.swiftUI))
                 .overlay(RoundedRectangle(cornerRadius: TrackerCompanyMetrics.chipRadius).stroke(AppPalette.line.swiftUI, lineWidth: TrackerCompanyMetrics.chipStroke))
             if let portrait {
-                SessionPortraitDisc(portrait: portrait)
-                    .frame(width: TrackerCompanyMetrics.discSize, height: TrackerCompanyMetrics.discSize)
+                SessionPortraitDisc(portrait: portrait, diameter: TrackerCompanyMetrics.discSize)
             }
         }
         .padding(.trailing, Space.row)
