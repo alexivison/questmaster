@@ -53,6 +53,8 @@ let package = Package(
                 .process("Resources/Portraits"),
                 // A class's sprites keep their folder, so two classes can name a frame the same.
                 .copy("Resources/Sprites"),
+                // A worker's familiar, one folder per class like the sprites; the shared bubble is read from Sprites/shared.
+                .copy("Resources/Familiars"),
                 // The line and filled drawings keep their folders (`Icons/line`, `Icons/filled`), as `AppIcon` reads them.
                 .copy("Resources/Icons"),
             ],

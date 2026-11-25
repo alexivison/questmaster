@@ -32,7 +32,8 @@ public struct TrackerAvatarFrame: Equatable {
 /// - Nothing that has an end is cut: an enter, a finish and a one-shot (a cue's beat, the bow) always play to their end. A loop has
 ///   no end, so it is left whenever another pose is wanted or a cue starts: its own finish plays first, if it has one. A cue, a
 ///   steady change and calling out each wait for the block on screen to end, never for each other beyond that.
-/// - The steady pose follows the attached session (`TrackerAvatarPose.pose(for:catalog:)`), when its class has art. A change
+/// - The steady pose follows the attached session (`TrackerAvatarPose.pose(for:catalog:)`), when it has art: a master's class or a
+///   worker's familiar, which takes the same rules without cues. A change
 ///   holds the pose on screen for `holdSeconds` before the next one shows (and until its enter has ended), and only the latest
 ///   desired pose is kept meanwhile. Calling out skips the hold, and jumps ahead of the queued cues, but follows the same rule
 ///   otherwise: the loop it leaves finishes first and an enter or a finish on screen ends first. A steady change also waits for
@@ -143,7 +144,8 @@ public struct TrackerAvatarDirector {
     /// An event the avatar answers. Its cue waits behind the cues already queued, and is dropped when the queue is full. An
     /// attached session without an avatar answers nothing.
     public mutating func answer(_ event: TrackerAvatarEvent, at now: TimeInterval) {
-        guard let animation, queued.count + waitingForSummoning.count < Self.queueCapacity else {
+        // Only a master's class has cues: a familiar, a worker's avatar, answers none.
+        guard let animation, catalog.classID(for: session) != nil, queued.count + waitingForSummoning.count < Self.queueCapacity else {
             return
         }
         if case .spawned = event, steadyShown == .summoning {

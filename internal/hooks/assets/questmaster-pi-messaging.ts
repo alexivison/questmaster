@@ -342,11 +342,11 @@ function cardComponent(message: { content?: unknown; details?: unknown }) {
 // internal/state/session_class.go and familiarName in
 // app/Sources/Core/Mutations/SessionClassLogic.swift; a Go test checks both.
 const familiars: Record<string, string> = {
-	paladin: "Clockwork Construct",
+	paladin: "Animated Armour",
 	wizard: "Fire Elemental",
 	druid: "Treant",
 	barbarian: "Bear",
-	rogue: "Raven",
+	rogue: "Shadow",
 	cleric: "Light Spirit",
 	bard: "Imp",
 	ranger: "Hawk",

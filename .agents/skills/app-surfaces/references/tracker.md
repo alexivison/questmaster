@@ -54,7 +54,8 @@ Every attached plate shows its own title, id and project, including a class with
 when no sprite is available. The banner resolver (`SelectedSessionTagContent.make`) returns no content for shell rows,
 nothing attached or an unknown id, so neither banner nor avatar slot appears. A click copies the attached id. The sprite
 draws over the list; the banner draws in front of the sprite, keeping its raised shadow; art hanging below the sole shows in the gap.
-`SelectedSessionPanel` remains for its standalone previews and self-tests.
+`SelectedSessionPanel` remains for its standalone previews and self-tests. An attached worker's slot draws its master's class's familiar
+in the same slot and above the same banner (`.agents/skills/class-avatar/SKILL.md`); its size and place never change for a worker.
 
 Master plates are `TrackerPlateDesign.plateWidth` (240pt). Worker discs keep their 20-60pt column and their plates
 and cast bars end flush with the masters at x240; only straight SVG runs shorten, so portraits, corners and borders

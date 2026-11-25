@@ -34,7 +34,7 @@ struct SessionClassLogicTests {
     private static func classAndFamiliarNamesAreCapitalised() {
         expect(SessionClass.cleric.displayName == "Cleric", "the display name is the id, capitalised")
         expect(SessionClass.allCases.allSatisfy { $0.displayName.first?.isUppercase == true }, "every display name starts with a capital")
-        expect(SessionClass.allCases.map(\.familiarName) == ["Clockwork Construct", "Fire Elemental", "Treant", "Bear", "Raven", "Light Spirit", "Imp", "Hawk", "Skeleton", "Lightning Elemental", "War Hound"], "each class names its familiar")
+        expect(SessionClass.allCases.map(\.familiarName) == ["Animated Armour", "Fire Elemental", "Treant", "Bear", "Shadow", "Light Spirit", "Imp", "Hawk", "Skeleton", "Lightning Elemental", "War Hound"], "each class names its familiar")
         expect(SessionClass.randomLabel == "Random", "the default's label")
     }
 

@@ -224,6 +224,7 @@ enum RenderPreview {
         render(selectedSessionPanelView(portrait: .master(.cleric)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-class.png")
         render(selectedSessionPanelView(portrait: .familiar(.wizard)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-familiar.png")
         render(selectedSessionPanelView(isShell: true), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-shell.png")
+        render(familiarSlotsView(), size: CGSize(width: 1290, height: 1925), to: "\(outputDir)/familiar-slots.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -1591,6 +1592,24 @@ enum RenderPreview {
     /// A master's and a worker's portrait with the Command-held shortcut number on, on whole-point origins,
     /// to measure the number's centring on the disc.
     @MainActor
+    /// Each familiar's five poses in the tracker's own slot, one row per class, each on its first frame: idle, thinking, working, calling
+    /// out and the bow. Off-screen, so the sole sits where the tracker puts it. Named by RENDER_ONLY=familiar-slots.
+    private static func familiarSlotsView() -> some View {
+        let familiars = TrackerAvatarSprites.bundledFamiliars()
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(familiars.keys.sorted(), id: \.self) { classID in
+                HStack(spacing: 0) {
+                    Text(classID).font(Font(AppFonts.monoSmall)).frame(width: 90, alignment: .leading)
+                    ForEach(TrackerAvatarPose.familiarPoses, id: \.self) { pose in
+                        TrackerAvatarSlot(pose: pose, sprites: familiars[classID])
+                            .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                    }
+                }
+            }
+        }
+        .background(AppPalette.window.swiftUI)
+    }
+
     private static func portraitNumbersView() -> some View {
         let master = TrackerNameplateRole.master
         let worker = TrackerNameplateRole.worker

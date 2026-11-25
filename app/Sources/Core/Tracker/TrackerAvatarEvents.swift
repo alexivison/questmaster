@@ -34,7 +34,7 @@ public struct TrackerAvatarEventDetector {
         previousAttachedID = attachedID
         guard let before, sameAttachment, let attachedID,
               let master = rows.first(where: { $0.id == attachedID }),
-              catalog.animation(for: master) != nil else {
+              catalog.classID(for: master) != nil else {
             return []
         }
         return rows.filter { $0.parentID == attachedID }.flatMap { events(for: $0, before: before) }

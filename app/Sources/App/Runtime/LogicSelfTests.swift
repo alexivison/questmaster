@@ -114,6 +114,8 @@ enum LogicSelfTests {
         ("testTheAvatarStandsOnTheFullWidthBannerAboveTheShells", testTheAvatarStandsOnTheFullWidthBannerAboveTheShells),
         ("testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList", testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList),
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
+        ("testEveryBundledFamiliarFitsTheSlot", testEveryBundledFamiliarFitsTheSlot),
+        ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -2126,7 +2128,7 @@ enum LogicSelfTests {
         }
         try expect(sprites.animation.animation(for: .idle)?.loop != nil, "the bard's idle should be a strumming loop")
         try expect(sprites.animation.idle == nil && sprites.animation.fidgets.isEmpty, "the bard's looping idle should have no idle layers or fidgets")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the bard's art")
+        try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the bard's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the bard's file plays should have its art, missing: \(missing)")
     }
@@ -2141,7 +2143,7 @@ enum LogicSelfTests {
         try expect(sprites.availableFidgets.count == 2, "both of the wizard's fidgets should have their art")
         try expect(sprites.idleBreathingArt?.count == 6, "the wizard's breathing track should load every image and lid stencil")
         try expect(sprites.idleStillArt != nil, "the wizard should have a still idle image")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the wizard's art")
+        try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the wizard's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the wizard's file plays should have its art, missing: \(missing)")
     }
@@ -2157,7 +2159,7 @@ enum LogicSelfTests {
         try expect(sprites.animation.fidgets.map(\.name) == ["shrug"], "the paladin should have the shrug fidget")
         try expect(sprites.availableFidgets.count == 1, "the paladin's fidget should have its art")
         try expect(sprites.idleStillArt != nil, "the paladin should have a still idle image")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the paladin's art")
+        try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the paladin's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the paladin's file plays should have its art, missing: \(missing)")
     }
@@ -2189,7 +2191,7 @@ enum LogicSelfTests {
                    "the rogue should have the flip and glance fidgets, with their art")
         try expect(breathing.frames.allSatisfy { Set($0.lidPixels.map(\.y)).count > 1 },
                    "the rogue's blink stencils should preserve their multi-row pixels")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil },
+        try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil },
                    "every pose should have the rogue's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the rogue's file plays should have its art, missing: \(missing)")
@@ -2205,7 +2207,7 @@ enum LogicSelfTests {
         try expect(sprites.animation.fidgets.map(\.name) == ["capelet", "circlet"], "the cleric should have the capelet and circlet fidgets")
         try expect(sprites.availableFidgets.count == 2, "the cleric's fidgets should have their art")
         try expect(sprites.idleStillArt != nil, "the cleric should have a still idle image")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the cleric's art")
+        try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the cleric's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the cleric's file plays should have its art, missing: \(missing)")
     }
@@ -2222,7 +2224,7 @@ enum LogicSelfTests {
                    "the ranger should load all sixteen breathing steps and their lid stencils")
         try expect(sprites.animation.fidgets.map(\.name) == ["scarf-tug"], "the ranger should have the scarf-tug fidget")
         try expect(sprites.availableFidgets.count == 1, "the ranger's fidget should have its art")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the ranger's art")
+        try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the ranger's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the ranger's file plays should have its art, missing: \(missing)")
     }
@@ -2257,7 +2259,7 @@ enum LogicSelfTests {
         try expect(sprites.idleBreathingArt?.allSatisfy { $0.lids != nil } == true, "every sorcerer breathing frame should carry a blink stencil")
         try expect(sprites.animation.fidgets.map(\.name) == ["hair-flick"] && sprites.availableFidgets.count == 1,
                    "the sorcerer should have the hair-flick fidget with its art")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the sorcerer's art")
+        try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the sorcerer's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the sorcerer's file plays should have its art, missing: \(missing)")
     }
@@ -2276,7 +2278,7 @@ enum LogicSelfTests {
         try expect(sprites.idleBreathingArt?.allSatisfy { $0.lids != nil } == true, "every fighter breathing frame should carry a blink stencil")
         try expect(sprites.animation.fidgets.map(\.name) == ["sword-lowered-gaze"] && sprites.availableFidgets.count == 1,
                    "the fighter should have the sword-lowered gaze fidget with its art")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the fighter's art")
+        try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the fighter's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the fighter's file plays should have its art, missing: \(missing)")
     }
@@ -2375,7 +2377,7 @@ enum LogicSelfTests {
                    "the necromancer should load all seven breathing steps and their lid stencils")
         try expect(sprites.animation.fidgets.map(\.name) == ["cough"], "the necromancer should have the cough fidget")
         try expect(sprites.availableFidgets.count == 1, "the necromancer's fidget should have its art")
-        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the necromancer's art")
+        try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the necromancer's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the necromancer's file plays should have its art, missing: \(missing)")
     }
@@ -2575,6 +2577,146 @@ enum LogicSelfTests {
         let tallest = sprites.values.compactMap(\.idleFigureHeight).max() ?? 0
         try expect(TrackerAvatarMetrics.tallestFigureHeight == tallest, "the tallest figure should be \(tallest) px, got \(TrackerAvatarMetrics.tallestFigureHeight)")
         try expect(TrackerAvatarMetrics.slotHeight == 175, "the slot should reserve the tallest figure rounded up to 5, got \(TrackerAvatarMetrics.slotHeight)")
+    }
+
+    /// Every bundled familiar loads with all the frames its file plays and its bubble, and each of its poses fits the slot as a class's
+    /// does: its sole on the baseline, its figure no taller than the slot above the sole, and its columns inside the slot's width.
+    @MainActor
+    private static func testEveryBundledFamiliarFitsTheSlot() throws {
+        let familiars = TrackerAvatarSprites.bundledFamiliars()
+        try expect(Set(familiars.keys) == Set(SessionClass.allCases.map(\.rawValue)),
+                   "every class should have a bundled familiar, got \(familiars.keys.sorted())")
+        let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        // The familiars' canvas: 260 x 188 art pixels, one point each, with the feet on row 174.
+        let canvasHeight = 188
+        for (classID, sprites) in familiars.sorted(by: { $0.key < $1.key }) {
+            let missing = missingFrames(of: sprites)
+            try expect(missing.isEmpty, "the \(classID)'s familiar should have every frame its file plays, missing: \(missing)")
+            try expect(sprites.bubble != nil, "the \(classID)'s familiar should draw the shared bubble")
+            try expectBubbleClear(of: sprites, named: "the \(classID)'s familiar")
+
+            var left = Int.max, right = Int.min, top = Int.max
+            var footRow = 0, bodyColumn = 0
+            for pose in TrackerAvatarPose.familiarPoses {
+                guard let placement = sprites.animation.animation(for: pose) else {
+                    throw TestFailure("the \(classID)'s familiar should name \(pose.resourceName)")
+                }
+                footRow = placement.footRow
+                bodyColumn = placement.bodyColumn
+                for image in familiarArt(of: pose, in: sprites) {
+                    guard let bounds = opaqueBounds(of: image) else {
+                        continue
+                    }
+                    left = min(left, bounds.columns.lowerBound)
+                    right = max(right, bounds.columns.upperBound)
+                    top = min(top, bounds.rows.lowerBound)
+                }
+                // Each frame pose stands its feet on the slot's baseline: the foot row, counted up from the canvas's bottom edge.
+                if pose != .idle, let rig = TrackerAvatarFrameRig(pose: pose, placement: placement, sprites: sprites) {
+                    rig.place(in: slot)
+                    let canvasBottom = CGFloat(canvasHeight - 1 - placement.footRow)
+                    try expect(abs(rig.root.frame.minY + canvasBottom) < 0.5,
+                               "the \(classID)'s \(pose.resourceName) should stand its feet on the slot's baseline, got \(rig.root.frame.minY)")
+                }
+            }
+            try expect(left <= right && top <= footRow, "the \(classID)'s familiar should draw art, got columns \(left)...\(right) from row \(top)")
+            let rootX = slot.midX - CGFloat(bodyColumn)
+            try expect(rootX + CGFloat(left) >= slot.minX && rootX + CGFloat(right + 1) <= slot.maxX,
+                       "the \(classID)'s familiar should fit the slot's width, got \(rootX + CGFloat(left))..<\(rootX + CGFloat(right + 1))")
+            let figure = footRow - top + 1
+            try expect(CGFloat(figure) <= slot.height, "the \(classID)'s familiar should fit the slot's height, got \(figure) px above its sole")
+        }
+    }
+
+    /// A worker's avatar draws its master's class's familiar from its own folder, and a master draws its class's art. A worker carries its
+    /// master's class; its pose comes from the worker's own session.
+    @MainActor
+    private static func testAWorkerAvatarDrawsItsFamiliar() throws {
+        final class Clock {
+            var now: TimeInterval = 0
+        }
+        let clock = Clock()
+        let stage = TrackerAvatarStage(clock: { clock.now })
+        func row(_ fields: [String: Any]) throws -> TrackerSession {
+            var payload: [String: Any] = ["status": "active", "state": "working", "agent": "claude", "elapsed_ms": 0, "worker_count": 0]
+            payload.merge(fields) { _, new in new }
+            return try JSONDecoder().decode(TrackerSession.self, from: JSONSerialization.data(withJSONObject: payload))
+        }
+        let master = try row(["id": "qm-m", "title": "Armour", "session_type": "master", "class": "paladin"])
+        let worker = try row(["id": "qm-w", "title": "Plate", "session_type": "worker", "parent_id": "qm-m", "class": "paladin"])
+        stage.observe(sessions: [master, worker], attachedID: "qm-w")
+        guard let familiar = stage.sprites, familiar.classID == "paladin" else {
+            throw TestFailure("a paladin's worker should draw the paladin's familiar")
+        }
+        try expect(familiar.animation.animation(for: .working) != nil, "a worker should draw the familiar's art, which names the working pose")
+        try expect(stage.pose == .pondering, "a working worker with no tool should think, got \(String(describing: stage.pose))")
+
+        stage.observe(sessions: [master, worker], attachedID: "qm-m")
+        guard let classArt = stage.sprites else {
+            throw TestFailure("a paladin master should draw its class's art")
+        }
+        try expect(classArt.animation.animation(for: .working) == nil, "a master should draw its class's art, which names no working pose")
+        try expect(classArt.animation.animation(for: .studying) != nil, "a paladin master should draw the paladin's class art")
+    }
+
+    /// The poses a familiar's art plays, with the figure's own frames: its character, its front and behind effects, and its idle.
+    @MainActor
+    private static func familiarArt(of pose: TrackerAvatarPose, in sprites: TrackerAvatarSprites) -> [CGImage] {
+        var images: [CGImage] = []
+        if pose == .idle {
+            images += [sprites.idleStillArt?.image].compactMap { $0 }
+            images += sprites.idleBreathingArt?.map(\.image) ?? []
+            for layer in [TrackerAvatarLayer.behind, .front] {
+                for step in sprites.animation.idle?.effect(layer)?.steps ?? [] {
+                    images += [sprites.frame(.idle, layer, step.frame)].compactMap { $0 }
+                }
+            }
+            return images
+        }
+        guard let placement = sprites.animation.animation(for: pose) else {
+            return images
+        }
+        for block in [placement.loop, placement.enter, placement.finish, placement.once].compactMap({ $0 }) {
+            for layer in TrackerAvatarLayer.allCases {
+                for step in block.track(for: layer)?.steps ?? [] {
+                    images += [sprites.frame(pose, layer, step.frame)].compactMap { $0 }
+                }
+            }
+        }
+        return images
+    }
+
+    /// The first and last opaque columns and rows of an image, counted from its left and top edges. Nil when it is clear throughout.
+    private static func opaqueBounds(of image: CGImage) -> (columns: ClosedRange<Int>, rows: ClosedRange<Int>)? {
+        let width = image.width
+        let height = image.height
+        let bytesPerRow = width * 4
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+        let drawn = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                return false
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else {
+            return nil
+        }
+        var first = (column: Int.max, row: Int.max)
+        var last = (column: -1, row: -1)
+        for row in 0..<height {
+            for column in 0..<width where pixels[row * bytesPerRow + column * 4 + 3] > 0 {
+                first = (min(first.column, column), min(first.row, row))
+                last = (max(last.column, column), max(last.row, row))
+            }
+        }
+        guard last.column >= 0 else {
+            return nil
+        }
+        return (first.column...last.column, first.row...last.row)
     }
 
     /// Masters and workers reserve one fixed-width banner and avatar slot, with or without shells or class art.

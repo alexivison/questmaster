@@ -343,6 +343,20 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
 
 /// A class's avatar art and timings, read from its `animation.json` (`Resources/Sprites/<class>/`). The file names every pose, and
 /// each pose's blocks must fit how the avatar plays it, so a file that would leave the avatar without a timing fails to read.
+/// Which art a session's avatar draws: a master's class art, or a worker's familiar (its master's class's). Each names its own poses.
+public enum TrackerAvatarArtKind: Hashable, Sendable {
+    case master
+    case familiar
+
+    /// The poses this kind's `animation.json` must name, and may name no others.
+    public var poses: [TrackerAvatarPose] {
+        switch self {
+        case .master: TrackerAvatarPose.masterPoses
+        case .familiar: TrackerAvatarPose.familiarPoses
+        }
+    }
+}
+
 public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The only `version` this build reads.
     public static let supportedVersion = 1
@@ -353,20 +367,20 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     public let fidgets: [TrackerAvatarIdleFidget]
     private let poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation]
 
-    /// Reads and checks a class's `animation.json`.
-    public init(data: Data) throws {
+    /// Reads and checks an `animation.json`: a class's (`.master`) or a familiar's (`.familiar`), which name their own poses.
+    public init(data: Data, kind: TrackerAvatarArtKind = .master) throws {
         let file = try JSONDecoder().decode(File.self, from: data)
         guard file.version == Self.supportedVersion else {
             throw TrackerAvatarAnimationError.unsupportedVersion(file.version)
         }
         var poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation] = [:]
         for (name, pose) in file.poses {
-            guard let kind = TrackerAvatarPose.allCases.first(where: { $0.resourceName == name }) else {
+            guard let kindOfPose = kind.poses.first(where: { $0.resourceName == name }) else {
                 throw TrackerAvatarAnimationError.unknownPose(name)
             }
-            poses[kind] = try Self.poseAnimation(pose, named: name, kind: kind)
+            poses[kindOfPose] = try Self.poseAnimation(pose, named: name, kind: kindOfPose)
         }
-        for pose in TrackerAvatarPose.allCases where poses[pose] == nil {
+        for pose in kind.poses where poses[pose] == nil {
             throw TrackerAvatarAnimationError.missingPose(pose.resourceName)
         }
         self.poses = poses
@@ -679,26 +693,62 @@ extension TrackerAvatarStep: Decodable {
     }
 }
 
-/// The class avatars the app has art for, by class id (the folder in `Resources/Sprites`). Only a master whose class has one shows
-/// an avatar. A worker, a shell and a session with no known class show none.
-public struct TrackerAvatarCatalog: Sendable {
-    private let animations: [String: TrackerAvatarAnimation]
+/// The art an avatar draws from: a class's (`.master`) or a familiar's (`.familiar`), by class id. The class id is the folder name in
+/// `Resources/Sprites` or `Resources/Familiars`.
+public struct TrackerAvatarArtKey: Hashable, Sendable {
+    public let kind: TrackerAvatarArtKind
+    public let classID: String
 
-    public init(animations: [String: TrackerAvatarAnimation]) {
-        self.animations = animations
+    public init(kind: TrackerAvatarArtKind, classID: String) {
+        self.kind = kind
+        self.classID = classID
+    }
+}
+
+/// The avatar art the app has. A master whose class has art shows that class's avatar; a worker whose master's class has a familiar
+/// shows that familiar. A shell, a session with no known class, and anything without art show none.
+public struct TrackerAvatarCatalog: Sendable {
+    private let animations: [TrackerAvatarArtKey: TrackerAvatarAnimation]
+
+    /// `animations` are the classes' art and `familiars` the familiars', each by class id.
+    public init(animations: [String: TrackerAvatarAnimation], familiars: [String: TrackerAvatarAnimation] = [:]) {
+        var art: [TrackerAvatarArtKey: TrackerAvatarAnimation] = [:]
+        for (classID, animation) in animations {
+            art[TrackerAvatarArtKey(kind: .master, classID: classID)] = animation
+        }
+        for (classID, animation) in familiars {
+            art[TrackerAvatarArtKey(kind: .familiar, classID: classID)] = animation
+        }
+        self.animations = art
     }
 
-    /// The class id of a master whose class has art; nil for any other session.
-    public func classID(for session: TrackerSession?) -> String? {
-        guard let session, case .master(let sessionClass?)? = SessionPortrait(session: session),
-              animations[sessionClass.rawValue] != nil else {
+    /// The art the session's avatar draws from, when it has any: a master's class art, or a worker's familiar.
+    public func art(for session: TrackerSession?) -> TrackerAvatarArtKey? {
+        guard let session, let portrait = SessionPortrait(session: session) else {
             return nil
         }
-        return sessionClass.rawValue
+        let key: TrackerAvatarArtKey
+        switch portrait {
+        case .master(let sessionClass?):
+            key = TrackerAvatarArtKey(kind: .master, classID: sessionClass.rawValue)
+        case .familiar(let sessionClass):
+            key = TrackerAvatarArtKey(kind: .familiar, classID: sessionClass.rawValue)
+        case .master(nil):
+            return nil
+        }
+        return animations[key] == nil ? nil : key
     }
 
-    /// The art of a master's class, when the class has any.
+    /// The class id of a master whose class has art; nil for any other session, a worker included.
+    public func classID(for session: TrackerSession?) -> String? {
+        guard let key = art(for: session), key.kind == .master else {
+            return nil
+        }
+        return key.classID
+    }
+
+    /// The animation of the session's avatar, when it has art.
     public func animation(for session: TrackerSession?) -> TrackerAvatarAnimation? {
-        classID(for: session).flatMap { animations[$0] }
+        art(for: session).flatMap { animations[$0] }
     }
 }
