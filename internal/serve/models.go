@@ -20,11 +20,12 @@ const (
 )
 
 type modelsPayload struct {
-	Agent   string `json:"agent"`
-	Role    string `json:"role"`
-	Query   string `json:"query"`
-	Limit   int    `json:"limit"`
-	Refresh bool   `json:"refresh"`
+	Agent     string `json:"agent"`
+	Role      string `json:"role"`
+	Query     string `json:"query"`
+	Limit     int    `json:"limit"`
+	AllNative bool   `json:"all_native"`
+	Refresh   bool   `json:"refresh"`
 }
 
 // models answers the request/response models topic: the selectable models for
@@ -58,11 +59,12 @@ func (s *Server) models(ctx context.Context, req Request) (any, error) {
 	defer cancel()
 
 	return modelsuggest.Resolve(ctx, modelsuggest.ResolveOptions{
-		Agent:   agentName,
-		Role:    role,
-		Query:   strings.TrimSpace(payload.Query),
-		Limit:   limit,
-		Refresh: payload.Refresh,
+		Agent:     agentName,
+		Role:      role,
+		Query:     strings.TrimSpace(payload.Query),
+		Limit:     limit,
+		AllNative: payload.AllNative,
+		Refresh:   payload.Refresh,
 		// The daemon outlives the request, so it may answer from a stale catalog
 		// and refresh it in the background.
 		Background: true,

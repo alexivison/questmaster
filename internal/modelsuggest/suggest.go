@@ -84,11 +84,14 @@ type Suggestions struct {
 
 // Options controls one suggestion query against already-resolved sources.
 type Options struct {
-	Agent   string
-	Role    agent.SessionRole
-	Query   string
-	Limit   int
-	Catalog Catalog
+	Agent string
+	Role  agent.SessionRole
+	Query string
+	Limit int
+	// AllNative bypasses the suggestion limit for harnesses with a native-only
+	// policy. The native probe already bounds the available inventory.
+	AllNative bool
+	Catalog   Catalog
 	// Probe enumerates the harness's own models. Nil skips harness
 	// enumeration; an error from it is treated as "no harness list".
 	Probe Prober
@@ -99,11 +102,12 @@ type Options struct {
 // ResolveOptions controls a full resolve: load the catalog, ask the harness,
 // read recents, rank.
 type ResolveOptions struct {
-	Agent   string
-	Role    agent.SessionRole
-	Query   string
-	Limit   int
-	Refresh bool
+	Agent     string
+	Role      agent.SessionRole
+	Query     string
+	Limit     int
+	AllNative bool
+	Refresh   bool
 	// Background is set by the daemon, which outlives the request. See
 	// CatalogOptions.Background.
 	Background bool
@@ -146,13 +150,14 @@ func Resolve(ctx context.Context, opts ResolveOptions) Suggestions {
 	}
 
 	return Query(ctx, Options{
-		Agent:   agentName,
-		Role:    opts.Role,
-		Query:   opts.Query,
-		Limit:   opts.Limit,
-		Catalog: catalog,
-		Probe:   probe,
-		Store:   opts.Store,
+		Agent:     agentName,
+		Role:      opts.Role,
+		Query:     opts.Query,
+		Limit:     opts.Limit,
+		AllNative: opts.AllNative,
+		Catalog:   catalog,
+		Probe:     probe,
+		Store:     opts.Store,
 	})
 }
 
@@ -210,7 +215,7 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	// the harness is the authority on what it can run.
 	collector.addAll(harnessOnlyModels(harnessIDs, collector))
 
-	if len(collector.models) > limit {
+	if len(collector.models) > limit && !(opts.AllNative && nativeOnly) {
 		collector.models = collector.models[:limit]
 	}
 	// A persisted override isn't guaranteed to survive the ranking above —

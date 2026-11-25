@@ -1648,6 +1648,41 @@ func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 	}
 }
 
+func TestServerModelsTopicCanReturnFullNativeInventory(t *testing.T) {
+	const modelCount = 205
+	var script strings.Builder
+	script.WriteString("#!/bin/sh\ncat <<'MODELS'\nprovider model context max-out thinking images\n")
+	for i := range modelCount {
+		fmt.Fprintf(&script, "example model-%03d 64K 8K no no\n", i)
+	}
+	script.WriteString("MODELS\n")
+	pi := filepath.Join(t.TempDir(), "pi")
+	if err := os.WriteFile(pi, []byte(script.String()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PI_BIN", pi)
+	t.Setenv("QUESTMASTER_STATE_ROOT", t.TempDir())
+	srv := &Server{}
+	for _, tc := range []struct {
+		name, request string
+		wantCount     int
+	}{
+		{"picker inventory", `{"agent":"pi","role":"worker","limit":20,"all_native":true}`, modelCount},
+		{"limited suggestions", `{"agent":"pi","role":"worker","limit":20}`, 20},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response, err := srv.models(t.Context(), Request{Data: json.RawMessage(tc.request)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := response.(modelsuggest.Suggestions)
+			if got.Source != modelsuggest.SourceHarness || len(got.Models) != tc.wantCount {
+				t.Fatalf("source = %q, got %d models, want %d native models", got.Source, len(got.Models), tc.wantCount)
+			}
+		})
+	}
+}
+
 func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	env := seedServeFixture(t)
 	// Never reach the network from a test: with fetching off and no cache,

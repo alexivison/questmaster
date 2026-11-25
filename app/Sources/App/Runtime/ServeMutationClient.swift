@@ -203,9 +203,8 @@ extension UnixSocketMutationClient: ServeDirectorySuggesting {
 }
 
 extension UnixSocketMutationClient: ServeModelSuggesting {
-    /// The picker is cycled with ←/→, so it asks for a ranked head of the list
-    /// (recents, aliases, then newest first) rather than every model a harness
-    /// could run — `questmaster models` is the exhaustive view.
+    /// Catalog suggestions stay ranked and limited. The picker's local search
+    /// uses the full available inventory for harnesses with a native-only list.
     private static let modelSuggestionLimit = 20
 
     func suggestModels(
@@ -223,6 +222,7 @@ extension UnixSocketMutationClient: ServeModelSuggesting {
                         "agent": agent,
                         "role": role,
                         "limit": Self.modelSuggestionLimit,
+                        "all_native": true,
                         "refresh": refresh,
                     ] as [String: Any],
                 ], connection: connection)
