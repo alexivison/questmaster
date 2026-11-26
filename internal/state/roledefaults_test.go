@@ -128,15 +128,15 @@ func TestRoleDefaultsStoreSetResetsCorruptFile(t *testing.T) {
 		t.Fatalf("write corrupt role-defaults: %v", err)
 	}
 
-	if err := store.Set("opencode", "worker", RoleDefault{Model: "openai/gpt-5.6"}); err != nil {
+	if err := store.Set("pi", "worker", RoleDefault{Model: "example/example-model"}); err != nil {
 		t.Fatalf("set after corrupt file: %v", err)
 	}
 
-	def, ok, err := store.Get("opencode", "worker")
+	def, ok, err := store.Get("pi", "worker")
 	if err != nil {
 		t.Fatalf("get after reset: %v", err)
 	}
-	if !ok || def.Model != "openai/gpt-5.6" {
-		t.Fatalf("def after reset = %+v ok=%v, want openai/gpt-5.6", def, ok)
+	if !ok || def.Model != "example/example-model" {
+		t.Fatalf("def after reset = %+v ok=%v, want example/example-model", def, ok)
 	}
 }

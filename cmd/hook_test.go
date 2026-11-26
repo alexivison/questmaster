@@ -166,12 +166,10 @@ func TestHookSubagentFeedLifecycleForHarnesses(t *testing.T) {
 	t.Parallel()
 
 	type harness struct {
-		name         string
-		setup        func(*testing.T, *HookRunner, string)
-		start        func(*testing.T, *HookRunner, string)
-		finish       func(*testing.T, *HookRunner, string)
-		deleteFinish func(*testing.T, *HookRunner, string)
-		spawn        func(*testing.T, *HookRunner, string)
+		name   string
+		start  func(*testing.T, *HookRunner, string)
+		finish func(*testing.T, *HookRunner, string)
+		spawn  func(*testing.T, *HookRunner, string)
 	}
 	const sessionID = "qm-subagent-feed"
 	const subagentID = "child-1"
@@ -202,29 +200,6 @@ func TestHookSubagentFeedLifecycleForHarnesses(t *testing.T) {
 			},
 		},
 		{
-			name: "opencode",
-			setup: func(t *testing.T, r *HookRunner, session string) {
-				openCodeHookEvent(t, r, session, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_root"}})
-			},
-			start: func(t *testing.T, r *HookRunner, session string) {
-				openCodeHookEvent(t, r, session, "session.created", map[string]interface{}{"info": map[string]interface{}{
-					"id": "ses_child", "parentID": "ses_root", "agent": familiar,
-				}})
-			},
-			finish: func(t *testing.T, r *HookRunner, session string) {
-				openCodeHookEvent(t, r, session, "tool.execute.after", map[string]interface{}{
-					"sessionID": "ses_root", "tool": "task",
-					"metadata": map[string]interface{}{"sessionId": "ses_child"},
-				})
-			},
-			deleteFinish: func(t *testing.T, r *HookRunner, session string) {
-				openCodeHookEvent(t, r, session, "session.deleted", map[string]interface{}{"sessionID": "ses_child"})
-			},
-			spawn: func(t *testing.T, r *HookRunner, session string) {
-				openCodeHookEvent(t, r, session, "tool.execute.before", map[string]interface{}{"sessionID": "ses_root", "tool": "task"})
-			},
-		},
-		{
 			name: "pi",
 			start: func(t *testing.T, r *HookRunner, session string) {
 				runHookWithStdin(r, "pi", "subagent_start", session, map[string]interface{}{"subagent_id": subagentID, "agent_type": familiar})
@@ -248,14 +223,6 @@ func TestHookSubagentFeedLifecycleForHarnesses(t *testing.T) {
 				Version:   state.SchemaVersion,
 				Panes:     map[string]state.PaneState{"agent": {Role: "agent", Agent: tc.name, State: "working"}},
 			}
-			if tc.setup != nil {
-				tc.setup(t, r, sessionID)
-			}
-			pane := rec.lastState.Panes["agent"]
-			pane.State = "working"
-			rec.lastState.Panes["agent"] = pane
-			rootSessionID := pane.OpenCodeSessionID
-
 			tc.start(t, r, sessionID)
 			assertSubagentChat(t, latestHookEvent(t, rec), "summon", familiar)
 			if got := rec.lastState.Panes["agent"].State; got != "working" {
@@ -265,20 +232,11 @@ func TestHookSubagentFeedLifecycleForHarnesses(t *testing.T) {
 			if got := chatKinds(latestHookEvent(t, rec)); len(got) != 0 {
 				t.Fatalf("repeated start chat kinds = %v, want none", got)
 			}
-			if tc.name == "opencode" {
-				openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": "ses_child"})
-				if got := chatKinds(latestHookEvent(t, rec)); len(got) != 0 {
-					t.Fatalf("OpenCode child idle chat kinds = %v, want none", got)
-				}
-			}
 
 			tc.finish(t, r, sessionID)
 			assertSubagentChat(t, latestHookEvent(t, rec), "dismiss", familiar)
 			if got := rec.lastState.Panes["agent"].State; got != "working" {
 				t.Fatalf("finish changed parent state to %q", got)
-			}
-			if tc.name == "opencode" && rec.lastState.Panes["agent"].OpenCodeSessionID != rootSessionID {
-				t.Fatalf("child lifecycle changed root session id to %q", rec.lastState.Panes["agent"].OpenCodeSessionID)
 			}
 			tc.finish(t, r, sessionID)
 			if got := chatKinds(latestHookEvent(t, rec)); len(got) != 0 {
@@ -286,11 +244,7 @@ func TestHookSubagentFeedLifecycleForHarnesses(t *testing.T) {
 			}
 			tc.start(t, r, sessionID)
 			assertSubagentChat(t, latestHookEvent(t, rec), "summon", familiar)
-			finishAgain := tc.finish
-			if tc.deleteFinish != nil {
-				finishAgain = tc.deleteFinish
-			}
-			finishAgain(t, r, sessionID)
+			tc.finish(t, r, sessionID)
 			assertSubagentChat(t, latestHookEvent(t, rec), "dismiss", familiar)
 
 			tc.spawn(t, r, sessionID)

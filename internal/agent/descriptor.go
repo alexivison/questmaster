@@ -21,13 +21,12 @@ func (d providerDef) defaultConfig() AgentConfig {
 var providerDefs = []providerDef{
 	{spec: claudeSpec, new: func(c AgentConfig) Agent { return NewClaude(c) }},
 	{spec: codexSpec, new: func(c AgentConfig) Agent { return NewCodex(c) }},
-	{spec: openCodeSpec, new: func(c AgentConfig) Agent { return NewOpenCode(c) }},
 	{spec: piSpec, new: func(c AgentConfig) Agent { return NewPi(c) }},
 }
 
 // specsByName indexes the built-in specs for capability lookups by the agent
-// name recorded in a session manifest. Unknown names resolve to the zero Spec
-// (StateNative, generic filter), which is the safe default for callers.
+// name recorded in a session manifest. Unknown names resolve to the zero Spec,
+// which uses direct pane reads with the generic filter.
 var specsByName = buildSpecsByName()
 
 func buildSpecsByName() map[string]Spec {
@@ -44,6 +43,12 @@ func SpecOf(name string) Spec {
 	return specsByName[name]
 }
 
+// IsBuiltin reports whether name belongs to the built-in harness catalogue.
+func IsBuiltin(name string) bool {
+	_, ok := specsByName[name]
+	return ok
+}
+
 // Names lists the built-in agent names in harness-guide order.
 func Names() []string {
 	names := make([]string, 0, len(providerDefs))
@@ -53,23 +58,10 @@ func Names() []string {
 	return names
 }
 
-// StateModeOf reports how the named agent reports activity/state. Unknown
-// agents are treated as StateNative.
-func StateModeOf(name string) StateMode {
-	return specsByName[name].State
-}
-
 // UsesSidecarState reports whether the named agent emits the activity-sidecar
 // event stream (Pi) and shares the rich read path.
 func UsesSidecarState(name string) bool {
-	return StateModeOf(name) == StateSidecar
-}
-
-// UsesHookActivityState reports whether the named agent's activity state is
-// driven by a hook/sidecar/plugin event stream that callers consume (Pi,
-// OpenCode) rather than by reading the pane directly.
-func UsesHookActivityState(name string) bool {
-	return StateModeOf(name) != StateNative
+	return specsByName[name].SidecarState
 }
 
 // UsesCodexFilter reports whether the named agent's pane should be read with

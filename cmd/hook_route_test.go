@@ -23,10 +23,9 @@ func TestHookAgentOwnership(t *testing.T) {
 		{"pi", "agent_settled", `{"errorMessage":"Example provider error"}`, "blocked"},
 		{"pi", "session_shutdown", `{}`, "stopped"},
 		{"pi", "batch", `{"events":[{"action":"agent_end","payload":{"errorMessage":"Example provider error"}},{"action":"session_shutdown","payload":{}}]}`, "stopped"},
-		{"opencode", "event", `{"version":"1.17.11","event":{"type":"session.status","properties":{"status":{"type":"busy"}}}}`, "working"},
 	}
 	for _, path := range []string{"fast", "cobra"} {
-		for _, owner := range []string{"claude", "codex", "pi", "opencode"} {
+		for _, owner := range []string{"claude", "codex", "pi"} {
 			for _, hook := range hooks {
 				t.Run(path+"/"+owner+"/"+hook.agent+"/"+hook.action, func(t *testing.T) {
 					root := setTestStateRoot(t)
@@ -47,9 +46,6 @@ func TestHookAgentOwnership(t *testing.T) {
 					}
 					if err := state.UpdateAndLogAt(root, id, &state.StateEvent{Agent: owner, Action: "working"}, func(ss *state.SessionState) bool {
 						pane := state.PaneState{Role: "agent", Agent: owner, State: "working", Activity: "Managed task"}
-						if owner == "opencode" {
-							pane.OpenCodeSessionID = "ses_example"
-						}
 						ss.Panes["agent"] = pane
 						return true
 					}); err != nil {

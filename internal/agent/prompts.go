@@ -51,19 +51,6 @@ var classVoiceMD string
 //go:embed prompts/class_voice/*.md prompts/voice_archetypes/*.md
 var classVoiceFS embed.FS
 
-// classVoiceClasses lists the classes that have a voice mapping, in file order.
-func classVoiceClasses() []string {
-	entries, _ := classVoiceFS.ReadDir("prompts/class_voice")
-	classes := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-		classes = append(classes, strings.TrimSuffix(entry.Name(), ".md"))
-	}
-	return classes
-}
-
 type classVoiceSpec struct {
 	archetype string
 }
@@ -100,7 +87,7 @@ func classVoiceSpecFor(class string) (classVoiceSpec, bool) {
 // The voice is part of the system prompt fixed at launch. Reclassing a live
 // session does not change its current process; the next launch, including a
 // continue of a stopped session or a restart, uses the new class and rebuilds
-// the launch command (and, for OpenCode, selects the new class's agent file).
+// the launch command.
 func ClassVoice(class string) string {
 	spec, ok := classVoiceSpecFor(class)
 	if !ok {

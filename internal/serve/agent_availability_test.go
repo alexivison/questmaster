@@ -73,8 +73,8 @@ func TestAgentAvailabilityReadReturnsOrderedSettingsAndToleratesCorruptRoleDefau
 	if got.Agents[0].Defaults["master"].Model != "opus" || got.Agents[0].Defaults["master"].ReasoningEffort != "high" {
 		t.Fatalf("claude defaults = %+v, want opus/high", got.Agents[0].Defaults)
 	}
-	if got.Agents[3].Defaults["worker"].Model != "anthropic/sonnet" || got.Agents[3].Defaults["worker"].ReasoningEffort != "medium" {
-		t.Fatalf("Pi defaults = %+v, want anthropic/sonnet/medium", got.Agents[3].Defaults)
+	if got.Agents[2].Defaults["worker"].Model != "anthropic/sonnet" || got.Agents[2].Defaults["worker"].ReasoningEffort != "medium" {
+		t.Fatalf("Pi defaults = %+v, want anthropic/sonnet/medium", got.Agents[2].Defaults)
 	}
 	if len(got.Agents[1].Defaults) != 0 {
 		t.Fatalf("codex defaults = %+v, want empty object", got.Agents[1].Defaults)
@@ -123,7 +123,7 @@ func TestAgentAvailabilitySetRequiresStringValueAndPreservesRoleDefaults(t *test
 	if err != nil {
 		t.Fatalf("load availability: %v", err)
 	}
-	if settings["claude"] != true || settings["codex"] || settings["opencode"] || settings["pi"] {
+	if settings["claude"] != true || settings["codex"] || settings["pi"] {
 		t.Fatalf("availability settings = %v, want only claude enabled", settings)
 	}
 	def, ok, err := defaults.Get("claude", "master")
@@ -146,20 +146,20 @@ func TestAgentAvailabilitySetRequiresStringValueAndPreservesRoleDefaults(t *test
 
 func TestDisabledSuggestionsAndRoleDefaultEditsStopBeforeProbes(t *testing.T) {
 	env := seedServeFixture(t)
-	if err := state.NewAgentAvailabilityStore(env.store.Root()).Set("opencode", false); err != nil {
-		t.Fatalf("disable opencode: %v", err)
+	if err := state.NewAgentAvailabilityStore(env.store.Root()).Set("pi", false); err != nil {
+		t.Fatalf("disable pi: %v", err)
 	}
 	if err := state.NewAgentAvailabilityStore(env.store.Root()).Set("claude", false); err != nil {
 		t.Fatalf("disable claude: %v", err)
 	}
 	t.Setenv(modelsuggest.CatalogURLEnv, "off")
-	marker := filepath.Join(t.TempDir(), "opencode-probed")
-	binary := filepath.Join(t.TempDir(), "opencode")
+	marker := filepath.Join(t.TempDir(), "pi-probed")
+	binary := filepath.Join(t.TempDir(), "pi")
 	script := "#!/bin/sh\nprintf called > " + shellQuote(marker) + "\n"
 	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
-		t.Fatalf("write OpenCode probe fixture: %v", err)
+		t.Fatalf("write Pi probe fixture: %v", err)
 	}
-	t.Setenv("OPENCODE_BIN", binary)
+	t.Setenv("PI_BIN", binary)
 	reasoningCalls := 0
 	srv := &Server{
 		Snapshotter: testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
@@ -171,13 +171,13 @@ func TestDisabledSuggestionsAndRoleDefaultEditsStopBeforeProbes(t *testing.T) {
 
 	models := srv.HandleRequest(context.Background(), Request{
 		Method: "models",
-		Data:   rawJSON(t, map[string]any{"agent": "opencode", "role": "master"}),
+		Data:   rawJSON(t, map[string]any{"agent": "pi", "role": "master"}),
 	})
 	if models.OK == nil || *models.OK || !strings.Contains(models.Error, "disabled") {
 		t.Fatalf("disabled models response = %+v, want disabled error", models)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("OpenCode model probe marker stat = %v, want no probe", err)
+		t.Fatalf("Pi model probe marker stat = %v, want no probe", err)
 	}
 
 	efforts := srv.HandleRequest(context.Background(), Request{
@@ -197,6 +197,31 @@ func TestDisabledSuggestionsAndRoleDefaultEditsStopBeforeProbes(t *testing.T) {
 	}
 	if reasoningCalls != 0 {
 		t.Fatalf("reasoning probe calls = %d, want none", reasoningCalls)
+	}
+}
+
+func TestSuggestionsRejectUnsupportedAgentWithSavedDefaults(t *testing.T) {
+	env := seedServeFixture(t)
+	t.Setenv(modelsuggest.CatalogURLEnv, "off")
+	const name = "retired-agent"
+	if err := state.NewRoleDefaultsStore(env.store.Root()).Set(name, "worker", state.RoleDefault{Model: "example-model", ReasoningEffort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{
+		Snapshotter: testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ReasoningEfforts: func(context.Context, string, string) []string {
+			t.Fatal("reasoning probe called for an unsupported agent")
+			return nil
+		},
+	}
+	for _, method := range []string{"models", "reasoning_efforts"} {
+		response := srv.HandleRequest(t.Context(), Request{
+			Method: method,
+			Data:   rawJSON(t, map[string]any{"agent": name, "role": "worker"}),
+		})
+		if response.OK == nil || *response.OK || !strings.Contains(response.Error, "unknown agent") || response.Data != nil {
+			t.Fatalf("%s response = %+v, want unknown agent without suggestions", method, response)
+		}
 	}
 }
 

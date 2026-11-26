@@ -169,7 +169,7 @@ struct ContractFixtureTests {
     private static func agentAvailabilityFixturesMatch() throws {
         let response = try decodeFixture(AgentAvailabilityEnvelopeFixture.self, "agent_availability_response_envelope.json")
         expect(response.topic == ServeMutationRequests.agentAvailability().method, "agent availability read method drifted from the golden")
-        expect(response.data.enabledNames == ["codex", "opencode", "pi"], "only enabled agents should be selectable, in catalogue order")
+        expect(response.data.enabledNames == ["codex", "pi"], "only enabled agents should be selectable, in catalogue order")
         let disabled = response.data.agents.first
         expect(disabled?.name == "claude" && disabled?.enabled == false, "disabled agent should remain in Settings")
         expect(disabled?.defaults["master"] == AgentAvailability.RoleDefault(model: "example-model", reasoningEffort: "high"),

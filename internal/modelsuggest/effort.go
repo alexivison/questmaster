@@ -1,7 +1,6 @@
 package modelsuggest
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -153,10 +152,6 @@ func probeReasoningEfforts(ctx context.Context, source agent.EffortSource, confi
 		// Thinking levels belong to Pi itself; user extensions and startup
 		// network operations only add work and side effects to this probe.
 		name, args = "pi", []string{"--help", "--no-extensions", "--offline"}
-	case agent.EffortSourceOpenCodeModels:
-		name, args = "opencode", []string{"models", "--verbose"}
-	case agent.EffortSourceOpenCodeConfig:
-		name, args = "opencode", []string{"debug", "config"}
 	}
 	if name == "" {
 		return nil, fmt.Errorf("unknown reasoning-effort source %q", source)
@@ -199,14 +194,6 @@ func parseDefaultEffortModel(source agent.EffortSource, data []byte) (string, er
 			return "", err
 		}
 		return strings.TrimSpace(config.Model), nil
-	case agent.EffortSourceOpenCodeConfig:
-		var config struct {
-			Model string `json:"model"`
-		}
-		if err := json.Unmarshal(data, &config); err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(config.Model), nil
 	default:
 		return "", fmt.Errorf("unknown default-model source %q", source)
 	}
@@ -242,8 +229,6 @@ func parseEffortSource(source agent.EffortSource, data []byte) (map[string][]str
 		return map[string][]string{"": helpList(data)}, nil
 	case agent.EffortSourcePiHelp:
 		return map[string][]string{"": piThinkingList(data)}, nil
-	case agent.EffortSourceOpenCodeModels:
-		return openCodeEffortMap(data), nil
 	default:
 		return nil, fmt.Errorf("unknown reasoning-effort source %q", source)
 	}
@@ -309,62 +294,6 @@ func splitEffortValues(value string) []string {
 			return nil
 		}
 		values = append(values, part)
-	}
-	return values
-}
-
-func openCodeEffortMap(data []byte) map[string][]string {
-	models := make(map[string][]string)
-	for offset := 0; offset < len(data); {
-		lineEnd := bytes.IndexByte(data[offset:], '\n')
-		if lineEnd < 0 {
-			break
-		}
-		lineEnd += offset
-		model := strings.TrimSpace(string(data[offset:lineEnd]))
-		nextLine := lineEnd + 1
-		offset = nextLine
-		if model == "" || probeModelID(model) != model {
-			continue
-		}
-		decoder := json.NewDecoder(bytes.NewReader(data[nextLine:]))
-		var modelInfo struct {
-			Variants json.RawMessage `json:"variants"`
-		}
-		if err := decoder.Decode(&modelInfo); err != nil {
-			continue
-		}
-		if efforts := openCodeVariantNames(modelInfo.Variants); len(efforts) > 0 {
-			models[model] = efforts
-		}
-		if consumed := int(decoder.InputOffset()); consumed > 0 {
-			offset = nextLine + consumed
-		}
-	}
-	return models
-}
-
-func openCodeVariantNames(raw json.RawMessage) []string {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if _, err := decoder.Token(); err != nil {
-		return nil
-	}
-	var values []string
-	for decoder.More() {
-		key, err := decoder.Token()
-		if err != nil {
-			return nil
-		}
-		var ignored json.RawMessage
-		if err := decoder.Decode(&ignored); err != nil {
-			return nil
-		}
-		if name, ok := key.(string); ok {
-			values = append(values, name)
-		}
-	}
-	if len(values) == 0 {
-		return nil
 	}
 	return values
 }

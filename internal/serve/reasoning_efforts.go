@@ -50,7 +50,7 @@ func (s *Server) reasoningEfforts(ctx context.Context, req Request) (any, error)
 	if s.Snapshotter != nil {
 		root = s.Snapshotter.StateRoot()
 	}
-	if err := agentavailability.RequireEnabled(root, agentName); err != nil {
+	if err := agentavailability.RequireBuiltinEnabled(root, agentName); err != nil {
 		return nil, err
 	}
 	role, err := modelsuggest.ParseRole(payload.Role)

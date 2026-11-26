@@ -110,7 +110,7 @@ func TestModelsCmdHintListsOnlyEnabledAgents(t *testing.T) {
 		t.Fatalf("disable codex: %v", err)
 	}
 	_, err := runCmdErr(t, store, idleRunner(), "models")
-	if err == nil || !strings.Contains(err.Error(), "claude, opencode, pi") || strings.Contains(err.Error(), "codex") {
+	if err == nil || !strings.Contains(err.Error(), "claude, pi") || strings.Contains(err.Error(), "codex") {
 		t.Fatalf("models hint error = %v, want enabled agents only", err)
 	}
 }
@@ -140,25 +140,44 @@ func TestModelsCmdRejectsDisabledAgentBeforeSuggestions(t *testing.T) {
 	}
 }
 
+func TestModelsCmdRejectsUnsupportedAgentWithSavedDefaults(t *testing.T) {
+	offlineCatalog(t)
+	store := setupStore(t)
+	const name = "retired-agent"
+	if err := state.NewRoleDefaultsStore(store.Root()).Set(name, "worker", state.RoleDefault{Model: "example-model"}); err != nil {
+		t.Fatal(err)
+	}
+	availability := state.NewAgentAvailabilityStore(store.Root())
+	for _, enabled := range []bool{true, false} {
+		if err := availability.Set(name, enabled); err != nil {
+			t.Fatal(err)
+		}
+		_, err := runCmdErr(t, store, idleRunner(), "models", name, "--role", "worker")
+		if err == nil || !strings.Contains(err.Error(), "unknown agent") {
+			t.Fatalf("models for unsupported agent with enabled=%t: %v, want unknown agent", enabled, err)
+		}
+	}
+}
+
 func TestModelsCmdDoesNotProbeDisabledHarness(t *testing.T) {
 	store := setupStore(t)
-	if err := state.NewAgentAvailabilityStore(store.Root()).Set("opencode", false); err != nil {
-		t.Fatalf("disable opencode: %v", err)
+	if err := state.NewAgentAvailabilityStore(store.Root()).Set("pi", false); err != nil {
+		t.Fatalf("disable pi: %v", err)
 	}
 	t.Setenv(modelsuggest.CatalogURLEnv, "off")
-	marker := filepath.Join(t.TempDir(), "opencode-probed")
-	binary := filepath.Join(t.TempDir(), "opencode")
+	marker := filepath.Join(t.TempDir(), "pi-probed")
+	binary := filepath.Join(t.TempDir(), "pi")
 	script := "#!/bin/sh\nprintf called > " + strconv.Quote(marker) + "\n"
 	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
-		t.Fatalf("write OpenCode fixture: %v", err)
+		t.Fatalf("write Pi fixture: %v", err)
 	}
-	t.Setenv("OPENCODE_BIN", binary)
-	_, err := runCmdErr(t, store, idleRunner(), "models", "opencode")
+	t.Setenv("PI_BIN", binary)
+	_, err := runCmdErr(t, store, idleRunner(), "models", "pi")
 	if err == nil || !strings.Contains(err.Error(), "disabled") {
-		t.Fatalf("models for disabled OpenCode = %v, want disabled error", err)
+		t.Fatalf("models for disabled Pi = %v, want disabled error", err)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("OpenCode probe marker stat = %v, want no harness probe", err)
+		t.Fatalf("Pi probe marker stat = %v, want no harness probe", err)
 	}
 }
 

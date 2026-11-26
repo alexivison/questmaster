@@ -73,14 +73,11 @@ func (s *Service) Relay(ctx context.Context, workerID, message string) (Delivery
 	if err != nil {
 		return "", fmt.Errorf("read worker manifest: %w", err)
 	}
-	if err := rejectPlainSession(m, workerID); err != nil {
+	if err := validateRecipient(m, workerID); err != nil {
 		return "", err
 	}
 	client := handle.Client()
 	if err := client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
-		return "", err
-	}
-	if err := s.ensureOpenCodeRelayReady(m, workerID); err != nil {
 		return "", err
 	}
 
@@ -105,15 +102,12 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 	if err != nil {
 		return "", fmt.Errorf("read worker manifest: %w", err)
 	}
-	if err := rejectPlainSession(recipient, targetID); err != nil {
+	if err := validateRecipient(recipient, targetID); err != nil {
 		return "", err
 	}
 	client := handle.Client()
 	sender, _ := s.store.Read(senderID)
 	if err := client.EnsureSessionRunning(ctx, targetID, "worker"); err != nil {
-		return "", err
-	}
-	if err := s.ensureOpenCodeRelayReady(recipient, targetID); err != nil {
 		return "", err
 	}
 
@@ -154,24 +148,6 @@ func (s *Service) deliver(ctx context.Context, m state.Manifest, handle tmuxrout
 		return "", err
 	}
 	return DeliverySubmitted, nil
-}
-
-func (s *Service) ensureOpenCodeRelayReady(m state.Manifest, sessionID string) error {
-	if err := rejectPlainSession(m, sessionID); err != nil {
-		return err
-	}
-	if manifestAgentName(m) != "opencode" {
-		return nil
-	}
-	ss, err := state.LoadSessionState(sessionID)
-	if err != nil {
-		return fmt.Errorf("read OpenCode hook state: %w", err)
-	}
-	result := sessionactivity.FromState(ss)
-	if result.State == "idle" || result.State == "done" {
-		return nil
-	}
-	return fmt.Errorf("opencode relay unsafe for %q: bridge state %s (requires idle or done)", sessionID, result.State)
 }
 
 // Delivery says how far a message got. Neither label says the agent read it.
@@ -236,7 +212,7 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 		if !alive {
 			continue // dead worker — legitimate skip, not a failure
 		}
-		if err := s.ensureOpenCodeRelayReady(recipient, wid); err != nil {
+		if err := validateRecipient(recipient, wid); err != nil {
 			errs = append(errs, err)
 			continue
 		}
@@ -285,9 +261,10 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 		return strings.Join(cleanRawPaneLines(raw, lines), "\n"), nil
 	}
 
-	agent := manifestAgentName(m)
-	if isHookActivityAgent(agent) && lines > 0 {
-		if output, ok := readHookActivityOutput(workerID, lines, agent); ok {
+	agentName := m.AgentName()
+	usesSidecar := agent.UsesSidecarState(agentName)
+	if usesSidecar && lines > 0 {
+		if output, ok := readHookActivityOutput(workerID, lines, agentName); ok {
 			return output, nil
 		}
 	}
@@ -301,7 +278,7 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 	if err != nil {
 		return "", err
 	}
-	if isPiLikeAgent(agent) {
+	if usesSidecar {
 		return formatPiRawPaneOutput(raw, lines), nil
 	}
 	filtered := filterAgentPaneLines(m, raw, lines)
@@ -323,15 +300,12 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) (Delive
 	if err != nil {
 		return "", fmt.Errorf("read parent manifest: %w", err)
 	}
-	if err := rejectPlainSession(parentManifest, parent); err != nil {
+	if err := validateRecipient(parentManifest, parent); err != nil {
 		return "", err
 	}
 
 	client := handle.Client()
 	if err := client.EnsureSessionRunning(ctx, parent, "master"); err != nil {
-		return "", err
-	}
-	if err := s.ensureOpenCodeRelayReady(parentManifest, parent); err != nil {
 		return "", err
 	}
 
@@ -415,6 +389,7 @@ func (s *Service) Workers(ctx context.Context, masterID string) ([]WorkerInfo, e
 			observations = append(observations, sessionactivity.Observation{
 				Key:       wid,
 				SessionID: wid,
+				Agent:     m.AgentName(),
 				Enabled:   alive,
 			})
 		}
@@ -508,6 +483,16 @@ func prepareMessageWith(msg string, pointer func(string) string) (string, bool, 
 	return pointer(path), true, nil
 }
 
+func validateRecipient(m state.Manifest, sessionID string) error {
+	if err := rejectPlainSession(m, sessionID); err != nil {
+		return err
+	}
+	if name := m.AgentName(); !agent.IsBuiltin(name) {
+		return fmt.Errorf("session %s uses unsupported agent %q", sessionID, name)
+	}
+	return nil
+}
+
 func rejectPlainSession(m state.Manifest, sessionID string) error {
 	if len(m.Agents) == 0 {
 		return fmt.Errorf("session %s has no agent (plain terminal session)", sessionID)
@@ -515,13 +500,13 @@ func rejectPlainSession(m state.Manifest, sessionID string) error {
 	return nil
 }
 
-func readHookActivityOutput(sessionID string, lines int, agent string) (string, bool) {
+func readHookActivityOutput(sessionID string, lines int, agentName string) (string, bool) {
 	ss, err := state.LoadSessionState(sessionID)
 	if err != nil || ss == nil || ss.Version != state.SchemaVersion {
 		return "", false
 	}
 	pane, ok := ss.Panes[agentRole]
-	if !ok || (pane.Agent != "" && !sameHookActivityAgent(pane.Agent, agent)) {
+	if !ok || (pane.Agent != "" && pane.Agent != agentName) {
 		return "", false
 	}
 	if len(pane.Recent) > 0 {
@@ -563,35 +548,8 @@ func tailLines(lines []string, max int) []string {
 }
 
 func filterAgentPaneLines(m state.Manifest, raw string, lines int) []string {
-	if agent.UsesCodexFilter(manifestAgentName(m)) {
+	if agent.UsesCodexFilter(m.AgentName()) {
 		return tmux.FilterCodexLines(raw, lines)
 	}
 	return tmux.FilterAgentLines(raw, lines)
-}
-
-// isPiLikeAgent reports whether the agent uses the Pi activity-sidecar
-// contract for state tracking and structured read output. The set is declared
-// by the agent package (StateSidecar), not duplicated here.
-func isPiLikeAgent(name string) bool {
-	return agent.UsesSidecarState(name)
-}
-
-func isHookActivityAgent(name string) bool {
-	return agent.UsesHookActivityState(name)
-}
-
-func sameHookActivityAgent(paneAgent, manifestAgent string) bool {
-	if paneAgent == manifestAgent {
-		return true
-	}
-	return isPiLikeAgent(paneAgent) && isPiLikeAgent(manifestAgent)
-}
-
-func manifestAgentName(m state.Manifest) string {
-	for _, spec := range m.Agents {
-		if spec.Role == agentRole && spec.Name != "" {
-			return spec.Name
-		}
-	}
-	return ""
 }

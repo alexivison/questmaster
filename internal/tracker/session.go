@@ -187,7 +187,7 @@ func ManifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
 		ID:           id,
 		Title:        m.Title,
 		Cwd:          m.Cwd,
-		Agent:        manifestAgentName(m, agent.RoleAgent),
+		Agent:        strings.TrimSpace(m.AgentName()),
 		Status:       status,
 		SessionType:  sessionType,
 		ParentID:     m.ExtraString("parent_session"),
@@ -430,15 +430,6 @@ func lessRepoSection(order state.ProjectOrder, aID, aName, bID, bName string) bo
 		return true
 	}
 	return order.Less(aID, aName, bID, bName)
-}
-
-func manifestAgentName(manifest state.Manifest, role agent.Role) string {
-	for _, spec := range manifest.Agents {
-		if spec.Role == string(role) {
-			return strings.TrimSpace(spec.Name)
-		}
-	}
-	return ""
 }
 
 func resolveManifestAgent(manifest state.Manifest, role agent.Role) agent.Agent {

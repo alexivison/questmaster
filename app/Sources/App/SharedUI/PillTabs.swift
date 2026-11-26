@@ -153,13 +153,11 @@ enum PillTabMetrics {
     static let piLogoInkSide: CGFloat = 15
 
     /// The side each mark's image is drawn at for its ink to read at the same size: Claude's and Codex's
-    /// SVGs fill their box, OpenCode's 20 of its 24 units, Pi's as above.
+    /// SVGs fill their box. Pi's uses the inset described above.
     static func logoSide(for agent: String) -> CGFloat {
         switch AgentKind(name: agent) {
         case .pi:
             return piLogoInkSide * 800 / 470
-        case .opencode:
-            return iconSide * 24 / 20
         case .claude, .codex, .shell, .unknown:
             return iconSide
         }

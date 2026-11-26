@@ -149,8 +149,6 @@ func toolCommandKey(agent, tool string, input interface{}) string {
 		shellTool = name == "Bash" || name == "shell" || name == "exec_command"
 	case "pi":
 		shellTool = name == "bash" || name == "shell" || name == "sh"
-	case "opencode":
-		shellTool = name == "bash"
 	}
 	if !shellTool {
 		return ""
@@ -259,19 +257,14 @@ func trackWorkActivity(ev *state.StateEvent, previous state.PaneState, pane *sta
 	}
 	last := previous.WorkActivityAt()
 	if previous.State != "working" || previous.HasBlockedEpisode() || hookReportedWork(ev, pane.LastEvent, changed) {
-		recordWorkActivity(pane, last, ev.Ts)
+		if ev.Ts.Equal(last) || overtaken(ev.Ts, last) {
+			return
+		}
+		pane.LastWorkActivity, pane.InactivityAlerted = ev.Ts, false
 	} else if changed && pane.LastWorkActivity.IsZero() {
 		// Preserve the legacy timestamp when a status-only hook rewrites LastEvent.
 		pane.LastWorkActivity = last
 	}
-}
-
-func recordWorkActivity(pane *state.PaneState, last, at time.Time) bool {
-	if pane.State != "working" || pane.HasBlockedEpisode() || at.Equal(last) || overtaken(at, last) {
-		return false
-	}
-	pane.LastWorkActivity, pane.InactivityAlerted = at, false
-	return true
 }
 
 func hookReportedWork(ev *state.StateEvent, lastEvent time.Time, changed bool) bool {
@@ -284,8 +277,7 @@ func hookReportedWork(ev *state.StateEvent, lastEvent time.Time, changed bool) b
 	case "turn_end":
 		return lastEvent.Equal(ev.Ts)
 	default:
-		// OpenCode records work when the patch is accepted.
-		return ev.Agent != "opencode" && ev.State == "working" && lastEvent.Equal(ev.Ts)
+		return ev.State == "working" && lastEvent.Equal(ev.Ts)
 	}
 }
 
@@ -509,8 +501,6 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 		handleCodex(r, id, opts, stderr)
 	case "pi":
 		handlePi(r, id, opts, stderr)
-	case "opencode":
-		handleOpenCode(r, id, opts, stderr)
 	default:
 		fmt.Fprintf(stderr, "questmaster hook: unknown agent %q\n", opts.agent)
 	}
@@ -539,9 +529,8 @@ const hookReorderWindow = 10 * time.Second
 // overtaken reports whether a hook that started at startedAt reached the
 // state lock after a newer hook had already moved the pane to lastEvent.
 // Claude and Codex payloads carry no emission time, so a hook's start is its
-// emission time. Pi and OpenCode stamp their events, but LastEvent holds hook
-// start times, and both bridges run one hook at a time, so start order is
-// their emission order too.
+// emission time. Pi stamps its events and runs one hook at a time, so
+// LastEvent uses hook start order for Pi too.
 //
 // An overtaken event is still logged, marked "overtaken". It must not move
 // the plate back: an overtaken session or turn boundary changes nothing in
@@ -1364,8 +1353,6 @@ func isSubagentSpawnTool(agent, name string) bool {
 		return strings.EqualFold(name, "Agent") || strings.EqualFold(name, "Task")
 	case "codex":
 		return strings.EqualFold(name, "spawn_agent") || strings.EqualFold(name, "collaborationspawn_agent")
-	case "opencode":
-		return strings.EqualFold(name, "task")
 	case "pi":
 		return strings.EqualFold(name, "Agent")
 	default:

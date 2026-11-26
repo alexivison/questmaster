@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -455,10 +454,7 @@ func (s *Server) mutateRoleDefaultSet(ctx context.Context, payload mutationPaylo
 		return nil, err
 	}
 	agentName = strings.ToLower(strings.TrimSpace(agentName))
-	if !slices.Contains(agent.Names(), agentName) {
-		return nil, fmt.Errorf("unknown agent %q (want one of %s)", agentName, strings.Join(agent.Names(), ", "))
-	}
-	if err := agentavailability.RequireEnabled(s.mutationStore().Root(), agentName); err != nil {
+	if err := agentavailability.RequireBuiltinEnabled(s.mutationStore().Root(), agentName); err != nil {
 		return nil, err
 	}
 

@@ -141,40 +141,6 @@ func TestQueryOffersNoFamilyAliases(t *testing.T) {
 	}
 }
 
-func TestQueryPrefersHarnessEnumerationOverCatalog(t *testing.T) {
-	t.Parallel()
-
-	// OpenCode enumerates the providers the user actually configured. That
-	// list is authoritative: catalog entries outside it are not offered, and
-	// ids the catalog has never heard of still are.
-	probe := func(context.Context) ([]string, error) {
-		return []string{"opencode/big-pickle", "ollama/local-llm-9"}, nil
-	}
-	got := Query(context.Background(), Options{
-		Agent:   "opencode",
-		Role:    agent.RoleMaster,
-		Catalog: testCatalog(t),
-		Probe:   probe,
-	})
-
-	if got.Source != SourceHarness {
-		t.Errorf("source = %q, want %q", got.Source, SourceHarness)
-	}
-	for _, want := range []string{"opencode/big-pickle", "ollama/local-llm-9"} {
-		if !containsID(got.Models, want) {
-			t.Errorf("models %v missing %q", ids(got.Models), want)
-		}
-	}
-	if containsID(got.Models, "anthropic/claude-opus-5") {
-		t.Errorf("models %v should be limited to what the harness reported", ids(got.Models))
-	}
-	// opencode/big-pickle is both a harness-reported id and a catalog id (see
-	// testCatalog's opencode fixture): a merge bug could offer it twice.
-	if count := countID(got.Models, "opencode/big-pickle"); count != 1 {
-		t.Errorf("models %v contains opencode/big-pickle %d times, want exactly 1", ids(got.Models), count)
-	}
-}
-
 // TestQueryEmptyWhenNothingConfiguredAndEveryDynamicSourceIsEmpty guards the
 // fully-unconfigured, degraded-mode case: with no persisted role default and
 // every dynamic source empty, the list can legitimately be empty — there is
@@ -183,7 +149,7 @@ func TestQueryEmptyWhenNothingConfiguredAndEveryDynamicSourceIsEmpty(t *testing.
 	t.Parallel()
 
 	probe := func(context.Context) ([]string, error) {
-		return nil, fmt.Errorf("opencode binary not found")
+		return nil, fmt.Errorf("model listing unavailable")
 	}
 	got := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleMaster, Probe: probe})
 
@@ -212,7 +178,7 @@ func TestQueryBackfillsAPersistedDefaultMissingFromEveryOtherSource(t *testing.T
 		t.Fatalf("seed role default: %v", err)
 	}
 	probe := func(context.Context) ([]string, error) {
-		return nil, fmt.Errorf("opencode binary not found")
+		return nil, fmt.Errorf("model listing unavailable")
 	}
 	got := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleMaster, Probe: probe, Store: store})
 
@@ -257,7 +223,7 @@ func TestQueryBackfillsAPersistedDefaultPastTheRankingLimit(t *testing.T) {
 		t.Fatalf("seed role default: %v", err)
 	}
 	probe := func(context.Context) ([]string, error) {
-		return nil, fmt.Errorf("opencode binary not found")
+		return nil, fmt.Errorf("model listing unavailable")
 	}
 	got := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleMaster, Probe: probe, Store: store, Limit: 2})
 

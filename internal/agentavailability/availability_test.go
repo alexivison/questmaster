@@ -22,7 +22,7 @@ func TestEnabledNamesFiltersInCatalogueOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnabledNames: %v", err)
 	}
-	want := []string{"claude", "opencode", "pi"}
+	want := []string{"claude", "pi"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("EnabledNames = %v, want %v (from %v)", got, want, agent.Names())
 	}

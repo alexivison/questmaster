@@ -5,7 +5,7 @@ struct NewSessionLogicTests {
     static func run() {
         focusMovesThroughFieldsWithControlJAndK()
         focusCycleWrapsThroughFields()
-        defaultAgentListIncludesOpenCode()
+        defaultAgentListMatchesSupportedHarnesses()
         enabledAgentListPreservesFilteredCatalogueOrder()
         emptyAndFailedAgentAvailabilityDoNotFallBack()
         modelFieldStartsEmptyAndTakesSettingsDefault()
@@ -66,9 +66,9 @@ struct NewSessionLogicTests {
         expect(!NewSessionField.formOrder.contains(.color), "New Session's fields should not include a colour")
     }
 
-    private static func defaultAgentListIncludesOpenCode() {
+    private static func defaultAgentListMatchesSupportedHarnesses() {
         expect(
-            NewSessionFormModel.defaultAgents == ["claude", "codex", "opencode", "pi"],
+            NewSessionFormModel.defaultAgents == ["claude", "codex", "pi"],
             "default agent order mismatch: \(NewSessionFormModel.defaultAgents)"
         )
     }
@@ -77,7 +77,6 @@ struct NewSessionLogicTests {
         let availability = AgentAvailability(agents: [
             .init(name: "claude", enabled: false),
             .init(name: "codex", enabled: true),
-            .init(name: "opencode", enabled: false),
             .init(name: "pi", enabled: true),
         ])
         expect(availability.enabledNames == ["codex", "pi"], "availability should retain enabled agents in catalogue order")
@@ -325,7 +324,7 @@ struct NewSessionLogicTests {
     }
 
     // Valid effort levels
-    // are per harness (and per model, for Codex/OpenCode), so a stale
+    // are per harness (and per model, for Codex), so a stale
     // resolved list must not survive an agent or role change.
     private static func agentChangeDropsTheResolvedEffortList() {
         var model = NewSessionFormModel(

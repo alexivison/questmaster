@@ -4,8 +4,6 @@ import QuestmasterCore
 struct TrackerRendererTests {
     static func run() {
         statusClassificationEmitsNeedsInput()
-        statusClassificationTreatsOpenCodePermissionAsNeedsInput()
-        statusClassificationTreatsOpenCodeSessionErrorAsError()
         statusClassificationKeepsErrorDistinctFromBlocked()
         statusClassificationMapsWorkingToWorking()
         statusClassificationLabelsStartingAsIdle()
@@ -36,22 +34,6 @@ struct TrackerRendererTests {
         let status = TrackerStatusClassifier.classify(session)
 
         expect(status.kind == .needsInput, "needs-input state classified as \(status.kind)")
-    }
-
-    private static func statusClassificationTreatsOpenCodePermissionAsNeedsInput() {
-        let session = trackerSession(id: "opencode-permission", state: "blocked", lastKind: "permission.asked")
-
-        let status = TrackerStatusClassifier.classify(session)
-
-        expect(status.kind == .needsInput, "OpenCode permission classified as \(status.kind)")
-    }
-
-    private static func statusClassificationTreatsOpenCodeSessionErrorAsError() {
-        let session = trackerSession(id: "opencode-error", state: "blocked", lastKind: "session.error")
-
-        let status = TrackerStatusClassifier.classify(session)
-
-        expect(status.kind == .error, "OpenCode session.error classified as \(status.kind)")
     }
 
     private static func statusClassificationKeepsErrorDistinctFromBlocked() {

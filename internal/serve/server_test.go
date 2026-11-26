@@ -110,6 +110,40 @@ func TestSnapshotterSurfacesTracker(t *testing.T) {
 	}
 }
 
+func TestTrackerKeepsLiveUnsupportedSessionWithUnknownActivity(t *testing.T) {
+	env := seedServeFixture(t)
+	const retiredAgent = "retired-agent"
+	if err := env.store.Update("qm-demo", func(m *state.Manifest) {
+		m.Agents[0].Name = retiredAgent
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["agent"]
+		pane.Agent = retiredAgent
+		pane.RunningTools = []state.RunningTool{{CallID: "call-1", Tool: "Read", StartedAt: env.now}}
+		ss.Panes["agent"] = pane
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snap := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+
+	for _, change := range []Change{{}, {SessionIDs: []string{"qm-demo"}}} {
+		got, err := snap.TrackerForChange(change)
+		if err != nil || len(got.Sessions) != 1 {
+			t.Fatalf("tracker = %+v, %v; want one session", got, err)
+		}
+		row := got.Sessions[0]
+		if row.Agent != retiredAgent || row.Status != "active" || row.State != "unknown" {
+			t.Fatalf("tracker row = %+v, want the retired harness's live row with unknown activity", row)
+		}
+		if row.LatestActivity != "" || row.LastKind != "" || row.ElapsedSince != nil || row.Cast != nil {
+			t.Fatalf("tracker row includes stale activity: %+v", row)
+		}
+	}
+}
+
 func TestSnapshotterWorkersFollowMasterReclass(t *testing.T) {
 	env := seedServeFixture(t)
 	if err := env.store.SetSessionClass("qm-demo", "wizard"); err != nil {
@@ -1855,12 +1889,12 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 		t.Fatalf("reasoning_efforts efforts = %v, want the reported gpt-6-luna levels", efforts)
 	}
 
-	// An unrecognized OpenCode model has no reported levels and no forced
+	// An unrecognized Codex model has no reported levels and no forced
 	// default either.
 	writeRequest(t, enc, map[string]any{
-		"id":     "reasoning-efforts-opencode-unknown",
+		"id":     "reasoning-efforts-model-unknown",
 		"method": "reasoning_efforts",
-		"data":   map[string]any{"agent": "opencode", "role": "worker", "model": "ollama/local-llm-9"},
+		"data":   map[string]any{"agent": "codex", "role": "worker", "model": "example-model"},
 	})
 	unknownResp := assertResponseTopic(t, dec, "reasoning_efforts")
 	unknownData, ok := unknownResp.Data.(map[string]any)
@@ -1871,7 +1905,7 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 		t.Fatalf("reasoning_efforts default = %#v, want no configured default", unknownData["default"])
 	}
 	if len(stringList(unknownData["efforts"])) != 0 {
-		t.Fatalf("reasoning_efforts efforts = %#v, want none for an unrecognized OpenCode provider", unknownData["efforts"])
+		t.Fatalf("reasoning_efforts efforts = %#v, want none for an unrecognized Codex model", unknownData["efforts"])
 	}
 
 	// A request without an agent is a client error, not an empty list.

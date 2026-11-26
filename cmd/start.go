@@ -135,7 +135,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string, route
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
 	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
 	cmd.Flags().StringVar(&opts.model, "model", "", "override the agent model")
-	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override agent reasoning effort (valid levels depend on the agent harness; OpenCode requires 1.17.15+)")
+	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override agent reasoning effort (valid levels depend on the agent harness)")
 	// Keep attach opt-in so scripts can create detached sessions by default.
 	addDeprecatedLayoutFlag(cmd)
 

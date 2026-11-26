@@ -11,9 +11,6 @@ func ValidateReasoningEffort(provider, model, effort string, supported []string)
 	if effort == "" || len(supported) == 0 {
 		return nil
 	}
-	if provider == "opencode" && effort == "off" {
-		effort = "none"
-	}
 	for _, level := range supported {
 		if level == effort {
 			return nil

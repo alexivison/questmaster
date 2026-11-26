@@ -110,21 +110,12 @@ func TestHookBridgesAcceptLargeDiscardedResponse(t *testing.T) {
 	}{
 		{"claude", "claude", "tool_end", `{"tool_response":{"data":"`, `"},"tool_name":"Edit"}`},
 		{"pi batch", "pi", "batch", `{"events":[{"action":"tool_execution_end","payload":{"tool_response":{"data":"`, `"},"toolName":"bash"}}]}`},
-		{"opencode", "opencode", "event", `{"event":{"type":"session.created","properties":{"tool_response":{"data":"`, `"},"info":{"id":"ses_example"}}}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := setTestStateRoot(t)
 			const sessionID = "qm-large-bridge"
 			t.Setenv("QUESTMASTER_SESSION", "")
-			if tc.agent == "opencode" {
-				manifest := state.Manifest{TmuxServer: "dev_previous", SessionID: sessionID, Agents: []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", ResumeID: "ses_example"}}}
-				manifest.SetExtra("opencode_session_id", "ses_example")
-				if err := state.OpenStore(root).Create(manifest); err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				seedHookSession(t, root, sessionID)
-			}
+			seedHookSession(t, root, sessionID)
 			payload := io.MultiReader(strings.NewReader(tc.prefix), io.LimitReader(repeatedHookByte{value: 'x'}, 2<<20), strings.NewReader(tc.suffix))
 			var stderr bytes.Buffer
 			if handled, err := executeHookFastPath([]string{"--session", sessionID, tc.agent, tc.action}, payload, &stderr); err != nil || !handled || stderr.Len() != 0 {
@@ -272,10 +263,6 @@ func TestHookStateLockTimeoutSkipsWriteAndLogs(t *testing.T) {
 func TestHookOlderTransitionDoesNotRegressNewerState(t *testing.T) {
 	base := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
 	newer, older := base.Add(2*time.Second), base.Add(time.Second)
-	openCode := func(eventType string, props map[string]interface{}) map[string]interface{} {
-		props["sessionID"] = "ses_order"
-		return map[string]interface{}{"event": map[string]interface{}{"type": eventType, "properties": props}}
-	}
 	type step struct {
 		action  string
 		payload interface{}
@@ -283,7 +270,6 @@ func TestHookOlderTransitionDoesNotRegressNewerState(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		agent       string
-		seed        *step
 		newer       step
 		older       step
 		olderLogged string
@@ -306,23 +292,12 @@ func TestHookOlderTransitionDoesNotRegressNewerState(t *testing.T) {
 			older:       step{action: "agent_end", payload: map[string]interface{}{}},
 			olderLogged: "agent_end",
 		},
-		{
-			name: "opencode", agent: "opencode",
-			seed:        &step{action: "event", payload: openCode("session.created", map[string]interface{}{})},
-			newer:       step{action: "event", payload: openCode("session.status", map[string]interface{}{"status": map[string]interface{}{"type": "busy"}})},
-			older:       step{action: "event", payload: openCode("session.idle", map[string]interface{}{})},
-			olderLogged: "session.idle",
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := setTestStateRoot(t)
 			sessionID := "qm-order-" + tc.name
 			seedHookSession(t, root, sessionID)
 			r := productionHookRunner(t, root)
-			if tc.seed != nil {
-				r.Now = func() time.Time { return base }
-				runHookWithStdin(r, tc.agent, tc.seed.action, sessionID, tc.seed.payload)
-			}
 			r.Now = func() time.Time { return newer }
 			runHookWithStdin(r, tc.agent, tc.newer.action, sessionID, tc.newer.payload)
 			r.Now = func() time.Time { return older }
@@ -511,7 +486,6 @@ func TestHookAfterSessionDeletionDoesNotRecreateState(t *testing.T) {
 		{"claude", "stopped", `{"session_id":"example"}`},
 		{"codex", "done", `{}`},
 		{"pi", "agent_end", `{}`},
-		{"opencode", "event", `{"event":{"type":"session.idle","properties":{}}}`},
 		{"claude", "working", `{}`},
 		{"claude", "no-such-action", `{}`},
 	} {

@@ -156,7 +156,7 @@ struct TrackerCastTests {
             ("Read", "cast-read-crystal-ball"), ("Grep", "cast-read-crystal-ball"), ("list", "cast-read-crystal-ball"), ("find", "cast-read-crystal-ball"),
             ("WebFetch", "cast-web-globe"), ("web_search", "cast-web-globe"),
             ("Task", "cast-subagent-allies"), ("Agent", "cast-subagent-allies"),
-            ("TodoWrite", "cast-todo-inkwell"), ("todoread", "cast-todo-inkwell"), ("update_plan", "cast-todo-inkwell"),
+            ("TodoWrite", "cast-todo-inkwell"), ("update_plan", "cast-todo-inkwell"),
             ("mcp__linear__save_issue", "cast-other-spanner"),
         ]
         for (tool, iconName) in table {

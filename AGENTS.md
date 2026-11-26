@@ -11,12 +11,11 @@ Detail lives in project skills: read the file the "Skills index" row names first
   mechanics, and CLI behavior. The shared master prompt may suggest using
   Questmaster workers. User and project instructions set delegation policy,
   reviewer cadence, model preferences, and general practices.
-- Master launches get the shared voice rules and mapped archetype
-  from `internal/agent/prompts/`; workers get none. Claude and Pi append it,
-  Codex uses `developer_instructions`, and OpenCode selects a managed per-class
-  master agent file. The voice is fixed at launch; reclassing takes effect on
-  the next launch, including continuing a stopped session or restarting it.
-  Each archetype sets its own degree of older diction, formality and theatre.
+- Master launches alone get the shared voice rules and mapped archetype from
+  `internal/agent/prompts/`. Claude and Pi append the voice, and Codex passes it
+  through `developer_instructions`. Reclassing takes effect at the next launch,
+  including when continuing or restarting a stopped session. Each archetype
+  sets its own degree of older diction, formality and theatre.
 - Branch from a freshly fetched `origin/main` (`git fetch origin`, then
   `git worktree add <path> -b <branch> origin/main`), never from a local `main`:
   it can be stale or still on a history `main` has since rewritten, and a PR
@@ -202,7 +201,7 @@ buttons are the shared components; an empty list is one icon; every modal follow
 
 ## Skills index
 
-Skills are real files in `.agents/skills/<name>/` (Codex, Pi and OpenCode read that path;
+Skills are real files in `.agents/skills/<name>/` (Codex and Pi read that path;
 `.claude/skills/<name>` symlinks to it for Claude Code). Skill triggering is by
 description and not guaranteed, so **read the file named here with your ordinary file
 tool whenever its row applies**.

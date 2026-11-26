@@ -18,38 +18,27 @@ type ModelPolicy struct {
 // ModelListSource identifies a harness-owned model listing command.
 type ModelListSource string
 
-const (
-	ModelListPi       ModelListSource = "pi-list-models"
-	ModelListOpenCode ModelListSource = "opencode-models"
-)
+const ModelListPi ModelListSource = "pi-list-models"
 
 // EffortSource identifies a harness-owned input used to resolve reasoning-
 // effort choices and the model they apply to. modelsuggest reads it at runtime.
 type EffortSource string
 
 const (
-	EffortSourceNone           EffortSource = ""
-	EffortSourceCodexCache     EffortSource = "codex-cache"
-	EffortSourceClaudeHelp     EffortSource = "claude-help"
-	EffortSourcePiHelp         EffortSource = "pi-help"
-	EffortSourceOpenCodeModels EffortSource = "opencode-models"
-	EffortSourceCodexConfig    EffortSource = "codex-config"
-	EffortSourceOpenCodeConfig EffortSource = "opencode-config"
+	EffortSourceNone        EffortSource = ""
+	EffortSourceCodexCache  EffortSource = "codex-cache"
+	EffortSourceClaudeHelp  EffortSource = "claude-help"
+	EffortSourcePiHelp      EffortSource = "pi-help"
+	EffortSourceCodexConfig EffortSource = "codex-config"
 )
 
 // ModelSource maps one models.dev provider onto a harness's model vocabulary.
 //
-// Harnesses disagree about how a model is named: Claude takes bare ids
-// ("claude-opus-5") or family aliases ("opus"), Codex takes bare OpenAI ids
-// ("gpt-5.6-terra"), and OpenCode and Pi take provider-qualified ids with
-// their own provider naming ("openai/gpt-5.6-terra",
-// "openai-codex/gpt-5.6-terra"). Prefix bridges that gap without a per-model
-// mapping table.
+// Claude and Codex take bare model ids. Claude also accepts family aliases
+// such as "opus". Pi lists its provider-qualified ids through its own CLI.
 type ModelSource struct {
 	// Catalog is the models.dev provider id (e.g. "anthropic", "openai").
 	Catalog string
-	// Prefix is prepended to every catalog model id for this harness.
-	Prefix string
 	// Aliases additionally offers family-derived aliases (the "claude-opus"
 	// family becomes "opus"). Aliases track the latest model in their family,
 	// so they are the preferred choice where a harness supports them.

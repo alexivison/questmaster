@@ -58,7 +58,7 @@ spawn --model accept any id the harness understands, listed or not.`,
 				}
 				return fmt.Errorf("agent is required (one of: %s)", strings.Join(names, ", "))
 			}
-			if err := agentavailability.RequireEnabled(store.Root(), agentName); err != nil {
+			if err := agentavailability.RequireBuiltinEnabled(store.Root(), agentName); err != nil {
 				return err
 			}
 			role, err := parseModelsRoleFlag(opts.role)

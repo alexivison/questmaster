@@ -9,7 +9,7 @@ import (
 )
 
 func TestHookBlockedEpisodesAcrossHarnesses(t *testing.T) {
-	for _, harness := range []string{"claude", "codex", "codex async", "pi", "opencode"} {
+	for _, harness := range []string{"claude", "codex", "codex async", "pi"} {
 		for _, combined := range []bool{false, true} {
 			name := "fallback/"
 			if combined {
@@ -18,7 +18,7 @@ func TestHookBlockedEpisodesAcrossHarnesses(t *testing.T) {
 			t.Run(name+harness, func(t *testing.T) {
 				r, rec := newTestRunner(t)
 				root := t.TempDir()
-				id := uniqueOpenCodeRuntimeID(t, "qm-blocked-episode")
+				const id = "qm-blocked-episode"
 				if combined {
 					r.LoadState = func(id string) (*state.SessionState, error) { return state.LoadSessionStateAt(root, id) }
 					r.UpdateAndLog = func(ctx context.Context, id string, ev *state.StateEvent, mutate func(*state.SessionState) bool, extra func(*state.StateEvent) []*state.StateEvent) error {
@@ -72,17 +72,6 @@ func TestHookBlockedEpisodesAcrossHarnesses(t *testing.T) {
 					ask = func() { call("pi", "waiting_for_user", map[string]interface{}{"prompt": "Continue?"}) }
 					repeat = ask
 					resume = func() { call("pi", "ui_prompt_end", map[string]interface{}{"busy": true}) }
-				case "opencode":
-					openCodeHookEvent(t, r, id, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_blocked"}})
-					ask = func() {
-						openCodeHookEvent(t, r, id, "question.asked", map[string]interface{}{"sessionID": "ses_blocked"})
-					}
-					repeat = func() {
-						openCodeHookEvent(t, r, id, "session.status", map[string]interface{}{"sessionID": "ses_blocked", "status": map[string]interface{}{"type": "busy"}})
-					}
-					resume = func() {
-						openCodeHookEvent(t, r, id, "question.replied", map[string]interface{}{"sessionID": "ses_blocked"})
-					}
 				}
 				ask()
 				first := pane().BlockedSince

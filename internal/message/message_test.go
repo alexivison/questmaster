@@ -126,36 +126,6 @@ func writePiActivityState(t *testing.T, sessionID string, fixture piActivityFixt
 	}
 }
 
-func writeOpenCodeActivityState(t *testing.T, sessionID string, recent []string, activity string) {
-	t.Helper()
-	writeOpenCodePaneState(t, sessionID, "idle", recent, activity)
-}
-
-func writeOpenCodePaneState(t *testing.T, sessionID, paneState string, recent []string, activity string) {
-	t.Helper()
-	removePiActivityState(t, sessionID)
-	now := time.Now().UTC()
-	if err := state.SaveSessionState(sessionID, &state.SessionState{
-		SessionID: sessionID,
-		Version:   state.SchemaVersion,
-		SeenAt:    now,
-		Panes: map[string]state.PaneState{
-			agentRole: {
-				Role:              agentRole,
-				Agent:             "opencode",
-				State:             paneState,
-				Activity:          activity,
-				Recent:            recent,
-				LastEvent:         now,
-				Seq:               now.UnixNano(),
-				OpenCodeSessionID: "ses_read",
-			},
-		},
-	}); err != nil {
-		t.Fatalf("save OpenCode state: %v", err)
-	}
-}
-
 func writeAgentPaneState(t *testing.T, sessionID, paneState string) {
 	t.Helper()
 	now := time.Now().UTC()
@@ -536,61 +506,6 @@ func TestRelayFrom_DoesNotLogInstructionsFromOtherSenders(t *testing.T) {
 	}
 }
 
-func TestRelay_OpenCodeRequiresIdleHookState(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	sessionID := "qm-opencode-relay-busy"
-	createManifest(t, store, sessionID, "opencode worker", "worker")
-	setAgent(t, store, sessionID, "opencode")
-	writeOpenCodePaneState(t, sessionID, "working", nil, "Tool: bash")
-
-	var sent []string
-	svc := newService(store, idleAndSendRunner(&sent))
-	_, err := svc.Relay(t.Context(), sessionID, "hello worker")
-	if err == nil || !strings.Contains(err.Error(), "requires idle or done") {
-		t.Fatalf("relay error = %v, want requires idle or done", err)
-	}
-	if len(sent) != 0 {
-		t.Fatalf("unsafe OpenCode relay sent input: %v", sent)
-	}
-}
-
-func TestRelay_OpenCodeAllowsIdleHookState(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	sessionID := "qm-opencode-relay-idle"
-	createManifest(t, store, sessionID, "opencode worker", "worker")
-	setAgent(t, store, sessionID, "opencode")
-	writeOpenCodePaneState(t, sessionID, "idle", nil, "")
-
-	var sent []string
-	svc := newService(store, idleAndSendRunner(&sent))
-	if _, err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
-		t.Fatalf("relay: %v", err)
-	}
-	if len(sent) == 0 || sent[0] != "[FROM:external] hello worker" {
-		t.Fatalf("sent = %v, want external prefix", sent)
-	}
-}
-
-func TestRelay_OpenCodeAllowsFreshDoneHookState(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	sessionID := "qm-opencode-relay-done"
-	createManifest(t, store, sessionID, "opencode worker", "worker")
-	setAgent(t, store, sessionID, "opencode")
-	writeOpenCodePaneState(t, sessionID, "done", nil, "")
-
-	var sent []string
-	svc := newService(store, idleAndSendRunner(&sent))
-	if _, err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
-		t.Fatalf("relay: %v", err)
-	}
-	if len(sent) == 0 || sent[0] != "[FROM:external] hello worker" {
-		t.Fatalf("sent = %v, want external prefix", sent)
-	}
-}
-
 func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -777,6 +692,66 @@ func TestAgentOnlyCommandsRejectPlainTerminalSessions(t *testing.T) {
 			err := run(t, store, svc)
 			if err == nil || !strings.Contains(err.Error(), "has no agent (plain terminal session)") {
 				t.Fatalf("%s error = %v, want plain terminal guard", name, err)
+			}
+		})
+	}
+}
+
+func TestMessagingRejectsUnsupportedRecipients(t *testing.T) {
+	t.Parallel()
+
+	const retiredAgent = "retired-agent"
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-retired-worker", "qm-master")
+	setAgent(t, store, "qm-retired-worker", retiredAgent)
+	createManifest(t, store, "qm-retired-master", "retired master", "master")
+	setAgent(t, store, "qm-retired-master", retiredAgent)
+	createWorkerManifest(t, store, "qm-worker", "qm-retired-master")
+	if err := state.UpdateAndLogAt(store.Root(), "qm-retired-worker", &state.StateEvent{Ts: time.Now()}, func(ss *state.SessionState) bool {
+		ss.Panes[agentRole] = state.PaneState{Role: agentRole, Agent: retiredAgent, State: "idle"}
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var sent []string
+	runner := idleAndSendRunner(&sent)
+	run := runner.fn
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if args[0] == "list-clients" {
+			return "", nil
+		}
+		return run(ctx, args...)
+	}
+	svc := newService(store, runner)
+	for name, send := range map[string]func(context.Context) error{
+		"relay": func(ctx context.Context) error {
+			_, err := svc.Relay(ctx, "qm-retired-worker", "hello")
+			return err
+		},
+		"relay from": func(ctx context.Context) error {
+			_, err := svc.RelayFrom(ctx, "qm-master", "qm-retired-worker", "hello")
+			return err
+		},
+		"broadcast": func(ctx context.Context) error {
+			_, err := svc.BroadcastFrom(ctx, "qm-master", "qm-master", "hello")
+			return err
+		},
+		"report": func(ctx context.Context) error {
+			_, err := svc.Report(ctx, "qm-worker", "done")
+			return err
+		},
+		"notify": func(ctx context.Context) error {
+			_, err := svc.Notify(ctx, "qm-retired-worker", "update")
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sent = nil
+			err := send(t.Context())
+			if err == nil || !strings.Contains(err.Error(), "uses unsupported agent") || len(sent) != 0 {
+				t.Fatalf("error = %v, sends = %v; want a rejected recipient", err, sent)
 			}
 		})
 	}
@@ -1128,33 +1103,6 @@ func TestRead_PiUsesActivitySidecarWithoutCapture(t *testing.T) {
 	want := "three\nfour"
 	if output != want {
 		t.Fatalf("expected sidecar recent tail %q, got %q", want, output)
-	}
-}
-
-func TestRead_OpenCodeUsesHookActivityWithoutCapture(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	sessionID := "qm-opencode-read-hook"
-	createManifest(t, store, sessionID, "opencode worker", "")
-	setAgent(t, store, sessionID, "opencode")
-	writeOpenCodeActivityState(t, sessionID, []string{"alpha", "beta", "gamma"}, "fallback")
-
-	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		if len(args) >= 1 && args[0] == "has-session" {
-			return "", nil
-		}
-		if len(args) >= 1 && (args[0] == "list-panes" || args[0] == "capture-pane") {
-			t.Fatalf("OpenCode hook read should not call tmux %s", args[0])
-		}
-		return "", &tmux.ExitError{Code: 1}
-	}}
-	svc := newService(store, runner)
-	output, err := svc.Read(t.Context(), sessionID, 2)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if output != "beta\ngamma" {
-		t.Fatalf("read output = %q, want beta/gamma tail", output)
 	}
 }
 

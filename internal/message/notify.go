@@ -31,7 +31,7 @@ func (s *Service) NotifyWithCheck(ctx context.Context, sessionID, text string, b
 	if err != nil {
 		return "", err
 	}
-	if err := rejectPlainSession(m, sessionID); err != nil {
+	if err := validateRecipient(m, sessionID); err != nil {
 		return "", err
 	}
 	client := handle.Client()
@@ -43,7 +43,7 @@ func (s *Service) NotifyWithCheck(ctx context.Context, sessionID, text string, b
 	if err != nil {
 		return "", err
 	}
-	activity := sessionactivity.FromState(ss).State
+	activity := sessionactivity.FromState(ss, m.AgentName()).State
 	if activity == "starting" {
 		now := time.Now()
 		if _, err := state.MarkSessionObservedAt(s.store.Root(), sessionID, now); err != nil {
@@ -53,7 +53,7 @@ func (s *Service) NotifyWithCheck(ctx context.Context, sessionID, text string, b
 		if err != nil {
 			return "", err
 		}
-		activity = sessionactivity.FromState(ss).State
+		activity = sessionactivity.FromState(ss, m.AgentName()).State
 		if activity == "starting" {
 			lastEvent := ss.Panes["agent"].LastEvent
 			if lastEvent.IsZero() || now.Sub(lastEvent) >= state.StartingToIdleGrace {

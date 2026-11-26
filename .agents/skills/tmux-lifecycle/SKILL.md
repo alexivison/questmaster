@@ -58,16 +58,16 @@ The always-needed tmux rules (name the server and the exact session on every cal
   The close handler rewrites its own manifest through `Store.Update` to signal
   the daemon's liveness watcher; runtime-directory removal alone is not watched.
 - The daemon's `worker-attention` job inventories recorded servers once per pass
-  and reads state only for live, registered workers with a live owning master.
-  With no registered worker/master pair, it skips tmux and reports no work, so
-  an unavailable tmux command cannot keep an otherwise idle daemon alive.
+  and reads hook state for live, registered workers with a live owning master.
+  Both sessions must use supported harnesses. With no eligible registered
+  pair, it skips tmux and reports no work. An unavailable tmux command cannot
+  keep an otherwise idle daemon alive.
   Hook state holds one `blocked_since` token and `blocked_alerted` acknowledgement
   per episode, so pending alerts survive a daemon restart. Messages wait while the
   master is busy. Each transport rechecks the pending episode at submission.
   Subagents temporarily waking a blocked parent preserve its unanswered episode.
   The job alerts once when a worker remains `working` for 30 minutes without
   reported activity. Hooks record work events in `last_work_activity`.
-  Known OpenCode children advance that clock while the parent is working.
   Older state uses the latest of `last_event` and `working_since`. The durable
   `inactivity_alerted` flag clears on the next work event or when work ends.
   A held delivery defers further sends to that master until the next pass.

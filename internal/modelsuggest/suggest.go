@@ -199,7 +199,7 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	}
 
 	harnessIDs, harnessOK := probeModels(ctx, opts.Probe)
-	catalogModels := catalogSuggestions(policy, opts.Catalog, harnessIDs)
+	catalogModels := catalogSuggestions(policy, opts.Catalog)
 
 	switch {
 	case len(harnessIDs) > 0 || (nativeOnly && harnessOK):
@@ -211,8 +211,6 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	}
 
 	collector.addAll(catalogModels)
-	// Harness ids the catalog knows nothing about still belong in the list:
-	// the harness is the authority on what it can run.
 	collector.addAll(harnessOnlyModels(harnessIDs, collector))
 
 	if len(collector.models) > limit && !(opts.AllNative && nativeOnly) {
@@ -340,39 +338,19 @@ func probeModels(ctx context.Context, probe Prober) ([]string, bool) {
 // vocabulary: family aliases first where the harness accepts them (an alias
 // tracks the latest model in its family, so it never goes stale), then
 // concrete ids newest first.
-//
-// When the harness enumerated its own models, that list is authoritative:
-// catalog entries outside it are dropped rather than offered as models the
-// harness would reject.
-func catalogSuggestions(policy agent.ModelPolicy, catalog Catalog, harnessIDs []string) []Model {
-	allowed := make(map[string]bool, len(harnessIDs))
-	for _, id := range harnessIDs {
-		allowed[id] = true
-	}
-
+func catalogSuggestions(policy agent.ModelPolicy, catalog Catalog) []Model {
 	aliases := make([]Model, 0, 4)
 	concrete := make([]Model, 0, 32)
 	for _, source := range policy.Sources {
 		models := catalog.Models(source.Catalog)
-		if len(models) == 0 {
-			continue
-		}
-		// Aliases are harness-level shorthand ("opus"), not provider-qualified
-		// ids, so they can never be checked against a harness's own
-		// enumeration — when one exists, offer only what it actually
-		// reported, same as the concrete-id filter below.
-		if source.Aliases && len(allowed) == 0 {
+		if source.Aliases {
 			aliases = append(aliases, familyAliases(models)...)
 		}
 		for _, model := range models {
-			id := source.Prefix + model.ID
-			if len(allowed) > 0 && !allowed[id] {
-				continue
-			}
 			// The label is the id itself: it is the exact string the harness
 			// receives, so a picked entry is never ambiguous. The prettier
 			// vendor name goes in the note.
-			concrete = append(concrete, Model{ID: id, Label: id, Note: modelNote(model)})
+			concrete = append(concrete, Model{ID: model.ID, Label: model.ID, Note: modelNote(model)})
 		}
 	}
 	return append(aliases, concrete...)

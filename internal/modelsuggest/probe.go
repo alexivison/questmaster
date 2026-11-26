@@ -45,8 +45,6 @@ func HarnessProber(agentName string) Prober {
 			return nil, fmt.Errorf("%s binary not found", agentName)
 		}
 		switch source {
-		case agent.ModelListOpenCode:
-			return runModelProbe(ctx, binary, "models")
 		case agent.ModelListPi:
 			// Keep provider extensions: they can supply authorized custom models.
 			out, err := modelProbeOutput(ctx, binary, "--list-models", "--offline")
@@ -96,32 +94,6 @@ func modelProbeOutput(ctx context.Context, binary string, args ...string) ([]byt
 	return out.buffer.Bytes(), nil
 }
 
-func runModelProbe(ctx context.Context, binary string, args ...string) ([]string, error) {
-	out, err := modelProbeOutput(ctx, binary, args...)
-	if err != nil {
-		return nil, err
-	}
-
-	ids := make([]string, 0, 64)
-	seen := make(map[string]bool, 64)
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	for scanner.Scan() {
-		id := probeModelID(scanner.Text())
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		ids = append(ids, id)
-		if len(ids) > maxProbedModels {
-			return nil, fmt.Errorf("model listing exceeds %d models", maxProbedModels)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read %s output: %w", binary, err)
-	}
-	return ids, nil
-}
-
 // Pi prints provider and model in separate columns, followed by capabilities.
 // Only rows after its table header are model ids; login guidance is not a row.
 func parsePiModels(out []byte) ([]string, error) {
@@ -155,30 +127,12 @@ func parsePiModels(out []byte) ([]string, error) {
 	return ids, nil
 }
 
-// probeModelID keeps the provider-qualified ids out of a harness listing and
-// discards anything else it prints (headers, hints, blank lines). Only the
-// first whitespace-separated field is inspected, so an annotated line (a
-// trailing "(current)"/"(default)" marker, a description column) still
-// yields its id instead of being dropped outright.
-func probeModelID(line string) string {
-	fields := strings.Fields(line)
-	if len(fields) == 0 {
-		return ""
-	}
-	field := fields[0]
-	provider, model, ok := strings.Cut(field, "/")
-	if !ok || provider == "" || model == "" {
-		return ""
-	}
-	return field
-}
-
 // probeBinary resolves a harness binary well enough to ask it a question:
 // the explicit env override, then an augmented PATH, then the declared
 // fallback path. It intentionally stops short of the full launch-time
 // resolution in internal/session (which also spawns an interactive login
-// shell to pick up shell-manager shims). A missing binary leaves a native-only
-// inventory empty; harnesses with catalog sources may fall back to those.
+// shell to pick up shell-manager shims). A missing binary leaves the
+// native inventory empty.
 func probeBinary(agentName string) (string, bool) {
 	spec := agent.SpecOf(agentName)
 	if env := strings.TrimSpace(os.Getenv(spec.BinaryEnvVar)); env != "" {

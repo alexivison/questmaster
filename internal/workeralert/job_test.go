@@ -384,6 +384,45 @@ func TestResolvedOrUnownedWorkersDoNotAlert(t *testing.T) {
 	}
 }
 
+func TestAlertsIgnoreLiveWorkersOnUnsupportedHarnesses(t *testing.T) {
+	t.Parallel()
+
+	j, masterRunner := newAlertFixture(t)
+	const retiredID = "qm-retired-worker"
+	retired := state.Manifest{
+		SessionID:  retiredID,
+		TmuxServer: "questmaster",
+		Agents:     []state.AgentManifest{{Name: "retired-agent", Role: "agent"}},
+	}
+	retired.SetExtra("parent_session", "qm-master")
+	if err := j.store.Create(retired); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.store.AddWorker("qm-master", retiredID); err != nil {
+		t.Fatal(err)
+	}
+	j.router = tmuxroute.New(j.store, map[string]*tmux.Client{
+		"dev_previous": tmux.NewClient(masterRunner),
+		"questmaster":  tmux.NewClient(&alertRunner{live: []string{"qm-worker", retiredID}}),
+	}, func() string { return "questmaster" }, nil)
+	writePane(t, j.store.Root(), retiredID, state.PaneState{State: "working", LastWorkActivity: blockedAt})
+	j.now = func() time.Time { return blockedAt.Add(time.Hour) }
+
+	step(t, j)
+	if len(masterRunner.sends) != 1 || !strings.Contains(masterRunner.sends[0], "[WORKER BLOCKED:qm-worker]") || !j.HasWork() {
+		t.Fatalf("sends = %v, monitoring = %t, want only the supported worker's alert", masterRunner.sends, j.HasWork())
+	}
+
+	if err := j.store.RemoveWorker("qm-master", "qm-worker"); err != nil {
+		t.Fatal(err)
+	}
+	lists := masterRunner.lists
+	step(t, j)
+	if len(masterRunner.sends) != 1 || j.HasWork() || masterRunner.lists != lists {
+		t.Fatalf("the unsupported worker kept monitoring active: sends = %v, inventory reads = %d", masterRunner.sends, masterRunner.lists-lists)
+	}
+}
+
 func TestDeliveryFailureRetriesAndCannotAcknowledgeNewerBlock(t *testing.T) {
 	t.Parallel()
 	for _, result := range []message.Delivery{message.DeliveryAccepted, message.DeliverySubmitted} {

@@ -94,25 +94,6 @@ func TestParseReasoningEfforts(t *testing.T) {
 			data:   "  --thinking <level>  Set thinking level: off, minimal, low, medium, high, xhigh, max\n",
 			want:   []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"},
 		},
-		{
-			name:   "opencode selects variants for exact model",
-			source: agent.EffortSourceOpenCodeModels,
-			model:  "openai/gpt-5.6",
-			data:   "openai/gpt-5.6\n{\n  \"providerID\": \"openai\",\n  \"modelID\": \"gpt-5.6\",\n  \"variants\": {\"none\": {}, \"low\": {}, \"medium\": {}, \"high\": {}, \"xhigh\": {}}\n}\nanthropic/claude-sonnet-4-5\n{\"variants\":{\"high\":{},\"max\":{}}}",
-			want:   []string{"none", "low", "medium", "high", "xhigh"},
-		},
-		{
-			name:   "opencode unknown model has no levels",
-			source: agent.EffortSourceOpenCodeModels,
-			model:  "ollama/local-model",
-			data:   "openai/gpt-5.6\n{\"variants\":{\"none\":{},\"low\":{}}}",
-		},
-		{
-			name:   "opencode empty variants has no levels",
-			source: agent.EffortSourceOpenCodeModels,
-			model:  "openai/gpt-5.6",
-			data:   "openai/gpt-5.6\n{\"variants\":{}}",
-		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -142,8 +123,6 @@ func TestParseDefaultEffortModel(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "Codex top-level model", source: agent.EffortSourceCodexConfig, data: "model = \"gpt-6-luna\"\n[features]\nmodel = \"ignored\"\n", want: "gpt-6-luna"},
-		{name: "OpenCode model", source: agent.EffortSourceOpenCodeConfig, data: `{"model":"openai/gpt-5.6"}`, want: "openai/gpt-5.6"},
-		{name: "missing default", source: agent.EffortSourceOpenCodeConfig, data: `{"plugin":[]}`},
 		{name: "invalid config", source: agent.EffortSourceCodexConfig, data: "model = [", wantErr: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -303,20 +282,11 @@ func TestEffortResolverUsesConfiguredDefaultModel(t *testing.T) {
 			want: []string{"low", "max"},
 		},
 		{
-			name:      "OpenCode resolved config model",
-			agentName: "opencode",
-			fixtures: map[agent.EffortSource]string{
-				agent.EffortSourceOpenCodeConfig: `{"model":"openai/gpt-5.6"}`,
-				agent.EffortSourceOpenCodeModels: "openai/gpt-5.6\n{\"variants\":{\"none\":{},\"low\":{},\"high\":{}}}",
-			},
-			want: []string{"none", "low", "high"},
-		},
-		{
 			name:      "missing configured model remains unknown",
-			agentName: "opencode",
+			agentName: "codex",
 			fixtures: map[agent.EffortSource]string{
-				agent.EffortSourceOpenCodeConfig: `{"plugin":[]}`,
-				agent.EffortSourceOpenCodeModels: "openai/gpt-5.6\n{\"variants\":{\"low\":{}}}",
+				agent.EffortSourceCodexConfig: `model_provider = "openai"`,
+				agent.EffortSourceCodexCache:  `{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"}]}]}`,
 			},
 		},
 	} {
@@ -334,32 +304,5 @@ func TestEffortResolverUsesConfiguredDefaultModel(t *testing.T) {
 				t.Fatalf("Resolve(%q, empty model) = %v, want %v", tt.agentName, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestOpenCodeDefaultAndEffortProbesAreCached(t *testing.T) {
-	t.Parallel()
-
-	calls := make(map[agent.EffortSource]int)
-	resolver := NewEffortResolver(func(_ context.Context, source agent.EffortSource, _ string) ([]byte, error) {
-		calls[source]++
-		switch source {
-		case agent.EffortSourceOpenCodeConfig:
-			return []byte(`{"model":"openai/gpt-5.6"}`), nil
-		case agent.EffortSourceOpenCodeModels:
-			return []byte("openai/gpt-5.6\n{\"variants\":{\"low\":{}}}"), nil
-		default:
-			return nil, errors.New("unexpected source")
-		}
-	})
-	for range 2 {
-		if got := resolver.Resolve(context.Background(), "opencode", "", ""); !reflect.DeepEqual(got, []string{"low"}) {
-			t.Fatalf("Resolve(opencode, empty model) = %v, want [low]", got)
-		}
-	}
-	for _, source := range []agent.EffortSource{agent.EffortSourceOpenCodeConfig, agent.EffortSourceOpenCodeModels} {
-		if calls[source] != 1 {
-			t.Errorf("%s probes = %d, want 1", source, calls[source])
-		}
 	}
 }

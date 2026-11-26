@@ -8166,7 +8166,6 @@ enum LogicSelfTests {
             availability: .success(NewSessionAvailabilityMutationClient.availabilityAck([
                 ("claude", false),
                 ("codex", true),
-                ("opencode", false),
                 ("pi", true),
             ])),
             mutation: .success(ServeMutationAck(data: ["session_id": "qm-new"]))
@@ -8362,7 +8361,7 @@ enum LogicSelfTests {
 
     // Mirrors testNewSessionResolvesModelsPerAgent: the sheet must never carry
     // a reasoning-effort list of its own, and re-asks whenever agent, role, or
-    // model changes — model matters here because Codex/OpenCode's valid
+    // model changes — model matters here because Codex's valid
     // levels depend on which model is selected.
     private static func testNewSessionResolvesReasoningEffortsPerAgentAndModel() throws {
         let effortClient = StubReasoningEffortClient(
@@ -9559,7 +9558,6 @@ enum LogicSelfTests {
             AgentAvailability.Entry(name: "pi", enabled: false, defaults: [
                 "master": AgentAvailability.RoleDefault(model: "pi-saved", reasoningEffort: "high"),
             ]),
-            AgentAvailability.Entry(name: "opencode", enabled: false),
             AgentAvailability.Entry(name: "codex", enabled: true),
             AgentAvailability.Entry(name: "claude", enabled: false, defaults: [
                 "worker": AgentAvailability.RoleDefault(model: "claude-saved", reasoningEffort: "medium"),
@@ -9580,19 +9578,22 @@ enum LogicSelfTests {
 
         model.present()
         try waitForMainQueue("agent availability", until: { model.isAvailabilityLoaded })
-        try expect(model.state.agents == ["pi", "opencode", "codex", "claude"], "Settings should preserve the daemon's backend order and include OpenCode")
+        try expect(model.state.agents == ["pi", "codex", "claude"], "Settings should preserve the daemon's backend order")
         try expect(model.state.selectedAgent == "claude", "reordering tabs should keep the selected agent")
         try expect(modelClient.requests.map(\.agent) == ["codex", "codex"], "only the enabled agent should resolve model suggestions")
         try waitForMainQueue("enabled agent effort suggestions", until: { effortClient.requests.count == 2 })
         try expect(effortClient.requests.allSatisfy { $0.agent == "codex" }, "only the enabled agent should resolve effort suggestions")
-        try expect(!model.isAgentEnabled("claude") && !model.isAgentEnabled("opencode") && !model.isAgentEnabled("pi"), "disabled states should come from the daemon")
+        try expect(!model.isAgentEnabled("claude") && !model.isAgentEnabled("pi"), "disabled states should come from the daemon")
         try expect(model.savedDefault(agent: "pi", role: "master", field: .model) == "pi-saved", "a disabled agent should show its saved model from the availability read")
         try expect(model.savedDefault(agent: "claude", role: "worker", field: .effort) == "medium", "a disabled agent should show its saved effort from the availability read")
         try expect(mutationClient.requests.first?.method == "agent_availability", "Settings should load configuration through the mutation client")
     }
 
     private static func testSettingsDisablingInvalidatesSuggestionsAndBlocksRoleChanges() throws {
-        let mutationClient = SettingsTestMutationClient(configuration: settingsFixtureAvailability())
+        let availability = settingsFixtureAvailability()
+        let mutationClient = SettingsTestMutationClient(configuration: availability)
+        let roleCount = RoleDefaultsSettingsModel.roles.count
+        let initialRequestCount = availability.enabledNames.count * roleCount
         let modelClient = StubModelClient(
             models: ["claude": [
                 SessionModelOption(id: "opus", label: "opus"),
@@ -9612,7 +9613,7 @@ enum LogicSelfTests {
         )
 
         model.present()
-        try waitForMainQueue("initial model requests", until: { modelClient.requests.count == 8 })
+        try waitForMainQueue("initial model requests", until: { modelClient.requests.count == initialRequestCount })
         model.setAgentEnabled("claude", enabled: false)
         try waitForMainQueue("disable acknowledgment", until: { !model.isAgentEnabled("claude") && !model.isSavingAvailability(for: "claude") })
         modelClient.fireCompletion(forRequestAt: 0)
@@ -9625,19 +9626,19 @@ enum LogicSelfTests {
         model.search(role: "master", field: .model)
         model.pickSuggestion(visibleRow: 0)
         try expect(model.state.pickerMode == .select, "disabled fields must not enter search")
-        try expect(modelClient.requests.count == 8, "disabled fields must not fetch additional suggestions")
+        try expect(modelClient.requests.count == initialRequestCount, "disabled fields must not fetch additional suggestions")
         try expect(!mutationClient.requests.contains(where: { $0.method == "role_default.set" }), "disabled fields must not write model or effort defaults")
 
         try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab should reach the disabled agent toggle")
         try expect(model.isAvailabilityToggleFocused(for: "claude"), "the disabled agent toggle should receive keyboard focus")
         try expect(model.handle(try keyEvent(" ", keyCode: 49)), "Space should activate the toggle while role fields are off")
         try waitForMainQueue("enable acknowledgment and refetch", until: { model.isAgentEnabled("claude") && !model.isSavingAvailability(for: "claude") })
-        try expect(modelClient.requests.count == 10, "enabling an agent should refetch both role model lists")
+        try expect(modelClient.requests.count == initialRequestCount + roleCount, "enabling an agent should refetch both role model lists")
         try expect(!model.state.rows[0].hasResolvedModelOptions, "fresh options should load after enabling")
         modelClient.fireCompletion(forRequestAt: 0)
         try waitForMainQueueTurn()
         try expect(!model.state.rows[0].hasResolvedModelOptions, "a stale pre-disable response must not resolve the re-enabled row")
-        modelClient.fireCompletion(forRequestAt: 8)
+        modelClient.fireCompletion(forRequestAt: initialRequestCount)
         try waitForMainQueue("fresh enabled model options", until: { model.state.rows[0].hasResolvedModelOptions })
     }
 
@@ -9682,7 +9683,7 @@ enum LogicSelfTests {
         reopened.present()
         try waitForMainQueue("reopened Settings availability", until: { reopened.isAvailabilityLoaded })
         try expect(reopened.savedDefault(agent: "claude", role: "master", field: .model) == "sonnet", "reopening should use the saved model returned by the daemon")
-        try expect(reopened.state.agents.contains("opencode") && reopened.state.selectedAgent == "claude", "reopening should keep built-in tabs and the saved selection")
+        try expect(reopened.state.agents == RoleDefaultsSettingsModel.defaultAgents && reopened.state.selectedAgent == "claude", "reopening should keep built-in tabs and the saved selection")
     }
 
     private static func testSettingsKeyboardReachesAndTogglesAgentSwitch() throws {
@@ -9698,33 +9699,33 @@ enum LogicSelfTests {
         )
         model.present()
         try waitForMainQueue("agent availability", until: { model.isAvailabilityLoaded })
-        guard let opencode = model.state.agents.firstIndex(of: "opencode") else {
-            throw TestFailure("Settings should include the OpenCode tab")
+        guard let codexIndex = model.state.agents.firstIndex(of: "codex") else {
+            throw TestFailure("Settings should include the Codex tab")
         }
-        model.selectTab(opencode)
+        model.selectTab(codexIndex)
 
         let tab = try keyEvent("\t", keyCode: 48)
         for _ in 0..<RoleDefaultsSettingsModel.focusableFieldCount {
             try expect(model.handle(tab), "Tab should move around the agent's form")
         }
-        try expect(model.isAvailabilityToggleFocused(for: "opencode"), "Tab after the last role field should reach the switch")
-        try expect(model.handle(tab) && !model.isAvailabilityToggleFocused(for: "opencode"),
+        try expect(model.isAvailabilityToggleFocused(for: "codex"), "Tab after the last role field should reach the switch")
+        try expect(model.handle(tab) && !model.isAvailabilityToggleFocused(for: "codex"),
                    "Tab from the switch should return to the first role field")
         try expect(model.state.focusedRoleIndex == 0 && model.state.focusedField == .model, "Master Model should be the first role field")
 
-        model.state.setModelOptions([SessionModelOption(id: "example-model", label: "Example")], defaultModel: "example-model", agent: "opencode", role: "master")
+        model.state.setModelOptions([SessionModelOption(id: "example-model", label: "Example")], defaultModel: "example-model", agent: "codex", role: "master")
         model.search(role: "master", field: .model)
         model.typePickerText("unfinished query", role: "master", field: .model)
         try expect(model.state.pickerMode == .search, "the Model field should be editing before Shift-Tab")
         try expect(model.handle(try keyEvent("\t", keyCode: 48, modifierFlags: .shift)), "Shift-Tab should leave the Model field")
-        try expect(model.isAvailabilityToggleFocused(for: "opencode") && model.state.pickerMode == .select,
+        try expect(model.isAvailabilityToggleFocused(for: "codex") && model.state.pickerMode == .select,
                    "moving to the switch should close the Model search")
         try expect(model.handle(try keyEvent(" ", keyCode: 49)), "Space should toggle the focused switch")
-        try waitForMainQueue("availability save", until: { !model.isSavingAvailability(for: "opencode") })
+        try waitForMainQueue("availability save", until: { !model.isSavingAvailability(for: "codex") })
         let mutations = client.requests.filter { $0.method == "agent_availability.set" }
-        try expect(mutations.count == 1 && mutations.first?.data == ["agent": "opencode", "enabled": "false"],
-                   "keyboard activation should save OpenCode as disabled")
-        try expect(!client.configuration.enabledNames.contains("opencode"), "the saved preference should disable OpenCode")
+        try expect(mutations.count == 1 && mutations.first?.data == ["agent": "codex", "enabled": "false"],
+                   "keyboard activation should save Codex as disabled")
+        try expect(!client.configuration.enabledNames.contains("codex"), "the saved preference should disable Codex")
     }
 
     private static func testSettingsDroppedAvailabilityReplyReadsSavedValue() throws {
@@ -11016,7 +11017,7 @@ enum LogicSelfTests {
         }
         let side = PullRequestIcon.side
         let tint = AppPalette.agentMarkTint
-        for agent in ["claude", "codex", "opencode", "pi"] {
+        for agent in ["claude", "codex", "pi"] {
             let first = try logo(agent, side, tint)
             try expect(first === (try logo(agent, side, tint)), "\(agent): the same side and tint should return the cached image")
 
@@ -11026,7 +11027,7 @@ enum LogicSelfTests {
             try expect(first.size == NSSize(width: side, height: side), "\(agent): the first logo should keep its canvas")
         }
 
-        // Codex and OpenCode are tinted files, so their colour is part of the key. Claude and Pi draw in their own colours.
+        // The Codex logo is tinted, so its colour is part of the cache key.
         let grey = try logo("codex", side, AppPalette.agentMarkTint)
         let muted = try logo("codex", side, AppPalette.muted)
         try expect(grey !== muted, "codex: another tint should be another image")
