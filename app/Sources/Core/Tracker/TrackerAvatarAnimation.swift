@@ -341,6 +341,8 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case invalidLidColour
     /// A familiar's `scale` is a percentage above 0 and at most 100; it may have a decimal part.
     case invalidScale(Double)
+    /// A familiar's file needs a `company` object: its pitch and full row, which place it in the master's company.
+    case missingCompany
     /// A familiar's `company` needs a pitch above 0 and a capacity of at least one.
     case invalidCompany
 }
@@ -372,8 +374,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The size the art draws at, in percent of one art pixel per point: a class always draws at 100; a familiar's file gives its own
     /// `scale` (50 when it has none), so the master's company can stand smaller in the slot.
     public let scalePercent: Double
-    /// A familiar's place in the master's company: its pitch and full row. Nil for a class, and for a familiar whose file gives none, which
-    /// keeps the fit rule the company had before the spacing designs.
+    /// A familiar's place in the master's company: its pitch and full row, which every familiar's file gives. Nil for a class.
     public let companyRow: TrackerCompanyRow?
     private let poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation]
 
@@ -621,10 +622,13 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         }
     }
 
-    /// A familiar's company row, when its file gives one. A class has none.
+    /// A familiar's company row, which its file must give. A class has none.
     private static func readCompanyRow(_ company: File.Company?, kind: TrackerAvatarArtKind) throws -> TrackerCompanyRow? {
-        guard kind == .familiar, let company else {
+        guard kind == .familiar else {
             return nil
+        }
+        guard let company else {
+            throw TrackerAvatarAnimationError.missingCompany
         }
         guard company.pitch > 0, company.capacity >= 1 else {
             throw TrackerAvatarAnimationError.invalidCompany

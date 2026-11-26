@@ -32,7 +32,7 @@ public enum SessionClass: String, CaseIterable, Equatable, Sendable {
         case .paladin: "Animated Armour"
         case .wizard: "Fire Elemental"
         case .druid: "Treant"
-        case .barbarian: "Bear"
+        case .barbarian: "Werebear"
         case .rogue: "Shadow"
         case .cleric: "Light Spirit"
         case .bard: "Imp"

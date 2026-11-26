@@ -21,19 +21,16 @@ Which pose shows when, how cues play, and where the avatar sits.
 - **Company:** an attached master shows its live workers' familiars in its slot: the workers that are children of the master and not stopped
   (`TrackerCompanyLayout.liveWorkers`, in the payload's order, which is spawn order). Each live worker has its own `TrackerAvatarDirector`,
   fed its own session, so each plays its worker's pose by the familiar rules, bubble included. A familiar whose file has a `company` row
-  (its pitch and full row, from the user's spacing designs) keeps the designed row (`TrackerCompanyLayout.designLayout`). The master never
-  moves: its body stands at the slot's centre whatever the count, and the fit rule and the designed row both leave it there. The workers
-  line up to its right: the first one's visible left edge sits 10 pt past the master's visible (resting) right edge, the rest follow at the
-  row's pitch. The last may go no further right than the full row's right-most place (`designInset + (capacity - 1) × pitch`). Once the
+  (its pitch and full row, from the user's spacing designs) keeps the designed row (`TrackerCompanyLayout.designLayout`); every familiar's
+  file gives one. The master never moves: its body stands at the slot's centre whatever the count, and the designed row leaves it there. The workers
+  line up to its right: the first one's visible left edge sits 25 pt right of the master's body column (the slot's centre) for every class,
+  whatever the master's art; the rest follow at the row's pitch. The last may go no further right than the full row's right-most place (`designInset + (capacity - 1) × pitch`). Once the
   next worker would pass it, the shown workers stand at the full row's places, the last at that place and the others leftwards at pitch,
   so they stand in front of the master; a new worker then moves each place a pitch. A full row is always this second case, so it is the
-  design's row exactly: the first familiar at 10 pt, one pitch apart, the master centred behind them. A designed familiar draws from its `company/` frames at 0.5 pt a pixel (the 2x device grid),
+  design's row exactly: the first familiar at 10 pt, one pitch apart, the master centred behind them. A familiar draws from its `company/` frames at 0.5 pt a pixel (the 2x device grid),
   so each frame pixel lands on a device pixel. Each familiar's visible bottom sits 5 pt
   below the master's feet, and a hover's gap above its feet is taken out (`TrackerCompanyLayout.drop`). Past the row's capacity the rest
-  are counted in a `+n` marker: a 20 pt portrait disc 5 pt in from the slot's right edge, with its chip centred above it. A familiar
-  without a `company` row (the Werebear until its art ships) keeps the fit rule (`TrackerCompanyLayout.layout`): each
-  familiar's advance is its resting width plus a 6 pt gap, shrunk only so six fit, anchored at the slot's right past a 36 pt reserve; and
-  workers past the 15 pt left inset are counted in the marker. The master does not move under the fit rule either. Familiars draw in
+  are counted in a `+n` marker: a 20 pt portrait disc 5 pt in from the slot's right edge, with its chip centred above it. Familiars draw in
   front of the master, right-most on top. A worker whose familiar has no art
   takes no place. A worker attached (not its master) shows its own familiar alone, as before. The slot, banner and plates never move or
   resize for the company.
