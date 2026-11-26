@@ -31,7 +31,7 @@ Which pose shows when, how cues play, and where the avatar sits.
   so each frame pixel lands on a device pixel. Each familiar's visible bottom sits 5 pt
   below the master's feet, and a hover's gap above its feet is taken out (`TrackerCompanyLayout.drop`). Past the row's capacity the rest
   are counted in a `+n` marker: a 20 pt portrait disc 5 pt in from the slot's right edge, with its chip centred above it. A familiar
-  without a `company` row (the Werebear and the slim Shadow until their art ships) keeps the fit rule (`TrackerCompanyLayout.layout`): each
+  without a `company` row (the Werebear until its art ships) keeps the fit rule (`TrackerCompanyLayout.layout`): each
   familiar's advance is its resting width plus a 6 pt gap, shrunk only so six fit, anchored at the slot's right past a 36 pt reserve; and
   workers past the 15 pt left inset are counted in the marker. The master does not move under the fit rule either. Familiars draw in
   front of the master, right-most on top. A worker whose familiar has no art
