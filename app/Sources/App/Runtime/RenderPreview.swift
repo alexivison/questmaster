@@ -123,7 +123,7 @@ enum RenderPreview {
         render(TerminalAttachSkeleton(), size: CGSize(width: 520, height: 300), to: "\(outputDir)/terminal-skeleton.png")
         renderView(terminalEndedView(), size: CGSize(width: 520, height: 300), to: "\(outputDir)/terminal-ended.png")
         // The header alone, 20 in from the canvas's top left (the diff against the SVG's raster measures from there).
-        render(trackerHeaderView(), size: CGSize(width: 300, height: 90), to: "\(outputDir)/tracker-header.png")
+        render(trackerHeaderView(), size: CGSize(width: TrackerHeaderMetrics.size.width + Space.section, height: 90), to: "\(outputDir)/tracker-header.png")
         render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
         render(trackerView(connection: .reconnecting), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-reconnecting.png")
@@ -1878,8 +1878,8 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// A master with nine collapsed workers (seven circles and "+2") and a master with one expanded worker, as the
-    /// Portrait.svg mock shows them: class portraits and familiars with the agent's badge at the corner.
+    /// A master with eight collapsed workers and a master with one expanded worker, with class portraits and familiars
+    /// carrying the agent's badge at the corner.
     @MainActor
     private static func classPlatesView() -> some View {
         func session(_ id: String, role: String, title: String, sessionClass: String, parent: String = "", state: String = "working") -> TrackerSession {
@@ -1889,7 +1889,7 @@ enum RenderPreview {
                 cast: id == "a" ? TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-2.5), typicalMS: 6000) : nil
             )
         }
-        let collapsed = (0..<9).map { session("a-w\($0)", role: "worker", title: "worker-title", sessionClass: "paladin", parent: "a", state: "idle") }
+        let collapsed = (0..<8).map { session("a-w\($0)", role: "worker", title: "worker-title", sessionClass: "paladin", parent: "a", state: "idle") }
         let sessions = [session("a", role: "master", title: "Session Title", sessionClass: "paladin")] + collapsed + [
             session("b", role: "master", title: "Session Title", sessionClass: "wizard", state: "idle"),
             session("b-w", role: "worker", title: "worker-title", sessionClass: "wizard", parent: "b"),

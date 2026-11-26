@@ -1106,31 +1106,31 @@ enum LogicSelfTests {
         let shift = TrackerPlateDesign.workerShift
 
         // Sizes: each canvas starts 2 above its row, which is the disc's height and the plate's width; canvases sit on 5s.
-        try expectClose(TrackerPlateDesign.topLevel.size.width, 245, "master canvas width")
+        try expectClose(TrackerPlateDesign.topLevel.size.width, 255, "master canvas width")
         try expectClose(TrackerPlateDesign.topLevel.size.height, 55, "master canvas height")
         try expectClose(TrackerPlateDesign.topLevelSize.height, 50, "master row height")
-        try expectClose(TrackerPlateDesign.topLevelSize.width, 240, "master row width")
+        try expectClose(TrackerPlateDesign.topLevelSize.width, 250, "master row width")
         try expectClose(TrackerPlateDesign.svgDiscInset, 2, "canvas start above its row")
-        try expectClose(TrackerPlateDesign.worker.size.width, 245, "worker canvas width")
+        try expectClose(TrackerPlateDesign.worker.size.width, 255, "worker canvas width")
         try expectClose(TrackerPlateDesign.worker.size.height, 45, "worker canvas height")
-        try expectClose(TrackerPlateDesign.workerSize.width, 240, "worker row width")
+        try expectClose(TrackerPlateDesign.workerSize.width, 250, "worker row width")
         try expectClose(TrackerPlateDesign.workerSize.height, 40, "worker row height")
 
         // The paths are the SVGs', moved onto whole points and the 5pt grid: the master's back by the SVG's slip and 2
-        // left so its disc spans 0-50 (its cap ends at 240), the worker's to the list's worker indent.
+        // left so its disc spans 0-50, the worker's to the list's worker indent. Both caps end at x250.
         let master = TrackerPlateDesign.topLevel
-        try expectRect(master.tab ?? Path(), 25, 3.5, 235, 15.5, "master project tab")
-        try expectRect(master.body, 25, 15.5, 240, 50.5, "master body")
-        try expectRect(master.titleStrip, 28, 17.5, 238, 36.5, "master title strip")
-        try expectRect(master.bar ?? Path(), 28, 38.5, 238, 48.5, "master project bar")
+        try expectRect(master.tab ?? Path(), 25, 3.5, 245, 15.5, "master project tab")
+        try expectRect(master.body, 25, 15.5, 250, 50.5, "master body")
+        try expectRect(master.titleStrip, 28, 17.5, 248, 36.5, "master title strip")
+        try expectRect(master.bar ?? Path(), 28, 38.5, 248, 48.5, "master project bar")
         try expectRect(master.disc, 1.5, 3.5, 48.5, 50.5, "master disc")
         try expectRect(master.discEdge, 0, 2, 50, 52, "master disc edge")
         try expectClose(master.discStroke, 3, "master disc stroke")
         try expect(master.snippetStrip == nil, "the master's snippet sits on its project bar")
         let worker = TrackerPlateDesign.worker
-        try expectRect(worker.body, 22 + shift - 2, 4.5, 240, 39.5, "worker body")
-        try expectRect(worker.titleStrip, 25 + shift - 2, 6.5, 238, 25.5, "worker title strip")
-        try expectRect(worker.snippetStrip ?? Path(), 25 + shift - 2, 27.5, 238, 37.5, "worker snippet strip")
+        try expectRect(worker.body, 22 + shift - 2, 4.5, 250, 39.5, "worker body")
+        try expectRect(worker.titleStrip, 25 + shift - 2, 6.5, 248, 25.5, "worker title strip")
+        try expectRect(worker.snippetStrip ?? Path(), 25 + shift - 2, 27.5, 248, 37.5, "worker snippet strip")
         try expectRect(worker.discEdge, 2 + shift - 2, 2, 42 + shift - 2, 42, "worker disc edge")
         try expectClose(worker.discStroke, 2, "worker disc stroke")
         try expect(worker.tab == nil && worker.bar == nil && worker.ornaments.isEmpty, "the worker has no tab, project bar or ornaments")
@@ -1180,7 +1180,8 @@ enum LogicSelfTests {
         try expectClose(TrackerListMetrics.avatarBannerGap, Space.item, "gap between the avatar's sole and the banner")
         try expectClose(SelectedSessionTagMetrics.width, TrackerListMetrics.columnWidth, "banner spans the plates and the badge column, the avatar slot's width")
         try expectClose(SelectedSessionTagMetrics.tabInset, 5, "id tab inset on each side")
-        try expectClose(TrackerListMetrics.contentWidth, 282, "tracker content width reserves the badge column and band allowance")
+        try expectClose(TrackerListMetrics.contentWidth, 292, "tracker content width reserves the badge column and band allowance")
+        try expectClose(CGFloat(ShellMetrics.splitLayoutMetrics.trackerMaxWidth), 312, "tracker pane includes the leading gutter")
 
         let masterRole = TrackerNameplateRole.master
         try expectClose(TrackerNameplateRole.circlesX, worker.discEdge.boundingRect.minX - Space.row, "first collapsed circle starts one row step left of the worker disc")
@@ -1190,12 +1191,11 @@ enum LogicSelfTests {
                         "collapsed circles start one row step below the open cast row")
         try expectClose(TrackerPlateDesign.collapsedCircleDiameter, 25, "collapsed circle diameter")
         try expectClose(TrackerPlateDesign.collapsedCircleGap, 5, "gap between collapsed circles")
-        try expect(TrackerWorkerSummary.maxCircles == 7, "a master's 240pt collapsed row should hold seven circles, got \(TrackerWorkerSummary.maxCircles)")
+        try expect(TrackerWorkerSummary.maxCircles == 8, "a master's 250pt plate should hold eight circles, got \(TrackerWorkerSummary.maxCircles)")
         let rowRight = TrackerNameplateRole.circlesX
             + CGFloat(TrackerWorkerSummary.maxCircles) * TrackerPlateDesign.collapsedCircleDiameter
             + CGFloat(TrackerWorkerSummary.maxCircles - 1) * TrackerPlateDesign.collapsedCircleGap
-        try expect(rowRight <= TrackerPlateDesign.topLevelSize.width && rowRight + TrackerPlateDesign.collapsedCircleGap + TrackerPlateDesign.collapsedCircleDiameter > TrackerPlateDesign.topLevelSize.width,
-                   "the collapsed row should hold as many circles as fit inside the plate, ending at \(rowRight)")
+        try expectClose(rowRight, master.body.boundingRect.maxX, "the eighth circle ends flush with the master plate")
         try expectClose(masterRole.rowHeight(showsCircles: true), 80, "master row height with collapsed circles")
         try expectClose(TrackerNameplateRole.worker.rowHeight(showsCircles: false), 40, "worker row height")
 
@@ -1418,10 +1418,10 @@ enum LogicSelfTests {
             if let next = try? snapshot(view, size: size, scale: scale) {
                 bitmap = next
             }
-            return (pixel(bitmap, 238.5, 24.5)?.alphaComponent ?? 0) > 0.9
+            return (pixel(bitmap, size.width - 1.5, 24.5)?.alphaComponent ?? 0) > 0.9
         }, "the panel should draw its frame")
-        try expect(bitmap.pixelsWide == 480 && bitmap.pixelsHigh == 150, "the panel should render 240 x 75 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
-        guard let arc = pixel(bitmap, 238.5, 24.5), let outside = pixel(bitmap, 239.5, 22),
+        try expect(bitmap.pixelsWide == 500 && bitmap.pixelsHigh == 150, "the panel should render 250 x 75 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
+        guard let arc = pixel(bitmap, size.width - 1.5, 24.5), let outside = pixel(bitmap, size.width - 0.5, 22),
               let frame = AppPalette.lineSoftSubtle.usingColorSpace(.sRGB) else {
             throw TestFailure("the corner pixels should be readable")
         }
@@ -1433,7 +1433,7 @@ enum LogicSelfTests {
         }
         try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
         try expect(isFrameColour(arc), "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
-        guard let bottomArc = pixel(bitmap, 238.5, 65) else {
+        guard let bottomArc = pixel(bitmap, size.width - 1.5, 65) else {
             throw TestFailure("the bottom-right pixel should be readable")
         }
         try expect(isFrameColour(bottomArc), "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")
@@ -2766,13 +2766,14 @@ enum LogicSelfTests {
         try expect(stage.companions.count == 7 && stage.overflow == 1, "eight Fire workers should show seven and count one, got \(stage.companions.count) and \(stage.overflow)")
         try expect(stage.overflowPortrait == .familiar(.wizard), "the marker should sit above the wizard's familiar disc")
         try expect(stage.companions.map(\.id) == (0..<7).map { "qm-w\($0)" }, "the row should keep spawn order, got \(stage.companions.map(\.id))")
+        let markerLeft = TrackerAvatarMetrics.slotWidth - Space.row - TrackerCompanyMetrics.discSize
         for companion in stage.companions {
             guard let columns = companion.sprites.restColumns, let body = companion.sprites.animation.animation(for: .idle)?.bodyColumn else {
                 throw TestFailure("a companion should carry its rest art")
             }
             let restLeft = companion.bodyX + CGFloat(columns.lowerBound - body) * companion.pixel
             let restRight = companion.bodyX + CGFloat(columns.upperBound + 1 - body) * companion.pixel
-            try expect(restLeft >= 10 - 0.5 && restRight <= 255 + 0.5,
+            try expect(restLeft >= 10 - 0.5 && restRight <= markerLeft + 0.5,
                        "a Fire companion should rest from the designed first place to the marker, got \(restLeft)..<\(restRight)")
             try expect(companion.drop >= 5 - 0.01, "a Fire familiar should drop below the feet, got \(companion.drop)")
         }
@@ -3435,13 +3436,13 @@ enum LogicSelfTests {
         try expect(fitting.count == fit, "\(fit) workers should show \(fit) circles, got \(fitting.count)")
 
         // One more, and the last slot becomes a "+N" circle counting the workers past the first fit - 1.
-        let crowded = try entries(workerCount: fit + 3)
+        let crowded = try entries(workerCount: fit + 1)
         try expect(crowded.count == fit, "more workers than fit should show \(fit) circles, got \(crowded.count)")
         try expect(workerIDs(crowded) == (0..<fit - 1).map { "worker-\($0)" }, "the first \(fit - 1) workers should show, in order")
         guard case .overflow(let hiddenWorkers) = crowded[fit - 1] else {
             throw TestFailure("the last circle should be the overflow circle")
         }
-        try expect(hiddenWorkers == 4, "overflow should count the \(fit + 3 - (fit - 1)) workers past the shown ones, got \(hiddenWorkers)")
+        try expect(hiddenWorkers == 2, "overflow should count the two workers past the shown ones, got \(hiddenWorkers)")
     }
 
     private static func testDevBackendBeatsGlobalPathInSourceCheckout() throws {

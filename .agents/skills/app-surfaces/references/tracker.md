@@ -14,13 +14,13 @@ their rows, and plate text starts `Space.row` past the disc's round edge (55,
 canvases and icon, logo and mark sizes are lengths like any other. A plate disc with a class portrait carries its
 agent's logo in a 25pt badge (logo 15), as big as a collapsed worker's circle, whose edge hangs `Space.row` outside the
 disc on the left and below it (`TrackerPlateDesign.badgeOverhang`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
-A shell row is 35 high (`ControlHeight.field`) and as wide as the 240pt plate column, flush with the plates, stacked with no gap
+A shell row is 35 high (`ControlHeight.field`) and as wide as the 250pt plate column, flush with the plates, stacked with no gap
 (the tracker mock's layout, not Shell Session.svg's inset and spaced rows), with a 25pt disc (`ControlHeight.compact`) 10
 in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its
 edge), as tall as its rows up to `TrackerShellMetrics.maxHeight` (175, five rows), and scrolls inside itself past that;
 the plates scroll in their own list above it. A static banner (`TrackerHeader`, from `Tracker Header.svg`) tops the column in
 the action bar header's band: as tall as it (`TrackerListMetrics.headerHeight`) and as wide as the tracker column, from the plates'
-left edge through the PR badge column's right edge (`TrackerListMetrics.columnWidth`, 280: the 240 plates and the 40 badge column; the
+left edge through the PR badge column's right edge (`TrackerListMetrics.columnWidth`, 290: the 250 plates and the 40 badge column; the
 2pt band allowance past it is not covered), so it covers the chips' column even with no watches. Its left edge is the plates' column
 (`TrackerListMetrics.sidePadding`; the disc starts there, only a plate's agent badge hangs `badgeOverhang` outside), and its top and
 bottom edges are level with the action bar header's: the pane and the header both start `ShellMetrics.sideCardInset` below the
@@ -29,8 +29,8 @@ full-size-content titlebar the hosting view gets a 12pt top safe area that pushe
 (`testTrackerBannerStaysLevelWithTheHeaderUnderTheTitlebar`; the headless renders have no titlebar and cannot show it).
 It has no keys and no hover look, does not scroll with the plates or dim with a dropped connection, and goes with the pane when
 the tracker hides. The frame is the action bar header's scooped panel (`scoopedPanel`, `ActionBarMetrics.scoopRadius`, raised
-elevation, the panel fill and `lineSoftSubtle` border), not the SVG's own frame; the SVG is 354 wide, wider than the 280 column,
-so the wordmark keeps the SVG's scale (109 wide) and sits centred, shifted `TrackerHeaderMetrics.svgShift` (-37) into the
+elevation, the panel fill and `lineSoftSubtle` border), not the SVG's own frame; the SVG is 354 wide, wider than the 290 column,
+so the wordmark keeps the SVG's scale (109 wide) and sits centred, shifted `TrackerHeaderMetrics.svgShift` into the
 narrower frame. It is drawn as the SVG's own path data (`TrackerHeaderArt`; the SVG is kept in
 `app/Tests/QuestmasterLogicTests/Fixtures/tracker-header.svg`) in a `Canvas`: flat emblem fills from the `AppPalette.wordmark*` inks,
 and the letters' angular gradient as a squashed conic gradient clipped to the letters (CoreSVG cannot draw it). The first plate
@@ -39,7 +39,7 @@ loading skeleton, so the plates' visible top is `headerHeight` + 20 below the pa
 the silhouette margin is only in its layers. Under the list,
 `TrackerListMetrics.avatarClearance` (`Space.group`) precedes the fixed avatar slot. Its sole stands
 `TrackerListMetrics.avatarBannerGap` (`Space.item`, 10) above the session banner's id tab: the gap sits below the slot, so
-the slot keeps its size, every pose moves up with it, and the plate list gives up the room. The slot and banner are 280pt wide (the plates and the PR badge column, `TrackerListMetrics.columnWidth`), left-aligned with the master plates at
+the slot keeps its size, every pose moves up with it, and the plate list gives up the room. The slot and banner are 290pt wide (the plates and the PR badge column, `TrackerListMetrics.columnWidth`), left-aligned with the master plates at
 `TrackerListMetrics.sidePadding`; the slot reserves the tallest bundled class's idle figure, rounded up to 5pt (175pt now),
 so changing classes never moves the layout. `Space.section` separates the banner's bottom from the shells. With no
 shells, the banner ends on the column's bottom edge, which the shell's `sideCardInset` already holds 20pt above the window's
@@ -63,10 +63,10 @@ workers are added (the newest is the right-most). Each familiar in the company h
 chip sits above the master's familiar's disc once the row is full (`TrackerCompanySlot`, `TrackerCompanyStage`). A familiar whose worker is working, or that the pointer is over, also carries its name in a 15 pt chip on a 5 pt stem, in up to three tiers 20 pt apart, placed by `TrackerCompanyNameTags` (Core): a name over the master's face goes up a tier, and a name with no room is cut with an ellipsis. Other names show nowhere. A name appears and goes with the status or the pointer, and while the pointer is over a familiar its name always shows, with the working names giving way to it. The master never moves,
 standing at the slot's centre; the slot, banner and plate list stay put.
 
-Master plates are `TrackerPlateDesign.plateWidth` (240pt). Worker discs keep their 20-60pt column and their plates
-and cast bars end flush with the masters at x240; only straight SVG runs shorten, so portraits, corners and borders
-keep their shapes. The retained standalone selected-session panel uses the same width. The tracker content reserves
-`TrackerListMetrics.contentWidth` (282pt), plus its 20pt leading gutter: the plate column, a permanent 40pt badge column
+Master plates are `TrackerPlateDesign.plateWidth` (250pt). Worker discs keep their 20-60pt column and their plates
+and cast bars end flush with the masters at x250. The straight SVG runs set the width and preserve the shapes of
+portraits, corners and borders. The retained standalone selected-session panel uses the same width. The tracker content reserves
+`TrackerListMetrics.contentWidth` (292pt), plus its 20pt leading gutter: the plate column, a permanent 40pt badge column
 (5pt gap and 35pt chip), and the existing 2pt band allowance. No watches leaves that column empty; its width never jumps.
 
 A working Pi plate can show a short heading from a completed provider summary part or reasoning item. The
@@ -87,6 +87,7 @@ expanded worker's plate, sliding from the top and fading over `MotionStep.standa
 keyed by state, so a count change keeps its chip in place. A master group's
 height is the maximum of its plate content (including casts, collapsed circles or expanded workers) and its chip stack.
 A fitting stack adds no height; a taller stack reserves room before the next master, so adjacent four-state masters
-cannot overlap. The 240pt plate holds seven collapsed worker circles. The circles are 25pt across with 5pt gaps.
-They start at x15, `Space.row` left of an expanded worker's disc, and sit `Space.row` below the master disc or its
-open cast row.
+cannot overlap. The 250pt plate holds eight collapsed worker circles, with the eighth flush with the plate's right edge.
+The circles are 25pt across with 5pt gaps. They start at x15, `Space.row` left of an expanded worker's disc, and sit
+`Space.row` below the master disc or its open cast row. When there are more than eight workers, the last circle shows
+how many workers are hidden.
