@@ -345,7 +345,7 @@ const familiars: Record<string, string> = {
 	paladin: "Animated Armour",
 	wizard: "Fire Elemental",
 	druid: "Treant",
-	barbarian: "Bear",
+	barbarian: "Werebear",
 	rogue: "Shadow",
 	cleric: "Light Spirit",
 	bard: "Imp",
