@@ -2,15 +2,15 @@ import Foundation
 import QuestmasterCore
 
 /// The master's company in its slot: the designed rows from the user's spacing designs (the master never moves; its workers stand at their
-/// pitch, centred on a point that moves from the body column toward the full row's centre), the "+n" marker, the drop below the feet, and the
-/// familiars' scales and rows from their files.
+/// pitch, centred on a point that starts 20 pt right of the body column and moves toward the full row's centre), the "+n" marker, the drop
+/// below the feet, and the familiars' scales and rows from their files.
 struct TrackerCompanyLayoutTests {
     static func run() {
         noWorkersShowNothing()
         liveWorkersAreTheMastersStartedWorkersInSpawnOrder()
         designedFullRowStartsAtTen()
         designedFullRowIsTheDesignsRowExactly()
-        oneWorkerIsCentredOnTheBodyColumnInEveryClass()
+        oneWorkerStandsRightOfTheBodyColumnInEveryClass()
         fewerWorkersStandAtPitchOnTheBlendedCentre()
         newestWorkerIsAlwaysRightMost()
         groupCentreMovesInEqualStepsTowardTheFullRow()
@@ -87,23 +87,25 @@ struct TrackerCompanyLayoutTests {
         }
     }
 
-    /// One worker stands on the master's body column in every class: its visible middle is the slot's centre.
-    private static func oneWorkerIsCentredOnTheBodyColumnInEveryClass() {
+    /// One worker stands `soloOffset` (20 pt) right of the master's body column in every class: its visible middle is 160, where the body
+    /// column is 140.
+    private static func oneWorkerStandsRightOfTheBodyColumnInEveryClass() {
+        expect(TrackerCompanyLayout.soloOffset == 20, "a lone worker should stand 20 pt right of the body column, got \(TrackerCompanyLayout.soloOffset)")
         for entry in classRows {
             let one = designed(1, entry.row, width: entry.width)
             guard let centre = rowCentre(one, width: entry.width) else {
                 fail("\(entry.name) should show its one worker")
             }
-            expect(abs(centre - bodyCentre) < 1e-9, "\(entry.name)'s one worker should stand centred on the body column (\(bodyCentre)), got \(centre)")
+            expect(abs(centre - (bodyCentre + 20)) < 1e-9, "\(entry.name)'s one worker should stand 20 pt right of the body column (\(bodyCentre + 20)), got \(centre)")
         }
     }
 
-    /// Fire Elementals (pitch 35, a full row of seven whose centre is 128, 12 pt left of the body column at 140): the group's centre steps
-    /// from 140 toward 128 by 2 pt a worker, so one worker stands at 127 (its centre on 140), two at 107.5 and 142.5, and three at 88, 123 and
-    /// 158.
+    /// Fire Elementals (pitch 35, a full row of seven whose centre is 128, 12 pt left of the body column at 140): the group's centre starts
+    /// 20 pt right of the body column, at 160, and steps toward 128 by 16/3 pt a worker. So one worker stands at 147 (its centre on 160), two
+    /// at 745/6 and 955/6 (centre 464/3), and three at 304/3, 409/3 and 514/3 (centre 448/3).
     private static func fewerWorkersStandAtPitchOnTheBlendedCentre() {
         let fire = TrackerCompanyRow(pitch: 35, capacity: 7)
-        let cases: [(count: Int, lefts: [Double])] = [(1, [127]), (2, [107.5, 142.5]), (3, [88, 123, 158])]
+        let cases: [(count: Int, lefts: [Double])] = [(1, [147]), (2, [745.0 / 6, 955.0 / 6]), (3, [304.0 / 3, 409.0 / 3, 514.0 / 3])]
         for entry in cases {
             let result = designed(entry.count, fire, width: 26)
             expect(result.familiars.map(\.left).elementsAlmostEqual(entry.lefts), "\(entry.count) Fire should stand at \(entry.lefts), got \(result.familiars.map(\.left))")
@@ -122,23 +124,24 @@ struct TrackerCompanyLayoutTests {
         }
     }
 
-    /// The row's centre moves from the body column toward the full row's centre in equal steps: one worker on the body column, the full row on
-    /// its own centre (the midpoint between its first place's visible left edge and its last place's visible right edge), and each worker
-    /// between them moves the centre by the same amount, always in the same direction.
+    /// The row's centre starts 20 pt right of the body column and moves toward the full row's centre in equal steps: one worker there, the full
+    /// row on its own centre (the midpoint between its first place's visible left edge and its last place's visible right edge), and each
+    /// worker between them moves the centre by the same amount, always in the same direction.
     private static func groupCentreMovesInEqualStepsTowardTheFullRow() {
+        let start = bodyCentre + TrackerCompanyLayout.soloOffset
         for entry in classRows {
             let target = fullCentre(entry)
-            let step = (target - bodyCentre) / Double(entry.row.capacity - 1)
+            let step = (target - start) / Double(entry.row.capacity - 1)
             var previous: Double?
             for count in 1...entry.row.capacity {
                 let result = designed(count, entry.row, width: entry.width)
                 guard let centre = rowCentre(result, width: entry.width) else {
                     fail("\(entry.name) should show \(count) workers")
                 }
-                let expected = bodyCentre + (target - bodyCentre) * Double(count - 1) / Double(entry.row.capacity - 1)
+                let expected = start + (target - start) * Double(count - 1) / Double(entry.row.capacity - 1)
                 expect(abs(centre - expected) < 1e-9, "\(entry.name)'s row centre at \(count) workers should be \(expected), got \(centre)")
-                expect(centre >= min(bodyCentre, target) - 1e-9 && centre <= max(bodyCentre, target) + 1e-9,
-                       "\(entry.name)'s row centre at \(count) workers should lie between the body column and the full row's centre, got \(centre)")
+                expect(centre >= min(start, target) - 1e-9 && centre <= max(start, target) + 1e-9,
+                       "\(entry.name)'s row centre at \(count) workers should lie between the start and the full row's centre, got \(centre)")
                 if let previous {
                     expect(abs(centre - previous - step) < 1e-9, "\(entry.name)'s centre should move \(step) a worker, got \(centre - previous) at \(count) workers")
                     expect((centre - previous) * step >= 0, "\(entry.name)'s centre should move monotonically, got \(centre - previous) at \(count) workers")

@@ -143,7 +143,7 @@ enum LogicSelfTests {
         ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
         ("testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt", testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt),
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
-        ("testOneWorkerIsCentredOnTheMastersBody", testOneWorkerIsCentredOnTheMastersBody),
+        ("testOneWorkerStandsSoloOffsetRightOfTheMastersBody", testOneWorkerStandsSoloOffsetRightOfTheMastersBody),
         ("testWorkerNamesTagTheCompany", testWorkerNamesTagTheCompany),
         ("testPointingAtAFamiliarShowsItsName", testPointingAtAFamiliarShowsItsName),
         ("testEveryClassHasAHeadBoxInItsArt", testEveryClassHasAHeadBoxInItsArt),
@@ -2784,15 +2784,15 @@ enum LogicSelfTests {
         try expect(stage.companions.isEmpty && stage.overflow == 0, "a master with no workers should show no company")
     }
 
-    /// Every class's one worker stands centred on its master's body column when it is alone: the middle of its visible figure (its rest's
-    /// left edge plus half its width, both read back from its placement) sits at the slot's centre, to within the half point the placement
-    /// snaps to.
+    /// Every class's one worker stands `TrackerCompanyLayout.soloOffset` right of its master's body column when it is alone: the middle of its
+    /// visible figure (its rest's left edge plus half its width, both read back from its placement) sits there, to within the half point the
+    /// placement snaps to.
     @MainActor
-    private static func testOneWorkerIsCentredOnTheMastersBody() throws {
+    private static func testOneWorkerStandsSoloOffsetRightOfTheMastersBody() throws {
         final class Clock {
             var now: TimeInterval = 0
         }
-        let centre = TrackerAvatarMetrics.slotWidth / 2
+        let centre = TrackerAvatarMetrics.slotWidth / 2 + CGFloat(TrackerCompanyLayout.soloOffset)
         for sessionClass in SessionClass.allCases {
             let clock = Clock()
             let stage = TrackerCompanyStage(clock: { clock.now })
@@ -2807,7 +2807,7 @@ enum LogicSelfTests {
             let left = companion.bodyX + CGFloat(columns.lowerBound - body) * companion.pixel
             let width = CGFloat(columns.count) * companion.pixel
             try expect(abs(left + width / 2 - centre) <= 0.5,
-                       "the \(classID)'s one worker should stand centred on the master's body (\(centre)), got \(left + width / 2)")
+                       "the \(classID)'s one worker should stand 20 pt right of the master's body (\(centre)), got \(left + width / 2)")
         }
     }
 
