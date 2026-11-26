@@ -55,11 +55,9 @@ struct WorkerLogFilterPanel: View {
 
     private var scrolling: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            ListScrollView {
                 content
-                    .background(ScrollerHider())
             }
-            .scrollIndicators(.hidden)
             .onAppear { reveal(cursor, with: proxy) }
             .onChange(of: cursor) { _, index in reveal(index, with: proxy) }
         }

@@ -39,15 +39,13 @@ struct SectionedList<Content: View>: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            ListScrollView(indicators: indicators) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     content()
                 }
                 .padding(.bottom, Space.row)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(ScrollerHider())
             }
-            .scrollIndicators(indicators)
             .onAppear {
                 guard scrollOnAppear else {
                     return

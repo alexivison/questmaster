@@ -169,7 +169,7 @@ struct WorkerChatFeedView: View {
 
     var body: some View {
         GeometryReader { viewport in
-            ScrollView {
+            ListScrollView(topFadeHeight: topInset) {
                 VStack(alignment: .leading, spacing: 0) {
                     WorkerChatRows(lines: lines)
                 }
@@ -180,17 +180,6 @@ struct WorkerChatFeedView: View {
                 .padding(.top, topInset)
                 .padding(.bottom, WorkerChatMetrics.inset)
                 .frame(minHeight: viewport.size.height, alignment: .bottom)
-                .background(ScrollerHider())
-            }
-            .scrollIndicators(.hidden)
-        }
-        // The Quest Log page's overflow cue, at the top only: the lines scrolled up under the header fade out over the
-        // feed's first `topInset` instead of being cut at its edge.
-        .mask {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [.clear, AppPalette.mask.swiftUI], startPoint: .top, endPoint: .bottom)
-                    .frame(height: topInset)
-                AppPalette.mask.swiftUI
             }
         }
     }

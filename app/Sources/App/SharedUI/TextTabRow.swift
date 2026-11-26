@@ -19,8 +19,6 @@ enum TextTabMetrics {
     static let svgDiamondTop = labelBaseline - svgDiamondRaise - svgDiamondDiagonal / 2
     /// How far a clipped side fades out.
     static let fadeWidth = Space.section
-    /// Tabs hang past a side by more than this, in points, before that side counts as clipped.
-    static let hiddenTolerance: CGFloat = 0.5
 }
 
 /// A row of text tabs with a diamond between each pair. A row wider than its frame scrolls sideways with no scroller,
@@ -36,7 +34,7 @@ struct TextTabRow: View {
     var previewHoveredIndex: Int?
     let onSelect: (Int) -> Void
 
-    @State private var hiddenSides = TextTabHiddenSides()
+    @State private var overflow = ScrollOverflow()
 
     var body: some View {
         GeometryReader { viewport in
@@ -59,7 +57,7 @@ struct TextTabRow: View {
                     }
                     .frame(minWidth: viewport.size.width)
                     .background(ScrollerHider())
-                    .background(TextTabScrollWatcher { hiddenSides = $0 })
+                    .background(ScrollOverflowObserver(axis: .horizontal) { overflow = $0 })
                 }
                 .scrollIndicators(.hidden)
                 .onAppear { reveal(with: proxy) }
@@ -80,86 +78,12 @@ struct TextTabRow: View {
     /// Opaque, with a fade at each end that has tabs hidden past it.
     private var edgeFades: some View {
         HStack(spacing: 0) {
-            LinearGradient(colors: [hiddenSides.leading ? .clear : AppPalette.mask.swiftUI, AppPalette.mask.swiftUI], startPoint: .leading, endPoint: .trailing)
+            LinearGradient(colors: [overflow.before ? .clear : AppPalette.mask.swiftUI, AppPalette.mask.swiftUI], startPoint: .leading, endPoint: .trailing)
                 .frame(width: TextTabMetrics.fadeWidth)
             AppPalette.mask.swiftUI
-            LinearGradient(colors: [AppPalette.mask.swiftUI, hiddenSides.trailing ? .clear : AppPalette.mask.swiftUI], startPoint: .leading, endPoint: .trailing)
+            LinearGradient(colors: [AppPalette.mask.swiftUI, overflow.after ? .clear : AppPalette.mask.swiftUI], startPoint: .leading, endPoint: .trailing)
                 .frame(width: TextTabMetrics.fadeWidth)
         }
-    }
-}
-
-/// The sides of the tab row that have tabs scrolled out of view.
-private struct TextTabHiddenSides: Equatable {
-    var leading = false
-    var trailing = false
-}
-
-/// Reports which sides of the enclosing scroll view have content scrolled out of view, from its clip view's bounds. Every
-/// kind of scroll (trackpad, `scrollTo`, a resize) changes them, so nothing runs per frame. SwiftUI's own coordinate
-/// spaces don't reach into a macOS scroll view's content, which is why this reads AppKit.
-private struct TextTabScrollWatcher: NSViewRepresentable {
-    let onChange: (TextTabHiddenSides) -> Void
-
-    func makeNSView(context: Context) -> TextTabScrollWatcherView {
-        TextTabScrollWatcherView()
-    }
-
-    func updateNSView(_ view: TextTabScrollWatcherView, context: Context) {
-        view.onChange = onChange
-    }
-}
-
-private final class TextTabScrollWatcherView: NSView {
-    var onChange: ((TextTabHiddenSides) -> Void)?
-    private var observers: [NSObjectProtocol] = []
-    private var reported: TextTabHiddenSides?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers = []
-        guard window != nil, let scrollView = enclosingScrollView, let documentView = scrollView.documentView else {
-            return
-        }
-        let clipView = scrollView.contentView
-        clipView.postsBoundsChangedNotifications = true
-        clipView.postsFrameChangedNotifications = true
-        documentView.postsFrameChangedNotifications = true
-        let sources: [(Notification.Name, NSView)] = [
-            (NSView.boundsDidChangeNotification, clipView),
-            (NSView.frameDidChangeNotification, clipView),
-            (NSView.frameDidChangeNotification, documentView),
-        ]
-        observers = sources.map { name, view in
-            NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.report() }
-            }
-        }
-        // Not inline: this runs inside a SwiftUI update, which must not change state.
-        DispatchQueue.main.async { [weak self] in
-            self?.report()
-        }
-    }
-
-    deinit {
-        observers.forEach(NotificationCenter.default.removeObserver)
-    }
-
-    private func report() {
-        guard let scrollView = enclosingScrollView, let documentView = scrollView.documentView else {
-            return
-        }
-        let clip = scrollView.contentView.bounds
-        let sides = TextTabHiddenSides(
-            leading: clip.minX > TextTabMetrics.hiddenTolerance,
-            trailing: documentView.bounds.width - clip.maxX > TextTabMetrics.hiddenTolerance
-        )
-        guard sides != reported else {
-            return
-        }
-        reported = sides
-        onChange?(sides)
     }
 }
 
