@@ -50,8 +50,8 @@ enum SettingsMetrics {
     /// A section's glyph fills its tab's 20pt icon square. The keylined brain, folder and terminal measure 15 x 15, 15 x 14
     /// and 15 x 13 there, against the SF symbols' 15.6 x 15, 16.3 x 13.2 and 16.0 x 12.5 that the tab fitted into that square.
     static let sectionIconSide: CGFloat = PillTabMetrics.iconSide
-    /// The availability row follows the agent tabs by one item gap.
-    static let availabilityOffset = PillTabMetrics.rowHeight + Space.item
+    /// The availability row follows the agent tabs by one section gap.
+    static let availabilityOffset = PillTabMetrics.rowHeight + Space.section
     static let availabilityHeight = ControlHeight.field + Space.row
     /// The first role section follows the availability row by one group gap.
     static let firstSectionBaseline = availabilityOffset + availabilityHeight + Space.group
@@ -201,7 +201,7 @@ struct SettingsSheetView: View {
     private var availabilityRow: some View {
         let agent = model.state.selectedAgent
         let agentName = AgentKind.displayName(for: agent)
-        return HStack(alignment: .center, spacing: Space.item) {
+        return HStack(alignment: .center, spacing: Space.section) {
             VStack(alignment: .leading, spacing: Space.row) {
                 Text("Enable Agent")
                     .font(Font(AppFonts.settingsLabel))
@@ -257,7 +257,9 @@ struct SettingsSheetView: View {
 
     private func roleField(role: String, field: RoleDefaultField, title: String, isLoading: Bool) -> some View {
         let agent = model.state.selectedAgent
-        let focused = RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == role && model.state.focusedField == field
+        let focused = !model.isAvailabilityToggleFocused(for: agent)
+            && RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == role
+            && model.state.focusedField == field
         let unavailable = !model.canUseAvailability(for: agent)
         let disabled = model.isAvailabilityLoaded && unavailable
         let waiting = !model.isAvailabilityLoaded || (!unavailable && isLoading)
@@ -860,6 +862,7 @@ final class SettingsSheetModel: ObservableObject {
     private func moveFocus(_ delta: Int) {
         switch section {
         case .modelsAndReasoning:
+            state.endPickerSearch()
             let agent = state.selectedAgent
             guard canUseAvailability(for: agent) else {
                 focusedAvailabilityToggleAgent = agent
