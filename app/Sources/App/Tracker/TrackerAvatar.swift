@@ -85,7 +85,8 @@ final class TrackerAvatarSprites {
     private let folder: URL
     /// The folder of the shared calling-out bubble: `Sprites/shared`, for classes and familiars alike.
     private let bubbleFolder: URL
-    /// The outline painted round each frame of this folder, or nil for none: a company's frames carry it, the worker slot's don't.
+    /// The outline painted round each figure frame of this folder, or nil for none: a company's figure frames carry it, its effect layers and
+    /// the worker slot's frames don't.
     private let outline: TrackerAvatarOutlineInk?
     private var images: [String: CGImage] = [:]
 
@@ -363,7 +364,7 @@ final class TrackerAvatarSprites {
         let started = ProcessInfo.processInfo.systemUptime
         #endif
         // A frame of this folder carries the outline; a shared bubble doesn't.
-        let decoded = directory == nil ? Self.decodedFrame(at: url, outline: outline) : Self.decodeFrame(at: url)
+        let decoded = directory == nil ? Self.decodedFrame(at: url, outline: Self.outlinesFrame(named: url.lastPathComponent) ? outline : nil) : Self.decodeFrame(at: url)
         guard let image = decoded else {
             return nil
         }
@@ -407,7 +408,7 @@ final class TrackerAvatarSprites {
             let frames: [(name: String, image: CGImage)] = files
                 .filter { url in url.pathExtension == "png" && prefixes.contains { url.lastPathComponent.hasPrefix($0) } }
                 .compactMap { url in
-                    Self.decodedFrame(at: url, outline: outline).map { (url.deletingPathExtension().lastPathComponent, $0) }
+                    Self.decodedFrame(at: url, outline: Self.outlinesFrame(named: url.lastPathComponent) ? outline : nil).map { (url.deletingPathExtension().lastPathComponent, $0) }
                 }
             let bubble: [(name: String, image: CGImage)] = wantsBubble ? Self.decodeFrame(at: bubbleURL).map { [("bubble", $0)] } ?? [] : []
             let decoded = frames + bubble
@@ -431,6 +432,12 @@ final class TrackerAvatarSprites {
             return nil
         }
         return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+    }
+
+    /// Whether a frame carries the outline: the figure's own frames do, and an effect layer (`-front-` or `-behind-`) does not, so its sparks
+    /// and specks stand bare.
+    nonisolated static func outlinesFrame(named file: String) -> Bool {
+        !file.contains("-front-") && !file.contains("-behind-")
     }
 
     /// The PNG at `url`, with the outline painted round its art when `outline` is given. The PNG as it is when the outline can't be painted.

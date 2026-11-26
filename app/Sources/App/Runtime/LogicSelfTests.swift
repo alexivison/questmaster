@@ -2897,9 +2897,13 @@ enum LogicSelfTests {
                    "each resting box should stand from the visible bottom, under the feet, with a size")
 
         stage.setPointer(over: "qm-w1", inside: true)
-        try expect(stage.hoveredID == "qm-w1" && stage.nameTags.contains { $0.id == "qm-w1" },
-                   "pointing at an idle familiar should show its name, got \(stage.nameTags.map(\.id))")
+        try expect(stage.hoveredID == "qm-w1", "pointing at an idle familiar should hover it, got \(stage.hoveredID ?? "none")")
+        // With the first and second workers alone, the pointed-at idle second worker's name shows. With all three, the working names can
+        // cover its place on every tier, and a hovered name then has no room, so it shows nothing.
+        stage.observe(sessions: [master, workers[0], workers[1]], attachedID: "qm-m")
+        try expect(stage.nameTags.contains { $0.id == "qm-w1" }, "pointing at an idle familiar should show its name, got \(stage.nameTags.map(\.id))")
         try expect(stage.nameTags.contains { $0.id == "qm-w0" }, "a working familiar should keep its name while another is pointed at")
+        stage.observe(sessions: [master] + workers, attachedID: "qm-m")
 
         // The pointer leaves the idle familiar onto a working one: the enter comes first, so the exit clears nothing it did not set.
         stage.setPointer(over: "qm-w0", inside: true)
@@ -2970,6 +2974,12 @@ enum LogicSelfTests {
             }
         }
         try expect(ringed > 0, "the outline should ring the paladin's figure")
+        // The effect layers stand bare: the cleric's front spark frame is the art as it is.
+        guard let effectRaw = TrackerAvatarSprites.decodeFrame(at: resources.appendingPathComponent("Familiars/cleric/company/01-idle-front-f1.png")),
+              let effect = TrackerAvatarLibrary.companions["cleric"]?.frame(.idle, .front, 1) else {
+            throw TestFailure("the cleric's company effect frame should decode")
+        }
+        try expect(try rgbaBytes(effect) == rgbaBytes(effectRaw), "an effect layer should carry no outline")
         // The worker slot's full frame of the same figure: no outline.
         guard let slotRaw = TrackerAvatarSprites.decodeFrame(at: resources.appendingPathComponent("Familiars/paladin/01-idle-f1.png")),
               let slot = TrackerAvatarSprites.bundledFamiliars()["paladin"]?.idleFrame(1) else {

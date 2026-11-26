@@ -28,10 +28,10 @@ Which pose shows when, how cues play, and where the avatar sits.
   visible left edge and its last place's visible right edge) in equal steps as workers are added: each worker added moves the centre by the
   same amount, and a full row lands exactly on its designed places (`designInset + i × pitch`, the first at 10 pt). A familiar draws from its
   `company/` frames at 0.5 pt a pixel (the 2x device grid), so each frame pixel lands on a device pixel. Each familiar in the company also
-  draws a one-pixel outline in `AppPalette.familiarOutline` (black): the ring of transparent pixels round its art, eight neighbours counted,
-  painted into each company frame when it decodes (`TrackerAvatarSprites.outlined`, `TrackerCompanyOutline.ring` in Core), so the figure
-  separates from whatever stands behind it, frame by frame, its effect layers included. The worker slot's full frames and the master carry no
-  outline. Each familiar's visible bottom sits 5 pt
+  draws a one-pixel outline in `AppPalette.familiarOutline` (black): the ring of transparent pixels round its figure, eight neighbours
+  counted, painted into each figure frame when it decodes (`TrackerAvatarSprites.outlined`, `TrackerCompanyOutline.ring` in Core), so the
+  figure separates from whatever stands behind it, frame by frame. A familiar's effect layers (`-front-` and `-behind-` frames) stay bare, so
+  their sparks and specks get no dark edge. The worker slot's full frames and the master carry no outline. Each familiar's visible bottom sits 5 pt
   below the master's feet, and a hover's gap above its feet is taken out (`TrackerCompanyLayout.drop`). Past the row's capacity the rest
   are counted in a `+n` marker: a 20 pt portrait disc 5 pt in from the slot's right edge, with its chip centred above it. Familiars draw in
   front of the master, right-most on top. A worker whose familiar has no art
