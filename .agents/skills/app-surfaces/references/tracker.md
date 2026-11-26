@@ -40,8 +40,8 @@ the silhouette margin is only in its layers. Under the list,
 `TrackerListMetrics.avatarClearance` (`Space.group`) precedes the fixed avatar slot. Its sole stands
 `TrackerListMetrics.avatarBannerGap` (`Space.item`, 10) above the session banner's id tab: the gap sits below the slot, so
 the slot keeps its size, every pose moves up with it, and the plate list gives up the room. The slot and banner are 290pt wide (the plates and the PR badge column, `TrackerListMetrics.columnWidth`), left-aligned with the master plates at
-`TrackerListMetrics.sidePadding`; the slot reserves the tallest bundled class's idle figure, rounded up to 5pt (175pt now),
-so changing classes never moves the layout. `Space.section` separates the banner's bottom from the shells. With no
+`TrackerListMetrics.sidePadding`; the slot reserves the tallest bundled class's idle figure, rounded up to 5pt (260pt now, the tallest figure at a class's 1.5pt pixel),
+so changing classes never moves the layout. Effects past the slot, the column or above it are never clipped (`class-avatar` behaviour.md, Slot). `Space.section` separates the banner's bottom from the shells. With no
 shells, the banner ends on the column's bottom edge, which the shell's `sideCardInset` already holds 20pt above the window's
 bottom, level with the dock's bottom (2026-11-26; it used to add `verticalPadding` on top and stood 20pt higher). Only an attached plate (master or worker) reserves
 the avatar slot and banner. With a shell, tmux or orphan attached, or no known attachment, both disappear and the plates

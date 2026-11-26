@@ -287,20 +287,21 @@ final class TrackerCompanyStage {
         return nil
     }
 
-    /// The master's face box in slot points, y up from the bottom, from its head box in the class's `animation.json`; nil for a class with
-    /// none. The master's body column stands at the slot's centre, and its feet row sits on the baseline.
+    /// The master's face box in slot points, y up from the bottom, from its head box in the class's `animation.json` at the master's pixel;
+    /// nil for a class with none. The master's body column stands at the slot's centre, and its feet row sits on the baseline.
     private static func faceBox(master: TrackerAvatarSprites, slotWidth: Double) -> TrackerCompanyNameTags.Box? {
         guard let head = master.animation.headBox, let idle = master.animation.animation(for: .idle) else {
             return nil
         }
         let body = Double(idle.bodyColumn)
         let feet = Double(idle.footRow)
-        let minX = slotWidth / 2 + (Double(head.x) - body)
+        let pixel = Double(master.pixelPoints)
+        let minX = slotWidth / 2 + (Double(head.x) - body) * pixel
         return TrackerCompanyNameTags.Box(
             minX: minX,
-            maxX: minX + Double(head.width),
-            minY: feet - Double(head.y + head.height),
-            maxY: feet - Double(head.y)
+            maxX: minX + Double(head.width) * pixel,
+            minY: (feet - Double(head.y + head.height)) * pixel,
+            maxY: (feet - Double(head.y)) * pixel
         )
     }
 

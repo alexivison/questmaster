@@ -31,3 +31,5 @@ the slot's width and height), and `TrackerAvatarFamiliarTests.swift` covers its 
 Recording what a class does, off-screen (DEBUG): `RENDER_ONLY=tracker-avatar-idle-motion` records the selected class's
   authored idle and a forced blink as a class-specific GIF (`AVATAR_CLASS=wizard`, for example). The avatar recordings (`RENDER_ONLY=avatar-report-catch`, `avatar-message-release`, ...; `AVATAR_CLASS=cleric`
   picks the class) record the slot at real speed into `<name>-frames/`.
+  `RENDER_ONLY=master-scale-sheet` (about four minutes) samples every master's poses in the shell and writes its widest effect frame, the
+  two full companies, and `master-scale-sheet.png` (the copy in `docs/sprites/renders/` is the one the PR shows).

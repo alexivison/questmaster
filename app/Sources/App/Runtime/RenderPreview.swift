@@ -117,6 +117,7 @@ enum RenderPreview {
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, colorSearch: .seed("o"), dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo-open.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
+        masterScaleSheet(outputDir)
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(trackerEmptyView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-empty.png")
@@ -329,11 +330,20 @@ enum RenderPreview {
         exit(0)
     }
 
+    /// One master of `classID` attached, in a store of its own: the shell's avatar fixture.
+    @MainActor
+    private static func masterShellStore(classID: String, state: String) -> RuntimeStore {
+        let store = RuntimeStore(sourceLabel: "probe", currentTerminalSessionID: "master-0", expandedMasterIDs: [])
+        let master = TrackerSession(id: "master-0", title: "Probe", repoName: "Repo", repoColor: "indigo", sessionClass: classID, agent: "claude", role: "master", state: state, parentID: "")
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: [master])])))
+        return store
+    }
+
     /// The whole window shell (tracker column, terminal, dock) laid out by the real split view,
     /// without a titlebar (the render window is borderless).
     @MainActor
-    private static func shellView(size: CGSize) -> NSView {
-        let store = trackerPreviewStore()
+    private static func shellView(size: CGSize, withStore: RuntimeStore? = nil) -> NSView {
+        let store = withStore ?? trackerPreviewStore()
         let tracker = TrackerKeyboardHostingView(rootView: TrackerRootView(
             store: store,
             newSessionPresenter: NewSessionSheetPresenter(),
@@ -358,6 +368,253 @@ enum RenderPreview {
         splitView.setDockVisible(true, animated: false)
         splitView.applyCanonicalLayout()
         return splitView
+    }
+
+    // MARK: Master scale sheet: each master's widest effect frame in the shell, and the two full companies
+
+    private static let masterSheetClasses = ["barbarian", "bard", "cleric", "druid", "fighter", "necromancer", "paladin", "ranger", "rogue", "sorcerer", "wizard"]
+    /// How long each pose plays while its art is sampled for the widest frame.
+    private static let masterSheetSampleSeconds: TimeInterval = 1.6
+
+    /// Every master's widest effect frame and the two full companies, from the whole shell: the tracker column, the terminal's edge and the
+    /// dock. A master's frame is the live avatar at the moment its visible art spans widest, over every pose it plays. Named by
+    /// RENDER_ONLY=master-scale-sheet; writes `master-scale-sheet.png` and one PNG per shot.
+    @MainActor
+    private static func masterScaleSheet(_ outputDir: String) {
+        guard ProcessInfo.processInfo.environment["RENDER_ONLY"]?.split(separator: ",").contains("master-scale-sheet") == true else {
+            return
+        }
+        warmUpFirstWindow()
+        var cells: [(label: String, image: CGImage, guides: [CGFloat])] = []
+        for classID in masterSheetClasses {
+            guard let shot = masterSheetWidestShot(classID: classID) else {
+                print("MASTER-SCALE \(classID): no art to shoot")
+                continue
+            }
+            print("MASTER-SCALE \(classID): widest \(shot.pose), art \(String(format: "%.1f", shot.span)) pt wide, \(String(format: "%.1f", shot.overflow)) pt past the slot's sides")
+            cells.append(("\(classID) · \(shot.pose)", shot.image, shot.guides))
+            masterSheetWritePNG(shot.image, to: "\(outputDir)/master-scale-\(classID).png")
+        }
+        let titles = ["Ledger sync", "Search index", "Tray icon polish", "Docs pass 2", "Nightly build", "Familiar app", "Avatar switch"]
+        let working = [true, false, false, false, true, false, false]
+        for (classID, count) in [("barbarian", 5), ("necromancer", 7)] {
+            guard let shell = masterSheetShell(store: masterCompanyStore(classID: classID, titles: Array(titles.prefix(count)), working: Array(working.prefix(count)))) else {
+                continue
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+            if let column = shell.split.subviews.compactMap({ $0 as? TrackerShellView }).first,
+               let image = masterSheetCapture(shell.split),
+               let cropped = masterSheetCrop(image, avatar: shell.avatar, in: shell.split, column: column) {
+                cells.append(("\(classID) · full company (\(count))", cropped.image, cropped.guides))
+                masterSheetWritePNG(cropped.image, to: "\(outputDir)/master-scale-\(classID)-company.png")
+            }
+            shell.window.orderOut(nil)
+        }
+        masterSheetWriteSheet(cells, columns: 4, to: "\(outputDir)/master-scale-sheet.png")
+    }
+
+    /// The whole shell with `store`, shown and laid out, and the attached master's avatar in it.
+    @MainActor
+    private static func masterSheetShell(store: RuntimeStore) -> (window: HeadlessWindow, split: MainSplitView, avatar: TrackerAvatarView)? {
+        let size = CGSize(width: 1100, height: 700)
+        guard let split = shellView(size: size, withStore: store) as? MainSplitView else {
+            return nil
+        }
+        let window = HeadlessWindow(size: size, scale: 2)
+        window.contentView = split
+        window.show()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        guard let avatar = masterSheetViews(split).compactMap({ $0 as? TrackerAvatarView }).first else {
+            window.orderOut(nil)
+            return nil
+        }
+        return (window, split, avatar)
+    }
+
+    @MainActor
+    private static func masterSheetViews(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { masterSheetViews($0) }
+    }
+
+    /// One master of `classID` with a worker per title beneath it, the workers in `working` working: a company in the shell.
+    @MainActor
+    private static func masterCompanyStore(classID: String, titles: [String], working: [Bool]) -> RuntimeStore {
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "master-0", expandedMasterIDs: [])
+        let master = TrackerSession(id: "master-0", title: "Master", repoName: "Repo", repoColor: "indigo", sessionClass: classID, agent: "claude", role: "master", state: "working", parentID: "")
+        let workers = titles.enumerated().map { index, title in
+            TrackerSession(id: "worker-\(index)", title: title, repoName: "Repo", repoColor: "indigo", sessionClass: classID, agent: "claude", role: "worker", state: working[index] ? "working" : "idle", parentID: "master-0")
+        }
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: [master] + workers)])))
+        return store
+    }
+
+    /// The master's widest frame: over every pose it plays, the sample at which its visible art spans widest, cropped as the shot.
+    @MainActor
+    private static func masterSheetWidestShot(classID: String) -> (image: CGImage, pose: String, span: CGFloat, overflow: CGFloat, guides: [CGFloat])? {
+        guard let sprites = TrackerAvatarSprites.bundled()[classID],
+              let shell = masterSheetShell(store: masterShellStore(classID: classID, state: "working")),
+              let column = shell.split.subviews.compactMap({ $0 as? TrackerShellView }).first else {
+            return nil
+        }
+        defer { shell.window.orderOut(nil) }
+        var cache: [ObjectIdentifier: (columns: ClosedRange<Int>, rows: ClosedRange<Int>)] = [:]
+        // The art's reach past the slot's two sides, in points: the frame that reaches furthest past them is the widest.
+        let slotWidth = TrackerAvatarMetrics.slotWidth
+        var best: (image: CGImage, pose: String, span: CGFloat, overflow: CGFloat)?
+        for pose in TrackerAvatarPose.masterPoses where sprites.animation.animation(for: pose) != nil {
+            shell.avatar.configure(pose: pose, beat: 0, finish: nil, enter: nil, reduceMotion: false)
+            let began = Date()
+            while Date().timeIntervalSince(began) < masterSheetSampleSeconds {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 30))
+                guard let reach = masterSheetReach(of: shell.avatar, cache: &cache) else {
+                    continue
+                }
+                let overflow = max(0, -reach.minX) + max(0, reach.maxX - slotWidth)
+                // Overflow first; a master whose art stays in its slot still takes its widest sample.
+                guard (overflow, reach.width) > (best?.overflow ?? -1, best?.span ?? -1), let image = masterSheetCapture(shell.split) else {
+                    continue
+                }
+                best = (image, pose.resourceName, reach.width, overflow)
+            }
+        }
+        guard let best, let cropped = masterSheetCrop(best.image, avatar: shell.avatar, in: shell.split, column: column) else {
+            return nil
+        }
+        return (cropped.image, best.pose, best.span, best.overflow, cropped.guides)
+    }
+
+    /// The horizontal span, in points and in the avatar's own coordinates, of the art it shows now: the opaque pixels of each shown layer's
+    /// presentation, placed by the layers' frames.
+    @MainActor
+    private static func masterSheetReach(of avatar: TrackerAvatarView, cache: inout [ObjectIdentifier: (columns: ClosedRange<Int>, rows: ClosedRange<Int>)]) -> CGRect? {
+        guard let root = avatar.layer else {
+            return nil
+        }
+        var reach: CGRect?
+        func visit(_ layer: CALayer, parent: CGPoint) {
+            let shown = layer.presentation() ?? layer
+            guard !shown.isHidden, shown.opacity > 0 else {
+                return
+            }
+            let origin = CGPoint(x: parent.x + shown.frame.minX, y: parent.y + shown.frame.minY)
+            if let contents = shown.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID {
+                let image = contents as! CGImage
+                let key = ObjectIdentifier(image)
+                if cache[key] == nil, let columns = TrackerAvatarSprites.opaqueColumns(of: image), let rows = TrackerAvatarSprites.opaqueRows(of: image) {
+                    cache[key] = (columns, rows)
+                }
+                if let opaque = cache[key] {
+                    let sx = shown.bounds.width / CGFloat(image.width)
+                    let sy = shown.bounds.height / CGFloat(image.height)
+                    let box = CGRect(
+                        x: origin.x + CGFloat(opaque.columns.lowerBound) * sx,
+                        y: origin.y + shown.bounds.height - CGFloat(opaque.rows.upperBound + 1) * sy,
+                        width: CGFloat(opaque.columns.count) * sx,
+                        height: CGFloat(opaque.rows.count) * sy
+                    )
+                    reach = reach?.union(box) ?? box
+                }
+            }
+            for child in shown.sublayers ?? [] {
+                visit(child, parent: origin)
+            }
+        }
+        for child in root.sublayers ?? [] {
+            visit(child, parent: .zero)
+        }
+        return reach
+    }
+
+    /// The whole shell as its layers look now, at their presentation values, at 2x.
+    @MainActor
+    private static func masterSheetCapture(_ split: NSView) -> CGImage? {
+        guard let layer = split.layer else {
+            return nil
+        }
+        let scale: CGFloat = 2
+        guard let context = CGContext(
+            data: nil, width: Int(split.bounds.width * scale), height: Int(split.bounds.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+        context.interpolationQuality = .none
+        context.scaleBy(x: scale, y: scale)
+        (layer.presentation() ?? layer).render(in: context)
+        return context.makeImage()
+    }
+
+    /// The shot cropped to the avatar's column and its edge into the terminal: from the window's left edge to 90 pt past the column's right
+    /// edge, and from 60 pt under the avatar's sole to 130 pt above its top. With the x positions, in points, of the guides the sheet draws:
+    /// the slot's two sides and the column's right edge.
+    @MainActor
+    private static func masterSheetCrop(_ image: CGImage, avatar: TrackerAvatarView, in split: NSView, column: NSView) -> (image: CGImage, guides: [CGFloat])? {
+        let scale = CGFloat(image.width) / split.bounds.width
+        let frame = avatar.convert(avatar.bounds, to: split)
+        let columnRight = column.convert(column.bounds, to: split).maxX
+        let right = min(split.bounds.width, columnRight + 90)
+        let bottom = max(0, frame.minY - 60)
+        let top = min(split.bounds.height, frame.maxY + 130)
+        guard let cropped = image.cropping(to: CGRect(x: 0, y: (split.bounds.height - top) * scale, width: right * scale, height: (top - bottom) * scale)) else {
+            return nil
+        }
+        return (cropped, [frame.minX, frame.maxX, columnRight])
+    }
+
+    /// The cells in rows of `columns`, each labelled above, with its guides drawn over it, on the window colour, as one PNG. The guides are
+    /// the column's right edge, dashed, and the slot's sides, dotted; a legend sits under the last row.
+    @MainActor
+    private static func masterSheetWriteSheet(_ cells: [(label: String, image: CGImage, guides: [CGFloat])], columns: Int, to path: String) {
+        let gap: CGFloat = 24
+        let labelHeight: CGFloat = 44
+        let legendHeight: CGFloat = 56
+        let cellWidth = CGFloat(cells.map(\.image.width).max() ?? 0)
+        let cellHeight = CGFloat(cells.map(\.image.height).max() ?? 0)
+        let rows = (cells.count + columns - 1) / columns
+        let width = CGFloat(columns) * cellWidth + CGFloat(columns + 1) * gap
+        let height = CGFloat(rows) * (cellHeight + labelHeight + gap) + gap + legendHeight
+        guard let context = CGContext(
+            data: nil, width: Int(width), height: Int(height), bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return
+        }
+        context.setFillColor(AppPalette.window.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        let labelAttributes: [NSAttributedString.Key: Any] = [.font: AppFonts.monoSmall, .foregroundColor: AppPalette.text]
+        for (index, cell) in cells.enumerated() {
+            let left = gap + CGFloat(index % columns) * (cellWidth + gap)
+            let top = height - gap - CGFloat(index / columns) * (cellHeight + labelHeight + gap) - labelHeight
+            let bottom = top - CGFloat(cell.image.height)
+            context.draw(cell.image, in: CGRect(x: left, y: bottom, width: CGFloat(cell.image.width), height: CGFloat(cell.image.height)))
+            // Each guide is in points from the crop's left edge; the cell is at 2x, so each point is two pixels.
+            for (guideIndex, guide) in cell.guides.enumerated() {
+                let x = left + guide * 2
+                context.setLineWidth(2)
+                context.setStrokeColor(guideIndex == cell.guides.count - 1 ? NSColor.white.cgColor : NSColor.systemTeal.cgColor)
+                context.setLineDash(phase: 0, lengths: guideIndex == cell.guides.count - 1 ? [10, 6] : [2, 4])
+                context.move(to: CGPoint(x: x, y: bottom))
+                context.addLine(to: CGPoint(x: x, y: top + labelHeight))
+                context.strokePath()
+            }
+            (cell.label as NSString).draw(at: NSPoint(x: left, y: top + 14), withAttributes: labelAttributes)
+        }
+        ("Dashed white: the tracker column's right edge. Dotted teal: the slot's sides. Art past the dotted lines is outside the slot; past the dashed line, it is over the terminal."
+            as NSString).draw(at: NSPoint(x: gap, y: gap), withAttributes: labelAttributes)
+        NSGraphicsContext.restoreGraphicsState()
+        if let image = context.makeImage() {
+            masterSheetWritePNG(image, to: path)
+        }
+    }
+
+    private static func masterSheetWritePNG(_ image: CGImage, to path: String) {
+        guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+            return
+        }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("RenderPreview: wrote \(path)")
     }
 
     /// Artifact rows at rest, under the pointer, on the keyboard cursor, and a missing file under the pointer. The
