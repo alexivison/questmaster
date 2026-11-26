@@ -56,9 +56,9 @@ nothing attached or an unknown id, so neither banner nor avatar slot appears. A 
 draws over the list; the banner draws in front of the sprite, keeping its raised shadow; art hanging below the sole shows in the gap.
 `SelectedSessionPanel` remains for its standalone previews and self-tests. An attached worker's slot draws its master's class's familiar
 in the same slot and above the same banner (`.agents/skills/class-avatar/SKILL.md`); its size and place never change for a worker. An
-attached master's slot also holds its live workers' familiars, small, in one row to its right: a designed row starts its first familiar 25pt
-right of the master's body column and steps at its pitch, and once the next worker would pass the full row's right-most place, the row
-stands at its places from there leftwards, in front of the master. A `+n`
+attached master's slot also holds its live workers' familiars, small, in one row: its workers stand at their pitch, in spawn
+order, centred on a point that moves from the master's body column toward the full row's centre as workers are added (the newest is the
+right-most; one worker is centred on the body column). A `+n`
 chip sits above the master's familiar's disc once the row is full (`TrackerCompanySlot`, `TrackerCompanyStage`). The master never moves,
 standing at the slot's centre; the slot, banner and plate list stay put.
 

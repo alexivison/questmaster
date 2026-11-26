@@ -1,19 +1,19 @@
 import Foundation
 import QuestmasterCore
 
-/// The master's company in its slot: the designed rows from the user's spacing designs (the master never moves; the workers stand 25 pt
-/// right of its body column, then in front of it once the row is full), the "+n" marker, the drop below the feet, and the familiars' scales
-/// and rows from their files.
+/// The master's company in its slot: the designed rows from the user's spacing designs (the master never moves; its workers stand at their
+/// pitch, centred on a point that moves from the body column toward the full row's centre), the "+n" marker, the drop below the feet, and the
+/// familiars' scales and rows from their files.
 struct TrackerCompanyLayoutTests {
     static func run() {
         noWorkersShowNothing()
         liveWorkersAreTheMastersStartedWorkersInSpawnOrder()
         designedFullRowStartsAtTen()
         designedFullRowIsTheDesignsRowExactly()
-        designedRowStandsWorkersBesideTheMaster()
-        oneWorkerStandsTwentyFivePastTheCentreInEveryClass()
-        designedRowExtendsLeftInFrontOfTheMasterAtItsSwitch()
-        designedRowMovesInSmallSteps()
+        oneWorkerIsCentredOnTheBodyColumnInEveryClass()
+        fewerWorkersStandAtPitchOnTheBlendedCentre()
+        newestWorkerIsAlwaysRightMost()
+        groupCentreMovesInEqualStepsTowardTheFullRow()
         designedRowCountsWorkersPastItsCapacity()
         designedRowsEndLeftOfTheMarker()
         visibleBottomsDropBelowTheFeet()
@@ -24,8 +24,7 @@ struct TrackerCompanyLayoutTests {
 
     /// The design's slot is 280 pt wide (the tracker column); its master's body column stands at its centre, 140 pt.
     private static let slot = 280.0
-    /// Where the first familiar's visible left edge stands while the familiars stand beside the master: 25 pt right of the centre.
-    private static let besideLeft = slot / 2 + TrackerCompanyLayout.sideBySideOffset
+    private static var bodyCentre: Double { slot / 2 }
     /// The marker's disc starts 25 pt from the right edge (20 pt disc, 5 pt in).
     private static let markerLeft = 255.0
 
@@ -88,71 +87,63 @@ struct TrackerCompanyLayoutTests {
         }
     }
 
-    /// Fire Elementals (pitch 35, a full row of seven whose right-most place is 220): the first worker stands 25 pt right of the centre, at 165,
-    /// and a second at pitch, at 200. A third would stand at 235, past the right-most place, so all three stand at the full row's places from
-    /// there leftwards: 150, 185 and 220.
-    private static func designedRowStandsWorkersBesideTheMaster() {
+    /// One worker stands on the master's body column in every class: its visible middle is the slot's centre.
+    private static func oneWorkerIsCentredOnTheBodyColumnInEveryClass() {
+        for entry in classRows {
+            let one = designed(1, entry.row, width: entry.width)
+            guard let centre = rowCentre(one, width: entry.width) else {
+                fail("\(entry.name) should show its one worker")
+            }
+            expect(abs(centre - bodyCentre) < 1e-9, "\(entry.name)'s one worker should stand centred on the body column (\(bodyCentre)), got \(centre)")
+        }
+    }
+
+    /// Fire Elementals (pitch 35, a full row of seven whose centre is 128, 12 pt left of the body column at 140): the group's centre steps
+    /// from 140 toward 128 by 2 pt a worker, so one worker stands at 127 (its centre on 140), two at 107.5 and 142.5, and three at 88, 123 and
+    /// 158.
+    private static func fewerWorkersStandAtPitchOnTheBlendedCentre() {
         let fire = TrackerCompanyRow(pitch: 35, capacity: 7)
-        let cases: [(count: Int, lefts: [Double])] = [(1, [165]), (2, [165, 200]), (3, [150, 185, 220])]
+        let cases: [(count: Int, lefts: [Double])] = [(1, [127]), (2, [107.5, 142.5]), (3, [88, 123, 158])]
         for entry in cases {
             let result = designed(entry.count, fire, width: 26)
             expect(result.familiars.map(\.left).elementsAlmostEqual(entry.lefts), "\(entry.count) Fire should stand at \(entry.lefts), got \(result.familiars.map(\.left))")
         }
     }
 
-    /// Every class's first familiar stands 25 pt right of the body column when one worker is alone: each class's right-most place is past 165,
-    /// so nothing caps it. The master's art doesn't move the place.
-    private static func oneWorkerStandsTwentyFivePastTheCentreInEveryClass() {
+    /// The newest worker is always the right-most, for every class and every count: the places run left to right in spawn order.
+    private static func newestWorkerIsAlwaysRightMost() {
         for entry in classRows {
-            let one = designed(1, entry.row, width: entry.width)
-            guard let place = one.familiars.first else {
-                fail("\(entry.name) should show its one worker")
-            }
-            expect(abs(place.left - besideLeft) < 1e-9, "\(entry.name)'s first familiar should stand at \(besideLeft), 25 pt right of the centre, got \(place.left)")
-        }
-    }
-
-    /// A row stands beside its master until the next worker would pass the full row's right-most place; from then on the workers extend left
-    /// from that place, in front of the master. The worker count where that starts: Barbarian and Fighter 2, Ranger 4, and 3 for Bard, Cleric,
-    /// Druid, Necromancer, Paladin, Rogue, Sorcerer and Wizard.
-    private static func designedRowExtendsLeftInFrontOfTheMasterAtItsSwitch() {
-        let switchCounts: [String: Int] = [
-            "barbarian": 2, "bard": 3, "cleric": 3, "druid": 3, "fighter": 2, "necromancer": 3, "paladin": 3, "ranger": 4,
-            "rogue": 3, "sorcerer": 3, "wizard": 3,
-        ]
-        for entry in classRows {
-            let switchCount = (1...entry.row.capacity).first { count in
-                designed(count, entry.row, width: entry.width).familiars[0].left < besideLeft - 1e-9
-            }
-            expect(switchCount == switchCounts[entry.name], "\(entry.name)'s row should extend left in front of its master at \(switchCounts[entry.name] ?? -1) workers, got \(String(describing: switchCount))")
-            if let switchCount {
-                let first = designed(switchCount, entry.row, width: entry.width).familiars[0].left
-                expect(first < besideLeft, "\(entry.name)'s first familiar should stand left of its beside place at \(switchCount) workers, got \(first)")
-            }
-        }
-    }
-
-    /// As workers arrive the row moves in small steps and never to the right. Each count stands either beside the master, with the first
-    /// familiar at its 25 pt place, or anchored at the full row's right-most place. No worker's place moves more than one pitch, and the last
-    /// familiar stays inside that right-most place.
-    private static func designedRowMovesInSmallSteps() {
-        for entry in classRows {
-            let rightMost = TrackerCompanyLayout.designInset + Double(entry.row.capacity - 1) * entry.row.pitch
-            var previous: TrackerCompanyLayout.Result?
-            for count in 1...(entry.row.capacity + 1) {
+            for count in 1...entry.row.capacity {
                 let result = designed(count, entry.row, width: entry.width)
-                guard let first = result.familiars.first, let last = result.familiars.last else {
-                    fail("\(count) workers should show a familiar")
+                let lefts = result.familiars.map(\.left)
+                expect(result.familiars.map(\.index) == Array(0..<count), "\(entry.name)'s familiars should keep spawn order at \(count) workers")
+                expect(zip(lefts, lefts.dropFirst()).allSatisfy { $0 < $1 }, "\(entry.name)'s newest worker should be right-most at \(count) workers, got \(lefts)")
+            }
+        }
+    }
+
+    /// The row's centre moves from the body column toward the full row's centre in equal steps: one worker on the body column, the full row on
+    /// its own centre (the midpoint between its first place's visible left edge and its last place's visible right edge), and each worker
+    /// between them moves the centre by the same amount, always in the same direction.
+    private static func groupCentreMovesInEqualStepsTowardTheFullRow() {
+        for entry in classRows {
+            let target = fullCentre(entry)
+            let step = (target - bodyCentre) / Double(entry.row.capacity - 1)
+            var previous: Double?
+            for count in 1...entry.row.capacity {
+                let result = designed(count, entry.row, width: entry.width)
+                guard let centre = rowCentre(result, width: entry.width) else {
+                    fail("\(entry.name) should show \(count) workers")
                 }
-                expect(abs(first.left - besideLeft) < 1e-9 || abs(last.left - rightMost) < 1e-9,
-                       "\(entry.name)'s row should stand beside its master or be anchored at its right-most place (\(rightMost)), got \(first.left) and \(last.left) at \(count) workers")
-                expect(last.left <= rightMost + 1e-9, "\(entry.name)'s last familiar should stay at or left of the right-most place (\(rightMost)), got \(last.left) at \(count) workers")
-                if let previous, let before = previous.familiars.first {
-                    expect(first.left <= before.left + 1e-9, "\(entry.name)'s row should never move right, got a step of \(first.left - before.left) at \(count) workers")
-                    expect(before.left - first.left <= entry.row.pitch + 1e-9,
-                           "\(entry.name)'s worker place should move no more than one pitch (\(entry.row.pitch)), got \(before.left - first.left) at \(count) workers")
+                let expected = bodyCentre + (target - bodyCentre) * Double(count - 1) / Double(entry.row.capacity - 1)
+                expect(abs(centre - expected) < 1e-9, "\(entry.name)'s row centre at \(count) workers should be \(expected), got \(centre)")
+                expect(centre >= min(bodyCentre, target) - 1e-9 && centre <= max(bodyCentre, target) + 1e-9,
+                       "\(entry.name)'s row centre at \(count) workers should lie between the body column and the full row's centre, got \(centre)")
+                if let previous {
+                    expect(abs(centre - previous - step) < 1e-9, "\(entry.name)'s centre should move \(step) a worker, got \(centre - previous) at \(count) workers")
+                    expect((centre - previous) * step >= 0, "\(entry.name)'s centre should move monotonically, got \(centre - previous) at \(count) workers")
                 }
-                previous = result
+                previous = centre
             }
         }
     }
@@ -240,6 +231,19 @@ struct TrackerCompanyLayoutTests {
 
     private static func designed(_ count: Int, _ row: TrackerCompanyRow, width: Double = 26) -> TrackerCompanyLayout.Result {
         TrackerCompanyLayout.designLayout(count: count, row: row, restWidth: width, slotWidth: slot)
+    }
+
+    /// The full row's centre: the midpoint between its first place's visible left edge (the design's inset) and its last place's right edge.
+    private static func fullCentre(_ entry: (name: String, row: TrackerCompanyRow, width: Double)) -> Double {
+        TrackerCompanyLayout.designInset + (Double(entry.row.capacity - 1) * entry.row.pitch + entry.width) / 2
+    }
+
+    /// The centre of a shown row: the midpoint between its first familiar's visible left edge and its last one's visible right edge.
+    private static func rowCentre(_ result: TrackerCompanyLayout.Result, width: Double) -> Double? {
+        guard let first = result.familiars.first, let last = result.familiars.last else {
+            return nil
+        }
+        return (first.left + last.left + width) / 2
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
