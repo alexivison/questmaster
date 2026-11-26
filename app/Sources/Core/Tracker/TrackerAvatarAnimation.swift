@@ -339,7 +339,7 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case invalidEyeColumns
     /// The lid colour is `#rrggbb`.
     case invalidLidColour
-    /// A familiar's `scale` is a percentage above 0 and at most 100; it may have a decimal part.
+    /// A familiar's `scale` is a percentage above 0 and at most 150; it may have a decimal part.
     case invalidScale(Double)
     /// A familiar's file needs a `company` object: its pitch and full row, which place it in the master's company.
     case missingCompany
@@ -395,7 +395,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The fidgets an idle figure may play, by name. None when `01-idle` has a loop, which plays no fidgets.
     public let fidgets: [TrackerAvatarIdleFidget]
     /// The size the art draws at, in percent of one art pixel per point: a class always draws at 100; a familiar's file gives its own
-    /// `scale` (50 when it has none), so the master's company can stand smaller in the slot.
+    /// `scale` (50 when it has none), and each company size's folder gives the scale it draws at in the master's company.
     public let scalePercent: Double
     /// A familiar's place in the master's company: its pitch and full row, which every familiar's file gives. Nil for a class.
     public let companyRow: TrackerCompanyRow?
@@ -647,8 +647,9 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         case .master:
             return 100
         case .familiar:
+            // A company's largest size is 1.5 times a familiar's designed scale: the War Hound's 82% is 123% there, the largest.
             let percent = scale ?? 50
-            guard percent > 0, percent <= 100 else {
+            guard percent > 0, percent <= 150 else {
                 throw TrackerAvatarAnimationError.invalidScale(percent)
             }
             return percent

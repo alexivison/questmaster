@@ -4,7 +4,8 @@ import Foundation
 /// it stands at the slot's centre whatever the count. The familiars stand at their designed pitch (from the user's spacing designs), in
 /// spawn order from left to right, as one row whose centre starts `soloOffset` right of the master's body column and moves toward the centre
 /// of the full row in equal steps as workers are added: one worker stands `soloOffset` right of the body column, and a full row lands on its
-/// designed places. The newest worker is always the right-most. Past the row's capacity the rest are counted in a "+n" marker. Pure: the App
+/// designed places. The newest worker is always the right-most. Past the row's capacity the rest are counted in a "+n" marker. The company is
+/// drawn at the largest size whose full row holds every worker (`sizeIndex`), so each size has its own pitch and capacity. Pure: the App
 /// measures each familiar's resting width at its scale.
 public enum TrackerCompanyLayout {
     /// The design's first familiar's left edge, in points from the slot's left edge. The row and the marker moved left together (the
@@ -59,6 +60,16 @@ public enum TrackerCompanyLayout {
             Familiar(index: index, restWidth: restWidth, left: firstLeft + Double(index) * row.pitch)
         }
         return Result(familiars: familiars, overflow: overflow)
+    }
+
+    /// The size a company draws at: the index into `rows`, the sizes' rows from the largest size to the smallest, of the largest size whose
+    /// full row holds all `count` workers. Past the smallest size's full row, the smallest size is drawn and its "+n" marker counts the rest.
+    /// Nil when there are no sizes.
+    public static func sizeIndex(count: Int, rows: [TrackerCompanyRow]) -> Int? {
+        guard !rows.isEmpty else {
+            return nil
+        }
+        return rows.firstIndex { count <= $0.capacity } ?? rows.count - 1
     }
 
     /// How far a familiar's art moves down from the baseline, in points, so its visible bottom sits `belowFeet` below the master's feet.

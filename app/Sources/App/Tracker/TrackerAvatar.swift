@@ -213,16 +213,6 @@ final class TrackerAvatarSprites {
 
     /// The familiars' sprites, by class id, with a readable `animation.json` in `Resources/Familiars`. Their bubble is the shared one.
     static func bundledFamiliars() -> [String: TrackerAvatarSprites] {
-        bundledFamiliarSprites(inSubfolder: nil)
-    }
-
-    /// The designed familiars' company frames, by class id: each class's `company` folder, the same art on the 2x device grid at the
-    /// familiar's scale, drawn at `TrackerCompanyLayout.companyPixelPoints` a pixel. A class with no such folder has none.
-    static func bundledCompanions() -> [String: TrackerAvatarSprites] {
-        bundledFamiliarSprites(inSubfolder: "company")
-    }
-
-    private static func bundledFamiliarSprites(inSubfolder subfolder: String?) -> [String: TrackerAvatarSprites] {
         guard let resources = AppSymbolStyle.resourceBundle().resourceURL else {
             return [:]
         }
@@ -231,15 +221,33 @@ final class TrackerAvatarSprites {
         var sprites: [String: TrackerAvatarSprites] = [:]
         for sessionClass in SessionClass.allCases {
             let classID = sessionClass.rawValue
-            var folder = root.appendingPathComponent(classID, isDirectory: true)
-            if let subfolder {
-                folder = folder.appendingPathComponent(subfolder, isDirectory: true)
-            }
-            // A company's frames carry the outline; the worker slot's full frames don't.
-            let outline = subfolder == nil ? nil : TrackerAvatarOutlineInk(AppPalette.familiarOutline)
-            sprites[classID] = TrackerAvatarSprites(classID: classID, folder: folder, kind: .familiar, bubbleFolder: shared, outline: outline)
+            sprites[classID] = TrackerAvatarSprites(classID: classID, folder: root.appendingPathComponent(classID, isDirectory: true),
+                                                    kind: .familiar, bubbleFolder: shared)
         }
         return sprites.compactMapValues { $0 }
+    }
+
+    /// The designed familiars' company sizes, by class id, largest first: each class's `company/<size>` folders, the same art on the 2x device
+    /// grid at that size's scale, drawn at `TrackerCompanyLayout.companyPixelPoints` a pixel. A class with no such folder has none.
+    static func bundledCompanions() -> [String: [TrackerAvatarSprites]] {
+        guard let resources = AppSymbolStyle.resourceBundle().resourceURL else {
+            return [:]
+        }
+        let root = resources.appendingPathComponent("Familiars", isDirectory: true)
+        let shared = resources.appendingPathComponent("Sprites/shared", isDirectory: true)
+        var companies: [String: [TrackerAvatarSprites]] = [:]
+        for sessionClass in SessionClass.allCases {
+            let classID = sessionClass.rawValue
+            let company = root.appendingPathComponent(classID, isDirectory: true).appendingPathComponent("company", isDirectory: true)
+            let folders = (try? FileManager.default.contentsOfDirectory(at: company, includingPropertiesForKeys: nil)) ?? []
+            // A company's frames carry the outline; the worker slot's full frames don't.
+            let outline = TrackerAvatarOutlineInk(AppPalette.familiarOutline)
+            companies[classID] = folders.compactMap { folder in
+                TrackerAvatarSprites(classID: classID, folder: folder, kind: .familiar, bubbleFolder: shared, outline: outline)
+            }
+            .sorted { $0.animation.scalePercent > $1.animation.scalePercent }
+        }
+        return companies
     }
 
     /// The art frame `number` of a pose's `layer`: `<pose>-f<n>` for the character, `<pose>-behind-f<n>` and `<pose>-front-f<n>` for

@@ -236,6 +236,8 @@ enum RenderPreview {
             render(companySequenceView(classID: classID, full: full), size: CGSize(width: 360, height: 1), autoHeight: true,
                    to: "\(outputDir)/company-sequence-\(classID).png")
         }
+        // The company's sizes: one worker, the 1.5x full row, one more, the 1.25x full row plus one, and the 1x full row plus one ("+n").
+        render(familiarCompanyTiersView(), size: CGSize(width: 1400, height: 1), autoHeight: true, to: "\(outputDir)/familiar-company-tiers.png")
         // Every class's one worker, in one image: each stands centred on the master's body column.
         render(companyFirstWorkerView(), size: CGSize(width: 1200, height: 1), autoHeight: true, to: "\(outputDir)/company-first-worker.png")
         render(elementalEffectsView(), size: CGSize(width: 1300, height: 1), autoHeight: true, to: "\(outputDir)/elemental-effects.png")
@@ -1990,6 +1992,50 @@ enum RenderPreview {
             }
         }
         .background(AppPalette.window.swiftUI)
+    }
+
+    /// The Necromancer, the Barbarian and the Ranger, one column each: one worker, the 1.5x full row, one more, the 1.25x full row plus one, and
+    /// the 1x full row plus one, which the "+n" marker counts. Each row is labelled with the size the company drew it at. Named by
+    /// RENDER_ONLY=familiar-company-tiers.
+    @MainActor
+    private static func familiarCompanyTiersView() -> some View {
+        HStack(alignment: .top, spacing: Space.item) {
+            ForEach(["necromancer", "barbarian", "ranger"], id: \.self) { classID in
+                familiarCompanyTiersColumn(classID: classID)
+            }
+        }
+        .padding(Space.item)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// One class's column of the company sizes, from its shipped sizes (largest first): the counts are one worker, each size's full row and one
+    /// more than the 1.5x and 1.25x rows and the 1x row.
+    @MainActor
+    private static func familiarCompanyTiersColumn(classID: String) -> some View {
+        let sizes = TrackerAvatarLibrary.companions[classID] ?? []
+        let rows = sizes.compactMap { $0.animation.companyRow }
+        let base = sizes.last?.animation.scalePercent ?? 100
+        // A count that repeats (the Werebear's 1.25x row is its 1.5x row, so its one-more count is the 1x row's) shows once.
+        let steps = rows.count == 3 ? [1, rows[0].capacity, rows[0].capacity + 1, rows[1].capacity + 1, rows[2].capacity + 1] : [1]
+        let counts = steps.reduce(into: [Int]()) { if !$0.contains($1) { $0.append($1) } }
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("\(classID) · \(SessionClass(rawValue: classID)?.familiarName ?? classID)")
+                .font(Font(AppFonts.monoSmall)).foregroundStyle(AppPalette.text.swiftUI)
+                .padding(.bottom, TrackerListMetrics.avatarBannerGap)
+            ForEach(Array(counts.enumerated()), id: \.offset) { _, count in
+                let index = TrackerCompanyLayout.sizeIndex(count: count, rows: rows) ?? 0
+                let overflow = max(0, count - rows[index].capacity)
+                let size = String(format: "%g", sizes[index].animation.scalePercent / base) + "x"
+                HStack(spacing: 0) {
+                    Text("\(count) \(count == 1 ? "worker" : "workers")  \(size)\(overflow > 0 ? " +\(overflow)" : "")")
+                        .font(Font(AppFonts.monoSmall)).foregroundStyle(AppPalette.text.swiftUI)
+                        .frame(width: 150, alignment: .leading)
+                    companyCell(classID: classID, workers: count)
+                        .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                }
+                .padding(.bottom, TrackerListMetrics.avatarBannerGap)
+            }
+        }
     }
 
     /// One class's company as the worker count grows, from none to its full row plus one, each row in the tracker's own slot and labelled with

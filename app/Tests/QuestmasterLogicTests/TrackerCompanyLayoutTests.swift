@@ -19,6 +19,8 @@ struct TrackerCompanyLayoutTests {
         visibleBottomsDropBelowTheFeet()
         familiarScalesComeFromTheirFiles()
         companyRowComesFromTheFile()
+        companySizesComeFromTheirFiles()
+        companySizeFollowsTheCount()
         print("TrackerCompanyLayoutTests: all tests passed")
     }
 
@@ -183,7 +185,7 @@ struct TrackerCompanyLayoutTests {
     }
 
     /// The familiars' scales come from their files: the War Hound is 82%, the Imp 60.4%, the Werebear 58.8%, and a class always draws at 100.
-    /// A 0% scale is refused, and so is one above 100.
+    /// A 0% scale is refused, and so is one above 150 (a company's largest size, 1.5 times the War Hound's 82%, is 123%).
     private static func familiarScalesComeFromTheirFiles() {
         expect(AvatarAnimationFixture.familiar("fighter").scalePercent == 82, "the War Hound should draw at 82%, got \(AvatarAnimationFixture.familiar("fighter").scalePercent)")
         expect(AvatarAnimationFixture.familiar("bard").scalePercent == 60.4, "the Imp should draw at 60.4%, got \(AvatarAnimationFixture.familiar("bard").scalePercent)")
@@ -198,6 +200,17 @@ struct TrackerCompanyLayoutTests {
             expect(error == .invalidScale(0), "a 0% scale should be rejected as invalid, got \(error)")
         } catch {
             fail("a 0% scale should give invalid scale, got \(error)")
+        }
+        json["scale"] = 150
+        expect((try? AvatarAnimationFixture.decodeFamiliar(json))?.scalePercent == 150, "a 150% scale, the company's cap, should read")
+        json["scale"] = 150.5
+        do {
+            _ = try AvatarAnimationFixture.decodeFamiliar(json)
+            fail("a familiar with a 150.5% scale should not read")
+        } catch let error as TrackerAvatarAnimationError {
+            expect(error == .invalidScale(150.5), "a 150.5% scale should be rejected as invalid, got \(error)")
+        } catch {
+            fail("a 150.5% scale should give invalid scale, got \(error)")
         }
     }
 
@@ -227,6 +240,60 @@ struct TrackerCompanyLayoutTests {
             expect(error == .invalidCompany, "a zero capacity should be rejected as an invalid company row, got \(error)")
         } catch {
             fail("a zero capacity should give an invalid company row, got \(error)")
+        }
+    }
+
+    /// The eleven classes' company sizes, from the 1.5x size down to 1x: each size's full row in workers, as the converter measures it from the
+    /// shipped frames. The Werebear's 1.25x row is its 1.5x row, so its company goes from 1.5x straight to 1x.
+    private static let sizeRows: [(name: String, rows: [Int])] = [
+        ("barbarian", [3, 3, 5]), ("bard", [4, 5, 7]), ("cleric", [4, 5, 7]), ("druid", [4, 4, 6]), ("fighter", [3, 4, 6]),
+        ("necromancer", [4, 5, 7]), ("paladin", [4, 4, 6]), ("ranger", [5, 6, 8]), ("rogue", [4, 4, 6]), ("sorcerer", [4, 4, 6]),
+        ("wizard", [4, 5, 7]),
+    ]
+    private static let sizeNames = ["1.5x", "1.25x", "1x"]
+
+    /// A familiar's company size as its bundled file reads, or a failure when it does not read.
+    private static func companySize(_ classID: String, _ size: String) -> TrackerAvatarAnimation {
+        do {
+            return try AvatarAnimationFixture.decodeFamiliar(AvatarAnimationFixture.companySizeJSON(classID, size))
+        } catch {
+            fail("the \(classID)'s \(size) company size should read, got \(error)")
+        }
+    }
+
+    /// Each class's three company sizes come from their files: the 1.5x size draws at 1.5 times the designed scale, the 1.25x at 1.25 times,
+    /// and the 1x at the designed one, each with the full row `sizeRows` names. The 1x row is the familiar's own company row.
+    private static func companySizesComeFromTheirFiles() {
+        let multipliers = [1.5, 1.25, 1.0]
+        for entry in sizeRows {
+            let designed = AvatarAnimationFixture.familiar(entry.name)
+            let sizes = sizeNames.map { companySize(entry.name, $0) }
+            for (animation, multiplier) in zip(sizes, multipliers) {
+                expect(abs(animation.scalePercent - designed.scalePercent * multiplier) < 1e-6,
+                       "the \(entry.name)'s size should draw at \(designed.scalePercent * multiplier)%, got \(animation.scalePercent)%")
+            }
+            expect(sizes.map { $0.companyRow?.capacity ?? 0 } == entry.rows,
+                   "the \(entry.name)'s full rows should be \(entry.rows), got \(sizes.map { $0.companyRow?.capacity ?? 0 })")
+            expect(sizes[2].companyRow == designed.companyRow, "the \(entry.name)'s 1x size should carry the familiar's own company row")
+        }
+        expect(companySize("fighter", "1.5x").scalePercent == 123, "the War Hound's 1.5x size should draw at 123%")
+    }
+
+    /// A company draws at the largest size whose full row holds every worker. At every count up to the 1x full row plus two, each class's
+    /// size is the first of 1.5x, 1.25x and 1x whose row holds the count; past the 1x row, the 1x size draws and its "+n" marker counts the rest.
+    private static func companySizeFollowsTheCount() {
+        expect(TrackerCompanyLayout.sizeIndex(count: 1, rows: []) == nil, "a company with no sizes should name none")
+        for entry in sizeRows {
+            let rows = sizeNames.compactMap { companySize(entry.name, $0).companyRow }
+            expect(rows.count == 3, "the \(entry.name) should have three company rows, got \(rows.count)")
+            for count in 1...(entry.rows[2] + 2) {
+                let expected = rows.firstIndex { count <= $0.capacity } ?? 2
+                expect(TrackerCompanyLayout.sizeIndex(count: count, rows: rows) == expected,
+                       "the \(entry.name)'s \(count) workers should draw at size \(expected), got \(String(describing: TrackerCompanyLayout.sizeIndex(count: count, rows: rows)))")
+            }
+            expect(TrackerCompanyLayout.sizeIndex(count: 1, rows: rows) == 0, "one \(entry.name) worker should draw at 1.5x")
+            expect(TrackerCompanyLayout.sizeIndex(count: rows[2].capacity + 1, rows: rows) == 2,
+                   "past the \(entry.name)'s 1x full row the 1x size should draw, with the marker")
         }
     }
 

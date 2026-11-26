@@ -151,6 +151,7 @@ enum LogicSelfTests {
         ("testAHoveredNameAlwaysShowsInEveryClassAndCount", testAHoveredNameAlwaysShowsInEveryClassAndCount),
         ("testEveryClassHasAHeadBoxInItsArt", testEveryClassHasAHeadBoxInItsArt),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
+        ("testTheCompanySizeFollowsTheCount", testTheCompanySizeFollowsTheCount),
         ("testCompanyFramesCarryAOnePixelOutlineAndTheWorkerSlotDoesNot", testCompanyFramesCarryAOnePixelOutlineAndTheWorkerSlotDoesNot),
         ("testTheWarHoundDrawsAtItsScaleOnTheBaseline", testTheWarHoundDrawsAtItsScaleOnTheBaseline),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
@@ -3078,9 +3079,10 @@ enum LogicSelfTests {
             throw TestFailure("the resource bundle should be readable")
         }
         let ink = TrackerAvatarOutlineInk(AppPalette.familiarOutline)
-        let rawURL = resources.appendingPathComponent("Familiars/paladin/company/01-idle-f1.png")
+        // The designed size is the smallest of a class's company sizes, listed last.
+        let rawURL = resources.appendingPathComponent("Familiars/paladin/company/1x/01-idle-f1.png")
         guard let raw = TrackerAvatarSprites.decodeFrame(at: rawURL),
-              let outlined = TrackerAvatarLibrary.companions["paladin"]?.idleFrame(1) else {
+              let outlined = TrackerAvatarLibrary.companions["paladin"]?.last?.idleFrame(1) else {
             throw TestFailure("the paladin's company frame should decode")
         }
         try expect(raw.width == outlined.width && raw.height == outlined.height, "the outline should keep the frame's size")
@@ -3112,8 +3114,8 @@ enum LogicSelfTests {
         }
         try expect(ringed > 0, "the outline should ring the paladin's figure")
         // The effect layers stand bare: the cleric's front spark frame is the art as it is.
-        guard let effectRaw = TrackerAvatarSprites.decodeFrame(at: resources.appendingPathComponent("Familiars/cleric/company/01-idle-front-f1.png")),
-              let effect = TrackerAvatarLibrary.companions["cleric"]?.frame(.idle, .front, 1) else {
+        guard let effectRaw = TrackerAvatarSprites.decodeFrame(at: resources.appendingPathComponent("Familiars/cleric/company/1x/01-idle-front-f1.png")),
+              let effect = TrackerAvatarLibrary.companions["cleric"]?.last?.frame(.idle, .front, 1) else {
             throw TestFailure("the cleric's company effect frame should decode")
         }
         try expect(try rgbaBytes(effect) == rgbaBytes(effectRaw), "an effect layer should carry no outline")
@@ -3151,28 +3153,73 @@ enum LogicSelfTests {
         let companions = TrackerAvatarSprites.bundledCompanions()
         let designed = TrackerAvatarSprites.bundledFamiliars().filter { $0.value.animation.companyRow != nil }
         try expect(designed.count == 11, "eleven familiars should carry a company row, got \(designed.count)")
+        // The company sizes, largest first, each in its folder under `company/`.
+        let sizeFolders: [(name: String, multiplier: Double)] = [("1.5x", 1.5), ("1.25x", 1.25), ("1x", 1.0)]
         for (classID, sprites) in designed.sorted(by: { $0.key < $1.key }) {
-            guard let company = companions[classID] else {
-                throw TestFailure("\(classID) should have its company frames")
+            guard let sizes = companions[classID], sizes.count == sizeFolders.count else {
+                throw TestFailure("\(classID) should have its three company sizes")
             }
-            let scale = Double(sprites.animation.scalePercent) / 100
             let folder = resources.appendingPathComponent("Familiars/\(classID)", isDirectory: true)
             let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".png") }
             try expect(!names.isEmpty, "\(classID) should have art frames")
-            for name in names {
-                guard let full = pixelSize(of: folder.appendingPathComponent(name)),
-                      let frame = pixelSize(of: folder.appendingPathComponent("company/\(name)")) else {
-                    throw TestFailure("\(classID)'s \(name) should have a company frame")
+            for (size, expected) in zip(sizes, sizeFolders) {
+                let percent = Double(sprites.animation.scalePercent) * expected.multiplier
+                try expect(abs(Double(size.animation.scalePercent) - percent) < 0.001,
+                           "\(classID)'s \(expected.name) size should draw at \(percent)%, got \(size.animation.scalePercent)%")
+                let scale = Double(size.animation.scalePercent) / 100
+                let sizeFolder = folder.appendingPathComponent("company/\(expected.name)", isDirectory: true)
+                for name in names {
+                    guard let full = pixelSize(of: folder.appendingPathComponent(name)),
+                          let frame = pixelSize(of: sizeFolder.appendingPathComponent(name)) else {
+                        throw TestFailure("\(classID)'s \(name) should have a \(expected.name) company frame")
+                    }
+                    let width = Int((Double(full.width) * 2 * scale).rounded(.toNearestOrEven))
+                    let height = Int((Double(full.height) * 2 * scale).rounded(.toNearestOrEven))
+                    try expect(frame.width == width && frame.height == height,
+                               "\(classID)'s \(expected.name) \(name) should be \(width) x \(height) at \(scale * 100)%, got \(frame.width) x \(frame.height)")
                 }
-                let width = Int((Double(full.width) * 2 * scale).rounded(.toNearestOrEven))
-                let height = Int((Double(full.height) * 2 * scale).rounded(.toNearestOrEven))
-                try expect(frame.width == width && frame.height == height,
-                           "\(classID)'s company \(name) should be \(width) x \(height) at \(scale * 100)%, got \(frame.width) x \(frame.height)")
+                guard let footRow = size.animation.animation(for: .idle)?.footRow, let idle = size.idleFrame(1) else {
+                    throw TestFailure("\(classID)'s \(expected.name) company frames should carry an idle pose and its first frame")
+                }
+                try expect(footRow >= 0 && footRow < idle.height,
+                           "\(classID)'s \(expected.name) company feet row should stay on its canvas, got \(footRow) of \(idle.height)")
             }
-            guard let footRow = company.animation.animation(for: .idle)?.footRow, let idle = company.idleFrame(1) else {
-                throw TestFailure("\(classID)'s company frames should carry an idle pose and its first frame")
+        }
+    }
+
+    /// A company draws at the largest of a class's sizes whose full row holds every worker. For every class, one worker, the 1.5x full row, one
+    /// more, the 1.25x full row plus one and the 1x full row plus one draw at the size `TrackerCompanyLayout.sizeIndex` names, with the "+n"
+    /// marker counting what the 1x row can't hold.
+    @MainActor
+    private static func testTheCompanySizeFollowsTheCount() throws {
+        final class Clock {
+            var now: TimeInterval = 0
+        }
+        for sessionClass in SessionClass.allCases {
+            let classID = sessionClass.rawValue
+            let sizes = TrackerAvatarLibrary.companions[classID] ?? []
+            let rows = sizes.compactMap { $0.animation.companyRow }
+            guard rows.count == 3 else {
+                throw TestFailure("the \(classID) should have three company sizes with rows, got \(rows.count)")
             }
-            try expect(footRow >= 0 && footRow < idle.height, "\(classID)'s company feet row should stay on its canvas, got \(footRow) of \(idle.height)")
+            let counts = [1, rows[0].capacity, rows[0].capacity + 1, rows[1].capacity + 1, rows[2].capacity + 1]
+            for count in counts {
+                let clock = Clock()
+                let stage = TrackerCompanyStage(clock: { clock.now })
+                let master = try testRow(["id": "qm-m", "title": classID, "session_type": "master", "class": classID])
+                let workers = try (0..<count).map { index in
+                    try testRow(["id": "qm-w\(index)", "title": "Worker \(index)", "session_type": "worker", "parent_id": "qm-m", "class": classID])
+                }
+                stage.observe(sessions: [master] + workers, attachedID: "qm-m")
+                guard let index = TrackerCompanyLayout.sizeIndex(count: count, rows: rows) else {
+                    throw TestFailure("the \(classID) should name a company size")
+                }
+                let drawn = stage.companions.map { $0.sprites.animation.scalePercent }
+                try expect(!drawn.isEmpty && drawn.allSatisfy { $0 == sizes[index].animation.scalePercent },
+                           "the \(classID)'s \(count) workers should draw at \(sizes[index].animation.scalePercent)%, got \(drawn)")
+                try expect(stage.overflow == max(0, count - rows[index].capacity),
+                           "the \(classID)'s \(count) workers should count \(max(0, count - rows[index].capacity)) in the marker, got \(stage.overflow)")
+            }
         }
     }
 

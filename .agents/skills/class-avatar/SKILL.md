@@ -8,7 +8,7 @@ description: For working on the Questmaster codebase itself (not for users of th
 The attached master's class stands as an animated sprite just above the session banner at the bottom of the tracker. An attached
 worker shows its master's class's familiar in the same slot: the same director and timings, its own poses, and no cues. An attached
 master also shows its live workers' familiars, small, in one row centred on the master (the newest worker right-most): the master's company, laid out by `TrackerCompanyLayout` (Core)
-and drawn by `TrackerCompanySlot` (App). Core decides
+and drawn by `TrackerCompanySlot` (App). The company draws at the largest of each familiar's three sizes (1.5x, 1.25x, 1x) whose full row holds every worker. Core decides
 what it does (`TrackerAvatarDirector`, `TrackerAvatarPose`, `TrackerAvatarAnimation`, `TrackerAvatarCatalog`, all pure and tested); the App
 target draws it (`TrackerAvatar*`). Each class's art is one folder of PNGs plus its `animation.json` in `Resources/Sprites/<class>/`, and each
 familiar's in `Resources/Familiars/<class>/`; both are made by a sprite pipeline outside this repo, and the palettes are documented in
