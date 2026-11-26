@@ -26,8 +26,6 @@ enum RenderPreview {
         render(newSessionView(.agentsDisabled), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-agents-disabled.png")
         render(newSessionView(.agentAvailabilityFailed), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-agents-failed.png")
         render(newSessionView(.filled), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")
-        render(newSessionView(.openCode), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-opencode.png")
-        render(newSessionView(.openCodeResting), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-opencode-resting.png")
         render(newSessionView(.tabsFocused), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-tabs-focused.png")
         render(newSessionView(.modelSelect), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-model-select.png")
         render(newSessionView(.noEffort), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-no-effort.png")
@@ -1723,7 +1721,7 @@ enum RenderPreview {
         default:
             sessions = [session("a", role: "master", snippet: snippet)]
             let twoGroups = [("codex", "working"), ("codex", "working"), ("claude", "idle"), ("claude", "idle")]
-            let sixGroups = twoGroups + [("codex", "idle"), ("codex", "idle"), ("claude", "working"), ("pi", "blocked"), ("pi", "blocked"), ("opencode", "idle"), ("claude", "needs-input"), ("codex", "error")]
+            let sixGroups = twoGroups + [("codex", "idle"), ("codex", "idle"), ("claude", "working"), ("pi", "blocked"), ("pi", "blocked"), ("claude", "idle"), ("claude", "needs-input"), ("codex", "error")]
             // The master SVG's own row: seven codex circles and "+2".
             let designRow = Array(repeating: ("codex", "idle"), count: 9)
             let pills = role.hasPrefix("overflow") ? (isDesign ? designRow : sixGroups) : twoGroups
@@ -2492,7 +2490,7 @@ enum RenderPreview {
         ] + (0..<3).map { session("m3-w\($0)", "dotfiles", role: "worker", sessionClass: "rogue", agent: $0 == 1 ? "claude" : "codex", parent: "m3", state: "working") }
         let questmaster = [
             session("m4", "questmaster", sessionClass: "druid", agent: "pi", state: "working"),
-            session("m5", "questmaster", sessionClass: "barbarian", agent: "opencode"),
+            session("m5", "questmaster", sessionClass: "barbarian", agent: "pi"),
             session("m6", "questmaster", sessionClass: "wizard", agent: "codex", state: "blocked"),
             session("m7", "questmaster", sessionClass: "bard", agent: "claude"),
             session("m8", "questmaster", sessionClass: "", agent: "codex"),
@@ -2692,7 +2690,7 @@ enum RenderPreview {
             title: "Check renderer error behavior",
             repoName: "Questmaster",
             displayColor: "yellow",
-            agent: "opencode",
+            agent: "codex",
             role: "worker",
             state: "stopped",
             lifecycle: "stopped",
@@ -2727,9 +2725,8 @@ enum RenderPreview {
             displayColor: "magenta",
             agent: "claude",
             role: "master",
-            state: "blocked",
-            snippet: "Adapter crashed while parsing",
-            lastKind: "session.error"
+            state: "error",
+            snippet: "Adapter crashed while parsing"
         )
         let repos = [
             TrackerRepo(id: "dotfiles", name: "Dotfiles", color: "lime", sessions: [root1, root3]),
@@ -3000,7 +2997,7 @@ enum RenderPreview {
     }
 
     /// The New Session form in one of the design's states (new-session-init.svg, new-session.svg), or
-    /// with OpenCode selected, or on a model that reports no effort levels.
+    /// on a model that reports no effort levels.
     enum NewSessionPreview {
         case initial
         case agentsLoading
@@ -3010,10 +3007,8 @@ enum RenderPreview {
         case filled
         /// The model field focused in SELECT: no list, e cycles the effort.
         case modelSelect
-        /// Claude selected with the tab row focused, and OpenCode selected at rest and focused.
+        /// The agent tab row focused.
         case tabsFocused
-        case openCodeResting
-        case openCode
         case noEffort
         /// The title focused, the class on Random (the default) or chosen (cleric: six ⌃e from Random).
         case classRandom
@@ -3057,21 +3052,6 @@ enum RenderPreview {
             model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
             model.setEffortOptions(levels, defaultLevel: "medium")
             model.focusedField = .agent
-        case .openCodeResting:
-            model.path = "/Users/aleksi.tuominen/Code/questmaster"
-            model.focusedField = .agent
-            model.cycleSelection(1)
-            model.cycleSelection(1)
-            model.setModelOptions([SessionModelOption(id: "openai/gpt-6-sol", label: "openai/gpt-6-sol")], defaultModel: "openai/gpt-6-sol")
-            model.setEffortOptions(["low", "medium", "high"], defaultLevel: "high")
-            model.focusedField = .prompt
-        case .openCode:
-            model.path = "/Users/aleksi.tuominen/Code/questmaster"
-            model.focusedField = .agent
-            model.cycleSelection(1)
-            model.cycleSelection(1)
-            model.setModelOptions([SessionModelOption(id: "openai/gpt-6-sol", label: "openai/gpt-6-sol")], defaultModel: "openai/gpt-6-sol")
-            model.setEffortOptions(["low", "medium", "high"], defaultLevel: "high")
         case .noEffort:
             model.path = "/Users/aleksi.tuominen/Code/questmaster"
             model.focusedField = .agent
@@ -3859,7 +3839,6 @@ private final class SettingsPreviewMutationClient: ServeMutationSending {
                 "worker": AgentAvailability.RoleDefault(model: "claude-haiku-5.5", reasoningEffort: "high"),
             ],
             "codex": ["master": AgentAvailability.RoleDefault(model: "gpt-6-sol", reasoningEffort: "high")],
-            "opencode": ["master": AgentAvailability.RoleDefault(model: "example-standard", reasoningEffort: "medium")],
             "pi": ["master": AgentAvailability.RoleDefault(model: "local-model", reasoningEffort: "high")],
         ]
         configuration = AgentAvailability(agents: RoleDefaultsSettingsModel.defaultAgents.map { agent in

@@ -106,7 +106,7 @@ Register: moderately old-fashioned, with a cultivated wit and a cool, conversati
 		"ranger":      "Sardonic",
 	}
 
-	voiceClasses := VoiceClasses()
+	voiceClasses := classVoiceClasses()
 	if len(voiceClasses) != len(state.SessionClasses()) {
 		t.Fatalf("voice class count = %d, supported class count = %d; every session class needs a voice mapping", len(voiceClasses), len(state.SessionClasses()))
 	}
@@ -151,7 +151,7 @@ func TestSystemPromptForRoleClassVoice(t *testing.T) {
 	t.Parallel()
 
 	const master, worker = "master prompt", "worker prompt"
-	for _, class := range VoiceClasses() {
+	for _, class := range classVoiceClasses() {
 		t.Run(class, func(t *testing.T) {
 			t.Parallel()
 			if got, want := systemPromptForRole(RoleMaster, class, master, worker, ""), master+"\n\n"+ClassVoice(class); got != want {
@@ -161,7 +161,7 @@ func TestSystemPromptForRoleClassVoice(t *testing.T) {
 	}
 	t.Run("worker ignores class", func(t *testing.T) {
 		t.Parallel()
-		for _, class := range VoiceClasses() {
+		for _, class := range classVoiceClasses() {
 			if got, want := systemPromptForRole(RoleWorker, class, master, worker, "worker brief"), worker+"\n\nworker brief"; got != want {
 				t.Fatalf("worker systemPromptForRole(%q) = %q, want %q", class, got, want)
 			}
@@ -185,11 +185,6 @@ func TestSessionPromptsUseSendForMessaging(t *testing.T) {
 	if !strings.Contains(workerPrompt, `questmaster send master "<result>"`) ||
 		!strings.Contains(workerPrompt, `"delivery" set to "accepted" or "submitted"`) {
 		t.Fatal("worker prompt must use send master for reports")
-	}
-	for name, prompt := range map[string]string{"master": masterPrompt, "worker": workerPrompt} {
-		if !strings.Contains(prompt, "OpenCode message targets must be idle or done") {
-			t.Fatalf("%s prompt omits the OpenCode send constraint", name)
-		}
 	}
 }
 
@@ -280,4 +275,17 @@ func TestSessionPromptsDescribeQuestCommands(t *testing.T) {
 			}
 		})
 	}
+}
+
+// classVoiceClasses lists the classes that have a voice mapping, in file order.
+func classVoiceClasses() []string {
+	entries, _ := classVoiceFS.ReadDir("prompts/class_voice")
+	classes := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		classes = append(classes, strings.TrimSuffix(entry.Name(), ".md"))
+	}
+	return classes
 }

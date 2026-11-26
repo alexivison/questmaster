@@ -15,8 +15,6 @@ import (
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
-const openCodeConfigDirEnv = "OPENCODE_CONFIG_DIR"
-
 // launchConfig captures the resolved parameters for launching a session.
 // Both Start and Continue build this from their respective inputs, then
 // delegate to launchSession for the shared setup sequence.
@@ -48,12 +46,6 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	if err := tmux.ValidateNamedLabel(lc.serverLabel); err != nil {
 		return err
 	}
-	openCodeConfigDir := s.openCodeConfigDir(lc.agents)
-	if openCodeConfigDir != "" {
-		if err := hooks.NewOpenCodeInstaller(openCodeConfigDir).Install(); err != nil {
-			return fmt.Errorf("install OpenCode config: %w", err)
-		}
-	}
 	if err := s.installPiExtension(lc.agents); err != nil {
 		return err
 	}
@@ -79,11 +71,6 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	}
 	if lc.agentPath != "" {
 		if err := s.Client.SetEnvironment(ctx, lc.sessionID, "PATH", lc.agentPath); err != nil {
-			return err
-		}
-	}
-	if openCodeConfigDir != "" {
-		if err := s.Client.SetEnvironment(ctx, lc.sessionID, openCodeConfigDirEnv, openCodeConfigDir); err != nil {
 			return err
 		}
 	}
@@ -157,15 +144,6 @@ func (s *Service) syncLaunchedPaneTitle(ctx context.Context, sessionID, pane str
 		return fmt.Errorf("sync launched pane title: %w", err)
 	}
 	return nil
-}
-
-func (s *Service) openCodeConfigDir(agents map[agent.Role]agent.Agent) string {
-	for _, provider := range agents {
-		if provider.Name() == "opencode" {
-			return state.OpenCodeConfigDir(s.Store.Root())
-		}
-	}
-	return ""
 }
 
 // installPiExtension writes the Questmaster-owned Pi extension when a Pi agent

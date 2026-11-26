@@ -43,7 +43,6 @@ enum AppPalette {
     static let workerRole = NSColor(hex: 0xbc8cff)
     static let claude = NSColor(hex: 0xcc785c)
     static let codex = NSColor(hex: 0x1a73e8)
-    static let opencode = NSColor(hex: 0x22c55e)
     static let pi = NSColor(hex: 0xa371f7)
     static let trackerWorking = accent
     static let trackerBlocked = NSColor(hex: 0xe5534b)
@@ -78,7 +77,7 @@ enum AppPalette {
     static let textMeta = StateColor.textMeta.color
     /// "Send forth" is gold; "Abandon" is an angular red from deep to bright.
     static let questLogButtonGold = NSColor(hex: 0xa27c2f)
-    /// The pill tabs' Codex and OpenCode marks (Claude's and Pi's keep their own colours).
+    /// The Codex mark's tint in pill tabs.
     static let agentMarkTint = NSColor(hex: 0xb8b8b8)
     /// Settings (settings-models.svg) descriptions; its section titles and labels are `text`. The compact picker is a field.
     static let settingsDescription = NSColor(hex: 0x69737c)
@@ -119,8 +118,6 @@ enum AppPalette {
             return claude
         case .codex:
             return codex
-        case .opencode:
-            return opencode
         case .pi:
             return pi
         case .shell:

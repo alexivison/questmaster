@@ -36,9 +36,6 @@ public enum TrackerStatusClassifier {
         if isActiveShell {
             return TrackerStatusClassification(kind: .idle, label: "active")
         }
-        if isErrorKind(lastKind) {
-            return TrackerStatusClassification(kind: .error, label: "error")
-        }
         if isNeedsInputState(rawState) || isNeedsInputKind(lastKind) {
             return TrackerStatusClassification(kind: .needsInput, label: "needs input")
         }
@@ -71,11 +68,7 @@ public enum TrackerStatusClassifier {
     }
 
     private static func isNeedsInputKind(_ kind: String) -> Bool {
-        ["waiting_for_user", "permission_prompt", "approval_prompt", "ask_user_question", "permission.asked"].contains(kind)
-    }
-
-    private static func isErrorKind(_ kind: String) -> Bool {
-        ["session.error"].contains(kind)
+        ["waiting_for_user", "permission_prompt", "approval_prompt", "ask_user_question"].contains(kind)
     }
 }
 

@@ -21,8 +21,8 @@ import (
 func TestAgentQuery_DefaultConfig(t *testing.T) {
 	cwd := t.TempDir()
 
-	if got := runAgentQuery(t, cwd, "agent", "query", "names"); got != "claude\ncodex\nopencode\npi\n" {
-		t.Fatalf("names = %q, want %q", got, "claude\ncodex\nopencode\npi\n")
+	if got := runAgentQuery(t, cwd, "agent", "query", "names"); got != "claude\ncodex\npi\n" {
+		t.Fatalf("names = %q, want %q", got, "claude\ncodex\npi\n")
 	}
 }
 
@@ -44,7 +44,7 @@ func TestAgentQuery_NamesIgnoreRepoRoot(t *testing.T) {
 	}()
 
 	t.Setenv("PARTY_REPO_ROOT", repoRoot)
-	if got := runAgentQuery(t, otherDir, "agent", "query", "names"); got != "claude\ncodex\nopencode\npi\n" {
+	if got := runAgentQuery(t, otherDir, "agent", "query", "names"); got != "claude\ncodex\npi\n" {
 		t.Fatalf("names used PARTY_REPO_ROOT unexpectedly: got %q", got)
 	}
 }
@@ -101,8 +101,8 @@ func TestAgentQueryNamesReflectAvailability(t *testing.T) {
 		t.Fatalf("disable codex: %v", err)
 	}
 	got := runCmd(t, store, &mockRunner{fn: func(context.Context, ...string) (string, error) { return "", nil }}, "agent", "query", "names")
-	if got != "claude\nopencode\npi\n" {
-		t.Fatalf("enabled names = %q, want claude/opencode/pi", got)
+	if got != "claude\npi\n" {
+		t.Fatalf("enabled names = %q, want claude/pi", got)
 	}
 }
 

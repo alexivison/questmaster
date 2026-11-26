@@ -22,20 +22,3 @@ func TestManifestToSessionRowKeepsRawAgentName(t *testing.T) {
 		t.Fatalf("Agent = %q, want raw manifest agent", row.Agent)
 	}
 }
-
-func TestManifestToSessionRowKeepsOpenCodeAgentName(t *testing.T) {
-	t.Parallel()
-
-	row := ManifestToSessionRow("qm-opencode-agent", state.Manifest{
-		SessionID: "qm-opencode-agent",
-		Title:     "OpenCode",
-		Agents: []state.AgentManifest{{
-			Name: "opencode",
-			Role: "agent",
-		}},
-	}, true)
-
-	if row.Agent != "opencode" {
-		t.Fatalf("Agent = %q, want opencode", row.Agent)
-	}
-}

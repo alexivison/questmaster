@@ -1855,12 +1855,12 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 		t.Fatalf("reasoning_efforts efforts = %v, want the reported gpt-6-luna levels", efforts)
 	}
 
-	// An unrecognized OpenCode model has no reported levels and no forced
+	// An unrecognized Codex model has no reported levels and no forced
 	// default either.
 	writeRequest(t, enc, map[string]any{
-		"id":     "reasoning-efforts-opencode-unknown",
+		"id":     "reasoning-efforts-model-unknown",
 		"method": "reasoning_efforts",
-		"data":   map[string]any{"agent": "opencode", "role": "worker", "model": "ollama/local-llm-9"},
+		"data":   map[string]any{"agent": "codex", "role": "worker", "model": "example-model"},
 	})
 	unknownResp := assertResponseTopic(t, dec, "reasoning_efforts")
 	unknownData, ok := unknownResp.Data.(map[string]any)
@@ -1871,7 +1871,7 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 		t.Fatalf("reasoning_efforts default = %#v, want no configured default", unknownData["default"])
 	}
 	if len(stringList(unknownData["efforts"])) != 0 {
-		t.Fatalf("reasoning_efforts efforts = %#v, want none for an unrecognized OpenCode provider", unknownData["efforts"])
+		t.Fatalf("reasoning_efforts efforts = %#v, want none for an unrecognized Codex model", unknownData["efforts"])
 	}
 
 	// A request without an agent is a client error, not an empty list.

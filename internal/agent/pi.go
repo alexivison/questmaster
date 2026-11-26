@@ -16,7 +16,7 @@ var piSpec = Spec{
 	EnvVar:         "PI_SESSION_ID",
 	BinaryEnvVar:   "PI_BIN",
 	FallbackPath:   "/opt/homebrew/bin/pi",
-	State:          StateSidecar,
+	SidecarState:   true,
 	Efforts:        EffortSourcePiHelp,
 	Models: ModelPolicy{
 		// Pi owns provider authorization and its model inventory.

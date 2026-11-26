@@ -24,11 +24,11 @@ func TestNotifyHoldsUnsafeSessionsAndRecentTyping(t *testing.T) {
 		want              Delivery
 	}{
 		{"codex idle", "codex", "idle", true, false, DeliverySubmitted},
-		{"opencode done", "opencode", "done", true, false, DeliverySubmitted},
+		{"codex done", "codex", "done", true, false, DeliverySubmitted},
 		{"working", "codex", "working", true, false, ""},
 		{"starting", "codex", "starting", true, false, ""},
 		{"stopped", "codex", "idle", false, false, ""},
-		{"typing", "opencode", "idle", true, true, ""},
+		{"typing", "codex", "idle", true, true, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

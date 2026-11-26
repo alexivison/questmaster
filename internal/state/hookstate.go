@@ -114,19 +114,10 @@ type PaneState struct {
 	ActiveSubagents         map[string]string    `json:"active_subagents,omitempty"`
 	ActiveSubagentStartedAt map[string]time.Time `json:"active_subagent_started_at,omitempty"`
 
-	Recent            []string `json:"recent,omitempty"`
-	SessionFile       string   `json:"session_file,omitempty"`
-	PiSessionID       string   `json:"pi_session_id,omitempty"`
-	OpenCodeSessionID string   `json:"opencode_session_id,omitempty"`
-
-	// PendingPartMsgID/PendingPartText buffer an opencode message part whose
-	// author role is not yet known. The text is promoted to Activity/Recent only
-	// once the matching assistant message.updated arrives, so a user's prompt is
-	// never surfaced as the worker's activity.
-	PendingPartMsgID    string `json:"pending_part_msg_id,omitempty"`
-	PendingPartText     string `json:"pending_part_text,omitempty"`
-	PendingFinalMessage string `json:"pending_final_message,omitempty"`
-	LastChatStatus      string `json:"last_chat_status,omitempty"`
+	Recent         []string `json:"recent,omitempty"`
+	SessionFile    string   `json:"session_file,omitempty"`
+	PiSessionID    string   `json:"pi_session_id,omitempty"`
+	LastChatStatus string   `json:"last_chat_status,omitempty"`
 
 	ClaudePromptID               string                 `json:"claude_prompt_id,omitempty"`
 	ClaudeDisplayMessageID       string                 `json:"claude_display_message_id,omitempty"`
@@ -184,14 +175,6 @@ func defaultStateRoot(home string) string {
 		return filepath.Join(home, ".questmaster-state")
 	}
 	return ""
-}
-
-// OpenCodeConfigDir returns Questmaster's private OpenCode config dir under root.
-func OpenCodeConfigDir(root string) string {
-	if root == "" {
-		return ""
-	}
-	return filepath.Join(root, "opencode")
 }
 
 // PiExtensionFileName is the Questmaster-owned Pi extension file in PiExtensionDir.

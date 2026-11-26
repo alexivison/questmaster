@@ -15,7 +15,6 @@ struct DisplayClassificationTests {
     private static func agentKindParsesKnownNamesAndFallsBack() {
         expect(AgentKind(name: "claude") == .claude, "claude mismatch")
         expect(AgentKind(name: "codex") == .codex, "codex mismatch")
-        expect(AgentKind(name: "opencode") == .opencode, "opencode mismatch")
         expect(AgentKind(name: "pi") == .pi, "pi mismatch")
         expect(AgentKind(name: "gemini") == .unknown, "unknown agent should fall back")
     }
@@ -23,7 +22,6 @@ struct DisplayClassificationTests {
     private static func agentDisplayNameCapitalizesKnownAndUnknown() {
         expect(AgentKind.displayName(for: "claude") == "Claude", "claude display mismatch")
         expect(AgentKind.displayName(for: "codex") == "Codex", "codex display mismatch")
-        expect(AgentKind.displayName(for: "opencode") == "OpenCode", "opencode display mismatch")
         expect(AgentKind.displayName(for: "pi") == "Pi", "pi display mismatch")
         expect(AgentKind.displayName(for: "  Claude ") == "Claude", "display should trim/normalize")
         expect(AgentKind.displayName(for: "gemini") == "Gemini", "unknown agent should capitalize first letter")

@@ -114,7 +114,7 @@ it is a master session. A worker title is required and may contain at most
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().StringVar(&opts.model, "model", "", "override the worker model")
-	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override worker reasoning effort (valid levels depend on the agent harness; OpenCode requires 1.17.15+)")
+	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override worker reasoning effort (valid levels depend on the agent harness)")
 	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
 
 	return cmd

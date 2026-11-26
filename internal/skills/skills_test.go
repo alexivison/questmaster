@@ -284,7 +284,7 @@ func TestUninstallPreservesUserAddedFiles(t *testing.T) {
 	}
 	assertFile(t, userPath, "keep me\n")
 	for _, report := range mustStatus(t, installer) {
-		if report.Skill == "questmaster-watch-pr" && report.Destination == "Codex/Pi/OpenCode" {
+		if report.Skill == "questmaster-watch-pr" && report.Destination == "Codex/Pi" {
 			if report.Status != Collision {
 				t.Errorf("user-owned remaining directory status = %s, want Collision", report.Status)
 			}

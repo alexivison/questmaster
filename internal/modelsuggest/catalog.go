@@ -19,8 +19,8 @@ import (
 
 const (
 	// CatalogURL is the models.dev index: one JSON document describing every
-	// known provider and its models. It is the same catalog OpenCode reads,
-	// and it is the reason a newly released model needs no Questmaster change.
+	// known provider and its models. It supplies current model choices for
+	// harnesses that declare catalog sources.
 	CatalogURL = "https://models.dev/api.json"
 
 	// CatalogURLEnv overrides CatalogURL. Set it to "off" (or an empty value)

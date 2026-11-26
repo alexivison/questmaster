@@ -60,7 +60,7 @@ public struct TrackerCast: Decodable, Equatable {
     }
 }
 
-/// What a tool does, by the names Claude, Codex, OpenCode and Pi give their tools. The cast's symbol and the class
+/// What a tool does, by the names Claude, Codex and Pi give their tools. The cast's symbol and the class
 /// avatar's pose both read it, so every agent's tools map the same way.
 public enum TrackerToolKind: Equatable {
     case shell
@@ -79,7 +79,7 @@ public enum TrackerToolKind: Equatable {
         case "read", "grep", "glob", "ls", "list", "find": self = .search
         case "webfetch", "websearch", "web_search": self = .web
         case "task", "agent": self = .agent
-        case "todowrite", "todoread", "update_plan": self = .plan
+        case "todowrite", "update_plan": self = .plan
         default: self = .other
         }
     }

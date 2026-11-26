@@ -46,7 +46,7 @@ public struct SessionModelOption: Equatable {
 ///
 /// Levels come from the serve `reasoning_efforts` topic rather than being
 /// declared here, same as `SessionModelOption` — the valid set differs per
-/// harness and, for Codex/OpenCode, per model.
+/// harness and, for Codex, per model.
 public struct SessionReasoningEffortOption: Equatable {
     public let id: String
     public let label: String
@@ -93,7 +93,7 @@ public struct NewSessionSubmitPayload: Equatable {
 }
 
 public struct NewSessionFormModel: Equatable {
-    public static let defaultAgents = ["claude", "codex", "opencode", "pi"]
+    public static let defaultAgents = ["claude", "codex", "pi"]
     public static let noColor = ""
     public static let noColorLabel = "none"
     public static let defaultColors = [

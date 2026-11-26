@@ -104,7 +104,7 @@ func New(home, claudeConfigDir string) (*Installer, error) {
 	return &Installer{
 		home: home,
 		destinations: []destination{
-			{name: "Codex/Pi/OpenCode", root: filepath.Join(home, ".agents", "skills")},
+			{name: "Codex/Pi", root: filepath.Join(home, ".agents", "skills")},
 			{name: "Claude", root: filepath.Join(claudeConfigDir, "skills")},
 		},
 		assets: Bundled(),

@@ -543,7 +543,7 @@ final class NewSessionSheetModel: ObservableObject {
 
     /// Cycles the focused select, re-resolving models and reasoning efforts
     /// when the change moved them: model ids are per harness, effort levels
-    /// are per harness and (for Codex/OpenCode) per model.
+    /// are per harness and (for Codex) per model.
     private func cycleSelection(_ delta: Int) {
         let before = state.model.selectedAgent
         state.model.cycleSelection(delta)

@@ -96,19 +96,6 @@ const upstreamFixture = `{
         "modalities": {"output": ["image"]}
       }
     }
-  },
-  "opencode": {
-    "id": "opencode",
-    "models": {
-      "big-pickle": {
-        "id": "big-pickle",
-        "name": "Big Pickle",
-        "family": "big-pickle",
-        "release_date": "2025-10-17",
-        "tool_call": true,
-        "modalities": {"output": ["text"]}
-      }
-    }
   }
 }`
 
@@ -688,31 +675,4 @@ func TestResolveBackgroundServesStaleCatalogAtOnce(t *testing.T) {
 	fetch.awaitStarted(t)
 	fetch.release()
 	awaitCachedAt(t, root, now)
-}
-
-func TestProbeModelIDKeepsQualifiedIDsOnly(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		line string
-		want string
-	}{
-		{name: "qualified", line: "anthropic/claude-opus-5", want: "anthropic/claude-opus-5"},
-		{name: "padded", line: "  opencode/big-pickle  ", want: "opencode/big-pickle"},
-		{name: "bare", line: "claude-opus-5", want: ""},
-		{name: "header", line: "Available models:", want: ""},
-		{name: "blank", line: "   ", want: ""},
-		{name: "trailing slash", line: "anthropic/", want: ""},
-		{name: "annotated current", line: "anthropic/claude-opus-5  (current)", want: "anthropic/claude-opus-5"},
-		{name: "annotated tab-separated", line: "opencode/big-pickle\tReasoning model", want: "opencode/big-pickle"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := probeModelID(tc.line); got != tc.want {
-				t.Errorf("probeModelID(%q) = %q, want %q", tc.line, got, tc.want)
-			}
-		})
-	}
 }

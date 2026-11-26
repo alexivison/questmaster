@@ -22,11 +22,6 @@
         "defaults": {}
       },
       {
-        "name": "opencode",
-        "enabled": true,
-        "defaults": {}
-      },
-      {
         "name": "pi",
         "enabled": true,
         "defaults": {}

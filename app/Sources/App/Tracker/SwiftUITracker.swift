@@ -1673,22 +1673,6 @@ struct TrackerAgentMark: View {
                 canvasSize: canvasSize,
                 tintColor: tint
             )
-        case .opencode:
-            if let image = AppSymbolStyle.resourceImage(
-                name: "opencode",
-                fileExtension: "svg",
-                subdirectory: "AgentLogos",
-                canvasSize: canvasSize,
-                tintColor: tint
-            ) {
-                return image
-            }
-            return AppSymbolStyle.glyphImage(
-                "□",
-                font: AppFonts.monospaced(size: side * 0.58, weight: .semibold),
-                color: tint,
-                canvasSize: canvasSize
-            )
         case .pi:
             if let image = AppSymbolStyle.resourceImage(
                 name: "pi",

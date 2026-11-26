@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -183,36 +182,12 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 				runHookWithStdin(r, "pi", "turn_end", "qm-cast-pi", nil)
 			},
 		},
-		{
-			name:       "opencode",
-			tool:       "bash",
-			callID:     "oc-call",
-			command:    "timeout 12 sleep 6",
-			commandKey: "sleep",
-			start: func(t *testing.T, r *HookRunner, now time.Time) {
-				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.before", map[string]interface{}{
-					"sessionID": "ses_cast", "tool": "bash", "callID": "oc-call", "args": map[string]interface{}{"command": "timeout 12 sleep 6"},
-				}))
-			},
-			end: func(t *testing.T, r *HookRunner, now time.Time) {
-				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.after", map[string]interface{}{"sessionID": "ses_cast", "tool": "bash", "callID": "oc-call"}))
-			},
-			clear: func(t *testing.T, r *HookRunner, now time.Time) {
-				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "session.status", map[string]interface{}{"sessionID": "ses_cast", "status": map[string]interface{}{"type": "idle"}}))
-			},
-		},
 	}
 
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
-			if tc.name == "opencode" {
-				openCodeHookEvent(t, r, "qm-cast-opencode", "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_cast"}})
-			}
 			var durations []toolDurationCall
 			r.RecordToolDuration = func(_ context.Context, agent, tool, command string, duration time.Duration) error {
 				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
@@ -362,33 +337,11 @@ func TestHookCastSkipsDurationAfterSessionWaitsForInput(t *testing.T) {
 				})
 			},
 		},
-		{
-			name: "opencode",
-			start: func(t *testing.T, r *HookRunner, now time.Time) {
-				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "tool.execute.before", map[string]interface{}{
-					"sessionID": "ses_wait", "tool": "bash", "callID": "call-1",
-				}))
-			},
-			wait: func(t *testing.T, r *HookRunner, now time.Time) {
-				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "permission.asked", map[string]interface{}{"sessionID": "ses_wait"}))
-			},
-			end: func(t *testing.T, r *HookRunner, now time.Time) {
-				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "tool.execute.after", map[string]interface{}{
-					"sessionID": "ses_wait", "tool": "bash", "callID": "call-1",
-				}))
-			},
-		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
-			if tc.name == "opencode" {
-				openCodeHookEvent(t, r, "qm-cast-wait-opencode", "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_wait"}})
-			}
 			var durations []toolDurationCall
 			r.RecordToolDuration = func(_ context.Context, agent, tool, command string, duration time.Duration) error {
 				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
@@ -512,7 +465,6 @@ func TestToolCommandKeyExtractionByHarness(t *testing.T) {
 		{name: "codex exec_command", agent: "codex", tool: "exec_command", input: map[string]interface{}{"command": "go test ./..."}, want: "go test"},
 		{name: "codex shell", agent: "codex", tool: "shell", input: map[string]interface{}{"command": "sleep 6"}, want: "sleep"},
 		{name: "pi bash", agent: "pi", tool: "bash", input: map[string]interface{}{"command": "npm run build"}, want: "npm run"},
-		{name: "opencode bash", agent: "opencode", tool: "bash", input: map[string]interface{}{"command": "sleep 6"}, want: "sleep"},
 		{name: "non-shell Claude tool", agent: "claude", tool: "Read", input: map[string]interface{}{"command": "go test ./..."}, want: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -522,35 +474,4 @@ func TestToolCommandKeyExtractionByHarness(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestOpenCodeToolCallIDUsesPluginShape(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name       string
-		properties map[string]interface{}
-		want       string
-	}{
-		{name: "direct", properties: map[string]interface{}{"callID": "call-1"}, want: "call-1"},
-		{name: "wrong casing", properties: map[string]interface{}{"callId": "call-2"}, want: ""},
-		{name: "nested legacy shape", properties: map[string]interface{}{"call": map[string]interface{}{"id": "call-3"}}, want: ""},
-		{name: "missing", properties: map[string]interface{}{}, want: ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := openCodeToolCallID(openCodeEvent{Properties: tc.properties})
-			if got != tc.want {
-				t.Fatalf("call ID = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func openCodeJSON(t *testing.T, eventType string, properties map[string]interface{}) []byte {
-	t.Helper()
-	data, err := json.Marshal(openCodeHookPayload{Event: openCodeEvent{Type: eventType, Properties: properties}})
-	if err != nil {
-		t.Fatalf("marshal OpenCode event: %v", err)
-	}
-	return data
 }

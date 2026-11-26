@@ -9,7 +9,6 @@ import Foundation
 public enum AgentKind: String, Equatable, CaseIterable {
     case claude
     case codex
-    case opencode
     case pi
     case shell
     case unknown
@@ -22,8 +21,6 @@ public enum AgentKind: String, Equatable, CaseIterable {
             self = .claude
         case "codex":
             self = .codex
-        case "opencode":
-            self = .opencode
         case "pi":
             self = .pi
         default:
@@ -39,8 +36,6 @@ public enum AgentKind: String, Equatable, CaseIterable {
             return "Claude"
         case .codex:
             return "Codex"
-        case .opencode:
-            return "OpenCode"
         case .pi:
             return "Pi"
         case .shell:

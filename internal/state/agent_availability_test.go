@@ -47,9 +47,9 @@ func TestAgentAvailabilitySetReenablesAndPreservesOtherAgents(t *testing.T) {
 	if err != nil || codex {
 		t.Fatalf("codex enabled = %v, %v; want false", codex, err)
 	}
-	opencode, err := store.Enabled("opencode")
-	if err != nil || !opencode {
-		t.Fatalf("opencode enabled = %v, %v; want default true", opencode, err)
+	pi, err := store.Enabled("pi")
+	if err != nil || !pi {
+		t.Fatalf("pi enabled = %v, %v; want default true", pi, err)
 	}
 }
 
@@ -57,7 +57,7 @@ func TestAgentAvailabilityConcurrentUpdatesPreserveEachAgent(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	names := []string{"claude", "codex", "opencode", "pi"}
+	names := []string{"claude", "codex", "pi"}
 	var wg sync.WaitGroup
 	errs := make(chan error, len(names))
 	for _, name := range names {

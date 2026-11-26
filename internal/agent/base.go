@@ -17,24 +17,6 @@ const (
 	filterCodex
 )
 
-// StateMode describes how a harness reports activity/state to questmaster. It
-// is the single declared source for the runtime distinctions that callers
-// (e.g. internal/message) previously hardcoded as agent-name checks.
-type StateMode int
-
-const (
-	// StateNative covers harnesses whose pane is read directly and which do
-	// not drive a hook/sidecar activity stream that callers consume for
-	// structured reads or relay gating (Claude, Codex).
-	StateNative StateMode = iota
-	// StateSidecar covers Pi-style harnesses that emit the activity-sidecar
-	// event stream (Pi) and share the rich read path.
-	StateSidecar
-	// StatePlugin covers harnesses whose activity state is driven by an
-	// installed plugin event stream (OpenCode).
-	StatePlugin
-)
-
 // Spec is the static, per-agent metadata that does not vary between sessions:
 // identity, the resume/env key naming, the binary discovery hints, the
 // pane-filter choice, model policy and effort sources. It is the single place a
@@ -51,7 +33,8 @@ type Spec struct {
 	BinaryEnvVar   string
 	FallbackPath   string
 	Filter         paneFilter
-	State          StateMode
+	// SidecarState marks agents that report structured activity through a sidecar.
+	SidecarState bool
 	// Models declares the catalog sources dynamic model suggestions are drawn
 	// from. See ModelPolicy.
 	Models ModelPolicy

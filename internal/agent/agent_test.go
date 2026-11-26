@@ -171,7 +171,7 @@ func TestClassVoiceHarnessPromptRoutes(t *testing.T) {
 	for _, harness := range tests {
 		t.Run(harness.name, func(t *testing.T) {
 			t.Parallel()
-			for _, class := range VoiceClasses() {
+			for _, class := range classVoiceClasses() {
 				t.Run(class, func(t *testing.T) {
 					t.Parallel()
 					voice := ClassVoice(class)
@@ -182,7 +182,7 @@ func TestClassVoiceHarnessPromptRoutes(t *testing.T) {
 					}
 				})
 			}
-			for _, class := range VoiceClasses() {
+			for _, class := range classVoiceClasses() {
 				workerCommand := harness.build(class, RoleWorker)
 				if voice := ClassVoice(class); strings.Contains(workerCommand, voice) {
 					t.Fatalf("worker command for %s includes master class voice: %q", class, workerCommand)
@@ -273,10 +273,9 @@ func TestProviderBuildCmd_ResumeKeepsSessionModel(t *testing.T) {
 		Continuing: true,
 	}
 	for name, provider := range map[string]Agent{
-		"claude":   NewClaude(AgentConfig{}),
-		"codex":    NewCodex(AgentConfig{}),
-		"opencode": NewOpenCode(AgentConfig{}),
-		"pi":       NewPi(AgentConfig{}),
+		"claude": NewClaude(AgentConfig{}),
+		"codex":  NewCodex(AgentConfig{}),
+		"pi":     NewPi(AgentConfig{}),
 	} {
 		if got := provider.BuildCmd(opts); strings.Contains(got, "--model '") {
 			t.Fatalf("%s resume should not replace its saved model: %q", name, got)
@@ -293,10 +292,9 @@ func TestProviderBuildCmd_ContinuationWithoutResumeIDOmitsModelWhenUnset(t *test
 
 	opts := CmdOpts{Binary: "/bin/agent", AgentPath: "/p", Role: RoleMaster, Continuing: true}
 	for name, provider := range map[string]Agent{
-		"claude":   NewClaude(AgentConfig{}),
-		"codex":    NewCodex(AgentConfig{}),
-		"opencode": NewOpenCode(AgentConfig{}),
-		"pi":       NewPi(AgentConfig{}),
+		"claude": NewClaude(AgentConfig{}),
+		"codex":  NewCodex(AgentConfig{}),
+		"pi":     NewPi(AgentConfig{}),
 	} {
 		if got := provider.BuildCmd(opts); strings.Contains(got, "--model '") {
 			t.Fatalf("%s continuation without a resume ID or configured default should omit --model: %q", name, got)
@@ -332,11 +330,6 @@ func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
 			cmd:  NewPi(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/pi", AgentPath: "/p", Role: RoleWorker, ReasoningEffort: "max"}),
 			want: "--thinking 'max'",
 		},
-		{
-			name: "opencode",
-			cmd:  NewOpenCode(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleWorker, Prompt: "inspect", ReasoningEffort: "high"}),
-			want: "run --interactive --agent 'questmaster-worker' --variant 'high' 'inspect'",
-		},
 	}
 	for _, tt := range tests {
 		if !strings.Contains(tt.cmd, tt.want) {
@@ -356,7 +349,6 @@ func TestEffortSources(t *testing.T) {
 		{provider: "claude", efforts: EffortSourceClaudeHelp},
 		{provider: "codex", efforts: EffortSourceCodexCache, effortModel: EffortSourceCodexConfig},
 		{provider: "pi", efforts: EffortSourcePiHelp},
-		{provider: "opencode", efforts: EffortSourceOpenCodeModels, effortModel: EffortSourceOpenCodeConfig},
 		{provider: "unknown"},
 	} {
 		got := SpecOf(tt.provider).Efforts
@@ -383,7 +375,6 @@ func TestValidateReasoningEffort(t *testing.T) {
 		{name: "unknown model passes through", provider: "codex", effort: "future", levels: nil},
 		{name: "reported value", provider: "codex", effort: "high", levels: []string{"low", "high"}},
 		{name: "unreported value rejected", provider: "codex", effort: "minimal", levels: []string{"low", "high"}, wantErr: "supported: low, high"},
-		{name: "OpenCode off matches none", provider: "opencode", effort: "off", levels: []string{"none", "low"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -393,37 +384,6 @@ func TestValidateReasoningEffort(t *testing.T) {
 			}
 			if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
 				t.Fatalf("ValidateReasoningEffort() = %v, want error containing %q", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-// Keep serial: a parallel test fork can inherit the executable's write fd (ETXTBSY on Linux).
-func TestValidateOpenCodeReasoningVersion(t *testing.T) {
-	for _, tt := range []struct {
-		name    string
-		version string
-		wantErr string
-	}{
-		{name: "minimum", version: "1.17.15"},
-		{name: "newer", version: "1.18.0"},
-		{name: "older", version: "1.17.11", wantErr: "requires 1.17.15+"},
-		{name: "invalid", version: "not-a-version", wantErr: "could not parse"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			binary := filepath.Join(t.TempDir(), "opencode")
-			if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' '"+tt.version+"'\n"), 0o755); err != nil {
-				t.Fatalf("write OpenCode fixture: %v", err)
-			}
-			err := ValidateOpenCodeReasoningVersion(binary)
-			if tt.wantErr == "" {
-				if err != nil {
-					t.Fatalf("ValidateOpenCodeReasoningVersion(%q): %v", tt.version, err)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("ValidateOpenCodeReasoningVersion(%q) = %v, want %q", tt.version, err, tt.wantErr)
 			}
 		})
 	}
@@ -771,10 +731,9 @@ func TestPromptsOmitCompanionAndTransportTokens(t *testing.T) {
 	t.Parallel()
 
 	providers := map[string]Agent{
-		"claude":   NewClaude(AgentConfig{}),
-		"codex":    NewCodex(AgentConfig{}),
-		"opencode": NewOpenCode(AgentConfig{}),
-		"pi":       NewPi(AgentConfig{}),
+		"claude": NewClaude(AgentConfig{}),
+		"codex":  NewCodex(AgentConfig{}),
+		"pi":     NewPi(AgentConfig{}),
 	}
 	banned := []string{
 		"--companion",
@@ -801,16 +760,12 @@ func TestProviderMetadata(t *testing.T) {
 
 	claude := NewClaude(AgentConfig{})
 	codex := NewCodex(AgentConfig{})
-	opencode := NewOpenCode(AgentConfig{})
 
 	if claude.ResumeKey() != "claude_session_id" {
 		t.Fatalf("Claude ResumeKey = %q, want claude_session_id", claude.ResumeKey())
 	}
 	if codex.ResumeKey() != "codex_thread_id" {
 		t.Fatalf("Codex ResumeKey = %q, want codex_thread_id", codex.ResumeKey())
-	}
-	if opencode.ResumeKey() != "opencode_session_id" {
-		t.Fatalf("OpenCode ResumeKey = %q, want opencode_session_id", opencode.ResumeKey())
 	}
 	if claude.MasterPrompt() == "" {
 		t.Fatal("Claude MasterPrompt() is empty")

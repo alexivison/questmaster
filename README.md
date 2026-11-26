@@ -14,7 +14,7 @@ voice.
 The app currently builds from source. You need an **Apple Silicon Mac running
 macOS 14 or later**, Apple's Command Line Tools, Go 1.25.7 or newer, and tmux.
 You also need at least one supported coding agent installed and configured:
-Claude Code, Codex, OpenCode, or Pi.
+Claude Code, Codex, or Pi.
 
 1. Install Apple's Command Line Tools, if needed:
 

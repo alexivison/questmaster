@@ -158,11 +158,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 					return StartResult{}, err
 				}
 			}
-			if binding.Role == agent.RoleAgent && binding.Agent.Name() == "opencode" && opts.ReasoningEffort != "" {
-				if err := agent.ValidateOpenCodeReasoningVersion(cli); err != nil {
-					return StartResult{}, err
-				}
-			}
 			agentPath = resolvedPath
 			resolvedAgentCLIs[binding.Role] = cli
 		}
