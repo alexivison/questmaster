@@ -95,6 +95,17 @@ public enum ServeMutationRequests {
         )
     }
 
+    public static func agentAvailability() -> ServeMutationRequest {
+        ServeMutationRequest(method: "agent_availability")
+    }
+
+    public static func setAgentEnabled(agent: String, enabled: Bool) throws -> ServeMutationRequest {
+        ServeMutationRequest(method: "agent_availability.set", data: [
+            "agent": try required("agent", agent),
+            "enabled": enabled ? "true" : "false",
+        ])
+    }
+
     /// Persists a default model and/or reasoning effort for one agent+role
     /// pair. At least one of `model`/`reasoningEffort` must be non-empty —
     /// Settings is the sole source of a default, so there is no "clear the
