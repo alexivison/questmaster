@@ -118,7 +118,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
 
     /// The Worker Log's own keys, ahead of the feed's: while the filter's dropdown is open j/k and the arrows move its
     /// cursor instead of scrolling, and `[` and `]` step the worker tabs whether it is open or not. With the dropdown
-    /// closed, Return attaches the selected worker.
+    /// closed, Return attaches the only worker or the selected worker.
     private func handleWorkerLogKey(_ event: NSEvent, command: ListCommand?) -> Bool {
         guard model.currentMode == .workerChat else {
             return false

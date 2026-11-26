@@ -33,7 +33,7 @@ struct WorkerLogFilterTests {
         keysDriveTheMenu()
         tabKeysSwitchTabsWithTheMenuOpenOrClosed()
         filterKeysResolveOnlyWhatTheMenuStateAllows()
-        returnAttachesOnlyTheSelectedWorkerOutsideTheMenu()
+        returnAttachesTheOnlyOrSelectedWorkerOutsideTheMenu()
         returningToTheMasterRestoresItsWorkerTab()
         filterKeepsCastRunsFolded()
         hiddenLinesStillCountTowardsTheLineTrim()
@@ -444,7 +444,7 @@ struct WorkerLogFilterTests {
 
     // MARK: - Feed behaviour
 
-    private static func returnAttachesOnlyTheSelectedWorkerOutsideTheMenu() {
+    private static func returnAttachesTheOnlyOrSelectedWorkerOutsideTheMenu() {
         let (store, _) = openStore(entries: [])
         expect(store.workerSessionIDToAttach(for: .open) == nil, "All has no worker to attach")
         store.selectWorker("w2")
@@ -462,7 +462,13 @@ struct WorkerLogFilterTests {
         expect(store.workerSessionIDToAttach(for: .open) == nil, "an open Action dropdown keeps Return for its checkbox")
         store.closeMenu()
         _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 1), isVisible: true)
-        expect(store.workerSessionIDToAttach(for: .open) == nil, "removing the selected worker clears the attachment target")
+        expect(!store.showsTabs && store.filter.workerID == nil, "one worker clears the tab selection")
+        expect(store.workerSessionIDToAttach(for: .open) == "w1", "Return attaches the only worker without a tab")
+        store.toggleMenu()
+        expect(store.workerSessionIDToAttach(for: .open) == nil, "the Action dropdown takes Return even with one worker")
+        store.closeMenu()
+        _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 0), isVisible: true)
+        expect(store.workerSessionIDToAttach(for: .open) == nil, "a log with no workers has no attachment target")
     }
 
     private static func returningToTheMasterRestoresItsWorkerTab() {
