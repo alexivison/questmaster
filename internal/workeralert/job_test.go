@@ -28,9 +28,13 @@ type alertRunner struct {
 	err    error
 	lists  int
 	checks int
+	before func([]string)
 }
 
 func (r *alertRunner) Run(_ context.Context, args ...string) (string, error) {
+	if r.before != nil {
+		r.before(args)
+	}
 	switch args[0] {
 	case "list-sessions":
 		r.lists++
@@ -222,7 +226,7 @@ func TestInactivityAcknowledgementDoesNotSuppressNewEpisode(t *testing.T) {
 	worker := state.PaneState{State: "working", LastWorkActivity: blockedAt}
 	writePane(t, root, "qm-worker", worker)
 	sends := 0
-	j.send = func(context.Context, string, string) (message.Delivery, error) {
+	j.send = func(context.Context, string, string, func() error) (message.Delivery, error) {
 		sends++
 		if sends == 1 {
 			worker.LastWorkActivity = now
@@ -238,6 +242,40 @@ func TestInactivityAcknowledgementDoesNotSuppressNewEpisode(t *testing.T) {
 	step(t, j)
 	if sends != 2 || !loadPane(t, root, "qm-worker").InactivityAlerted {
 		t.Fatalf("expected the next inactivity episode to alert, got %d sends", sends)
+	}
+}
+
+func TestWorkerResumingDuringReadinessDiscardsAlert(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		inactivity bool
+		resumeOn   string
+	}{
+		{"inactivity during master liveness check", true, "has-session"},
+		{"blocked during master pane idle check", false, "#{pane_in_mode}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			j, runner := newAlertFixture(t)
+			now := blockedAt.Add(inactivityThreshold)
+			j.now = func() time.Time { return now }
+			root := j.store.Root()
+			if tc.inactivity {
+				writePane(t, root, "qm-worker", state.PaneState{State: "working", LastWorkActivity: blockedAt})
+			}
+			resumed := false
+			runner.before = func(args []string) {
+				if !resumed && (args[0] == tc.resumeOn || args[len(args)-1] == tc.resumeOn) {
+					writePane(t, root, "qm-worker", state.PaneState{State: "working", LastWorkActivity: now})
+					resumed = true
+				}
+			}
+			step(t, j)
+			if !resumed || len(runner.sends) != 0 {
+				t.Fatalf("worker resumed = %t, stale alerts sent = %v", resumed, runner.sends)
+			}
+		})
 	}
 }
 
@@ -353,7 +391,7 @@ func TestDeliveryFailureRetriesAndCannotAcknowledgeNewerBlock(t *testing.T) {
 			t.Parallel()
 			j, _ := newAlertFixture(t)
 			calls := 0
-			j.send = func(context.Context, string, string) (message.Delivery, error) {
+			j.send = func(context.Context, string, string, func() error) (message.Delivery, error) {
 				calls++
 				if calls == 1 {
 					return "", errors.New("temporary transport failure")
@@ -448,7 +486,7 @@ func TestSlowFailuresDoNotStarveAnotherMaster(t *testing.T) {
 	}, func() string { return "questmaster" }, nil)
 	var cancelPass context.CancelFunc
 	healthy := 0
-	j.send = func(ctx context.Context, parent, _ string) (message.Delivery, error) {
+	j.send = func(ctx context.Context, parent, _ string, _ func() error) (message.Delivery, error) {
 		if parent == other.SessionID {
 			healthy++
 			return message.DeliveryAccepted, nil
@@ -484,7 +522,7 @@ func TestContendedAcknowledgementDoesNotResendOrRetainWaiters(t *testing.T) {
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) //nolint:errcheck
 	sends := 0
-	j.send = func(context.Context, string, string) (message.Delivery, error) {
+	j.send = func(context.Context, string, string, func() error) (message.Delivery, error) {
 		sends++
 		return message.DeliverySubmitted, nil
 	}
@@ -525,7 +563,7 @@ func TestAcknowledgementSurvivesSubagentWakeDuringDelivery(t *testing.T) {
 	t.Parallel()
 	j, _ := newAlertFixture(t)
 	sends := 0
-	j.send = func(context.Context, string, string) (message.Delivery, error) {
+	j.send = func(context.Context, string, string, func() error) (message.Delivery, error) {
 		sends++
 		pane := loadPane(t, j.store.Root(), "qm-worker")
 		pane.SubagentWake = &state.SubagentWake{State: "blocked", Activity: pane.Activity, IDs: []string{"child-1"}}

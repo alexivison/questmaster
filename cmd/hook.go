@@ -258,13 +258,20 @@ func trackWorkActivity(ev *state.StateEvent, previous state.PaneState, pane *sta
 		return
 	}
 	last := previous.WorkActivityAt()
-	if previous.State != "working" || previous.HasBlockedEpisode() ||
-		(!ev.Ts.Equal(last) && !overtaken(ev.Ts, last) && hookReportedWork(ev, pane.LastEvent, changed)) {
-		pane.LastWorkActivity, pane.InactivityAlerted = ev.Ts, false
+	if previous.State != "working" || previous.HasBlockedEpisode() || hookReportedWork(ev, pane.LastEvent, changed) {
+		recordWorkActivity(pane, last, ev.Ts)
 	} else if changed && pane.LastWorkActivity.IsZero() {
 		// Preserve the legacy timestamp when a status-only hook rewrites LastEvent.
 		pane.LastWorkActivity = last
 	}
+}
+
+func recordWorkActivity(pane *state.PaneState, last, at time.Time) bool {
+	if pane.State != "working" || pane.HasBlockedEpisode() || at.Equal(last) || overtaken(at, last) {
+		return false
+	}
+	pane.LastWorkActivity, pane.InactivityAlerted = at, false
+	return true
 }
 
 func hookReportedWork(ev *state.StateEvent, lastEvent time.Time, changed bool) bool {
@@ -272,14 +279,13 @@ func hookReportedWork(ev *state.StateEvent, lastEvent time.Time, changed bool) b
 		return false
 	}
 	switch ev.Action {
-	case "session.status": // Repeated OpenCode busy reports carry no progress.
-		return false
-	case "progress", "say", "subagent_start", "subagent_stop", "message.part.updated", "message.updated":
+	case "progress", "say", "subagent_start", "subagent_stop":
 		return changed
-	case "turn_end", "tool.execute.after":
+	case "turn_end":
 		return lastEvent.Equal(ev.Ts)
 	default:
-		return ev.State == "working" && lastEvent.Equal(ev.Ts)
+		// OpenCode records work when the patch is accepted.
+		return ev.Agent != "opencode" && ev.State == "working" && lastEvent.Equal(ev.Ts)
 	}
 }
 

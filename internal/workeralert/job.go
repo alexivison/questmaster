@@ -18,16 +18,22 @@ import (
 
 const inactivityThreshold = 30 * time.Minute
 
+var errAlertObsolete = errors.New("worker alert no longer pending")
+
 type alertEpisode struct {
 	since   time.Time
 	blocked bool
+}
+
+func (e alertEpisode) matches(other alertEpisode) bool {
+	return e.blocked == other.blocked && e.since.Equal(other.since)
 }
 
 // Job runs under the daemon's jobs.lock; the hook state is its durable queue.
 type Job struct {
 	store     *state.Store
 	router    *tmuxroute.Router
-	send      func(context.Context, string, string) (message.Delivery, error)
+	send      func(context.Context, string, string, func() error) (message.Delivery, error)
 	now       func() time.Time
 	hasWork   atomic.Bool
 	nextRow   int
@@ -36,7 +42,7 @@ type Job struct {
 
 func NewJob(store *state.Store, router *tmuxroute.Router) *Job {
 	j := &Job{store: store, router: router, now: time.Now, delivered: make(map[string]alertEpisode)}
-	j.send = message.NewServiceWithRouter(store, router).Notify
+	j.send = message.NewServiceWithRouter(store, router).NotifyWithCheck
 	return j
 }
 
@@ -177,13 +183,19 @@ func (j *Job) step(ctx context.Context) error {
 			continue
 		}
 		delivered := j.delivered[worker.SessionID]
-		if delivered.blocked != episode.blocked || !delivered.since.Equal(episode.since) {
+		if !delivered.matches(episode) {
 			if heldMasters[parent] {
 				continue
 			}
 			call, cancel := context.WithTimeout(ctx, 2*time.Second)
-			delivery, err := j.send(call, parent, alertText(worker, pane, episode))
+			delivery, err := j.send(call, parent, alertText(worker, pane, episode), func() error {
+				return j.checkPendingAlert(worker.SessionID, episode, now)
+			})
 			cancel()
+			if errors.Is(err, errAlertObsolete) {
+				delete(j.delivered, worker.SessionID)
+				continue
+			}
 			if err != nil {
 				errs = append(errs, fmt.Errorf("notify %s about %s: %w", parent, worker.SessionID, err))
 				continue
@@ -218,6 +230,20 @@ func (j *Job) step(ctx context.Context) error {
 	}
 	j.hasWork.Store(hasWorkers || len(errs) > 0)
 	return errors.Join(errs...)
+}
+
+func (j *Job) checkPendingAlert(workerID string, episode alertEpisode, now time.Time) error {
+	ss, err := state.LoadSessionStateAt(j.store.Root(), workerID)
+	if err != nil {
+		return err
+	}
+	if ss != nil {
+		pane := ss.Panes["agent"]
+		if episode.matches(pendingAlert(pane, now)) && (!episode.blocked || pane.State == "blocked") {
+			return nil
+		}
+	}
+	return errAlertObsolete
 }
 
 func pendingAlert(pane state.PaneState, now time.Time) alertEpisode {

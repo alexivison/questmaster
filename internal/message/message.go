@@ -138,7 +138,7 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 // deliver tries the native socket, then tmux send-keys. A native success means the
 // socket accepted the frame; a send-keys success means the text and Enter were typed.
 func (s *Service) deliver(ctx context.Context, m state.Manifest, handle tmuxroute.Handle, target, message string, pointer func(string) string, pointerPrefix string) (Delivery, error) {
-	if err := s.nativeDeliver(ctx, handle.Client(), m, target, message); err == nil {
+	if err := s.nativeDeliver(ctx, handle.Client(), m, target, message, nil); err == nil {
 		return DeliveryAccepted, nil
 	} else if !errors.Is(err, errNativeUnavailable) {
 		return "", err
