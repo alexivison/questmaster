@@ -44,6 +44,7 @@ enum LogicSelfTests {
         ("testFailedCachedAttachRetriesRefreshedRoute", testFailedCachedAttachRetriesRefreshedRoute),
         ("testFailedCachedAttachRetriesRouteRefreshedFirst", testFailedCachedAttachRetriesRouteRefreshedFirst),
         ("testContinuedSessionFetchesMovedRouteBeforeAttach", testContinuedSessionFetchesMovedRouteBeforeAttach),
+        ("testContinueShowsHowToReenableDisabledAgent", testContinueShowsHowToReenableDisabledAgent),
         ("testStartupChoiceAcrossServers", testStartupChoiceAcrossServers),
         ("testEditorWindowUsesAttachedRoute", testEditorWindowUsesAttachedRoute),
         ("testNavigationTogglesKeepFocusAndHideToTerminal", testNavigationTogglesKeepFocusAndHideToTerminal),
@@ -3519,6 +3520,34 @@ enum LogicSelfTests {
         try expect(waitUntil { completed != nil }, "continued session attach should complete")
         try expect(host.labels == ["questmaster"] && completed == true && controller.activeTmuxSession == legacy.sessionID,
                    "Continue should attach only to the daemon's current route")
+    }
+
+    private static func testContinueShowsHowToReenableDisabledAgent() throws {
+        let detail = "Claude is disabled. Re-enable it in Settings under Models and Reasoning."
+        let client = StubMutationClient(result: .failure(ServeClientError.responseError(detail)))
+        var banner = ""
+        var attached = false
+        var continued = false
+        var completed: Bool?
+        let coordinator = SessionCoordinator(
+            store: RuntimeStore(sourceLabel: "test"),
+            mutationClient: client,
+            dependencies: SessionCoordinator.Dependencies(
+                switchTerminal: { _, _ in attached = true },
+                showMutationFailure: { label, description in
+                    banner = MutationFailureFeedback.message(label: label, errorDescription: description)
+                },
+                clearTerminalEnded: {},
+                showTerminalEnded: {},
+                render: {},
+                didContinueSession: { _ in continued = true }
+            )
+        )
+
+        coordinator.activateTerminalSession("qm-example", intent: .continueSession) { completed = $0 }
+        try expect(waitUntil { completed != nil }, "continue failure should finish the activation")
+        try expect(banner.contains(detail), "the error banner should name the agent and say how to re-enable it")
+        try expect(completed == false && !attached && !continued, "a rejected Continue should leave the stopped session stopped")
     }
 
     private static func testFailedCachedAttachRetriesRefreshedRoute() throws {

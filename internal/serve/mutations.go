@@ -52,6 +52,10 @@ func (selfMutationCommandRunner) RunMutationCommand(ctx context.Context, args []
 			detail = strings.TrimSpace(stdout.String())
 		}
 		if detail != "" {
+			// Continue's diagnostic is shown in the app's short error banner.
+			if len(args) > 0 && args[0] == "continue" {
+				return nil, errors.New(strings.TrimPrefix(detail, "Error: "))
+			}
 			return nil, fmt.Errorf("qm %s: %w: %s", strings.Join(args, " "), err, detail)
 		}
 		return nil, fmt.Errorf("qm %s: %w", strings.Join(args, " "), err)
