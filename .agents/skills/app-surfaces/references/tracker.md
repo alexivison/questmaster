@@ -86,5 +86,5 @@ expanded worker's plate, sliding from the top and fading over `MotionStep.standa
 keyed by state, so a count change keeps its chip in place. A master group's
 height is the maximum of its plate content (including casts, collapsed circles or expanded workers) and its chip stack.
 A fitting stack adds no height; a taller stack reserves room before the next master, so adjacent four-state masters
-cannot overlap. The 240pt plate holds six collapsed worker circles, previously seven at 260pt: circles stay 25pt with
-5pt gaps and start at x40, so seven would reach x245, beyond the new plate edge.
+cannot overlap. The 240pt plate holds seven collapsed worker circles. The circles are 25pt across with 5pt gaps and
+start at x20, aligned with the left edge of an expanded worker's disc.
