@@ -9,6 +9,7 @@ struct RuntimeStoreTests {
         terminalSessionNotifiesOnlyOnChange()
         avatarFollowsAPendingSwitchThenTheAttachedSession()
         returnToMasterFollowsOnlyAnAttachedWorkersExistingMaster()
+        workerLogReturnFollowsOnlyTheWorkerOpenedFromTheLog()
         acknowledgedDeletionUpdatesSnapshot()
         cancelledObserverStopsReceivingNotifications()
         toggleWorkersCollapsedFlipsMembershipAndNotifies()
@@ -134,6 +135,38 @@ struct RuntimeStoreTests {
         token.cancel()
         store.apply(RuntimeUpdate(connection: .reconnecting))
         expect(notifications == 1, "cancelled observer kept receiving notifications")
+    }
+
+    private static func workerLogReturnFollowsOnlyTheWorkerOpenedFromTheLog() {
+        let master = TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")
+        let worker = TrackerSession(id: "w", title: "Worker", repoName: "Repo", role: "worker", parentID: "m")
+        let otherWorker = TrackerSession(id: "other", title: "Other worker", repoName: "Repo", role: "worker", parentID: "m")
+        let store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: "m")
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo", name: "Repo", sessions: [master, worker, otherWorker]),
+        ])))
+
+        store.rememberWorkerLogJump(from: "m", to: "w")
+        expect(store.workerLogReturnMasterID == nil, "an unattached worker should not leave a return target")
+        store.setCurrentTerminalSessionID("w")
+        expect(store.workerLogReturnMasterID == nil, "a regular attachment should not return to the log")
+        store.rememberWorkerLogJump(from: "other", to: "w")
+        store.rememberWorkerLogJump(from: "m", to: "other")
+        expect(store.workerLogReturnMasterID == nil, "only a jump from the attached worker's master can be remembered")
+
+        store.rememberWorkerLogJump(from: "m", to: "w")
+        expect(store.workerLogReturnMasterID == "m", "the Worker Log jump should remember its master")
+        store.setPendingAttachedSessionID("m")
+        store.setPendingAttachedSessionID(nil)
+        expect(store.workerLogReturnMasterID == "m", "a failed return should leave the target available to retry")
+        store.setCurrentTerminalSessionID("m")
+        expect(store.workerLogReturnMasterID == nil, "a completed return should clear its origin")
+
+        store.setCurrentTerminalSessionID("w")
+        store.rememberWorkerLogJump(from: "m", to: "w")
+        store.setCurrentTerminalSessionID("other")
+        store.setCurrentTerminalSessionID("w")
+        expect(store.workerLogReturnMasterID == nil, "switching away should clear the origin even when coming back to the same worker")
     }
 
     private static func toggleWorkersCollapsedFlipsMembershipAndNotifies() {

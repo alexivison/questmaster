@@ -44,6 +44,7 @@
   All has no attachment target. With the dropdown open, Return still ticks its Action row. `⇧⌘U` (Session → Return to
   Master), or the floating Return To Master button centred beneath the chat header, attaches the current worker's master
   from any region; the shortcut is disabled without an existing master and while a
-  modal is open. Returning restores that master's selected worker tab and the app-wide Action ticks.
+  modal is open. Returning restores that master's selected worker tab and the app-wide Action ticks. A return from a worker
+  opened through the Worker Log also moves the keys back to the log when it is still visible.
   The button enters from above with a fade and leaves the same way, like expanding and collapsing tracker workers,
   over `MotionStep.standard`; startup and Reduce Motion skip the transition.
