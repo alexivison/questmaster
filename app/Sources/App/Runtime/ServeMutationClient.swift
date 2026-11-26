@@ -166,7 +166,7 @@ final class UnixSocketMutationClient: ServeMutationSending {
             CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0 as? Int
         })
         if object["type"] as? String == "response", object["ok"] as? Bool == false {
-            throw ServeClientError.responseError(object["error"] as? String ?? "mutation failed")
+            throw ServeClientError.mutationResponseError(object["error"] as? String ?? "mutation failed")
         }
         guard object["type"] as? String == "response", object["ok"] as? Bool == true else {
             throw ServeClientError.protocolError("mutation response was not an ok response")

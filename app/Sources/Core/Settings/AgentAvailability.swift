@@ -37,4 +37,16 @@ public struct AgentAvailability: Decodable, Equatable {
     public var enabledNames: [String] {
         agents.filter(\.enabled).map(\.name)
     }
+
+    /// Returns a copy with one agent's enabled flag changed while preserving
+    /// its saved role defaults and the daemon's agent order.
+    public func updatingEnabled(_ enabled: Bool, for agent: String) -> AgentAvailability? {
+        guard let index = agents.firstIndex(where: { $0.name == agent }) else {
+            return nil
+        }
+        var updated = agents
+        let current = updated[index]
+        updated[index] = Entry(name: current.name, enabled: enabled, defaults: current.defaults)
+        return AgentAvailability(agents: updated)
+    }
 }

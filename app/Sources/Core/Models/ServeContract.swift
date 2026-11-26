@@ -143,6 +143,8 @@ private struct ObservedPayload: Decodable {
 public enum ServeClientError: LocalizedError {
     case connect(String)
     case protocolError(String)
+    /// The backend returned a valid response envelope with `ok: false`.
+    case serverRejected(String)
     case unknownMethod(String)
     /// The backend speaks another protocol version.
     case protocolMismatch(String)
@@ -150,7 +152,7 @@ public enum ServeClientError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .connect(let message), .protocolError(let message), .protocolMismatch(let message), .write(let message):
+        case .connect(let message), .protocolError(let message), .serverRejected(let message), .protocolMismatch(let message), .write(let message):
             return message
         case .unknownMethod(let method):
             return "unknown method \"\(method)\""
@@ -167,5 +169,26 @@ public enum ServeClientError: LocalizedError {
             return .protocolError(message)
         }
         return .unknownMethod(method)
+    }
+
+    /// Mutation responses use `ok: false` to report a definite rejection.
+    /// Keep stream-envelope protocol errors on `responseError`'s stricter path.
+    public static func mutationResponseError(_ message: String) -> ServeClientError {
+        let responseError = responseError(message)
+        if case .unknownMethod = responseError {
+            return responseError
+        }
+        return .serverRejected(message)
+    }
+
+    /// A well-formed negative response proves the requested mutation was
+    /// rejected. Transport and protocol failures do not prove whether it ran.
+    public var isDefiniteServerRejection: Bool {
+        switch self {
+        case .serverRejected, .unknownMethod:
+            return true
+        case .connect, .protocolError, .protocolMismatch, .write:
+            return false
+        }
     }
 }

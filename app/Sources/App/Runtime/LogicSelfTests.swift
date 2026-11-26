@@ -267,7 +267,9 @@ enum LogicSelfTests {
         ("testSettingsLoadsAvailabilityInDaemonOrderAndFetchesOnlyEnabledAgents", testSettingsLoadsAvailabilityInDaemonOrderAndFetchesOnlyEnabledAgents),
         ("testSettingsDisablingInvalidatesSuggestionsAndBlocksRoleChanges", testSettingsDisablingInvalidatesSuggestionsAndBlocksRoleChanges),
         ("testSettingsKeepsEditedDefaultsVisibleAfterDisablingAndReopening", testSettingsKeepsEditedDefaultsVisibleAfterDisablingAndReopening),
-        ("testSettingsFailedAvailabilitySaveRestoresTheToggle", testSettingsFailedAvailabilitySaveRestoresTheToggle),
+        ("testSettingsDroppedAvailabilityReplyReadsSavedValue", testSettingsDroppedAvailabilityReplyReadsSavedValue),
+        ("testSettingsRejectedAvailabilitySaveRestoresTheToggle", testSettingsRejectedAvailabilitySaveRestoresTheToggle),
+        ("testSettingsAvailabilityReconciliationFailureStaysUnverifiedUntilReopen", testSettingsAvailabilityReconciliationFailureStaysUnverifiedUntilReopen),
         ("testSettingsSearchPicksDefaultsWithoutSavingQueries", testSettingsSearchPicksDefaultsWithoutSavingQueries),
         ("testSettingsSearchOwnsTypingAndRestoresOnEscape", testSettingsSearchOwnsTypingAndRestoresOnEscape),
         ("testSettingsArrangeMovesAProjectWithShiftJAndK", testSettingsArrangeMovesAProjectWithShiftJAndK),
@@ -9259,7 +9261,73 @@ enum LogicSelfTests {
         try expect(reopened.state.agents.contains("opencode") && reopened.state.selectedAgent == "claude", "reopening should keep built-in tabs and the saved selection")
     }
 
-    private static func testSettingsFailedAvailabilitySaveRestoresTheToggle() throws {
+    private static func testSettingsDroppedAvailabilityReplyReadsSavedValue() throws {
+        for (initialEnabled, requestedEnabled, committed) in [(true, false, true), (false, true, true), (true, false, false)] {
+            let savedEnabled = committed ? requestedEnabled : initialEnabled
+            let initialSuggestionCount = initialEnabled ? 2 : 0
+            let initialAvailability = settingsFixtureAvailability().updatingEnabled(initialEnabled, for: "claude")!
+            let mutationClient = SettingsTestMutationClient(configuration: initialAvailability)
+            let modelClient = StubModelClient(models: ["claude": [SessionModelOption(id: "opus", label: "opus")]])
+            let model = SettingsSheetModel(
+                presentation: SettingsSheetPresentation(
+                    mutationClient: mutationClient,
+                    modelClient: modelClient,
+                    effortClient: nil,
+                    runtime: RuntimeStore(sourceLabel: "test")
+                ),
+                dismiss: {}
+            )
+            model.present()
+            try waitForMainQueue("agent availability", until: { model.isAvailabilityLoaded })
+            try waitForMainQueue("initial Claude suggestions", until: {
+                modelClient.requests.filter { $0.agent == "claude" }.count == initialSuggestionCount
+            })
+            mutationClient.agentAvailabilitySetError = StubMutationError()
+            mutationClient.commitAgentAvailabilitySetBeforeError = committed
+
+            model.setAgentEnabled("claude", enabled: requestedEnabled)
+            guard let codexIndex = model.state.agents.firstIndex(of: "codex") else {
+                throw TestFailure("Settings should include the Codex tab")
+            }
+            model.selectTab(codexIndex)
+            try waitForMainQueue("authoritative availability reconciliation", until: {
+                !model.isSavingAvailability(for: "claude") && !model.isAvailabilityUnverified(for: "claude")
+            })
+            try expect(model.isAgentEnabled("claude") == savedEnabled, "a dropped reply should follow the saved preference")
+            try expect((model.errorMessage == nil) == committed, "show an error if the saved preference differs from the requested change")
+            try expect(mutationClient.requests.filter { $0.method == "agent_availability.set" }.count == 1, "an ambiguous reply must not retry the toggle mutation")
+            try expect(mutationClient.availabilityReadCount == 2, "an ambiguous reply should trigger one fresh availability read")
+            try expect(model.savedDefault(agent: "claude", role: "master", field: .model) == "opus", "reconciling the toggle should preserve saved role defaults")
+            try expect(model.state.selectedAgent == "codex" && !model.isAvailabilityToggleFocused(for: "claude"), "a late reply must not change the user's selected tab or focus")
+            let expectedSuggestionCount = initialSuggestionCount + (savedEnabled ? 2 : 0)
+            try expect(modelClient.requests.filter { $0.agent == "claude" }.count == expectedSuggestionCount,
+                       "reconciliation should fetch suggestions for enabled agents")
+        }
+    }
+
+    private static func testSettingsRejectedAvailabilitySaveRestoresTheToggle() throws {
+        let mutationClient = SettingsTestMutationClient(configuration: settingsFixtureAvailability())
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: mutationClient,
+                modelClient: nil,
+                effortClient: nil,
+                runtime: RuntimeStore(sourceLabel: "test")
+            ),
+            dismiss: {}
+        )
+        model.present()
+        try waitForMainQueue("agent availability", until: { model.isAvailabilityLoaded })
+        mutationClient.agentAvailabilitySetError = ServeClientError.mutationResponseError("agent is unavailable")
+
+        model.setAgentEnabled("claude", enabled: false)
+        try waitForMainQueue("rejected availability save", until: { model.errorMessage != nil && !model.isSavingAvailability(for: "claude") })
+        try expect(model.isAgentEnabled("claude"), "an explicit server rejection should restore the prior enabled state")
+        try expect(!model.isAvailabilityUnverified(for: "claude"), "an explicit rejection is a verified rollback")
+        try expect(mutationClient.availabilityReadCount == 1, "a definite rejection should not need reconciliation")
+    }
+
+    private static func testSettingsAvailabilityReconciliationFailureStaysUnverifiedUntilReopen() throws {
         let mutationClient = SettingsTestMutationClient(configuration: settingsFixtureAvailability())
         let model = SettingsSheetModel(
             presentation: SettingsSheetPresentation(
@@ -9273,11 +9341,26 @@ enum LogicSelfTests {
         model.present()
         try waitForMainQueue("agent availability", until: { model.isAvailabilityLoaded })
         mutationClient.agentAvailabilitySetError = StubMutationError()
+        mutationClient.availabilityReadErrorAfterInitial = StubMutationError()
 
         model.setAgentEnabled("claude", enabled: false)
-        try waitForMainQueue("failed availability save", until: { model.errorMessage != nil && !model.isSavingAvailability(for: "claude") })
-        try expect(model.isAgentEnabled("claude"), "a failed disable should restore the previous enabled state")
-        try expect(model.errorMessage != nil, "a failed toggle should surface its error")
+        try waitForMainQueue("failed authoritative availability read", until: {
+            !model.isSavingAvailability(for: "claude") && model.isAvailabilityUnverified(for: "claude")
+        })
+        try expect(!model.isAgentEnabled("claude"), "the last displayed value should remain while its status is unverified")
+        try expect(model.availabilityStatusMessage(for: "claude").localizedCaseInsensitiveContains("unverified"), "Settings should visibly mark the status as unverified")
+        try expect(model.availabilityAccessibilityValue(for: "claude") == "Unverified", "assistive technology should not hear the stale enabled or disabled value")
+        model.setAgentEnabled("claude", enabled: true)
+        try expect(mutationClient.requests.filter { $0.method == "agent_availability.set" }.count == 1, "an unverified toggle should remain locked")
+
+        mutationClient.availabilityReadErrorAfterInitial = nil
+        model.disappear()
+        model.present()
+        try waitForMainQueue("Settings re-open reload", until: {
+            mutationClient.availabilityReadCount == 3 && model.isAgentEnabled("claude") && !model.isAvailabilityUnverified(for: "claude")
+        })
+        try expect(model.isAgentEnabled("claude"), "re-opening should reload the authoritative enabled value")
+        try expect(mutationClient.availabilityReadCount == 3, "re-opening should reload once after the failed reconciliation read")
     }
 
     private static func testSettingsSearchPicksDefaultsWithoutSavingQueries() throws {
@@ -11237,6 +11320,9 @@ enum LogicSelfTests {
         private(set) var configuration: AgentAvailability
         private(set) var requests: [ServeMutationRequest] = []
         var agentAvailabilitySetError: Error?
+        var commitAgentAvailabilitySetBeforeError = false
+        var availabilityReadErrorAfterInitial: Error?
+        private(set) var availabilityReadCount = 0
 
         init(configuration: AgentAvailability) {
             self.configuration = configuration
@@ -11246,16 +11332,23 @@ enum LogicSelfTests {
             requests.append(request)
             switch request.method {
             case "agent_availability":
+                availabilityReadCount += 1
+                if availabilityReadCount > 1, let availabilityReadErrorAfterInitial {
+                    completion(.failure(availabilityReadErrorAfterInitial))
+                    return
+                }
                 completion(.success(ServeMutationAck(data: settingsAvailabilityObject(configuration))))
             case "agent_availability.set":
+                let agent = request.data["agent"] ?? ""
+                let enabled = request.data["enabled"] == "true"
+                if agentAvailabilitySetError == nil || commitAgentAvailabilitySetBeforeError {
+                    updateAgent(agent) { current in
+                        AgentAvailability.Entry(name: current.name, enabled: enabled, defaults: current.defaults)
+                    }
+                }
                 if let agentAvailabilitySetError {
                     completion(.failure(agentAvailabilitySetError))
                     return
-                }
-                let agent = request.data["agent"] ?? ""
-                let enabled = request.data["enabled"] == "true"
-                updateAgent(agent) { current in
-                    AgentAvailability.Entry(name: current.name, enabled: enabled, defaults: current.defaults)
                 }
                 completion(.success(ServeMutationAck(data: ["agent": agent, "enabled": enabled])))
             case "role_default.set":

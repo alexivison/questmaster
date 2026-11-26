@@ -201,13 +201,12 @@ struct SettingsSheetView: View {
     private var availabilityRow: some View {
         let agent = model.state.selectedAgent
         let agentName = AgentKind.displayName(for: agent)
-        let enabled = model.isAgentEnabled(agent)
         return HStack(alignment: .center, spacing: Space.item) {
             VStack(alignment: .leading, spacing: Space.row) {
                 Text("Enable Agent")
                     .font(Font(AppFonts.settingsLabel))
                     .foregroundStyle(AppPalette.textBody.swiftUI)
-                Text("Turning this off hides the agent from New Session and blocks launches. Running sessions stay available.")
+                Text(model.availabilityStatusMessage(for: agent))
                     .font(Font(AppFonts.settingsDescription))
                     .foregroundStyle(AppPalette.settingsDescription.swiftUI)
                     .fixedSize(horizontal: false, vertical: true)
@@ -227,9 +226,9 @@ struct SettingsSheetView: View {
                 }
             }
             .accessibilityLabel("Enable \(agentName)")
-            .accessibilityValue(enabled ? "Enabled" : "Disabled")
+            .accessibilityValue(model.availabilityAccessibilityValue(for: agent))
             .accessibilityHint("Turning this off hides \(agentName) from New Session and blocks launches. Running sessions stay available.")
-            .disabled(!model.isAvailabilityLoaded || model.isSavingAvailability(for: agent))
+            .disabled(!model.isAvailabilityLoaded || model.isSavingAvailability(for: agent) || model.isAvailabilityUnverified(for: agent))
         }
         .frame(width: SettingsMetrics.columnWidth, height: SettingsMetrics.availabilityHeight, alignment: .center)
         .offset(y: SettingsMetrics.availabilityOffset)
@@ -240,7 +239,7 @@ struct SettingsSheetView: View {
     private func roleSection(role: String, title: String) -> some View {
         if let rowIndex = model.state.index(agent: model.state.selectedAgent, role: role) {
             let row = model.state.rows[rowIndex]
-            let enabled = model.isAgentEnabled(row.agent)
+            let unavailable = !model.canUseAvailability(for: row.agent)
             ZStack(alignment: .topLeading) {
                 BaselineText(title, font: AppFonts.settingsSectionTitle, color: AppPalette.text, baseline: 0)
                 SettingsSectionRule(width: SettingsMetrics.columnWidth)
@@ -252,15 +251,16 @@ struct SettingsSheetView: View {
                 .offset(y: SettingsMetrics.firstRowDrop + SettingsMetrics.rowPitch)
             }
             .frame(width: SettingsMetrics.columnWidth, alignment: .topLeading)
-            .opacity(model.isAvailabilityLoaded && !enabled ? Token.Opacity.dimmed : 1)
+            .opacity(model.isAvailabilityLoaded && unavailable ? Token.Opacity.dimmed : 1)
         }
     }
 
     private func roleField(role: String, field: RoleDefaultField, title: String, isLoading: Bool) -> some View {
         let agent = model.state.selectedAgent
         let focused = RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == role && model.state.focusedField == field
-        let disabled = model.isAvailabilityLoaded && !model.isAgentEnabled(agent)
-        let waiting = !model.isAvailabilityLoaded || (model.isAgentEnabled(agent) && isLoading)
+        let unavailable = !model.canUseAvailability(for: agent)
+        let disabled = model.isAvailabilityLoaded && unavailable
+        let waiting = !model.isAvailabilityLoaded || (!unavailable && isLoading)
         return SettingsRoleRow(title: title, isLoading: waiting) {
             if disabled {
                 SettingsSavedDefaultControl(
@@ -424,7 +424,8 @@ final class SettingsSheetModel: ObservableObject {
     @Published var section = SettingsSection.modelsAndReasoning
     @Published var errorMessage: String?
     @Published private(set) var availability: AgentAvailability?
-    @Published private(set) var savingAvailabilityAgents: Set<String> = []
+    @Published private var availabilityToggleRequestIDs: [String: Int] = [:]
+    @Published private var availabilityUnverifiedAgents: Set<String> = []
     @Published private(set) var focusNonces: [String: [RoleDefaultField: Int]] = [:]
     @Published private(set) var sinkNonce = 0
     let projects: SettingsProjectsModel
@@ -445,6 +446,7 @@ final class SettingsSheetModel: ObservableObject {
     private var suggestionRequestSequence = 0
     private var availabilityRequestID = 0
     private var availabilityRequestStarted = false
+    private var availabilityToggleRequestSequence = 0
     private var isShowing = false
     private var focusedAvailabilityToggleAgent: String?
 
@@ -475,7 +477,37 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     func isSavingAvailability(for agent: String) -> Bool {
-        savingAvailabilityAgents.contains(agent)
+        availabilityToggleRequestIDs[agent] != nil
+    }
+
+    func isAvailabilityUnverified(for agent: String) -> Bool {
+        availabilityUnverifiedAgents.contains(agent)
+    }
+
+    func canUseAvailability(for agent: String) -> Bool {
+        isAgentEnabled(agent) && !isAvailabilityUnverified(for: agent)
+    }
+
+    func availabilityStatusMessage(for agent: String) -> String {
+        if isSavingAvailability(for: agent) {
+            return isAvailabilityUnverified(for: agent)
+                ? "Checking whether this change was saved…"
+                : "Saving this preference…"
+        }
+        if isAvailabilityUnverified(for: agent) {
+            return "Status unverified. Close and reopen Settings to reload."
+        }
+        return "Turning this off hides the agent from New Session and blocks launches. Running sessions stay available."
+    }
+
+    func availabilityAccessibilityValue(for agent: String) -> String {
+        if isSavingAvailability(for: agent) {
+            return isAvailabilityUnverified(for: agent) ? "Checking" : "Saving"
+        }
+        if isAvailabilityUnverified(for: agent) {
+            return "Unverified"
+        }
+        return isAgentEnabled(agent) ? "Enabled" : "Disabled"
     }
 
     func isAvailabilityToggleFocused(for agent: String) -> Bool {
@@ -490,15 +522,28 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     /// Saves one agent's launch preference. Disabling takes effect in the view
-    /// immediately; a failed save restores it and fetches fresh options.
+    /// immediately; an ambiguous reply is reconciled before the preference is trusted.
     func setAgentEnabled(_ agent: String, enabled: Bool) {
         guard isAvailabilityLoaded,
               !isSavingAvailability(for: agent),
+              !isAvailabilityUnverified(for: agent),
               isAgentEnabled(agent) != enabled else {
             return
         }
+
+        let previousEnabled = isAgentEnabled(agent)
+        let request: ServeMutationRequest
+        do {
+            request = try ServeMutationRequests.setAgentEnabled(agent: agent, enabled: enabled)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+
         errorMessage = nil
-        savingAvailabilityAgents.insert(agent)
+        availabilityToggleRequestSequence += 1
+        let requestID = availabilityToggleRequestSequence
+        availabilityToggleRequestIDs[agent] = requestID
         focusedAvailabilityToggleAgent = agent
         if !enabled {
             updateAgentEnabled(agent, enabled: false)
@@ -507,33 +552,39 @@ final class SettingsSheetModel: ObservableObject {
             sinkNonce += 1
         }
 
-        do {
-            let request = try ServeMutationRequests.setAgentEnabled(agent: agent, enabled: enabled)
-            mutationClient.send(request) { [weak self] result in
-                DispatchQueue.main.async {
-                    guard let self, self.isShowing else { return }
-                    switch result {
-                    case .success(let ack):
-                        do {
-                            let persisted = try ack.decoded(AgentAvailabilitySetAck.self)
-                            guard persisted.agent == agent, persisted.enabled == enabled else {
-                                throw ServeClientError.protocolError("agent availability response did not match the request")
-                            }
-                            self.savingAvailabilityAgents.remove(agent)
-                            self.updateAgentEnabled(agent, enabled: enabled)
-                            if enabled {
-                                self.requestSuggestions(for: agent)
-                            }
-                        } catch {
-                            self.failAvailabilitySave(agent, requested: enabled, error: error)
+        mutationClient.send(request) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self,
+                      self.isShowing,
+                      self.availabilityToggleRequestIDs[agent] == requestID else { return }
+                switch result {
+                case .success(let ack):
+                    do {
+                        let persisted = try ack.decoded(AgentAvailabilitySetAck.self)
+                        guard persisted.agent == agent, persisted.enabled == enabled else {
+                            throw ServeClientError.protocolError("agent availability response did not match the request")
                         }
-                    case .failure(let error):
-                        self.failAvailabilitySave(agent, requested: enabled, error: error)
+                        self.updateAgentEnabled(agent, enabled: enabled)
+                        self.finishAvailabilityToggle(agent, requestID: requestID, verified: true)
+                        if enabled {
+                            self.requestSuggestions(for: agent)
+                        }
+                    } catch {
+                        self.reconcileAvailabilityToggle(agent, requestedEnabled: enabled, requestID: requestID)
+                    }
+                case .failure(let error):
+                    if (error as? ServeClientError)?.isDefiniteServerRejection == true {
+                        self.restoreRejectedAvailabilityToggle(
+                            agent,
+                            requestID: requestID,
+                            previousEnabled: previousEnabled,
+                            error: error
+                        )
+                    } else {
+                        self.reconcileAvailabilityToggle(agent, requestedEnabled: enabled, requestID: requestID)
                     }
                 }
             }
-        } catch {
-            failAvailabilitySave(agent, requested: enabled, error: error)
         }
     }
 
@@ -552,49 +603,72 @@ final class SettingsSheetModel: ObservableObject {
             effortRequestIDs = Array(repeating: 0, count: state.rows.count)
         }
         availability = AgentAvailability(agents: entries)
-        focusedAvailabilityToggleAgent = isAgentEnabled(state.selectedAgent) ? nil : state.selectedAgent
+        availabilityUnverifiedAgents.removeAll()
+        availabilityToggleRequestIDs.removeAll()
+        focusedAvailabilityToggleAgent = canUseAvailability(for: state.selectedAgent) ? nil : state.selectedAgent
     }
 
-    private func fetchAvailability(completion: @escaping (Result<AgentAvailability, Error>) -> Void) {
-        availabilityRequestID += 1
-        let requestID = availabilityRequestID
-        mutationClient.send(ServeMutationRequests.agentAvailability()) { [weak self] result in
-            let decoded: Result<AgentAvailability, Error>
-            switch result {
-            case .success(let ack):
-                do {
-                    decoded = .success(try ack.decoded(AgentAvailability.self))
-                } catch {
-                    decoded = .failure(error)
-                }
-            case .failure(let error):
-                decoded = .failure(error)
-            }
+    private func readAvailability(completion: @escaping (Result<AgentAvailability, Error>) -> Void) {
+        mutationClient.send(ServeMutationRequests.agentAvailability()) { result in
+            let decoded = result.flatMap { ack in Result { try ack.decoded(AgentAvailability.self) } }
             DispatchQueue.main.async {
-                guard let self, self.isShowing, self.availabilityRequestID == requestID else { return }
                 completion(decoded)
             }
         }
     }
 
-    private func failAvailabilitySave(_ agent: String, requested enabled: Bool, error: Error) {
-        savingAvailabilityAgents.remove(agent)
-        updateAgentEnabled(agent, enabled: !enabled)
-        if !enabled {
+    private func reconcileAvailabilityToggle(_ agent: String, requestedEnabled: Bool, requestID: Int) {
+        availabilityUnverifiedAgents.insert(agent)
+        readAvailability { [weak self] result in
+            guard let self,
+                  self.isShowing,
+                  self.availabilityToggleRequestIDs[agent] == requestID else { return }
+            guard case .success(let response) = result,
+                  let enabled = response.agents.first(where: { $0.name == agent })?.enabled else {
+                self.finishAvailabilityToggle(agent, requestID: requestID, verified: false)
+                return
+            }
+            self.updateAgentEnabled(agent, enabled: enabled)
+            self.finishAvailabilityToggle(agent, requestID: requestID, verified: true)
+            if enabled {
+                self.requestSuggestions(for: agent)
+            }
+            if enabled != requestedEnabled {
+                let agentName = AgentKind.displayName(for: agent)
+                let status = enabled ? "enabled" : "disabled"
+                self.errorMessage = "The saved \(agentName) setting is \(status). Try the switch again."
+            }
+        }
+    }
+
+    private func restoreRejectedAvailabilityToggle(
+        _ agent: String,
+        requestID: Int,
+        previousEnabled: Bool,
+        error: Error
+    ) {
+        updateAgentEnabled(agent, enabled: previousEnabled)
+        finishAvailabilityToggle(agent, requestID: requestID, verified: true)
+        if previousEnabled {
             requestSuggestions(for: agent)
         }
         errorMessage = error.localizedDescription
     }
 
+    private func finishAvailabilityToggle(_ agent: String, requestID: Int, verified: Bool) {
+        guard availabilityToggleRequestIDs[agent] == requestID else { return }
+        if verified {
+            availabilityUnverifiedAgents.remove(agent)
+        }
+        availabilityToggleRequestIDs.removeValue(forKey: agent)
+    }
+
     private func updateAgentEnabled(_ agent: String, enabled: Bool) {
         guard let availability,
-              let index = availability.agents.firstIndex(where: { $0.name == agent }) else {
+              let updated = availability.updatingEnabled(enabled, for: agent) else {
             return
         }
-        var entries = availability.agents
-        let current = entries[index]
-        entries[index] = AgentAvailability.Entry(name: agent, enabled: enabled, defaults: current.defaults)
-        self.availability = AgentAvailability(agents: entries)
+        self.availability = updated
     }
 
     private func updateSavedDefault(agent: String, role: String, model: String, reasoningEffort: String) {
@@ -618,7 +692,7 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     private func requestSuggestions(for agent: String) {
-        guard isAgentEnabled(agent) else { return }
+        guard canUseAvailability(for: agent) else { return }
         for index in state.rows.indices where state.rows[index].agent == agent {
             requestModelSuggestions(rowIndex: index)
             requestEffortSuggestions(rowIndex: index)
@@ -639,7 +713,7 @@ final class SettingsSheetModel: ObservableObject {
 
     func selectSection(_ next: SettingsSection) {
         state.endPickerSearch()
-        focusedAvailabilityToggleAgent = next == .modelsAndReasoning && !isAgentEnabled(state.selectedAgent) ? state.selectedAgent : nil
+        focusedAvailabilityToggleAgent = next == .modelsAndReasoning && !canUseAvailability(for: state.selectedAgent) ? state.selectedAgent : nil
         sinkNonce += 1
         section = next
         if next == .tmux { tmux.loadIfNeeded() }
@@ -665,8 +739,10 @@ final class SettingsSheetModel: ObservableObject {
             return
         }
         availabilityRequestStarted = true
-        fetchAvailability { [weak self] result in
-            guard let self else { return }
+        availabilityRequestID += 1
+        let requestID = availabilityRequestID
+        readAvailability { [weak self] result in
+            guard let self, self.isShowing, self.availabilityRequestID == requestID else { return }
             switch result {
             case .success(let response):
                 self.applyAvailability(response)
@@ -684,6 +760,8 @@ final class SettingsSheetModel: ObservableObject {
         isShowing = false
         availabilityRequestStarted = false
         availabilityRequestID += 1
+        availabilityUnverifiedAgents.formUnion(availabilityToggleRequestIDs.keys)
+        availabilityToggleRequestIDs.removeAll()
         for index in modelRequestIDs.indices {
             modelRequestIDs[index] = nextSuggestionRequestID()
         }
@@ -703,13 +781,13 @@ final class SettingsSheetModel: ObservableObject {
 
     func selectTab(_ index: Int) {
         state.selectTab(index)
-        focusedAvailabilityToggleAgent = isAgentEnabled(state.selectedAgent) ? nil : state.selectedAgent
+        focusedAvailabilityToggleAgent = canUseAvailability(for: state.selectedAgent) ? nil : state.selectedAgent
         sinkNonce += 1
     }
 
     private func moveTab(_ delta: Int) {
         state.moveTab(delta)
-        focusedAvailabilityToggleAgent = isAgentEnabled(state.selectedAgent) ? nil : state.selectedAgent
+        focusedAvailabilityToggleAgent = canUseAvailability(for: state.selectedAgent) ? nil : state.selectedAgent
         sinkNonce += 1
     }
 
@@ -718,19 +796,19 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     func search(role: String, field: RoleDefaultField) {
-        guard isAgentEnabled(state.selectedAgent) else { return }
+        guard canUseAvailability(for: state.selectedAgent) else { return }
         focus(role: role, field: field)
         if state.pickerMode == .select { applyPickerCommand(.startSearch(.editCurrent)) }
     }
 
     func typePickerText(_ text: String, role: String, field: RoleDefaultField) {
-        guard isAgentEnabled(state.selectedAgent) else { return }
+        guard canUseAvailability(for: state.selectedAgent) else { return }
         search(role: role, field: field)
         state.typePickerText(text)
     }
 
     func pickSuggestion(visibleRow: Int) {
-        guard isAgentEnabled(state.selectedAgent) else { return }
+        guard canUseAvailability(for: state.selectedAgent) else { return }
         changeFocusedValue { self.state.pickSuggestion(visibleRow: visibleRow) }
     }
 
@@ -783,7 +861,7 @@ final class SettingsSheetModel: ObservableObject {
         switch section {
         case .modelsAndReasoning:
             let agent = state.selectedAgent
-            guard isAvailabilityLoaded, isAgentEnabled(agent) else {
+            guard canUseAvailability(for: agent) else {
                 focusedAvailabilityToggleAgent = agent
                 sinkNonce += 1
                 return
@@ -854,7 +932,7 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     private func handlePickerKey(_ press: Keymap.KeyPress) -> Bool {
-        guard isAgentEnabled(state.selectedAgent), !isAvailabilityToggleFocused(for: state.selectedAgent) else { return false }
+        guard canUseAvailability(for: state.selectedAgent), !isAvailabilityToggleFocused(for: state.selectedAgent) else { return false }
         guard let command = PickerFieldKey.command(press, mode: state.pickerMode, showsSuggestions: state.showsPickerSuggestions) else { return false }
         applyPickerCommand(command)
         return true
@@ -881,7 +959,7 @@ final class SettingsSheetModel: ObservableObject {
 
     /// Query edits never persist. A pick or cycle saves only an actual selection change.
     private func changeFocusedValue(_ change: () -> Void) {
-        guard isAgentEnabled(state.selectedAgent), !isAvailabilityToggleFocused(for: state.selectedAgent) else {
+        guard canUseAvailability(for: state.selectedAgent), !isAvailabilityToggleFocused(for: state.selectedAgent) else {
             return
         }
         guard let rowIndex = state.focusedRowIndex else {
@@ -913,8 +991,7 @@ final class SettingsSheetModel: ObservableObject {
     private func requestModelSuggestions(rowIndex: Int) {
         guard let modelClient,
               state.rows.indices.contains(rowIndex),
-              isAvailabilityLoaded,
-              isAgentEnabled(state.rows[rowIndex].agent) else {
+              canUseAvailability(for: state.rows[rowIndex].agent) else {
             return
         }
         let requestID = nextSuggestionRequestID()
@@ -925,7 +1002,7 @@ final class SettingsSheetModel: ObservableObject {
                 guard let self,
                       self.modelRequestIDs.indices.contains(rowIndex),
                       self.modelRequestIDs[rowIndex] == requestID,
-                      self.isAgentEnabled(row.agent) else {
+                      self.canUseAvailability(for: row.agent) else {
                     return
                 }
                 if case .success(let response) = result {
@@ -943,8 +1020,7 @@ final class SettingsSheetModel: ObservableObject {
     private func requestEffortSuggestions(rowIndex: Int) {
         guard let effortClient,
               state.rows.indices.contains(rowIndex),
-              isAvailabilityLoaded,
-              isAgentEnabled(state.rows[rowIndex].agent) else {
+              canUseAvailability(for: state.rows[rowIndex].agent) else {
             return
         }
         let requestID = nextSuggestionRequestID()
@@ -956,7 +1032,7 @@ final class SettingsSheetModel: ObservableObject {
                 guard let self,
                       self.effortRequestIDs.indices.contains(rowIndex),
                       self.effortRequestIDs[rowIndex] == requestID,
-                      self.isAgentEnabled(row.agent) else {
+                      self.canUseAvailability(for: row.agent) else {
                     return
                 }
                 if case .success(let response) = result {
@@ -972,7 +1048,7 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     private func sendRoleDefault(agent: String, role: String, model: String, reasoningEffort: String) {
-        guard isAvailabilityLoaded, isAgentEnabled(agent) else {
+        guard canUseAvailability(for: agent) else {
             return
         }
         do {
