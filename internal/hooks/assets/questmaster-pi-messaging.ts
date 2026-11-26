@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { accessSync, closeSync, constants, fstatSync, openSync, readSync, watch, type FSWatcher } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { basename, delimiter, isAbsolute, join } from "node:path";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type TUI } from "@earendil-works/pi-tui";
+import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -419,62 +419,83 @@ function readPiAccent(path: string): string | undefined {
 }
 
 function watchInputBorder(ctx: ExtensionContext, runtimeDir: string): (() => void) | undefined {
-	if (ctx?.mode !== "tui" || !ctx.hasUI || !ctx.ui.getEditorComponent || ctx.ui.getEditorComponent()) return;
-	let accent: string | undefined;
-	let border: ((text: string) => string) | undefined;
-	let installed: ReturnType<ExtensionContext["ui"]["getEditorComponent"]>;
-	let activeTui: TUI | undefined;
-	let closed = false;
+	if (ctx?.mode !== "tui" || !ctx.hasUI || !ctx.ui.getEditorComponent || !ctx.ui.setWidget) return;
+	const key = "questmaster.input-border";
 	const path = join(runtimeDir, piAccentFile);
 
-	const refresh = () => {
-		if (closed) return;
-		const next = readPiAccent(path);
-		if (next === accent) return;
-		accent = next;
-		const rgb = next?.match(hexAccent)?.slice(1).map((channel) => Number.parseInt(channel, 16));
-		border = rgb ? (text) => paint(rgb, text) : undefined;
+	// The empty above-editor widget provides the TUI and runs before the input
+	// slot in both Pi renderers. Never use setEditorComponent here: swapping
+	// editors copies visible text, not cursor, undo, history draft, or selectors.
+	ctx.ui.setWidget(key, (tui) => {
+		let accent: string | undefined;
+		let border: ((text: string) => string) | undefined;
+		let editor: CustomEditor | undefined;
+		let detach: (() => void) | undefined;
+		let closed = false;
 
-		// Install lazily when there is a tint. Later recolours only redraw:
-		// replacing the editor again would discard its editing state.
-		if (border && !installed && !ctx.ui.getEditorComponent()) {
-			ctx.ui.setEditorComponent((tui, theme, keybindings) => {
-				activeTui = tui;
-				const editor = new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true });
-				const render = editor.render.bind(editor);
-				editor.render = (width) => {
-					if (!border || editor.getText().trimStart().startsWith("!")) return render(width);
-					const stockBorder = editor.borderColor;
-					editor.borderColor = border;
+		const refresh = () => {
+			if (closed) return;
+			const next = readPiAccent(path);
+			if (next === accent) return;
+			accent = next;
+			const rgb = next?.match(hexAccent)?.slice(1).map((channel) => Number.parseInt(channel, 16));
+			border = rgb ? (text) => paint(rgb, text) : undefined;
+			tui.requestRender();
+		};
+
+		// Watch the directory: the backend replaces the colour file by rename.
+		let watcher: FSWatcher | undefined;
+		try {
+			watcher = watch(runtimeDir, { persistent: false }, (_event, name) => {
+				if (name === null || name === piAccentFile) refresh();
+			});
+			watcher.on("error", () => watcher?.close());
+		} catch {}
+		refresh();
+
+		const widget = {
+			render() {
+				if (!border || ctx.ui.getEditorComponent()) return [];
+				// Locate only the input slot beside this widget. If Pi's layout
+				// differs, or a selector occupies the slot, leave it alone.
+				const anchor = tui.children.findIndex((child) => child instanceof Container && child.children.includes(widget));
+				const slot = anchor < 0 ? undefined : tui.children[anchor + 1];
+				if (!(slot instanceof Container) || slot.children.length !== 1) return [];
+				const native = slot.children[0];
+				if (!(native instanceof CustomEditor) || native === editor) return [];
+
+				detach?.();
+				editor = native;
+				const original = native.render;
+				const render = (width: number) => {
+					if (!border || ctx.ui.getEditorComponent() || native.getText().trimStart().startsWith("!")) {
+						return original.call(native, width);
+					}
+					const stockBorder = native.borderColor;
+					native.borderColor = border;
 					try {
-						return render(width);
+						return original.call(native, width);
 					} finally {
-						editor.borderColor = stockBorder;
+						native.borderColor = stockBorder;
 					}
 				};
-				return editor;
-			});
-			installed = ctx.ui.getEditorComponent();
-		}
-		activeTui?.requestRender();
-	};
+				native.render = render;
+				detach = () => {
+					if (native.render === render) native.render = original;
+				};
+				return [];
+			},
+			invalidate() {},
+			dispose() {
+				closed = true;
+				watcher?.close();
+				detach?.();
+			},
+		};
+		return widget;
+	}, { placement: "aboveEditor" });
 
-	// Watch the directory, not the file: the backend replaces the file by
-	// rename, and the first colour can appear after Pi has started.
-	let watcher: FSWatcher | undefined;
-	try {
-		watcher = watch(runtimeDir, { persistent: false }, (_event, name) => {
-			if (name === null || name === piAccentFile) refresh();
-		});
-		watcher.on("error", () => watcher?.close());
-	} catch {}
-	refresh();
-
-	return () => {
-		closed = true;
-		watcher?.close();
-		if (installed && ctx.ui.getEditorComponent() === installed) ctx.ui.setEditorComponent(undefined);
-	};
+	return () => ctx.ui.setWidget(key, undefined);
 }
 
 // identityLine is the footer status: the role's glyph and colour, the title, and

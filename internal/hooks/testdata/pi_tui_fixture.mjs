@@ -1,6 +1,13 @@
 // Isolated Pi UI contract for extension tests. Unicode fixtures use
 // Intl.Segmenter and Unicode properties, not a copied display-width table.
 
+export class Container {
+	children = [];
+
+	addChild(child) { this.children.push(child); }
+	clear() { this.children.length = 0; }
+}
+
 export class CustomEditor {
 	borderColor = (text) => text;
 	text = "";

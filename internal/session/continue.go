@@ -8,6 +8,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/config"
+	"github.com/alexivison/questmaster/internal/sessiontheme"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxroute"
@@ -233,8 +234,9 @@ func (s *Service) respawnDeadAgent(ctx context.Context, m state.Manifest, pane t
 	if err := s.installPiExtension(launch.agents); err != nil {
 		return err
 	}
-	if m.RuntimeDir == "" && launch.agents[agent.RoleAgent].Name() == "codex" {
-		// Native ownership needs a private runtime even when the exited agent
+	agentName := launch.agents[agent.RoleAgent].Name()
+	if m.RuntimeDir == "" && (agentName == "codex" || agentName == "pi") {
+		// Native integrations need a private runtime even when the exited agent
 		// predates recorded runtime directories. Leave its old /tmp path alone.
 		m.RuntimeDir = state.NewRuntimeDir(s.Store.Root(), m.SessionID)
 		if err := s.reuseRuntimeDir(ctx, m); err != nil {
@@ -256,6 +258,11 @@ func (s *Service) respawnDeadAgent(ctx context.Context, m state.Manifest, pane t
 	}
 	if err := s.setResumeEnv(ctx, m.SessionID, launch.agentResume); err != nil {
 		return err
+	}
+	if agentName == "pi" {
+		if err := sessiontheme.Sync(ctx, s.Store, s.router(), m.SessionID); err != nil {
+			return err
+		}
 	}
 	if err := s.Client.RespawnPane(ctx, pane.ID, cwd, launch.agentCmds[agent.RoleAgent]); err != nil {
 		return fmt.Errorf("respawn agent in %s: %w", m.SessionID, err)

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { syncBuiltinESMExports } from "node:module";
 import { pathToFileURL } from "node:url";
-import { visibleWidth } from "./pi_tui_fixture.mjs";
+import { Container, CustomEditor, visibleWidth } from "./pi_tui_fixture.mjs";
 
 // Checks the identity the launch command passes in: the footer status for each
 // role, and /workers and /quests as transcript entries that run the CLI and start
@@ -123,15 +123,31 @@ async function publish(value) {
 	await rename(source, file);
 }
 const renders = new EventEmitter();
-let editorFactory;
-let editor;
 const stockBorder = (text) => `stock:${text}`;
+const editor = new CustomEditor({}, {}, {}, {});
+editor.borderColor = stockBorder;
+editor.setText("Unsent input");
+const stockRender = editor.render;
+const widgets = new Container();
+const slot = new Container();
+slot.addChild(editor);
+let widget;
+let customFactory;
+const tui = {
+	children: [widgets, slot],
+	requestRender() {
+		widget?.render(80);
+		renders.emit("render");
+	},
+};
 const editorUI = {
-	getEditorComponent() { return editorFactory; },
-	setEditorComponent(factory) {
-		editorFactory = factory;
-		editor = factory?.({ requestRender() { renders.emit("render"); } }, {}, {});
-		if (editor) editor.borderColor = stockBorder;
+	getEditorComponent() { return customFactory; },
+	setWidget(_key, factory) {
+		widget?.dispose();
+		widgets.clear();
+		widget = factory?.(tui);
+		if (widget) widgets.addChild(widget);
+		tui.requestRender();
 	},
 };
 async function recolour(value) {
@@ -142,44 +158,70 @@ async function recolour(value) {
 const accent = launch({ QUESTMASTER_ROLE: "master" });
 try {
 	await started(accent, { ...accent.ctx, mode: "tui", ui: { ...accent.ctx.ui, ...editorUI } });
-	assert.equal(editorFactory, undefined);
+	assert.equal(editor.render, stockRender);
+
+	// Initial live tint while a native selector is open must not swap the
+	// slot or touch the selector. Closing it reveals the already-tinted input.
+	const selector = { render: () => ["Choose a model"] };
+	slot.clear();
+	slot.addChild(selector);
 	await recolour("#4fb6c4");
-	const originalEditor = editor;
-	editor.setText("Example input");
-	assert.equal(editor.embedWorkingStatus, true);
-	assert.deepEqual(editor.render(3), ["\x1b[38;2;79;182;196m───\x1b[39m", "Example input", "\x1b[38;2;79;182;196m───\x1b[39m"]);
+	assert.equal(slot.children[0], selector);
+	assert.deepEqual(selector.render(), ["Choose a model"]);
+	slot.clear();
+	slot.addChild(editor);
+	tui.requestRender();
+	assert.deepEqual(editor.render(3), ["\x1b[38;2;79;182;196m───\x1b[39m", "Unsent input", "\x1b[38;2;79;182;196m───\x1b[39m"]);
 	assert.equal(editor.borderColor, stockBorder);
 
+	const custom = new CustomEditor({}, {}, {}, {});
+	customFactory = () => custom;
+	slot.clear();
+	slot.addChild(custom);
 	await recolour("#e5534b");
-	assert.equal(editor, originalEditor);
-	assert.deepEqual(editor.render(3), ["\x1b[38;2;229;83;75m───\x1b[39m", "Example input", "\x1b[38;2;229;83;75m───\x1b[39m"]);
+	assert.deepEqual(custom.render(3), ["───", "", "───"]);
+	customFactory = undefined;
+	slot.clear();
+	slot.addChild(editor);
+	tui.requestRender();
+	assert.deepEqual(editor.render(3), ["\x1b[38;2;229;83;75m───\x1b[39m", "Unsent input", "\x1b[38;2;229;83;75m───\x1b[39m"]);
 	editor.setText(" !pwd");
 	assert.deepEqual(editor.render(3), ["stock:───", " !pwd", "stock:───"]);
 
-	editor.setText("Example input");
+	editor.setText("Unsent input");
 	await recolour("");
-	assert.equal(editor, originalEditor);
-	assert.deepEqual(editor.render(3), ["stock:───", "Example input", "stock:───"]);
+	assert.equal(slot.children[0], editor);
+	assert.deepEqual(editor.render(3), ["stock:───", "Unsent input", "stock:───"]);
 	assert.match(accent.statuses[0].text, /\x1b\[38;2;242;204;96m/);
 } finally {
 	await accent.handlers.get("session_shutdown")();
 }
-assert.equal(editorFactory, undefined);
+assert.equal(editor.render, stockRender);
 
 try {
 	await publish("#12ab");
 	const invalid = launch({ QUESTMASTER_ROLE: "worker" });
 	await started(invalid, { ...invalid.ctx, mode: "tui", ui: editorUI });
-	assert.equal(editorFactory, undefined, "malformed colour uses Pi's default editor");
+	assert.equal(editor.render, stockRender, "malformed colour leaves the stock border");
 	await invalid.handlers.get("session_shutdown")();
 
+	// Starting under another editor must not disable recolour. When that
+	// editor is removed, the stock editor picks up the current accent.
 	await publish("#4fb6c4");
-	const existingEditor = () => ({});
-	editorFactory = existingEditor;
+	const existing = new CustomEditor({}, {}, {}, {});
+	customFactory = () => existing;
+	slot.clear();
+	slot.addChild(existing);
 	const custom = launch({ QUESTMASTER_ROLE: "worker" });
 	await started(custom, { ...custom.ctx, mode: "tui", ui: editorUI });
+	assert.deepEqual(existing.render(3), ["───", "", "───"]);
+	customFactory = undefined;
+	slot.clear();
+	slot.addChild(editor);
+	tui.requestRender();
+	assert.match(editor.render(3)[0], /\x1b\[38;2;79;182;196m/);
 	await custom.handlers.get("session_shutdown")();
-	assert.equal(editorFactory, existingEditor, "leave other custom editors in place");
+	assert.equal(editor.render, stockRender);
 } finally {
 	if (previousRuntime === undefined) delete process.env.QUESTMASTER_RUNTIME_DIR;
 	else process.env.QUESTMASTER_RUNTIME_DIR = previousRuntime;
