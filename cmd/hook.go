@@ -2849,6 +2849,7 @@ type piPayload struct {
 	SessionFile           string                  `json:"session_file"`
 	Recent                []string                `json:"recent"`
 	Snippet               string                  `json:"snippet"`
+	Progress              *string                 `json:"progress"`
 	Busy                  bool                    `json:"busy"`
 	Text                  string                  `json:"text"`
 	Prompt                string                  `json:"prompt"`
@@ -3008,6 +3009,24 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		return preparedPiEvent{}, false
 	}
 	now := r.Now().UTC()
+	if agentName == "pi" && opts.action == "progress" {
+		return preparedPiEvent{
+			event: &state.StateEvent{Ts: now, Agent: agentName, Role: "agent", Action: opts.action},
+			mutate: func(ss *state.SessionState) bool {
+				pane := ss.Panes["agent"]
+				if payload.Progress == nil || pane.Agent != "pi" || pane.State != "working" || overtaken(now, pane.LastEvent) {
+					return false
+				}
+				label := capNarration(redactCredentials(*payload.Progress))
+				if label == pane.PiProgress {
+					return false
+				}
+				pane.PiProgress = label
+				ss.Panes["agent"] = pane
+				return true
+			},
+		}, true
+	}
 	occurredAt := now
 	if payload.OccurredAtMS > 0 {
 		candidate := time.UnixMilli(payload.OccurredAtMS).UTC()
@@ -3174,6 +3193,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		prevRunningTools := slices.Clone(pane.RunningTools)
 		prevActiveSubagents := maps.Clone(pane.ActiveSubagents)
 		prevNarration := pane.Narration
+		prevProgress := pane.PiProgress
 		if turnBoundary {
 			state.ClearRunningTools(&pane)
 		}
@@ -3198,6 +3218,9 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 
 		if setState != "" {
 			pane.State = setState
+		}
+		if !isOvertaken && (turnBoundary || pane.State != "working" || (setActivity != "" && opts.action != "tool_execution_start")) {
+			pane.PiProgress = ""
 		}
 		if pane.State == "blocked" {
 			state.MarkRunningToolsWaitedForInput(&pane)
@@ -3268,6 +3291,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 			pane.LastChatStatus == prev.LastChatStatus &&
 			pane.LastChatAt.Equal(prev.LastChatAt) &&
 			pane.Narration == prevNarration &&
+			pane.PiProgress == prevProgress &&
 			maps.Equal(pane.ActiveSubagents, prevActiveSubagents) &&
 			slices.Equal(pane.RunningTools, prevRunningTools) {
 			return false
@@ -3480,6 +3504,11 @@ func piAssistantMessageText(p piPayload) string {
 	}
 	if text := piTextFromMessage(p.Message); text != "" {
 		return text
+	}
+	switch p.AssistantMessageEvent.Type {
+	case "", "text_start", "text_delta", "text_end":
+	default:
+		return ""
 	}
 	if text := piTextFromContent(p.AssistantMessageEvent.Content); text != "" {
 		return text

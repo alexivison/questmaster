@@ -3,11 +3,14 @@ import Foundation
 public enum TrackerRowText {
     static let snippetLimit = 180
 
-    /// The plate's snippet: the session's narration (its latest say or message) on one line, or else the last line of
-    /// its latest activity. Shell sessions have none.
+    /// The plate shows active Pi progress, the latest narration, or the last line of activity.
     public static func snippet(for session: TrackerSession) -> String {
-        if AgentKind(name: session.agent) == .shell {
+        let agent = AgentKind(name: session.agent)
+        if agent == .shell {
             return ""
+        }
+        if agent == .pi, session.lifecycle == "active", session.state == "working", !session.piProgress.isEmpty {
+            return capped(session.piProgress)
         }
         let narration = session.narration.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         if !narration.isEmpty {

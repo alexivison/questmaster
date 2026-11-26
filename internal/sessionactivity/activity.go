@@ -34,6 +34,7 @@ type Result struct {
 	ActiveSubagents int
 	Agent           string
 	Narration       string
+	PiProgress      string
 	RunningTool     *state.RunningTool
 }
 
@@ -103,6 +104,10 @@ func FromState(ss *state.SessionState) Result {
 		stateName = "unknown"
 	}
 	var runningTool *state.RunningTool
+	var piProgress string
+	if stateName == "working" && p.Agent == "pi" {
+		piProgress = p.PiProgress
+	}
 	if stateName != "done" && stateName != "idle" && stateName != "stopped" && len(p.RunningTools) > 0 {
 		latest := p.RunningTools[len(p.RunningTools)-1]
 		runningTool = &latest
@@ -119,6 +124,7 @@ func FromState(ss *state.SessionState) Result {
 		ActiveSubagents:  len(p.ActiveSubagents),
 		Agent:            p.Agent,
 		Narration:        p.Narration,
+		PiProgress:       piProgress,
 		RunningTool:      runningTool,
 	}
 }
