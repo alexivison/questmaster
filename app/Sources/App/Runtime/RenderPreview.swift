@@ -118,6 +118,7 @@ enum RenderPreview {
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
         masterScaleSheet(outputDir)
+        familiarEffectsSheet(outputDir)
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(trackerEmptyView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-empty.png")
@@ -410,7 +411,7 @@ enum RenderPreview {
             }
             shell.window.orderOut(nil)
         }
-        masterSheetWriteSheet(cells, columns: 4, to: "\(outputDir)/master-scale-sheet.png")
+        masterSheetWriteSheet(cells, columns: 4, to: "\(outputDir)/master-scale-sheet.png", legend: "Dashed white: the tracker column's right edge. Dotted teal: the slot's sides. Art past the dotted lines is outside the slot; past the dashed line, it is over the terminal.")
     }
 
     /// The whole shell with `store`, shown and laid out, and the attached master's avatar in it.
@@ -564,7 +565,7 @@ enum RenderPreview {
     /// The cells in rows of `columns`, each labelled above, with its guides drawn over it, on the window colour, as one PNG. The guides are
     /// the column's right edge, dashed, and the slot's sides, dotted; a legend sits under the last row.
     @MainActor
-    private static func masterSheetWriteSheet(_ cells: [(label: String, image: CGImage, guides: [CGFloat])], columns: Int, to path: String) {
+    private static func masterSheetWriteSheet(_ cells: [(label: String, image: CGImage, guides: [CGFloat])], columns: Int, to path: String, legend: String) {
         let gap: CGFloat = 24
         let labelHeight: CGFloat = 44
         let legendHeight: CGFloat = 56
@@ -601,7 +602,7 @@ enum RenderPreview {
             }
             (cell.label as NSString).draw(at: NSPoint(x: left, y: top + 14), withAttributes: labelAttributes)
         }
-        ("Dashed white: the tracker column's right edge. Dotted teal: the slot's sides. Art past the dotted lines is outside the slot; past the dashed line, it is over the terminal."
+        (legend
             as NSString).draw(at: NSPoint(x: gap, y: gap), withAttributes: labelAttributes)
         NSGraphicsContext.restoreGraphicsState()
         if let image = context.makeImage() {
@@ -615,6 +616,108 @@ enum RenderPreview {
         }
         try? png.write(to: URL(fileURLWithPath: path))
         print("RenderPreview: wrote \(path)")
+    }
+
+    // MARK: Familiar effects sheet: the round-2 poses alone in the worker slot, and a company with effects
+
+    /// The round-2 familiars and the poses whose effects changed, in the order of the sheet.
+    private static let familiarEffectPicks: [(classID: String, familiar: String, poses: [TrackerAvatarPose])] = [
+        ("fighter", "War Hound", [.working, .callingOut, .bow]),
+        ("paladin", "Animated Armour", [.working, .callingOut]),
+        ("necromancer", "Skeleton", [.working]),
+        ("druid", "Treant", [.working]),
+        ("cleric", "Light Spirit", [.pondering, .working]),
+        ("rogue", "Shadow", [.pondering]),
+        ("bard", "Imp", [.idle, .working, .bow]),
+        ("ranger", "Hawk", [.working]),
+        ("wizard", "Fire Elemental", [.pondering]),
+        ("sorcerer", "Lightning Elemental", [.pondering]),
+    ]
+    private static let familiarSheetMargin: CGFloat = 40
+
+    /// Each changed familiar pose alone in the worker slot, at the frame where its art covers the most area, and a seven-worker Fire Elemental
+    /// company with four working. Named by RENDER_ONLY=familiar-effects-sheet; writes `familiar-effects-sheet.png` and the company's PNG.
+    @MainActor
+    private static func familiarEffectsSheet(_ outputDir: String) {
+        guard ProcessInfo.processInfo.environment["RENDER_ONLY"]?.split(separator: ",").contains("familiar-effects-sheet") == true else {
+            return
+        }
+        warmUpFirstWindow()
+        var cells: [(label: String, image: CGImage, guides: [CGFloat])] = []
+        for pick in familiarEffectPicks {
+            for pose in pick.poses {
+                guard let image = familiarPoseShot(classID: pick.classID, pose: pose) else {
+                    print("FAMILIAR-FX \(pick.classID) \(pose.resourceName): no shot")
+                    continue
+                }
+                print("FAMILIAR-FX \(pick.classID) \(pose.resourceName): shot")
+                cells.append(("\(pick.classID) · \(pick.familiar) · \(pose.resourceName)", image, []))
+            }
+        }
+        if let company = familiarCompanyShot() {
+            cells.append(("wizard · Fire Elemental · company, 7 workers", company, []))
+            masterSheetWritePNG(company, to: "\(outputDir)/familiar-company-wizard.png")
+        }
+        masterSheetWriteSheet(cells, columns: 4, to: "\(outputDir)/familiar-effects-sheet.png", legend: "Each cell: a round-2 familiar alone in the worker slot at the frame where its art covers the most area. The last cell is a Fire Elemental company.")
+    }
+
+    /// One familiar alone in the worker slot at `pose`, sampled over the pose for the frame where its visible art covers the most area.
+    @MainActor
+    private static func familiarPoseShot(classID: String, pose: TrackerAvatarPose) -> CGImage? {
+        guard let sprites = TrackerAvatarSprites.bundledFamiliars()[classID], sprites.animation.animation(for: pose) != nil else {
+            return nil
+        }
+        let slot = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let margin = familiarSheetMargin
+        let view = TrackerAvatarView(frame: NSRect(x: margin, y: margin, width: slot.width, height: slot.height))
+        view.sprites = sprites
+        view.scale = sprites.pixelPoints
+        let container = NSView(frame: NSRect(origin: .zero, size: CGSize(width: slot.width + 2 * margin, height: slot.height + 2 * margin)))
+        container.wantsLayer = true
+        container.layer?.backgroundColor = AppPalette.window.cgColor
+        container.addSubview(view)
+        let window = HeadlessWindow(size: container.frame.size, scale: 2)
+        window.contentView = container
+        window.show()
+        defer { window.orderOut(nil) }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        view.configure(pose: pose, beat: 0, finish: nil, enter: nil, reduceMotion: false)
+        var cache: [ObjectIdentifier: (columns: ClosedRange<Int>, rows: ClosedRange<Int>)] = [:]
+        var best: (image: CGImage, area: CGFloat)?
+        let began = Date()
+        while Date().timeIntervalSince(began) < masterSheetSampleSeconds {
+            RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 30))
+            guard let reach = masterSheetReach(of: view, cache: &cache) else {
+                continue
+            }
+            let area = reach.width * reach.height
+            guard area > (best?.area ?? -1), let image = masterSheetCapture(container) else {
+                continue
+            }
+            best = (image, area)
+        }
+        return best?.image
+    }
+
+    /// A seven-worker Fire Elemental company, four working, in a wizard's shell, shown and captured after its effects have started.
+    @MainActor
+    private static func familiarCompanyShot() -> CGImage? {
+        let titles = ["Ledger sync", "Search index", "Tray icon polish", "Docs pass 2", "Nightly build", "Familiar app", "Avatar switch"]
+        let working = [true, false, true, false, true, false, true]
+        let slot = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let margin = familiarSheetMargin
+        let host = NSHostingView(rootView: companyCell(classID: "wizard", workers: titles.count, titles: titles, working: working))
+        host.frame = NSRect(x: margin, y: margin, width: slot.width, height: slot.height)
+        let container = NSView(frame: NSRect(origin: .zero, size: CGSize(width: slot.width + 2 * margin, height: slot.height + 2 * margin)))
+        container.wantsLayer = true
+        container.layer?.backgroundColor = AppPalette.window.cgColor
+        container.addSubview(host)
+        let window = HeadlessWindow(size: container.frame.size, scale: 2)
+        window.contentView = container
+        window.show()
+        defer { window.orderOut(nil) }
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        return masterSheetCapture(container)
     }
 
     /// Artifact rows at rest, under the pointer, on the keyboard cursor, and a missing file under the pointer. The
