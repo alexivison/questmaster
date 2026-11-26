@@ -14,7 +14,7 @@ func newAgentCmd(store *state.Store) *cobra.Command {
 		Short: "Query enabled agents",
 	}
 	cmd.AddCommand(newAgentQueryCmd(store))
-	cmd.AddCommand(newAgentCodexCmd(store))
+	cmd.AddCommand(newAgentCodexCmd())
 	return cmd
 }
 
