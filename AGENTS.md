@@ -7,10 +7,10 @@ Detail lives in project skills: read the file the "Skills index" row names first
 
 ## Workflow
 
-- Keep `internal/agent/prompts/` to Questmaster role identity, session mechanics,
-  and CLI behavior. Delegation thresholds, reviewer cadence, model preferences,
-  and general writing or repository practices belong to the user or applicable
-  project instructions, not the injected session prompt.
+- Keep `internal/agent/prompts/` focused on Questmaster role identity, session
+  mechanics, and CLI behavior. The shared master prompt may suggest using
+  Questmaster workers. User and project instructions set delegation policy,
+  reviewer cadence, model preferences, and general practices.
 - Master launches get the shared voice rules and mapped archetype
   from `internal/agent/prompts/`; workers get none. Claude and Pi append it,
   Codex uses `developer_instructions`, and OpenCode selects a managed per-class
