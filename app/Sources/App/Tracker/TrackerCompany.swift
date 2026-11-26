@@ -13,9 +13,9 @@ final class TrackerCompanyStage {
     /// One familiar on the row: its place in the slot, its art and the pose its own director plays.
     struct Companion: Identifiable {
         let id: String
-        /// The worker's session title: the name its tag shows, while the worker is working or the pointer is over its familiar.
+        /// The worker's session title: the name its tag shows, when `TrackerCompanyNameTags.visibility` shows it.
         let title: String
-        /// The worker's status: a working worker's name shows (`TrackerCompanyNameTags.visibility`).
+        /// The worker's status: a working worker's name shows among two or more familiars (`TrackerCompanyNameTags.visibility`).
         let status: TrackerStatusKind
         let sprites: TrackerAvatarSprites
         /// The points one frame pixel draws at: a familiar's company frame draws at its half point a pixel.
@@ -54,8 +54,8 @@ final class TrackerCompanyStage {
 
     /// The familiars that show, in spawn order: each stands further right than the one before, so the right-most is drawn on top.
     private(set) var companions: [Companion] = []
-    /// The names over the shown familiars, in spawn order. A working worker's name shows, and the hovered familiar's too; a name that fits
-    /// nowhere has no tag, and the "+n" workers have none.
+    /// The names over the shown familiars, in spawn order. A working worker's name shows once the company has two or more familiars, and the
+    /// hovered familiar's always; a name that fits nowhere has no tag, and the "+n" workers have none.
     private(set) var nameTags: [NameTag] = []
     /// The resting boxes the pointer can hover, one per familiar on the row, in spawn order. The "+n" workers have none.
     private(set) var hoverAreas: [HoverArea] = []
@@ -169,7 +169,8 @@ final class TrackerCompanyStage {
         if let hoveredID, !companions.contains(where: { $0.id == hoveredID }) {
             self.hoveredID = nil
         }
-        nameTags = Self.nameTags(for: companions, hovered: hoveredID, master: masterArt, slotWidth: Double(TrackerAvatarMetrics.slotWidth))
+        nameTags = Self.nameTags(for: companions, familiarCount: familiars.count, hovered: hoveredID, master: masterArt,
+                                 slotWidth: Double(TrackerAvatarMetrics.slotWidth))
         hoverAreas = companions.map(Self.hoverArea(of:))
         overflow = layout.overflow
         overflowPortrait = overflow > 0 ? SessionClass(id: master.sessionClass).map(SessionPortrait.familiar) : nil
@@ -218,15 +219,18 @@ final class TrackerCompanyStage {
     }
 
     /// The name tags over the companions, in spawn order: each name measured in the tag's font, centred over its familiar's rest and set
-    /// above its visible top, and placed by Core's tiers around the master's face. A name that fits nowhere gets no tag.
-    private static func nameTags(for companions: [Companion], hovered: String?, master: TrackerAvatarSprites, slotWidth: Double) -> [NameTag] {
+    /// above its visible top, and placed by Core's tiers around the master's face. A name that fits nowhere gets no tag. `familiarCount` is the
+    /// company's familiars, the "+n" workers included, which decides whether a working name shows (`TrackerCompanyNameTags.visibility`).
+    private static func nameTags(for companions: [Companion], familiarCount: Int, hovered: String?, master: TrackerAvatarSprites,
+                                 slotWidth: Double) -> [NameTag] {
         let tags = companions.map { companion in
             TrackerCompanyNameTags.Tag(
                 name: companion.title,
                 nameWidth: textWidth(companion.title),
                 centre: Double(companion.bodyX) + restCentreOffset(of: companion.sprites) * Double(companion.pixel),
                 headTop: -TrackerCompanyLayout.belowFeet + restHeight(of: companion.sprites) * Double(companion.pixel),
-                visibility: TrackerCompanyNameTags.visibility(status: companion.status, hovered: companion.id == hovered)
+                visibility: TrackerCompanyNameTags.visibility(status: companion.status, hovered: companion.id == hovered,
+                                                              familiarCount: familiarCount)
             )
         }
         let placements = TrackerCompanyNameTags.place(tags, face: faceBox(master: master, slotWidth: slotWidth), slotWidth: slotWidth) {

@@ -1,11 +1,12 @@
 import Foundation
 
-/// The worker names above the familiars in the master's company, as the tiered treatment places them. A familiar's name shows while its
-/// worker is working (a busy turn) or while the pointer is over the familiar, in a chip over its head on a stem; any other name shows
-/// nowhere and takes no room. A name takes the lowest of `tierCount` tiers with room over its head, a chip keeping `chipGap` from its
-/// neighbours on its tier. A tier whose band runs into the master's face is blocked where the face is. A name with no room on any tier is
-/// cut with an ellipsis to the widest free run over its head, and a name that cannot keep `minimumLetters` letters and an ellipsis gets no
-/// chip. Pure: the App measures the text and cuts it, through the `cut` closure. Heights are points above the slot's bottom.
+/// The worker names above the familiars in the master's company, as the tiered treatment places them. A familiar's name shows while the
+/// pointer is over the familiar, and while its worker is working (a busy turn) with two or more familiars in the company, in a chip over
+/// its head on a stem; any other name shows nowhere and takes no room. A name takes the lowest of `tierCount` tiers with room over its
+/// head, a chip keeping `chipGap` from its neighbours on its tier. A tier whose band runs into the master's face is blocked where the face
+/// is. A name with no room on any tier is cut with an ellipsis to the widest free run over its head, and a name that cannot keep
+/// `minimumLetters` letters and an ellipsis gets no chip. Pure: the App measures the text and cuts it, through the `cut` closure. Heights
+/// are points above the slot's bottom.
 public enum TrackerCompanyNameTags {
     /// A chip's height: `ControlHeight.chip`, 15 pt.
     public static let chipHeight: Double = 15
@@ -32,12 +33,17 @@ public enum TrackerCompanyNameTags {
     }
 
     /// A familiar's name shows while the pointer is over it, whatever its status, and while its worker is working (a busy turn, whose familiar
-    /// poses thinking or working). A hovered name is `hovered`, even for a working familiar, so it places first.
-    public static func visibility(status: TrackerStatusKind, hovered: Bool) -> Visibility {
+    /// poses thinking or working) among two or more familiars. A lone familiar's working name stays hidden: it needs no tag at rest, and the
+    /// pointer over it still shows it. `familiarCount` counts the company's familiars, the "+n" workers included. A hovered name is `hovered`,
+    /// even for a working familiar, so it places first.
+    public static func visibility(status: TrackerStatusKind, hovered: Bool, familiarCount: Int) -> Visibility {
         if hovered {
             return .hovered
         }
-        return status == .working ? .working : .hidden
+        if status == .working && familiarCount > 1 {
+            return .working
+        }
+        return .hidden
     }
 
     /// One familiar's name to place: the full text width (without the chip's padding), the x of the familiar's centre, the y of its
