@@ -1,6 +1,21 @@
-// Isolated subset of @earendil-works/pi-tui's public text helpers for the Pi
-// extension tests. Its Unicode fixtures use Intl.Segmenter and Unicode
-// properties, not a copied display-width table.
+// Isolated Pi UI contract for extension tests. Unicode fixtures use
+// Intl.Segmenter and Unicode properties, not a copied display-width table.
+
+export class CustomEditor {
+	borderColor = (text) => text;
+	text = "";
+
+	constructor(_tui, _theme, _keybindings, options) {
+		this.embedWorkingStatus = options?.embedWorkingStatus;
+	}
+
+	getText() { return this.text; }
+	setText(text) { this.text = text; }
+	render(width) {
+		const border = this.borderColor("─".repeat(width));
+		return [border, this.text, border];
+	}
+}
 const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 const ansiPattern = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/y;
 const emojiPresentation = /\p{Emoji_Presentation}/u;

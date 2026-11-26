@@ -1,10 +1,11 @@
-// Package sessiontheme keeps tmux's session accent in step with tracker colours.
+// Package sessiontheme shares the tracker's session accent with tmux and Pi.
 package sessiontheme
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/palette"
@@ -14,6 +15,8 @@ import (
 )
 
 const AccentOption = "@questmaster_session_accent"
+
+const piSessionColorEnv = "QUESTMASTER_SESSION_COLOR"
 
 // Sync refreshes live sessions after a colour change or config reload. A
 // nonempty sessionID targets a newly launched session directly. Otherwise one
@@ -55,11 +58,25 @@ func Sync(ctx context.Context, store *state.Store, router *tmuxroute.Router, ses
 				continue
 			}
 			handle, err := router.Route(m)
-			if err == nil {
-				err = handle.Client().SetSessionOption(ctx, m.SessionID, AccentOption, palette.Display(colors[m.SessionID]))
-			}
 			if err != nil {
 				errs = append(errs, fmt.Errorf("sync tmux colour for %s: %w", m.SessionID, err))
+				continue
+			}
+			color := colors[m.SessionID]
+			accent := palette.Display(color)
+			if err := handle.Client().SetSessionOption(ctx, m.SessionID, AccentOption, accent); err != nil {
+				errs = append(errs, fmt.Errorf("sync tmux colour for %s: %w", m.SessionID, err))
+				continue
+			}
+			// Pi reads this at launch, before the pane starts. Empty clears any
+			// inherited colour so an uncoloured session uses Pi's native border.
+			if sessionID != "" && slices.ContainsFunc(m.Agents, func(a state.AgentManifest) bool { return a.Name == "pi" }) {
+				if color == "" {
+					accent = ""
+				}
+				if err := handle.Client().SetEnvironment(ctx, m.SessionID, piSessionColorEnv, accent); err != nil {
+					errs = append(errs, fmt.Errorf("export Pi colour for %s: %w", m.SessionID, err))
+				}
 			}
 		}
 		return errors.Join(errs...)

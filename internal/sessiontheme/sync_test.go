@@ -17,6 +17,7 @@ import (
 type themeRunner struct {
 	live    []string
 	accents map[string]string
+	piColor map[string]string
 	lists   int
 	fail    bool
 }
@@ -31,6 +32,10 @@ func (r *themeRunner) Run(_ context.Context, args ...string) (string, error) {
 	}
 	if len(args) == 5 && args[0] == "set-option" && args[1] == "-t" && args[3] == AccentOption {
 		r.accents[args[2]] = args[4]
+		return "", nil
+	}
+	if len(args) == 5 && args[0] == "set-environment" && args[1] == "-t" && args[3] == piSessionColorEnv && r.piColor != nil {
+		r.piColor[args[2]] = args[4]
 		return "", nil
 	}
 	return "", fmt.Errorf("unexpected tmux call %q", args)
@@ -141,7 +146,7 @@ func TestSyncWorkerFollowsUncolouredMasterAndOrphanUsesOwnProject(t *testing.T) 
 	if err := state.NewRepoColorStore(store.Root()).Set(projectID, "pink"); err != nil {
 		t.Fatal(err)
 	}
-	master := state.Manifest{SessionID: "qm-master", Cwd: t.TempDir(), TmuxServer: "example", Agents: []state.AgentManifest{{Name: "example-agent", Role: "agent"}}}
+	master := state.Manifest{SessionID: "qm-master", Cwd: t.TempDir(), TmuxServer: "example", Agents: []state.AgentManifest{{Name: "pi", Role: "agent"}}}
 	worker := state.Manifest{SessionID: "qm-worker", Cwd: projectPath, TmuxServer: "example", Agents: master.Agents}
 	worker.SetExtra("parent_session", master.SessionID)
 	for _, m := range []state.Manifest{master, worker} {
@@ -149,11 +154,12 @@ func TestSyncWorkerFollowsUncolouredMasterAndOrphanUsesOwnProject(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	runner := &themeRunner{live: []string{master.SessionID, worker.SessionID}, accents: map[string]string{}}
+	runner := &themeRunner{live: []string{master.SessionID, worker.SessionID}, accents: map[string]string{}, piColor: map[string]string{}}
 	router := tmuxroute.New(store, map[string]*tmux.Client{"example": tmux.NewClient(runner)}, func() string { return "example" }, nil)
 	for _, step := range []struct{ name, parent, masterColor, workerColor string }{
 		{"coloured master", master.SessionID, "blue", "blue"},
 		{"uncoloured master", master.SessionID, "", ""},
+		{"neutral master", master.SessionID, "none", "none"},
 		{"orphan worker", "qm-missing", "", "pink"},
 	} {
 		t.Run(step.name, func(t *testing.T) {
@@ -168,6 +174,20 @@ func TestSyncWorkerFollowsUncolouredMasterAndOrphanUsesOwnProject(t *testing.T) 
 			}
 			if got := runner.accents[tmux.SessionTarget(worker.SessionID)]; got != palette.Display(step.workerColor) {
 				t.Errorf("worker accent = %q, want %q", got, palette.Display(step.workerColor))
+			}
+			for _, target := range []struct{ id, color string }{
+				{master.SessionID, step.masterColor}, {worker.SessionID, step.workerColor},
+			} {
+				if err := Sync(t.Context(), store, router, target.id); err != nil {
+					t.Fatal(err)
+				}
+				want := ""
+				if target.color != "" {
+					want = palette.Display(target.color)
+				}
+				if got, ok := runner.piColor[tmux.SessionTarget(target.id)]; !ok || got != want {
+					t.Errorf("%s launch colour = %q (present: %v), want %q", target.id, got, ok, want)
+				}
 			}
 		})
 	}
