@@ -786,7 +786,7 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.blink == false, "the ranger should never blink")
         expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0xf0ac76), "the ranger should keep the eyelid colour")
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the ranger should resume at the authored rest frame")
-        expect(animation.idle?.breathing?.frames.count == 16, "the ranger's breathing should play its 16 authored steps, up and back down")
+        expect(animation.idle?.breathing?.frames.count == 8, "the ranger's breathing should play its eight frames once, one breath a cycle")
         expect(animation.fidgets.map(\.name) == ["scarf-tug"], "the ranger should have the scarf-tug fidget")
         expect(animation.fidgets.first?.frames == [2, 3, 4, 5, 6, 7, 8, 9, 8, 7, 6, 5, 4, 3, 2], "the scarf should tug on idle frames 2 to 9 and back")
         let pondering = animation.animation(for: .pondering)
