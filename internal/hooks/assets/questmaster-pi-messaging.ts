@@ -8,15 +8,15 @@
 //   QUESTMASTER_TITLE         the session title, when set
 //   QUESTMASTER_CLASS         a master's class id (paladin, wizard, ...), when set
 //   QUESTMASTER_MASTER_CLASS  a worker's master's class id, when set (its familiar)
-//   QUESTMASTER_SESSION_COLOR  the effective tracker colour at launch (#rrggbb), or empty
+// The effective tracker colour is published as pi-accent in QUESTMASTER_RUNTIME_DIR.
 // The footer status key is "questmaster". Routed messages are custom messages with
 // the customType names in cardStyles.
 import { chmod, lstat, unlink } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { accessSync, constants } from "node:fs";
+import { accessSync, closeSync, constants, fstatSync, openSync, readSync, watch, type FSWatcher } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { basename, delimiter, isAbsolute, join } from "node:path";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type TUI } from "@earendil-works/pi-tui";
 
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -388,30 +388,91 @@ function paint(rgb: number[], text: string, bold = false): string {
 	return `${bold ? "\x1b[1m" : ""}\x1b[38;2;${rgb.join(";")}m${text}\x1b[39m${bold ? "\x1b[22m" : ""}`;
 }
 
-function tintInputBorder(ctx: ExtensionContext, sessionID: string): (() => void) | undefined {
-	if (ctx?.mode !== "tui" || !ctx.hasUI || !sessionPattern.test(sessionID)) return;
-	const channels = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(process.env.QUESTMASTER_SESSION_COLOR ?? "");
-	if (!channels || !ctx.ui.getEditorComponent || ctx.ui.getEditorComponent()) return;
-	const rgb = channels.slice(1).map((channel) => Number.parseInt(channel, 16));
-	ctx.ui.setEditorComponent((tui, theme, keybindings) => {
-		const editor = new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true });
-		const render = editor.render.bind(editor);
-		editor.render = (width) => {
-			// Keep Pi's distinct shell-input border. Change only the border colour
-			// while drawing, not the layout, keybindings, or Pi's saved styling.
-			if (editor.getText().trimStart().startsWith("!")) return render(width);
-			const stockBorder = editor.borderColor;
-			editor.borderColor = (text) => paint(rgb, text);
-			try {
-				return render(width);
-			} finally {
-				editor.borderColor = stockBorder;
-			}
-		};
-		return editor;
-	});
-	const installed = ctx.ui.getEditorComponent();
+const piAccentFile = "pi-accent";
+const hexAccent = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
+
+async function ownedRuntimeDirectory(): Promise<string | undefined> {
+	const sessionID = process.env.QUESTMASTER_SESSION ?? "";
+	const dir = process.env.QUESTMASTER_RUNTIME_DIR ?? "";
+	if (!sessionPattern.test(sessionID) || !isAbsolute(dir) || basename(dir) !== sessionID) return;
+	try {
+		const runtime = await lstat(dir);
+		if (runtime.isDirectory() && runtime.uid === process.getuid() && (runtime.mode & 0o022) === 0) return dir;
+	} catch {}
+}
+
+function readPiAccent(path: string): string | undefined {
+	let fd: number | undefined;
+	try {
+		fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+		const file = fstatSync(fd);
+		if (!file.isFile() || file.uid !== process.getuid() || (file.mode & 0o077) !== 0 || file.size !== 7) return;
+		const bytes = Buffer.alloc(8);
+		const size = readSync(fd, bytes, 0, bytes.length, 0);
+		const value = bytes.toString("utf8", 0, size);
+		return hexAccent.test(value) ? value : undefined;
+	} catch {
+		return undefined;
+	} finally {
+		if (fd !== undefined) closeSync(fd);
+	}
+}
+
+function watchInputBorder(ctx: ExtensionContext, runtimeDir: string): (() => void) | undefined {
+	if (ctx?.mode !== "tui" || !ctx.hasUI || !ctx.ui.getEditorComponent || ctx.ui.getEditorComponent()) return;
+	let accent: string | undefined;
+	let border: ((text: string) => string) | undefined;
+	let installed: ReturnType<ExtensionContext["ui"]["getEditorComponent"]>;
+	let activeTui: TUI | undefined;
+	let closed = false;
+	const path = join(runtimeDir, piAccentFile);
+
+	const refresh = () => {
+		if (closed) return;
+		const next = readPiAccent(path);
+		if (next === accent) return;
+		accent = next;
+		const rgb = next?.match(hexAccent)?.slice(1).map((channel) => Number.parseInt(channel, 16));
+		border = rgb ? (text) => paint(rgb, text) : undefined;
+
+		// Install lazily when there is a tint. Later recolours only redraw:
+		// replacing the editor again would discard its editing state.
+		if (border && !installed && !ctx.ui.getEditorComponent()) {
+			ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+				activeTui = tui;
+				const editor = new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true });
+				const render = editor.render.bind(editor);
+				editor.render = (width) => {
+					if (!border || editor.getText().trimStart().startsWith("!")) return render(width);
+					const stockBorder = editor.borderColor;
+					editor.borderColor = border;
+					try {
+						return render(width);
+					} finally {
+						editor.borderColor = stockBorder;
+					}
+				};
+				return editor;
+			});
+			installed = ctx.ui.getEditorComponent();
+		}
+		activeTui?.requestRender();
+	};
+
+	// Watch the directory, not the file: the backend replaces the file by
+	// rename, and the first colour can appear after Pi has started.
+	let watcher: FSWatcher | undefined;
+	try {
+		watcher = watch(runtimeDir, { persistent: false }, (_event, name) => {
+			if (name === null || name === piAccentFile) refresh();
+		});
+		watcher.on("error", () => watcher?.close());
+	} catch {}
+	refresh();
+
 	return () => {
+		closed = true;
+		watcher?.close();
 		if (installed && ctx.ui.getEditorComponent() === installed) ctx.ui.setEditorComponent(undefined);
 	};
 }
@@ -750,6 +811,8 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function stop(): Promise<void> {
+		restoreInputBorder?.();
+		restoreInputBorder = undefined;
 		const active = server;
 		server = undefined;
 		for (const connection of connections) connection.destroy();
@@ -839,20 +902,8 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
-	async function start(): Promise<void> {
+	async function start(runtimeDir: string): Promise<void> {
 		if (typeof pi.sendMessage !== "function") return;
-		const sessionID = process.env.QUESTMASTER_SESSION ?? "";
-		if (!sessionPattern.test(sessionID)) return;
-		// Questmaster names the session's runtime directory; without it there is
-		// no socket, and messages fall back to typed input.
-		const runtimeDir = process.env.QUESTMASTER_RUNTIME_DIR ?? "";
-		if (!isAbsolute(runtimeDir) || basename(runtimeDir) !== sessionID) return;
-		try {
-			const runtime = await lstat(runtimeDir);
-			if (!runtime.isDirectory() || runtime.uid !== process.getuid() || (runtime.mode & 0o022) !== 0) return;
-		} catch {
-			return;
-		}
 		const socketPath = join(runtimeDir, "pi.sock");
 		if (!(await clearStaleSocket(socketPath))) return;
 		const next = createServer(handle);
@@ -897,7 +948,11 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, rawContext) => {
 		const occurredAtMS = Date.now();
 		await stop();
-		await start();
+		const runtimeDir = await ownedRuntimeDirectory();
+		if (runtimeDir) {
+			await start(runtimeDir);
+			restoreInputBorder = watchInputBorder(rawContext, runtimeDir);
+		}
 		const ctx = rawContext as PiContext | undefined;
 		const sessionManager = ctx?.sessionManager;
 		piSessionID = sessionManager?.getSessionId?.() || piSessionID;
@@ -907,8 +962,6 @@ export default function (pi: ExtensionAPI) {
 		promptWaiting = false;
 		const line = identityLine(identity);
 		if (line && ctx?.hasUI) ctx.ui?.setStatus?.("questmaster", line);
-		restoreInputBorder?.();
-		restoreInputBorder = tintInputBorder(rawContext, questmasterSessionID);
 		setBusy(false, "idle");
 		await emitHook("session_start", undefined, false, occurredAtMS);
 	});
@@ -1108,8 +1161,6 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		const occurredAtMS = Date.now();
-		restoreInputBorder?.();
-		restoreInputBorder = undefined;
 		setBusy(false, "idle");
 		await stop();
 		held = [];

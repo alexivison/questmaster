@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Readable } from "node:stream";
 import { syncBuiltinESMExports } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -45,7 +47,7 @@ childProcess.spawn = (_command, args) => {
 syncBuiltinESMExports();
 
 const { default: extension } = await import(pathToFileURL(extensionPath));
-const identityKeys = ["QUESTMASTER_ROLE", "QUESTMASTER_TITLE", "QUESTMASTER_CLASS", "QUESTMASTER_MASTER_CLASS", "QUESTMASTER_SESSION_COLOR"];
+const identityKeys = ["QUESTMASTER_ROLE", "QUESTMASTER_TITLE", "QUESTMASTER_CLASS", "QUESTMASTER_MASTER_CLASS"];
 
 function assertRowsFit(rows, width, label) {
 	for (const [index, row] of rows.entries()) {
@@ -107,39 +109,82 @@ assert.ok(worker.statuses[0].text.includes("Scan repo"));
 assert.ok(worker.statuses[0].text.includes(" · Fire Elemental familiar"), "a worker shows its master's familiar");
 assert.ok(worker.statuses[0].text.includes("\x1b[38;2;188;140;255m"), "a worker's status uses workerRole");
 
-// The session accent affects only the native editor border; the published
-// identity and bash-mode border keep their existing styling.
+// An initially uncoloured session can gain, change, or clear its tint without
+// restarting or replacing the tinted editor. Publish as the backend does.
+const temp = await mkdtemp("/tmp/qm-pi-accent-");
+const runtime = join(temp, masterID);
+await mkdir(runtime, { mode: 0o700 });
+const previousRuntime = process.env.QUESTMASTER_RUNTIME_DIR;
+process.env.QUESTMASTER_RUNTIME_DIR = runtime;
+const file = join(runtime, "pi-accent");
+async function publish(value) {
+	const source = join(runtime, ".pi-accent.tmp");
+	await writeFile(source, value, { mode: 0o600 });
+	await rename(source, file);
+}
+const renders = new EventEmitter();
 let editorFactory;
+let editor;
+const stockBorder = (text) => `stock:${text}`;
 const editorUI = {
 	getEditorComponent() { return editorFactory; },
-	setEditorComponent(factory) { editorFactory = factory; },
+	setEditorComponent(factory) {
+		editorFactory = factory;
+		editor = factory?.({ requestRender() { renders.emit("render"); } }, {}, {});
+		if (editor) editor.borderColor = stockBorder;
+	},
 };
-const accent = launch({ QUESTMASTER_ROLE: "master", QUESTMASTER_SESSION_COLOR: "#4fb6c4" });
-const accentCtx = { ...accent.ctx, mode: "tui", ui: { ...accent.ctx.ui, ...editorUI } };
-await started(accent, accentCtx);
-const editor = editorFactory({}, {}, {});
-const stockBorder = (text) => `stock:${text}`;
-editor.borderColor = stockBorder;
-editor.setText("Example input");
-assert.equal(editor.embedWorkingStatus, true);
-assert.deepEqual(editor.render(3), ["\x1b[38;2;79;182;196m───\x1b[39m", "Example input", "\x1b[38;2;79;182;196m───\x1b[39m"]);
-assert.equal(editor.borderColor, stockBorder);
-editor.setText(" !pwd");
-assert.deepEqual(editor.render(3), ["stock:───", " !pwd", "stock:───"]);
-assert.match(accent.statuses[0].text, /\x1b\[38;2;242;204;96m/);
-await accent.handlers.get("session_shutdown")();
-assert.equal(editorFactory, undefined);
-for (const color of ["", "invalid", "#12ab"]) {
-	const session = launch({ QUESTMASTER_ROLE: "worker", QUESTMASTER_SESSION_COLOR: color });
-	await started(session, { ...session.ctx, mode: "tui", ui: editorUI });
-	assert.equal(editorFactory, undefined, "unset or malformed colour uses Pi's default editor");
+async function recolour(value) {
+	const rendered = once(renders, "render", { signal: AbortSignal.timeout(4_000) });
+	await publish(value);
+	await rendered;
 }
-const existingEditor = () => ({});
-editorFactory = existingEditor;
-const custom = launch({ QUESTMASTER_ROLE: "worker", QUESTMASTER_SESSION_COLOR: "#4fb6c4" });
-await started(custom, { ...custom.ctx, mode: "tui", ui: editorUI });
-await custom.handlers.get("session_shutdown")();
-assert.equal(editorFactory, existingEditor, "leave other custom editors in place");
+const accent = launch({ QUESTMASTER_ROLE: "master" });
+try {
+	await started(accent, { ...accent.ctx, mode: "tui", ui: { ...accent.ctx.ui, ...editorUI } });
+	assert.equal(editorFactory, undefined);
+	await recolour("#4fb6c4");
+	const originalEditor = editor;
+	editor.setText("Example input");
+	assert.equal(editor.embedWorkingStatus, true);
+	assert.deepEqual(editor.render(3), ["\x1b[38;2;79;182;196m───\x1b[39m", "Example input", "\x1b[38;2;79;182;196m───\x1b[39m"]);
+	assert.equal(editor.borderColor, stockBorder);
+
+	await recolour("#e5534b");
+	assert.equal(editor, originalEditor);
+	assert.deepEqual(editor.render(3), ["\x1b[38;2;229;83;75m───\x1b[39m", "Example input", "\x1b[38;2;229;83;75m───\x1b[39m"]);
+	editor.setText(" !pwd");
+	assert.deepEqual(editor.render(3), ["stock:───", " !pwd", "stock:───"]);
+
+	editor.setText("Example input");
+	await recolour("");
+	assert.equal(editor, originalEditor);
+	assert.deepEqual(editor.render(3), ["stock:───", "Example input", "stock:───"]);
+	assert.match(accent.statuses[0].text, /\x1b\[38;2;242;204;96m/);
+} finally {
+	await accent.handlers.get("session_shutdown")();
+}
+assert.equal(editorFactory, undefined);
+
+try {
+	await publish("#12ab");
+	const invalid = launch({ QUESTMASTER_ROLE: "worker" });
+	await started(invalid, { ...invalid.ctx, mode: "tui", ui: editorUI });
+	assert.equal(editorFactory, undefined, "malformed colour uses Pi's default editor");
+	await invalid.handlers.get("session_shutdown")();
+
+	await publish("#4fb6c4");
+	const existingEditor = () => ({});
+	editorFactory = existingEditor;
+	const custom = launch({ QUESTMASTER_ROLE: "worker" });
+	await started(custom, { ...custom.ctx, mode: "tui", ui: editorUI });
+	await custom.handlers.get("session_shutdown")();
+	assert.equal(editorFactory, existingEditor, "leave other custom editors in place");
+} finally {
+	if (previousRuntime === undefined) delete process.env.QUESTMASTER_RUNTIME_DIR;
+	else process.env.QUESTMASTER_RUNTIME_DIR = previousRuntime;
+	await rm(temp, { recursive: true, force: true });
+}
 
 const bare = await started(launch({}));
 assert.equal(bare.statuses.length, 0, "a session Questmaster did not launch gets no status");
