@@ -18,6 +18,7 @@ struct TrackerCompanyNameTagsTests {
         anIdleWorkersNameTakesNoRoom()
         onlyTheWorkingNamesAreTiered()
         visibilityFollowsTheStatusOrTheHover()
+        aLoneFamiliarsNameShowsOnlyUnderThePointer()
         aHoveredNameGoesFirstAndWorkingNamesGiveWay()
         aHoveredNameStillShowsWhenWorkingNamesFillTheTiers()
         aHoveredNameKeepsOffTheFace()
@@ -158,15 +159,31 @@ struct TrackerCompanyNameTagsTests {
         expect(second.tier == 0 && abs(second.bottom - (headTop + 5)) < 1e-9, "a working name should stand on the lowest tier with no idle name over it, got tier \(second.tier)")
     }
 
-    /// A working familiar's name shows on its own, and a hovered one shows whatever its status: a hovered working familiar is hovered.
+    /// A working familiar's name shows among two or more familiars, and a hovered one shows whatever its status: a hovered working familiar is
+    /// hovered.
     private static func visibilityFollowsTheStatusOrTheHover() {
         let statuses: [TrackerStatusKind] = [.working, .blocked, .done, .idle, .stopped, .needsInput, .error]
         for status in statuses {
-            let plain = TrackerCompanyNameTags.visibility(status: status, hovered: false)
-            let hovered = TrackerCompanyNameTags.visibility(status: status, hovered: true)
+            let plain = TrackerCompanyNameTags.visibility(status: status, hovered: false, familiarCount: 2)
+            let hovered = TrackerCompanyNameTags.visibility(status: status, hovered: true, familiarCount: 2)
             expect(plain == (status == .working ? .working : .hidden), "a \(status) familiar's name should show only while it works, got \(plain)")
             expect(hovered == .hovered, "a hovered \(status) familiar's name should show as hovered, got \(hovered)")
         }
+    }
+
+    /// A lone familiar's working name has no tag at rest, and the pointer over it shows the name. Two working familiars both show theirs.
+    private static func aLoneFamiliarsNameShowsOnlyUnderThePointer() {
+        let rest = TrackerCompanyNameTags.visibility(status: .working, hovered: false, familiarCount: 1)
+        expect(rest == .hidden, "a lone working familiar should show no name at rest, got \(rest)")
+        expect(place([tag("Ember", centre: 140, rest)])[0] == nil, "a lone working familiar should get no chip at rest")
+
+        let hovered = TrackerCompanyNameTags.visibility(status: .working, hovered: true, familiarCount: 1)
+        let under = expectPlaced(place([tag("Ember", centre: 140, hovered)])[0], "Ember")
+        expect(under.text == "Ember", "a lone familiar under the pointer should show its whole name, got \(under.text)")
+
+        let pair = TrackerCompanyNameTags.visibility(status: .working, hovered: false, familiarCount: 2)
+        let both = place([tag("Ember", centre: 60, pair), tag("Quartz", centre: 200, pair)])
+        expect(both.allSatisfy { $0 != nil }, "two working familiars should both get a chip, got \(both.map { $0 == nil ? "none" : "chip" })")
     }
 
     /// A hovered name is placed first, so it takes the lowest tier with room whatever the list's order: the working names give way, each
