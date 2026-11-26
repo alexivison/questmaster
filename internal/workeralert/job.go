@@ -16,19 +16,33 @@ import (
 	"github.com/alexivison/questmaster/internal/tmuxroute"
 )
 
+const inactivityThreshold = 30 * time.Minute
+
+var errAlertObsolete = errors.New("worker alert no longer pending")
+
+type alertEpisode struct {
+	since   time.Time
+	blocked bool
+}
+
+func (e alertEpisode) matches(other alertEpisode) bool {
+	return e.blocked == other.blocked && e.since.Equal(other.since)
+}
+
 // Job runs under the daemon's jobs.lock; the hook state is its durable queue.
 type Job struct {
 	store     *state.Store
 	router    *tmuxroute.Router
-	send      func(context.Context, string, string) (message.Delivery, error)
+	send      func(context.Context, string, string, func() error) (message.Delivery, error)
+	now       func() time.Time
 	hasWork   atomic.Bool
 	nextRow   int
-	delivered map[string]time.Time // sent episodes awaiting their durable acknowledgement
+	delivered map[string]alertEpisode // sent episodes awaiting their durable acknowledgement
 }
 
 func NewJob(store *state.Store, router *tmuxroute.Router) *Job {
-	j := &Job{store: store, router: router}
-	j.send = message.NewServiceWithRouter(store, router).Notify
+	j := &Job{store: store, router: router, now: time.Now, delivered: make(map[string]alertEpisode)}
+	j.send = message.NewServiceWithRouter(store, router).NotifyWithCheck
 	return j
 }
 
@@ -136,6 +150,8 @@ func (j *Job) step(ctx context.Context) error {
 	if len(inv.Rows) > 0 {
 		start = j.nextRow % len(inv.Rows)
 	}
+	now := j.now()
+	heldMasters := make(map[string]bool)
 	for i := range inv.Rows {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -158,36 +174,53 @@ func (j *Job) step(ctx context.Context) error {
 			continue
 		}
 		pane := ss.Panes["agent"]
-		if !pane.HasBlockedEpisode() || pane.BlockedSince.IsZero() || pane.BlockedAlerted {
+		episode := pendingAlert(pane, now)
+		if episode.since.IsZero() {
 			delete(j.delivered, worker.SessionID)
 			continue
 		}
-		if pane.State != "blocked" {
+		if episode.blocked && pane.State != "blocked" {
 			continue
 		}
-		if !j.delivered[worker.SessionID].Equal(pane.BlockedSince) {
+		delivered := j.delivered[worker.SessionID]
+		if !delivered.matches(episode) {
+			if heldMasters[parent] {
+				continue
+			}
 			call, cancel := context.WithTimeout(ctx, 2*time.Second)
-			delivery, err := j.send(call, parent, alertText(worker, pane))
+			delivery, err := j.send(call, parent, alertText(worker, pane, episode), func() error {
+				return j.checkPendingAlert(worker.SessionID, episode, now)
+			})
 			cancel()
+			if errors.Is(err, errAlertObsolete) {
+				delete(j.delivered, worker.SessionID)
+				continue
+			}
 			if err != nil {
 				errs = append(errs, fmt.Errorf("notify %s about %s: %w", parent, worker.SessionID, err))
 				continue
 			}
+			if delivery == "" {
+				heldMasters[parent] = true
+			}
 			if delivery != message.DeliveryAccepted && delivery != message.DeliverySubmitted {
 				continue
 			}
-			if j.delivered == nil {
-				j.delivered = make(map[string]time.Time)
-			}
-			j.delivered[worker.SessionID] = pane.BlockedSince
+			j.delivered[worker.SessionID] = episode
 		}
-		if err := state.MarkBlockedAlertedAt(ctx, j.store.Root(), worker.SessionID, pane.BlockedSince); err != nil {
-			errs = append(errs, err)
+		var ackErr error
+		if episode.blocked {
+			ackErr = state.MarkBlockedAlertedAt(ctx, j.store.Root(), worker.SessionID, episode.since)
+		} else {
+			ackErr = state.MarkInactivityAlertedAt(ctx, j.store.Root(), worker.SessionID, episode.since)
+		}
+		if ackErr != nil {
+			errs = append(errs, ackErr)
 		} else {
 			delete(j.delivered, worker.SessionID)
 		}
 	}
-	// Keep monitoring while any managed worker is live, even between blocked episodes.
+	// Keep monitoring while any managed worker is live.
 	hasWorkers := false
 	for id, worker := range live {
 		if worker.AgentSessionType() == "worker" && owners[worker.ExtraString("parent_session")+"\x00"+id] {
@@ -199,7 +232,34 @@ func (j *Job) step(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func alertText(worker state.Manifest, pane state.PaneState) string {
+func (j *Job) checkPendingAlert(workerID string, episode alertEpisode, now time.Time) error {
+	ss, err := state.LoadSessionStateAt(j.store.Root(), workerID)
+	if err != nil {
+		return err
+	}
+	if ss != nil {
+		pane := ss.Panes["agent"]
+		if episode.matches(pendingAlert(pane, now)) && (!episode.blocked || pane.State == "blocked") {
+			return nil
+		}
+	}
+	return errAlertObsolete
+}
+
+func pendingAlert(pane state.PaneState, now time.Time) alertEpisode {
+	if pane.HasBlockedEpisode() && !pane.BlockedAlerted {
+		return alertEpisode{since: pane.BlockedSince, blocked: true}
+	}
+	if last := pane.WorkActivityAt(); !pane.InactivityAlerted && !last.IsZero() && now.Sub(last) >= inactivityThreshold {
+		return alertEpisode{since: last}
+	}
+	return alertEpisode{}
+}
+
+func alertText(worker state.Manifest, pane state.PaneState, episode alertEpisode) string {
+	if !episode.blocked {
+		return fmt.Sprintf("[WORKER INACTIVE:%s] Worker %q is still marked working after at least %d minutes without reported activity.\nInspect with questmaster read %s.", worker.SessionID, worker.Title, inactivityThreshold/time.Minute, worker.SessionID)
+	}
 	text := fmt.Sprintf("[WORKER BLOCKED:%s] Worker %q needs attention.\n%s\nInspect with questmaster read %s. This is an automatic status alert; inspect the current dialog before answering it.", worker.SessionID, worker.Title, pane.Activity, worker.SessionID)
 	if handle := worker.TmuxServer; handle != "" {
 		text += fmt.Sprintf("\nIts tmux server is %q, session target %q; resolve the agent pane before interacting with it.", handle, tmux.SessionTarget(worker.SessionID))

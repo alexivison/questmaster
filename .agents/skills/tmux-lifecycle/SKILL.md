@@ -63,14 +63,19 @@ The always-needed tmux rules (name the server and the exact session on every cal
   an unavailable tmux command cannot keep an otherwise idle daemon alive.
   Hook state holds one `blocked_since` token and `blocked_alerted` acknowledgement
   per episode, so pending alerts survive a daemon restart. Messages wait while the
-  master is busy; a worker that resumes before delivery is no longer pending.
+  master is busy. Each transport rechecks the pending episode at submission.
   Subagents temporarily waking a blocked parent preserve its unanswered episode.
+  The job alerts once when a worker remains `working` for 30 minutes without
+  reported activity. Hooks record work events in `last_work_activity`.
+  Older state uses the latest of `last_event` and `working_since`. The durable
+  `inactivity_alerted` flag clears on the next work event or when work ends.
+  A held delivery defers further sends to that master until the next pass.
   A pass resumes after its last visited row when its budget expires, so slow sends
   cannot indefinitely starve later masters. Delivered episodes awaiting their
   state acknowledgement are retained only for registered live workers and retry
   the acknowledgement without resending. These daemon acknowledgements poll a
   nonblocking flock; cancelled attempts retain no background lock waiters.
-  Automatic alerts include the worker's recorded server and exact session target
+  Blocked alerts include the worker's recorded server and exact session target
   for manual inspection of a native dialog; they do not answer the dialog.
 - **The user's default server has no operational route.** `ProbeDefaultSessions`
   is the one remaining reader, used by audit, stopped-manifest backfill and

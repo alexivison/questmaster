@@ -10,7 +10,7 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
-func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, text string) error {
+func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, text string, beforeSend func() error) error {
 	dir, err := m.RuntimeDirOrLegacy()
 	if err != nil {
 		return err
@@ -29,7 +29,7 @@ func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, text strin
 			break
 		}
 	}
-	if err := codexnative.Send(ctx, dir, threadID, text); err != nil {
+	if err := codexnative.SendWithCheck(ctx, dir, threadID, text, beforeSend); err != nil {
 		return fmt.Errorf("Codex native delivery: %w", err)
 	}
 	return nil

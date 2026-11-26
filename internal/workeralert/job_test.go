@@ -23,18 +23,24 @@ import (
 var blockedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
 type alertRunner struct {
-	live  []string
-	sends []string
-	err   error
-	lists int
+	live   []string
+	sends  []string
+	err    error
+	lists  int
+	checks int
+	before func([]string)
 }
 
 func (r *alertRunner) Run(_ context.Context, args ...string) (string, error) {
+	if r.before != nil {
+		r.before(args)
+	}
 	switch args[0] {
 	case "list-sessions":
 		r.lists++
 		return strings.Join(r.live, "\n"), r.err
 	case "has-session":
+		r.checks++
 		id := strings.TrimSuffix(strings.TrimPrefix(args[2], "="), ":")
 		if !slices.Contains(r.live, id) {
 			return "", &tmux.ExitError{Code: 1}
@@ -136,6 +142,179 @@ func TestAlertsUseRecordedMasterRouteAndSurviveRestart(t *testing.T) {
 	}
 }
 
+func TestInactivityAlertUsesLatestWorkAndOnlySendsOnce(t *testing.T) {
+	t.Parallel()
+	j, runner := newAlertFixture(t)
+	root := j.store.Root()
+	worker := state.PaneState{
+		State: "working", LastEvent: blockedAt.Add(-time.Hour), WorkingSince: blockedAt.Add(-time.Hour),
+		LastWorkActivity: blockedAt, RunningTools: []state.RunningTool{{Tool: "Bash", StartedAt: blockedAt}},
+	}
+	writePane(t, root, "qm-worker", worker)
+	now := blockedAt.Add(30*time.Minute - time.Nanosecond)
+	clock := func() time.Time { return now }
+	j.now = clock
+	step(t, j)
+	if len(runner.sends) != 0 {
+		t.Fatalf("alerted before 30 minutes without activity: %v", runner.sends)
+	}
+	now = now.Add(time.Nanosecond)
+	step(t, j)
+	if len(runner.sends) != 1 || !loadPane(t, root, "qm-worker").InactivityAlerted {
+		t.Fatalf("expected one acknowledged inactivity alert, got %v", runner.sends)
+	}
+	for _, want := range []string{"[WORKER INACTIVE:qm-worker]", "Parser fix", "30 minutes", "questmaster read qm-worker"} {
+		if !strings.Contains(runner.sends[0], want) {
+			t.Errorf("alert missing %q: %s", want, runner.sends[0])
+		}
+	}
+	j = NewJob(j.store, j.router)
+	j.now = clock
+	now = now.Add(time.Hour)
+	step(t, j)
+	if len(runner.sends) != 1 {
+		t.Fatalf("the same inactivity alerted again after restart: %v", runner.sends)
+	}
+}
+
+func TestInactivityAlertWaitsForMasterAndRechecksWorker(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{"still inactive", "new activity", "done", "blocked with subagent working"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
+			j, runner := newAlertFixture(t)
+			root := j.store.Root()
+			now := blockedAt.Add(inactivityThreshold)
+			j.now = func() time.Time { return now }
+			// A worker already running when the daemon upgrades has only LastEvent.
+			worker := state.PaneState{State: "working", LastEvent: blockedAt}
+			writePane(t, root, "qm-worker", worker)
+			writePane(t, root, "qm-master", state.PaneState{State: "working"})
+			step(t, j)
+			if len(runner.sends) != 0 || loadPane(t, root, "qm-worker").InactivityAlerted {
+				t.Fatal("busy master received or acknowledged an inactivity alert")
+			}
+			switch scenario {
+			case "new activity":
+				worker.LastWorkActivity = now
+			case "done":
+				worker.State = "done"
+			case "blocked with subagent working":
+				worker.BlockedSince = blockedAt
+				worker.SubagentWake = &state.SubagentWake{State: "blocked", IDs: []string{"child"}}
+			}
+			writePane(t, root, "qm-worker", worker)
+			writePane(t, root, "qm-master", state.PaneState{State: "done"})
+			step(t, j)
+			want := 0
+			if scenario == "still inactive" {
+				want = 1
+			}
+			if len(runner.sends) != want {
+				t.Fatalf("inactivity alerts = %v, want %d", runner.sends, want)
+			}
+		})
+	}
+}
+
+func TestInactivityAcknowledgementDoesNotSuppressNewEpisode(t *testing.T) {
+	t.Parallel()
+	j, _ := newAlertFixture(t)
+	root := j.store.Root()
+	now := blockedAt.Add(inactivityThreshold)
+	j.now = func() time.Time { return now }
+	worker := state.PaneState{State: "working", LastWorkActivity: blockedAt}
+	writePane(t, root, "qm-worker", worker)
+	sends := 0
+	j.send = func(context.Context, string, string, func() error) (message.Delivery, error) {
+		sends++
+		if sends == 1 {
+			worker.LastWorkActivity = now
+			writePane(t, root, "qm-worker", worker)
+		}
+		return message.DeliveryAccepted, nil
+	}
+	step(t, j)
+	if loadPane(t, root, "qm-worker").InactivityAlerted {
+		t.Fatal("delivery of the old alert acknowledged newer activity")
+	}
+	now = now.Add(inactivityThreshold)
+	step(t, j)
+	if sends != 2 || !loadPane(t, root, "qm-worker").InactivityAlerted {
+		t.Fatalf("expected the next inactivity episode to alert, got %d sends", sends)
+	}
+}
+
+func TestWorkerResumingDuringReadinessDiscardsAlert(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		inactivity bool
+		resumeOn   string
+	}{
+		{"inactivity during master liveness check", true, "has-session"},
+		{"blocked during master pane idle check", false, "#{pane_in_mode}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			j, runner := newAlertFixture(t)
+			now := blockedAt.Add(inactivityThreshold)
+			j.now = func() time.Time { return now }
+			root := j.store.Root()
+			if tc.inactivity {
+				writePane(t, root, "qm-worker", state.PaneState{State: "working", LastWorkActivity: blockedAt})
+			}
+			resumed := false
+			runner.before = func(args []string) {
+				if !resumed && (args[0] == tc.resumeOn || args[len(args)-1] == tc.resumeOn) {
+					writePane(t, root, "qm-worker", state.PaneState{State: "working", LastWorkActivity: now})
+					resumed = true
+				}
+			}
+			step(t, j)
+			if !resumed || len(runner.sends) != 0 {
+				t.Fatalf("worker resumed = %t, stale alerts sent = %v", resumed, runner.sends)
+			}
+		})
+	}
+}
+
+func TestHeldInactivityAlertsCheckBusyMasterOncePerPass(t *testing.T) {
+	t.Parallel()
+	j, masterRunner := newAlertFixture(t)
+	const parent, first, second = "qm-master", "qm-worker", "qm-second"
+	worker := state.Manifest{SessionID: second, TmuxServer: "questmaster", Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}
+	worker.SetExtra("parent_session", parent)
+	if err := j.store.Create(worker); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.store.AddWorker(parent, second); err != nil {
+		t.Fatal(err)
+	}
+	router := tmuxroute.New(j.store, map[string]*tmux.Client{
+		"dev_previous": tmux.NewClient(masterRunner),
+		"questmaster":  tmux.NewClient(&alertRunner{live: []string{first, second}}),
+	}, func() string { return "questmaster" }, nil)
+	j = NewJob(j.store, router)
+	j.now = func() time.Time { return blockedAt.Add(inactivityThreshold) }
+	root := j.store.Root()
+	for _, id := range []string{first, second} {
+		writePane(t, root, id, state.PaneState{State: "working", LastWorkActivity: blockedAt})
+	}
+	writePane(t, root, parent, state.PaneState{State: "working"})
+	for pass := 1; pass <= 2; pass++ {
+		step(t, j)
+		if masterRunner.checks != pass || len(masterRunner.sends) != 0 {
+			t.Fatalf("busy master after pass %d: checks=%d, sends=%v", pass, masterRunner.checks, masterRunner.sends)
+		}
+	}
+	writePane(t, root, parent, state.PaneState{State: "idle"})
+	step(t, j)
+	if len(masterRunner.sends) != 2 {
+		t.Fatalf("expected both pending alerts when the master became idle, got %v", masterRunner.sends)
+	}
+}
+
 func TestBusyMasterKeepsPendingAlertAcrossRestart(t *testing.T) {
 	t.Parallel()
 	j, runner := newAlertFixture(t)
@@ -212,7 +391,7 @@ func TestDeliveryFailureRetriesAndCannotAcknowledgeNewerBlock(t *testing.T) {
 			t.Parallel()
 			j, _ := newAlertFixture(t)
 			calls := 0
-			j.send = func(context.Context, string, string) (message.Delivery, error) {
+			j.send = func(context.Context, string, string, func() error) (message.Delivery, error) {
 				calls++
 				if calls == 1 {
 					return "", errors.New("temporary transport failure")
@@ -307,7 +486,7 @@ func TestSlowFailuresDoNotStarveAnotherMaster(t *testing.T) {
 	}, func() string { return "questmaster" }, nil)
 	var cancelPass context.CancelFunc
 	healthy := 0
-	j.send = func(ctx context.Context, parent, _ string) (message.Delivery, error) {
+	j.send = func(ctx context.Context, parent, _ string, _ func() error) (message.Delivery, error) {
 		if parent == other.SessionID {
 			healthy++
 			return message.DeliveryAccepted, nil
@@ -343,7 +522,7 @@ func TestContendedAcknowledgementDoesNotResendOrRetainWaiters(t *testing.T) {
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) //nolint:errcheck
 	sends := 0
-	j.send = func(context.Context, string, string) (message.Delivery, error) {
+	j.send = func(context.Context, string, string, func() error) (message.Delivery, error) {
 		sends++
 		return message.DeliverySubmitted, nil
 	}
@@ -373,7 +552,7 @@ func TestContendedAcknowledgementDoesNotResendOrRetainWaiters(t *testing.T) {
 	if err := j.store.RemoveWorker("qm-master", "qm-worker"); err != nil {
 		t.Fatal(err)
 	}
-	j.delivered = map[string]time.Time{"qm-worker": blockedAt}
+	j.delivered["qm-worker"] = alertEpisode{since: blockedAt, blocked: true}
 	step(t, j)
 	if len(j.delivered) != 0 {
 		t.Fatal("deregistered workers retained acknowledgement state")
@@ -384,7 +563,7 @@ func TestAcknowledgementSurvivesSubagentWakeDuringDelivery(t *testing.T) {
 	t.Parallel()
 	j, _ := newAlertFixture(t)
 	sends := 0
-	j.send = func(context.Context, string, string) (message.Delivery, error) {
+	j.send = func(context.Context, string, string, func() error) (message.Delivery, error) {
 		sends++
 		pane := loadPane(t, j.store.Root(), "qm-worker")
 		pane.SubagentWake = &state.SubagentWake{State: "blocked", Activity: pane.Activity, IDs: []string{"child-1"}}

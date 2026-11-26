@@ -17,11 +17,54 @@ func (p PaneState) HasBlockedEpisode() bool {
 		p.SubagentWake.State == "blocked" && len(p.SubagentWake.IDs) > 0
 }
 
+// WorkActivityAt returns the last activity of an unblocked working pane.
+func (p PaneState) WorkActivityAt() time.Time {
+	if p.State != "working" || p.HasBlockedEpisode() {
+		return time.Time{}
+	}
+	if !p.LastWorkActivity.IsZero() {
+		return p.LastWorkActivity
+	}
+	// Older hooks only persisted LastEvent and WorkingSince.
+	if p.WorkingSince.After(p.LastEvent) {
+		return p.WorkingSince
+	}
+	return p.LastEvent
+}
+
 // MarkBlockedAlertedAt acknowledges only the episode that was actually delivered.
 // A worker that resumed or blocked again while the alert was in flight is untouched.
 func MarkBlockedAlertedAt(ctx context.Context, root, id string, since time.Time) error {
-	if !IsValidSessionID(id) || root == "" || since.IsZero() {
+	if since.IsZero() {
 		return fmt.Errorf("invalid blocked alert acknowledgement for %q", id)
+	}
+	return updateWorkerAlertAt(ctx, root, id, func(pane *PaneState) bool {
+		if !pane.HasBlockedEpisode() || !pane.BlockedSince.Equal(since) || pane.BlockedAlerted {
+			return false
+		}
+		pane.BlockedAlerted = true
+		return true
+	})
+}
+
+// MarkInactivityAlertedAt acknowledges only the inactivity that was actually reported.
+func MarkInactivityAlertedAt(ctx context.Context, root, id string, since time.Time) error {
+	if since.IsZero() {
+		return fmt.Errorf("invalid inactivity alert acknowledgement for %q", id)
+	}
+	return updateWorkerAlertAt(ctx, root, id, func(pane *PaneState) bool {
+		if !pane.WorkActivityAt().Equal(since) || pane.InactivityAlerted {
+			return false
+		}
+		pane.LastWorkActivity = since
+		pane.InactivityAlerted = true
+		return true
+	})
+}
+
+func updateWorkerAlertAt(ctx context.Context, root, id string, mark func(*PaneState) bool) error {
+	if !IsValidSessionID(id) || root == "" {
+		return fmt.Errorf("invalid worker alert acknowledgement for %q", id)
 	}
 	if err := ensureSessionStateDir(root, id); err != nil {
 		return err
@@ -56,10 +99,9 @@ func MarkBlockedAlertedAt(ctx context.Context, root, id string, since time.Time)
 		return err
 	}
 	pane := ss.Panes["agent"]
-	if !pane.HasBlockedEpisode() || !pane.BlockedSince.Equal(since) || pane.BlockedAlerted {
+	if !mark(&pane) {
 		return nil
 	}
-	pane.BlockedAlerted = true
 	ss.Panes["agent"] = pane
 	return writeSessionStateLocked(root, id, ss)
 }

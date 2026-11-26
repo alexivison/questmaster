@@ -347,6 +347,8 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case invalidCompany
     /// A `head` box needs a position at or after the art's top left and a width and height above 0.
     case invalidHead
+    /// The playback speed is a finite number above 0.
+    case invalidSpeed(Double)
 }
 
 /// A class's avatar art and timings, read from its `animation.json` (`Resources/Sprites/<class>/`). The file names every pose, and
@@ -384,6 +386,9 @@ public struct TrackerAvatarHeadBox: Equatable, Sendable {
 public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The only `version` this build reads.
     public static let supportedVersion = 1
+    /// How much faster than authored the app plays every class and familiar. The files keep their authored 0.1 s ticks; each step's
+    /// seconds are divided by this as the file is read, so every track, block, breath and fidget keeps its timing relative to the others.
+    public static let playbackSpeed = 1.15
 
     /// Idle's authored breathing and blink data. Nil when `01-idle` is an authored pose loop.
     public let idle: TrackerAvatarIdleAnimation?
@@ -399,9 +404,15 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     public let headBox: TrackerAvatarHeadBox?
     private let poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation]
 
-    /// Reads and checks an `animation.json`: a class's (`.master`) or a familiar's (`.familiar`), which name their own poses.
-    public init(data: Data, kind: TrackerAvatarArtKind = .master) throws {
-        let file = try JSONDecoder().decode(File.self, from: data)
+    /// Reads and checks an `animation.json`: a class's (`.master`) or a familiar's (`.familiar`), which name their own poses. `speed`
+    /// divides every authored duration (the app passes `playbackSpeed`); at 1 the file reads as authored.
+    public init(data: Data, kind: TrackerAvatarArtKind = .master, speed: Double = 1) throws {
+        guard speed.isFinite, speed > 0 else {
+            throw TrackerAvatarAnimationError.invalidSpeed(speed)
+        }
+        let decoder = JSONDecoder()
+        decoder.userInfo[TrackerAvatarStep.speedKey] = speed
+        let file = try decoder.decode(File.self, from: data)
         guard file.version == Self.supportedVersion else {
             throw TrackerAvatarAnimationError.unsupportedVersion(file.version)
         }
@@ -733,6 +744,16 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
                         case eyeColumns = "eye_columns"
                         case lidPixels = "lid_pixels"
                     }
+
+                    /// Its seconds are divided by the decoder's playback speed, like a step's.
+                    init(from decoder: Decoder) throws {
+                        let container = try decoder.container(keyedBy: CodingKeys.self)
+                        file = try container.decode(String.self, forKey: .file)
+                        seconds = try container.decode(TimeInterval.self, forKey: .seconds) / TrackerAvatarStep.speed(of: decoder)
+                        eyeRow = try container.decodeIfPresent(Int.self, forKey: .eyeRow)
+                        eyeColumns = try container.decodeIfPresent([Int].self, forKey: .eyeColumns)
+                        lidPixels = try container.decodeIfPresent([[Int]].self, forKey: .lidPixels)
+                    }
                 }
             }
         }
@@ -768,8 +789,15 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     }
 }
 
-/// A step reads as `[frame, seconds]`, two values and no more.
+/// A step reads as `[frame, seconds]`, two values and no more. Its seconds are divided by the decoder's playback speed.
 extension TrackerAvatarStep: Decodable {
+    /// The decoder's `userInfo` key for the playback speed that divides every authored duration; absent reads as 1.
+    static let speedKey = CodingUserInfoKey(rawValue: "questmaster.avatar.speed")!
+
+    static func speed(of decoder: Decoder) -> Double {
+        decoder.userInfo[speedKey] as? Double ?? 1
+    }
+
     public init(from decoder: Decoder) throws {
         var container = try decoder.unkeyedContainer()
         let frame = try container.decode(Int.self)
@@ -777,7 +805,7 @@ extension TrackerAvatarStep: Decodable {
         guard container.isAtEnd else {
             throw DecodingError.dataCorruptedError(in: container, debugDescription: "a step is [frame, seconds]")
         }
-        self.init(frame: frame, seconds: seconds)
+        self.init(frame: frame, seconds: seconds / Self.speed(of: decoder))
     }
 }
 

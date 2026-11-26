@@ -183,7 +183,7 @@ func toolCommandFromInput(input interface{}) string {
 // It returns the append and update errors separately so callers can keep
 // their agent-specific stderr messages.
 func (r *HookRunner) updateAndLog(ctx context.Context, sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool) (appendErr, updateErr error) {
-	mutate = trackBlockedEpisode(ev.Ts, mutate)
+	mutate = trackWorkerAttention(ev, mutate)
 	var overflowEvents []*state.StateEvent
 	apply := func(ss *state.SessionState) bool {
 		changed := mutate(ss)
@@ -221,9 +221,9 @@ func (r *HookRunner) updateAndLog(ctx context.Context, sessionID string, ev *sta
 	return appendErr, updateErr
 }
 
-// trackBlockedEpisode preserves one durable alert token until the agent resumes.
+// trackWorkerAttention maintains the alert tokens under the same lock as the hook.
 // All harnesses pass through here, including each individual event in a Pi batch.
-func trackBlockedEpisode(at time.Time, mutate func(*state.SessionState) bool) func(*state.SessionState) bool {
+func trackWorkerAttention(ev *state.StateEvent, mutate func(*state.SessionState) bool) func(*state.SessionState) bool {
 	return func(ss *state.SessionState) bool {
 		previous := ss.Panes["agent"]
 		changed := mutate(ss)
@@ -234,7 +234,7 @@ func trackBlockedEpisode(at time.Time, mutate func(*state.SessionState) bool) fu
 		if !pane.HasBlockedEpisode() {
 			pane.BlockedSince, pane.BlockedAlerted = time.Time{}, false
 		} else if !previous.HasBlockedEpisode() || previous.BlockedSince.IsZero() {
-			pane.BlockedSince = at
+			pane.BlockedSince = ev.Ts
 			if pane.BlockedSince.IsZero() {
 				pane.BlockedSince = pane.LastEvent
 			}
@@ -242,11 +242,42 @@ func trackBlockedEpisode(at time.Time, mutate func(*state.SessionState) bool) fu
 		} else {
 			pane.BlockedSince, pane.BlockedAlerted = previous.BlockedSince, previous.BlockedAlerted
 		}
-		if !pane.BlockedSince.Equal(previous.BlockedSince) || pane.BlockedAlerted != previous.BlockedAlerted {
-			changed = true
-		}
+		trackWorkActivity(ev, previous, &pane, changed)
 		ss.Panes["agent"] = pane
+		return changed ||
+			!pane.BlockedSince.Equal(previous.BlockedSince) || pane.BlockedAlerted != previous.BlockedAlerted ||
+			!pane.LastWorkActivity.Equal(previous.LastWorkActivity) || pane.InactivityAlerted != previous.InactivityAlerted
+	}
+}
+
+func trackWorkActivity(ev *state.StateEvent, previous state.PaneState, pane *state.PaneState, changed bool) {
+	if pane.State != "working" || pane.HasBlockedEpisode() {
+		pane.LastWorkActivity, pane.InactivityAlerted = time.Time{}, false
+		return
+	}
+	last := previous.WorkActivityAt()
+	if previous.State != "working" || previous.HasBlockedEpisode() || hookReportedWork(ev, pane.LastEvent, changed) {
+		if ev.Ts.Equal(last) || overtaken(ev.Ts, last) {
+			return
+		}
+		pane.LastWorkActivity, pane.InactivityAlerted = ev.Ts, false
+	} else if changed && pane.LastWorkActivity.IsZero() {
+		// Preserve the legacy timestamp when a status-only hook rewrites LastEvent.
+		pane.LastWorkActivity = last
+	}
+}
+
+func hookReportedWork(ev *state.StateEvent, lastEvent time.Time, changed bool) bool {
+	if ev.Fields["overtaken"] == true {
+		return false
+	}
+	switch ev.Action {
+	case "progress", "say", "subagent_start", "subagent_stop":
 		return changed
+	case "turn_end":
+		return lastEvent.Equal(ev.Ts)
+	default:
+		return ev.State == "working" && lastEvent.Equal(ev.Ts)
 	}
 }
 
@@ -1021,9 +1052,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		ss.Panes[role] = pane
 
-		// Conditional flush: rewrite state.json only when renderer-visible
-		// fields changed. The JSONL event stream still records timestamp-only
-		// repeats.
+		// Compare the renderer fields here. The outer hook wrapper also
+		// persists work activity for inactivity alerts.
 		if pane.State == prev.State &&
 			pane.Activity == prev.Activity &&
 			pane.Tool == prev.Tool &&
@@ -2944,7 +2974,7 @@ func applyPiBatch(ctx context.Context, r *HookRunner, sessionID string, prepared
 	err := r.updateAndLogEvents(ctx, sessionID, events, func(ss *state.SessionState) bool {
 		changed := false
 		for i := range prepared {
-			if trackBlockedEpisode(prepared[i].event.Ts, prepared[i].mutate)(ss) {
+			if trackWorkerAttention(prepared[i].event, prepared[i].mutate)(ss) {
 				changed = true
 			}
 		}

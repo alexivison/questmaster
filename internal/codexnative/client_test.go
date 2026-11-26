@@ -3,6 +3,7 @@ package codexnative
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -36,6 +37,7 @@ type peerOptions struct {
 	queueRejection    string
 	queueDrop         bool
 	queueEmpty        bool
+	resumed           chan<- struct{}
 }
 
 func mockPeer(t *testing.T, dir string, opts peerOptions) <-chan map[string]any {
@@ -97,6 +99,9 @@ func mockPeer(t *testing.T, dir string, opts peerOptions) <-chan map[string]any 
 			case "thread/resume":
 				if req.Params["excludeTurns"] != true {
 					t.Error("resume requested unbounded history")
+				}
+				if opts.resumed != nil {
+					close(opts.resumed)
 				}
 			case "turn/start":
 				submissions <- map[string]any{"method": req.Method, "params": req.Params}
@@ -269,6 +274,44 @@ func TestSendQueuesOnlyRejectedCompaction(t *testing.T) {
 			case extra := <-submissions:
 				t.Fatalf("unexpected submission: %v", extra)
 			default:
+			}
+		})
+	}
+}
+
+func TestSendCheckRunsAfterHandshakeAndBeforeEachSubmission(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		stopAt int
+	}{
+		{"first submission", 1},
+		{"compaction queue retry", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := runtimeFixture(t)
+			resumed := make(chan struct{})
+			submissions := mockPeer(t, dir, peerOptions{
+				status: "active", resumed: resumed, rejectionCode: -32603,
+				rejection: "failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }",
+			})
+			superseded := errors.New("alert superseded")
+			checks := 0
+			err := SendWithCheck(t.Context(), dir, "example-thread", "pending alert", func() error {
+				select {
+				case <-resumed:
+				default:
+					t.Fatal("checked before the thread handshake")
+				}
+				checks++
+				if checks == tc.stopAt {
+					return superseded
+				}
+				return nil
+			})
+			if !errors.Is(err, superseded) || checks != tc.stopAt || len(submissions) != tc.stopAt-1 {
+				t.Fatalf("error = %v, checks = %d, submissions = %d", err, checks, len(submissions))
 			}
 		})
 	}

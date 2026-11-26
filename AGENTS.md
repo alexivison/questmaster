@@ -145,10 +145,9 @@ Building, installing and branch-running the app bundle: `app-bundle` skill.
 - Codex sessions use a session-owned app-server for messaging. Ownership, shutdown,
   legacy-session delivery and restart rules live in `tmux-lifecycle`.
 - Workers ask the master for clarification through `send master`, rather than an
-  ask-user tool. The daemon's `worker-attention` job alerts a live master when one
-  of its live workers blocks, using the existing between-turn notification path.
-  Hooks keep a durable blocked-episode token; delivery acknowledges only that
-  episode, repeated hooks do not repeat the alert, and resuming clears it.
+  ask-user tool. The daemon's `worker-attention` job alerts masters between
+  turns when a live, registered worker blocks or stays working without activity.
+  See `tmux-lifecycle` for alert timing and acknowledgements.
 
 ## Swift app
 
