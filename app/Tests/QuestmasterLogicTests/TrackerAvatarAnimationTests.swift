@@ -743,7 +743,7 @@ struct TrackerAvatarAnimationTests {
     }
 
     /// The paladin's frames at given times, read from his file: the summoning's entrance moves him while its ground circle opens
-    /// below the figure, and the channelling's finish plays its entrance backwards, from f3 down to f1.
+    /// below the figure, its loop plays forward, and the channelling's finish plays its entrance backwards, from f3 down to f1.
     private static func thePaladinsBlocksPlayAtTheirTimes() {
         guard let animation = try? decode(AvatarAnimationFixture.classJSON("paladin")),
               let summoning = animation.animation(for: .summoning), let enter = summoning.enter, let loop = summoning.loop,
@@ -752,7 +752,8 @@ struct TrackerAvatarAnimationTests {
         }
         expect(enter.character.frame(at: 0.35, looping: false) == 4, "a summoning's enter should reach the paladin's f4 at 0.35 s")
         expect(enter.behind?.frame(at: 0.35, looping: false) == 4, "the ground circle should reach frame 4 at 0.35 s of its enter")
-        expect(loop.character.frame(at: 0.6, looping: true) == 10, "the summoning's loop should show f10 from 0.6 s")
+        expect(loop.character.frame(at: 0.6, looping: true) == 9, "the summoning's loop should hold its turn, f9, from 0.6 s")
+        expect(loop.character.frame(at: 1.15, looping: true) == 12, "the summoning's loop should play forward to f12, not back")
         expect(finish.behind?.frame(at: 0.25, looping: false) == 19, "the ground circle's finish should reach frame 19 at 0.25 s")
         expect(channellingFinish.character.frame(at: 0, looping: false) == 3, "the channelling's finish should start on the pose's f3")
         expect(channellingFinish.character.frame(at: 9, looping: false) == 1, "the channelling's finish should end on the paladin's f1")
