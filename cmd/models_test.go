@@ -140,6 +140,25 @@ func TestModelsCmdRejectsDisabledAgentBeforeSuggestions(t *testing.T) {
 	}
 }
 
+func TestModelsCmdRejectsUnsupportedAgentWithSavedDefaults(t *testing.T) {
+	offlineCatalog(t)
+	store := setupStore(t)
+	const name = "retired-agent"
+	if err := state.NewRoleDefaultsStore(store.Root()).Set(name, "worker", state.RoleDefault{Model: "example-model"}); err != nil {
+		t.Fatal(err)
+	}
+	availability := state.NewAgentAvailabilityStore(store.Root())
+	for _, enabled := range []bool{true, false} {
+		if err := availability.Set(name, enabled); err != nil {
+			t.Fatal(err)
+		}
+		_, err := runCmdErr(t, store, idleRunner(), "models", name, "--role", "worker")
+		if err == nil || !strings.Contains(err.Error(), "unknown agent") {
+			t.Fatalf("models for unsupported agent with enabled=%t: %v, want unknown agent", enabled, err)
+		}
+	}
+}
+
 func TestModelsCmdDoesNotProbeDisabledHarness(t *testing.T) {
 	store := setupStore(t)
 	if err := state.NewAgentAvailabilityStore(store.Root()).Set("pi", false); err != nil {

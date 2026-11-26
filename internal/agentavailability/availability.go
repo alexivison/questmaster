@@ -27,6 +27,15 @@ func EnabledNames(root string) ([]string, error) {
 	return names, nil
 }
 
+// RequireBuiltinEnabled validates the harness before reading saved settings.
+func RequireBuiltinEnabled(root, name string) error {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if !agent.IsBuiltin(name) {
+		return fmt.Errorf("unknown agent %q (want one of %s)", name, strings.Join(agent.Names(), ", "))
+	}
+	return RequireEnabled(root, name)
+}
+
 // RequireEnabled rejects a name only when it has an explicit disabled setting.
 // Names without a saved preference keep their existing availability.
 func RequireEnabled(root, name string) error {

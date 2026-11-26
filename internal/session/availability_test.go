@@ -181,6 +181,39 @@ func TestContinueReattachesDisabledLiveSessionButBlocksRelaunch(t *testing.T) {
 	}
 }
 
+func TestContinueReattachesLiveUnsupportedSessionAndRejectsRelaunch(t *testing.T) {
+	t.Parallel()
+
+	svc, runner := setupService(t)
+	started, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const retiredAgent = "retired-agent"
+	if err := svc.Store.Update(started.SessionID, func(m *state.Manifest) {
+		m.Agents[0].Name = retiredAgent
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.NewAgentAvailabilityStore(svc.Store.Root()).Set(retiredAgent, false); err != nil {
+		t.Fatal(err)
+	}
+	attached, err := svc.Continue(t.Context(), started.SessionID)
+	if err != nil || !attached.Reattach {
+		t.Fatalf("continue live unsupported session = %+v, %v; want reattach", attached, err)
+	}
+
+	delete(runner.sessions, started.SessionID)
+	before := len(callsAfter(runner, 0, "new-session"))
+	_, err = svc.Continue(t.Context(), started.SessionID)
+	if err == nil || !strings.Contains(err.Error(), "is not configured") {
+		t.Fatalf("continue stopped unsupported session = %v, want provider resolution error", err)
+	}
+	if after := len(callsAfter(runner, 0, "new-session")); after != before {
+		t.Fatalf("continue created %d sessions for an unsupported agent", after-before)
+	}
+}
+
 func TestContinueMasterLeavesStoppedDisabledWorkerUnrevived(t *testing.T) {
 	t.Parallel()
 

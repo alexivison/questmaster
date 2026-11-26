@@ -200,6 +200,31 @@ func TestDisabledSuggestionsAndRoleDefaultEditsStopBeforeProbes(t *testing.T) {
 	}
 }
 
+func TestSuggestionsRejectUnsupportedAgentWithSavedDefaults(t *testing.T) {
+	env := seedServeFixture(t)
+	t.Setenv(modelsuggest.CatalogURLEnv, "off")
+	const name = "retired-agent"
+	if err := state.NewRoleDefaultsStore(env.store.Root()).Set(name, "worker", state.RoleDefault{Model: "example-model", ReasoningEffort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{
+		Snapshotter: testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ReasoningEfforts: func(context.Context, string, string) []string {
+			t.Fatal("reasoning probe called for an unsupported agent")
+			return nil
+		},
+	}
+	for _, method := range []string{"models", "reasoning_efforts"} {
+		response := srv.HandleRequest(t.Context(), Request{
+			Method: method,
+			Data:   rawJSON(t, map[string]any{"agent": name, "role": "worker"}),
+		})
+		if response.OK == nil || *response.OK || !strings.Contains(response.Error, "unknown agent") || response.Data != nil {
+			t.Fatalf("%s response = %+v, want unknown agent without suggestions", method, response)
+		}
+	}
+}
+
 func sendAgentAvailabilityMutation(t *testing.T, srv *Server, data map[string]any) Envelope {
 	t.Helper()
 	return srv.HandleRequest(context.Background(), Request{Method: "agent_availability.set", Data: rawJSON(t, data)})

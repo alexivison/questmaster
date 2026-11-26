@@ -91,7 +91,7 @@ func TestFromStateCarriesNarrationAndOnlyLiveCast(t *testing.T) {
 					Agent: "codex", State: tc.state, Narration: "Latest answer",
 					RunningTools: []state.RunningTool{{CallID: "call-1", Tool: "Bash", StartedAt: startedAt}},
 				},
-			}})
+			}}, "codex")
 			if result.Narration != "Latest answer" {
 				t.Fatalf("narration = %q, want latest answer", result.Narration)
 			}
@@ -309,11 +309,11 @@ func TestFromStateCountsRunningSubagents(t *testing.T) {
 		State:           "done",
 		ActiveSubagents: map[string]string{"task-1": "general-purpose", "task-2": "Explore"},
 	}}}
-	if got := FromState(ss).ActiveSubagents; got != 2 {
+	if got := FromState(ss, "claude").ActiveSubagents; got != 2 {
 		t.Fatalf("ActiveSubagents = %d, want 2 while two sub-agents run after the turn ends", got)
 	}
 	ss.Panes["agent"] = state.PaneState{State: "done"}
-	if got := FromState(ss).ActiveSubagents; got != 0 {
+	if got := FromState(ss, "claude").ActiveSubagents; got != 0 {
 		t.Fatalf("ActiveSubagents = %d, want 0 with none running", got)
 	}
 }

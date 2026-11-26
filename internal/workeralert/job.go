@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -78,10 +79,12 @@ func (j *Job) step(ctx context.Context) error {
 	}
 	byID := make(map[string]state.Manifest, len(manifests))
 	for _, m := range manifests {
-		byID[m.SessionID] = m
+		if agent.IsBuiltin(m.AgentName()) {
+			byID[m.SessionID] = m
+		}
 	}
 	registered := false
-	for _, master := range manifests {
+	for _, master := range byID {
 		if master.AgentSessionType() != "master" {
 			continue
 		}
@@ -125,7 +128,7 @@ func (j *Job) step(ctx context.Context) error {
 		if err != nil {
 			continue // plain tmux sessions have no manifest
 		}
-		if string(m.TmuxServer) != row.Label {
+		if string(m.TmuxServer) != row.Label || !agent.IsBuiltin(m.AgentName()) {
 			continue
 		}
 		live[row.ID] = m
@@ -145,7 +148,7 @@ func (j *Job) step(ctx context.Context) error {
 			delete(j.delivered, id)
 		}
 	}
-	// Only live, registered workers are read. Historical state logs are never scanned.
+	// Read hook state for live, registered workers on supported harnesses.
 	start := 0
 	if len(inv.Rows) > 0 {
 		start = j.nextRow % len(inv.Rows)

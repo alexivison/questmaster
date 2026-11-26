@@ -697,6 +697,66 @@ func TestAgentOnlyCommandsRejectPlainTerminalSessions(t *testing.T) {
 	}
 }
 
+func TestMessagingRejectsUnsupportedRecipients(t *testing.T) {
+	t.Parallel()
+
+	const retiredAgent = "retired-agent"
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-retired-worker", "qm-master")
+	setAgent(t, store, "qm-retired-worker", retiredAgent)
+	createManifest(t, store, "qm-retired-master", "retired master", "master")
+	setAgent(t, store, "qm-retired-master", retiredAgent)
+	createWorkerManifest(t, store, "qm-worker", "qm-retired-master")
+	if err := state.UpdateAndLogAt(store.Root(), "qm-retired-worker", &state.StateEvent{Ts: time.Now()}, func(ss *state.SessionState) bool {
+		ss.Panes[agentRole] = state.PaneState{Role: agentRole, Agent: retiredAgent, State: "idle"}
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var sent []string
+	runner := idleAndSendRunner(&sent)
+	run := runner.fn
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if args[0] == "list-clients" {
+			return "", nil
+		}
+		return run(ctx, args...)
+	}
+	svc := newService(store, runner)
+	for name, send := range map[string]func(context.Context) error{
+		"relay": func(ctx context.Context) error {
+			_, err := svc.Relay(ctx, "qm-retired-worker", "hello")
+			return err
+		},
+		"relay from": func(ctx context.Context) error {
+			_, err := svc.RelayFrom(ctx, "qm-master", "qm-retired-worker", "hello")
+			return err
+		},
+		"broadcast": func(ctx context.Context) error {
+			_, err := svc.BroadcastFrom(ctx, "qm-master", "qm-master", "hello")
+			return err
+		},
+		"report": func(ctx context.Context) error {
+			_, err := svc.Report(ctx, "qm-worker", "done")
+			return err
+		},
+		"notify": func(ctx context.Context) error {
+			_, err := svc.Notify(ctx, "qm-retired-worker", "update")
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sent = nil
+			err := send(t.Context())
+			if err == nil || !strings.Contains(err.Error(), "uses unsupported agent") || len(sent) != 0 {
+				t.Fatalf("error = %v, sends = %v; want a rejected recipient", err, sent)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Broadcast tests
 // ---------------------------------------------------------------------------

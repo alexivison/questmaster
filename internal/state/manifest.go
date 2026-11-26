@@ -192,6 +192,16 @@ func (m Manifest) ExtraString(key string) string {
 	return s
 }
 
+// AgentName returns the harness recorded for the agent pane.
+func (m Manifest) AgentName() string {
+	for _, spec := range m.Agents {
+		if spec.Role == "agent" && spec.Name != "" {
+			return spec.Name
+		}
+	}
+	return ""
+}
+
 // AgentSessionType derives managed roles from the agent and parent fields.
 func (m Manifest) AgentSessionType() string {
 	if m.ExtraString("parent_session") != "" {

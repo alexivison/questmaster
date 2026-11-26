@@ -104,6 +104,7 @@ func collectStatusRouted(ctx context.Context, store *state.Store, client *tmux.C
 		results := sessionactivity.Evaluate([]sessionactivity.Observation{{
 			Key:       sessionID,
 			SessionID: sessionID,
+			Agent:     m.AgentName(),
 			Enabled:   isLive,
 		}})
 		result.Status = sessionactivity.Label(results[sessionID].State, isLive)

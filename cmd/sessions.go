@@ -98,6 +98,7 @@ func collectActiveSessions(snapshot tracker.TrackerSnapshot) (time.Time, []track
 		observations = append(observations, sessionactivity.Observation{
 			Key:       sessionactivity.AgentKey(row.ID),
 			SessionID: row.ID,
+			Agent:     row.Agent,
 			Enabled:   true,
 		})
 	}

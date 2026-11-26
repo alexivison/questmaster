@@ -47,7 +47,7 @@ func (s *Server) models(ctx context.Context, req Request) (any, error) {
 	if s.Snapshotter != nil {
 		root = s.Snapshotter.StateRoot()
 	}
-	if err := agentavailability.RequireEnabled(root, agentName); err != nil {
+	if err := agentavailability.RequireBuiltinEnabled(root, agentName); err != nil {
 		return nil, err
 	}
 	limit := payload.Limit

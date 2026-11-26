@@ -49,7 +49,7 @@ type claudeMessageFrame struct {
 }
 
 func (s *Service) nativeDeliver(ctx context.Context, client *tmux.Client, m state.Manifest, target, message string, beforeSend func() error) error {
-	switch manifestAgentName(m) {
+	switch m.AgentName() {
 	case "claude":
 		if restricted, err := claudeInboundRestricted(m.Cwd); err != nil {
 			return fmt.Errorf("%w: %v", errNativeUnavailable, err)

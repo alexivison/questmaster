@@ -6,14 +6,15 @@ package sessionactivity
 import (
 	"time"
 
+	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 )
 
-// Observation is one tracker-row activity observation. SessionID drives
-// the state.json read.
+// Observation identifies a session, its recorded harness and whether it is live.
 type Observation struct {
 	Key       string
 	SessionID string
+	Agent     string
 	Enabled   bool
 }
 
@@ -56,7 +57,7 @@ func Evaluate(observations []Observation) map[string]Result {
 			results[obs.Key] = Result{State: "stopped"}
 			continue
 		}
-		results[obs.Key] = loadResult(obs.SessionID)
+		results[obs.Key] = loadResult(obs.SessionID, obs.Agent)
 	}
 	return results
 }
@@ -78,7 +79,7 @@ func Label(state string, alive bool) string {
 	}
 }
 
-func loadResult(sessionID string) Result {
+func loadResult(sessionID, agentName string) Result {
 	if sessionID == "" {
 		return Result{State: "unknown"}
 	}
@@ -86,13 +87,13 @@ func loadResult(sessionID string) Result {
 	if err != nil || ss == nil {
 		return Result{State: "unknown"}
 	}
-	return FromState(ss)
+	return FromState(ss, agentName)
 }
 
-// FromState resolves the agent-pane activity from an already-loaded
-// SessionState, applying the same normalization as the per-session read.
-func FromState(ss *state.SessionState) Result {
-	if ss == nil {
+// FromState resolves the activity for the harness recorded in the manifest.
+// Pass an empty name when reading history or when no owner is recorded.
+func FromState(ss *state.SessionState, agentName string) Result {
+	if ss == nil || (agentName != "" && !agent.IsBuiltin(agentName)) {
 		return Result{State: "unknown"}
 	}
 	p, ok := ss.Panes["agent"]

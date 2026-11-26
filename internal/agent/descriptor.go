@@ -43,6 +43,12 @@ func SpecOf(name string) Spec {
 	return specsByName[name]
 }
 
+// IsBuiltin reports whether name belongs to the built-in harness catalogue.
+func IsBuiltin(name string) bool {
+	_, ok := specsByName[name]
+	return ok
+}
+
 // Names lists the built-in agent names in harness-guide order.
 func Names() []string {
 	names := make([]string, 0, len(providerDefs))
