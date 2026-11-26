@@ -27,14 +27,14 @@ import (
 
 const (
 	// These tests observe separate CLI and daemon processes, so their file and socket events need a generous CI watchdog.
-	daemonProcessWaitTimeout          = 45 * time.Second
-	daemonProcessSocketTimeout        = 10 * time.Second
-	daemonProcessPollInterval         = 20 * time.Millisecond
-	daemonProcessFastPoll             = 10 * time.Millisecond
-	daemonProcessIdleGrace            = 300 * time.Millisecond
-	daemonProcessLiveWorkCheck        = 400 * time.Millisecond
-	daemonProcessStopCheck            = 300 * time.Millisecond
-	daemonProcessHandoffSettleTimeout = 5 * time.Second
+	daemonProcessWaitTimeout        = 45 * time.Second
+	daemonProcessSocketTimeout      = 10 * time.Second
+	daemonProcessPollInterval       = 20 * time.Millisecond
+	daemonProcessFastPoll           = 10 * time.Millisecond
+	daemonProcessIdleGrace          = 300 * time.Millisecond
+	daemonProcessLiveWorkCheck      = 400 * time.Millisecond
+	daemonProcessStopCheck          = 300 * time.Millisecond
+	daemonProcessHandoffWaitTimeout = 5 * time.Second
 )
 
 func daemonProcessDeadline() time.Time { return time.Now().Add(daemonProcessWaitTimeout) }
@@ -298,20 +298,18 @@ func (h *daemonHarness) waitGeneration(generation float64) map[string]any {
 	return nil
 }
 
-func waitDaemonRunProcessCount(t *testing.T, executable string, want int) {
+func waitForFile(t *testing.T, path string, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(daemonProcessHandoffSettleTimeout)
-	var count int
+	deadline := time.Now().Add(timeout)
 	for {
-		count = daemonRunProcessCount(t, executable)
-		if count == want {
+		if _, err := os.Stat(path); err == nil {
 			return
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("helper run process count = %d", count)
+			t.Fatalf("timed out waiting for %s", path)
 		}
-		// Ensure can launch a contender while the old daemon is draining. Its
-		// caller may observe the resumed daemon before the contender exits.
 		time.Sleep(daemonProcessPollInterval)
 	}
 }
@@ -330,6 +328,31 @@ func daemonRunProcessCount(t *testing.T, executable string) int {
 		}
 	}
 	return count
+}
+
+func waitForDaemonRecord(t *testing.T, config daemon.Config, timeout time.Duration) daemon.Record {
+	t.Helper()
+	record, err := pollDaemonRecord(config, timeout)
+	if err != nil {
+		t.Fatalf("timed out waiting for daemon readiness: %v", err)
+	}
+	return record
+}
+
+func pollDaemonRecord(config daemon.Config, timeout time.Duration) (daemon.Record, error) {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		record, err := daemon.Status(config)
+		if err == nil {
+			return record, nil
+		}
+		lastErr = err
+		if time.Now().After(deadline) {
+			return daemon.Record{}, lastErr
+		}
+		time.Sleep(daemonProcessPollInterval)
+	}
 }
 
 func TestDaemonConcurrentStartAndStop(t *testing.T) {
@@ -398,13 +421,6 @@ func TestDaemonExitHandoff(t *testing.T) {
 				t.Fatal(err)
 			}
 			old := h.must("daemon", "start")
-			startGate := filepath.Join(h.root, "daemon", "resume-start-gate")
-			if resume {
-				// Keep the replacement before its lock/readiness check so the
-				// caller can return for the resumed daemon while it still exists.
-				h.env = append(h.env, "QUESTMASTER_TEST_DAEMON_START_GATE="+startGate)
-				t.Cleanup(func() { _ = os.WriteFile(startGate+".release", nil, 0o600) })
-			}
 			release := filepath.Join(h.root, "daemon", "release-drain")
 			t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
 			deadline := daemonProcessDeadline()
@@ -434,20 +450,6 @@ func TestDaemonExitHandoff(t *testing.T) {
 						err    error
 					}{result, err}
 				}()
-			}
-			if resume {
-				deadline := time.Now().Add(daemonProcessHandoffSettleTimeout)
-				for {
-					if _, err := os.Stat(startGate + ".started"); err == nil {
-						break
-					} else if !os.IsNotExist(err) {
-						t.Fatal(err)
-					}
-					if time.Now().After(deadline) {
-						t.Fatal("replacement daemon did not reach start gate")
-					}
-					time.Sleep(daemonProcessPollInterval)
-				}
 			}
 			if err := os.WriteFile(release, nil, 0o600); err != nil {
 				t.Fatal(err)
@@ -480,19 +482,125 @@ func TestDaemonExitHandoff(t *testing.T) {
 			if status := h.must("daemon", "status"); status["pid"] != pid {
 				t.Fatalf("handoff status: %+v", status)
 			}
-			if resume {
-				if count := daemonRunProcessCount(t, helper); count != 2 {
-					t.Fatalf("gated helper run process count = %d, want 2", count)
-				}
-				if err := os.WriteFile(startGate+".release", nil, 0o600); err != nil {
-					t.Fatal(err)
-				}
+			if count := daemonRunProcessCount(t, helper); count != 1 {
+				t.Fatalf("helper run process count = %d", count)
 			}
-			waitDaemonRunProcessCount(t, helper, 1)
 			h.must("daemon", "stop")
 			h.waitStopped()
 		})
 	}
+}
+
+func TestDaemonStartDoesNotRestartAfterStop(t *testing.T) {
+	h := newDaemonHarness(t, "")
+	helper := filepath.Join(t.TempDir(), "qm-start-stop-helper")
+	copyDaemonBinary(t, cachedDaemonHelper.binary(t, "../internal/daemon/testdata/exithelper"), helper)
+	link := filepath.Join(h.home, ".local", "bin", "questmaster")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(helper, link); err != nil {
+		t.Fatal(err)
+	}
+	old := h.must("daemon", "start")
+	release := filepath.Join(h.root, "daemon", "release-drain")
+	startGate := filepath.Join(h.root, "daemon", "start-stop-gate")
+	t.Cleanup(func() {
+		_ = os.WriteFile(release, nil, 0o600)
+		_ = os.WriteFile(startGate+".release", nil, 0o600)
+	})
+	waitForFile(t, filepath.Join(h.root, "daemon", "draining"), daemonProcessWaitTimeout)
+	if err := os.WriteFile(filepath.Join(h.root, "daemon", "work"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Any replacement process from Ensure stays at this gate until after Stop.
+	t.Setenv("QUESTMASTER_TEST_DAEMON_START_GATE", startGate)
+	lockWait := make(chan struct{}, 1)
+	config := daemon.Config{
+		Root:               h.root,
+		Home:               h.home,
+		Executable:         helper,
+		PollInterval:       10 * time.Millisecond,
+		OnLifetimeLockWait: func() { lockWait <- struct{}{} },
+	}
+	cleanupNeeded := true
+	t.Cleanup(func() {
+		if !cleanupNeeded {
+			return
+		}
+		_ = os.WriteFile(release, nil, 0o600)
+		_ = os.WriteFile(startGate+".release", nil, 0o600)
+		for range 2 {
+			if _, err := pollDaemonRecord(config, daemonProcessHandoffWaitTimeout); err == nil {
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), daemonProcessSocketTimeout)
+				_, _ = daemon.Stop(cleanupCtx, config)
+				cancel()
+			}
+		}
+	})
+	type ensureResult struct {
+		record daemon.Record
+		err    error
+	}
+	started := make(chan ensureResult, 1)
+	startCtx, cancelStart := context.WithTimeout(t.Context(), daemonProcessWaitTimeout)
+	defer cancelStart()
+	go func() {
+		record, err := daemon.Ensure(startCtx, config)
+		started <- ensureResult{record: record, err: err}
+	}()
+	select {
+	case <-lockWait:
+	case result := <-started:
+		t.Fatalf("start returned before observing the held daemon lock: %+v, %v", result.record, result.err)
+	case <-time.After(daemonProcessHandoffWaitTimeout):
+		t.Fatal("start did not wait for the held daemon lock")
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var result ensureResult
+	select {
+	case result = <-started:
+	case <-time.After(daemonProcessWaitTimeout):
+		t.Fatal("start did not return after the daemon resumed")
+	}
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	if result.record.PID != int(old["pid"].(float64)) {
+		t.Fatalf("start returned PID %d, want resumed daemon %v", result.record.PID, old["pid"])
+	}
+	processes := daemonRunProcessCount(t, helper)
+	if processes < 1 || processes > 2 {
+		t.Fatalf("helper run process count after start = %d, want one daemon and at most one contender", processes)
+	}
+	if processes > 1 {
+		waitForFile(t, startGate+".started", daemonProcessHandoffWaitTimeout)
+	}
+	stopCtx, cancelStop := context.WithTimeout(t.Context(), daemonProcessSocketTimeout)
+	_, stopErr := daemon.Stop(stopCtx, config)
+	cancelStop()
+	if stopErr != nil {
+		t.Fatalf("stop after start returned: %v", stopErr)
+	}
+	if err := os.WriteFile(startGate+".release", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if processes > 1 {
+		restarted := waitForDaemonRecord(t, config, daemonProcessHandoffWaitTimeout)
+		cleanupCtx, cancelCleanup := context.WithTimeout(t.Context(), daemonProcessSocketTimeout)
+		_, cleanupErr := daemon.Stop(cleanupCtx, config)
+		cancelCleanup()
+		if cleanupErr != nil {
+			t.Errorf("stop unexpected contender: %v", cleanupErr)
+		}
+		t.Fatalf("start contender became daemon after stop: pid %d", restarted.PID)
+	}
+	if _, err := daemon.Status(config); err == nil {
+		t.Fatal("daemon appeared after stop")
+	}
+	cleanupNeeded = false
 }
 
 func TestDaemonStaleSocketAndLongRoot(t *testing.T) {
