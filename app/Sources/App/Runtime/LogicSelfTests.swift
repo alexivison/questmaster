@@ -2410,16 +2410,25 @@ enum LogicSelfTests {
     /// Every bundled class whose idle carries an effect has all its art, and each effect track loops on its own length rather than
     /// the breathing's.
     @MainActor
+    /// Every bundled class and familiar: each idle effect has its art and loops on its own clock, and that clock is a whole number of the
+    /// breathing periods, so the effect and the breath meet again at each start of the effect's loop (a 3.6 s effect over a 1.8 s breath).
     private static func testEveryBundledIdleEffectHasItsArtAndLoops() throws {
-        for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
+        let sprites = TrackerAvatarSprites.bundled().map { (name: "the \($0.key)", sprites: $0.value) }
+            + TrackerAvatarSprites.bundledFamiliars().map { (name: "the \($0.key)'s familiar", sprites: $0.value) }
+        for (name, sprites) in sprites.sorted(by: { $0.name < $1.name }) {
             for layer in [TrackerAvatarLayer.behind, .front] {
                 guard let track = sprites.animation.idle?.effect(layer) else {
                     continue
                 }
                 let missing = missingFrames(of: sprites).filter { $0.hasPrefix("idle effect") }
-                try expect(missing.isEmpty, "the \(classID)'s idle \(layer.rawValue) effect should have all its art, missing: \(missing)")
+                try expect(missing.isEmpty, "\(name)'s idle \(layer.rawValue) effect should have all its art, missing: \(missing)")
                 try expect(track.frame(at: track.seconds, looping: true) == track.steps[0].frame,
-                           "the \(classID)'s idle \(layer.rawValue) effect should loop back to its first frame after \(track.seconds) s")
+                           "\(name)'s idle \(layer.rawValue) effect should loop back to its first frame after \(track.seconds) s")
+                if let breathing = sprites.animation.idle?.breathing {
+                    let cycles = track.seconds / breathing.period
+                    try expect(abs(cycles - cycles.rounded()) < 1e-9,
+                               "\(name)'s idle \(layer.rawValue) effect (\(track.seconds) s) should be a whole number of its \(breathing.period) s breaths")
+                }
             }
         }
     }
