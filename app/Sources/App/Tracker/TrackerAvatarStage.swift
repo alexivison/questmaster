@@ -131,4 +131,36 @@ enum TrackerAvatarLibrary {
         }
         return TrackerAvatarCatalog(animations: animations, familiars: familiars)
     }()
+
+    /// The frames the whole library has cached so far, across every class, familiar and company set.
+    static var cachedFrameCount: Int {
+        (Array(sprites.values) + Array(companions.values)).reduce(0) { $0 + $1.cachedFrameCount }
+    }
+
+    /// The decoded size of the cached frames across the library, in bytes.
+    static var cachedByteCount: Int {
+        (Array(sprites.values) + Array(companions.values)).reduce(0) { $0 + $1.cachedByteCount }
+    }
+
+    /// Decodes, ahead of any switch, the art the tracker's sessions show when switched to: each session's pose on its own art, and a
+    /// designed familiar's pose on its company frames as well, since its company row draws from those. The tracker calls it on every
+    /// update, so a session's frames decode before the attach that shows them. A pose decodes once (`TrackerAvatarSprites.prefetch`).
+    static func prefetch(for sessions: [TrackerSession]) {
+        var poses: [TrackerAvatarArtKey: [TrackerAvatarPose]] = [:]
+        for session in sessions {
+            guard let key = catalog.art(for: session),
+                  let pose = TrackerAvatarPose.pose(
+                      for: session, catalog: catalog, turnUsedTool: TrackerAvatarDirector.turnUsedToolWhenSwitched(to: session)
+                  ) else {
+                continue
+            }
+            poses[key, default: []].append(pose)
+        }
+        for (key, shown) in poses {
+            sprites[key]?.prefetch(shown)
+            if key.kind == .familiar, sprites[key]?.animation.companyRow != nil {
+                companions[key.classID]?.prefetch(shown)
+            }
+        }
+    }
 }

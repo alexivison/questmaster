@@ -116,6 +116,7 @@ enum LogicSelfTests {
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
         ("testEveryBundledFamiliarFitsTheSlot", testEveryBundledFamiliarFitsTheSlot),
         ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
+        ("testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt", testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt),
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
         ("testOneWorkerIsCentredOnTheMastersBody", testOneWorkerIsCentredOnTheMastersBody),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
@@ -2679,6 +2680,34 @@ enum LogicSelfTests {
     /// A master's company stands in its slot: seven Fire Elementals show of eight (the design's full row), the marker counts one above the
     /// master's familiar's disc, each familiar's rest stays inside the row's first place and the marker's left edge, each drops below the
     /// feet, and the master stays at the slot's centre.
+    /// The tracker prefetches a session's pose on its update, before the attach that shows it, so the switch finds the frames decoded: the
+    /// decode runs off the main thread, and the frame the switch draws is then a cache hit. A pose asked for again decodes nothing.
+    @MainActor
+    private static func testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt() throws {
+        guard let resources = AppSymbolStyle.resourceBundle().resourceURL,
+              let sprites = TrackerAvatarSprites(classID: "bard", folder: resources.appendingPathComponent("Sprites/bard", isDirectory: true)) else {
+            throw TestFailure("the bard's sprites should load from the app bundle")
+        }
+        let before = sprites.cachedFrameCount
+        sprites.prefetch([.idle])
+        let deadline = Date().addingTimeInterval(10)
+        while sprites.cachedFrameCount == before, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        try expect(sprites.cachedFrameCount > before, "a prefetch should decode the pose's frames in the background")
+        #if DEBUG
+        let decodesBefore = TrackerAvatarDecodeProbe.count
+        #endif
+        try expect(sprites.frame(.idle, .character, 1) != nil, "the idle's first frame should be decoded once the prefetch has run")
+        #if DEBUG
+        try expect(TrackerAvatarDecodeProbe.count == decodesBefore, "a prefetched frame should come from the cache, with no decode on the switch")
+        #endif
+        let decoded = sprites.cachedFrameCount
+        sprites.prefetch([.idle])
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        try expect(sprites.cachedFrameCount == decoded, "asking again for a pose that was requested should decode nothing")
+    }
+
     @MainActor
     private static func testTheMastersCompanyFitsItsSlot() throws {
         final class Clock {

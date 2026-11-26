@@ -74,7 +74,8 @@ private enum TrackerAvatarIdleFramesAnimation {
 }
 
 /// One session class's avatar: its `animation.json` and the art beside it in `Resources/Sprites/<class>/`. Art loads when it is first
-/// drawn, and stays. A class with no readable file has no sprites, and so no avatar.
+/// drawn, or ahead of that when the tracker prefetches its poses (`prefetch`), and stays. A class with no readable file has no sprites,
+/// and so no avatar.
 @MainActor
 final class TrackerAvatarSprites {
     let classID: String
@@ -273,6 +274,10 @@ final class TrackerAvatarSprites {
     /// with an authored idle loop (no layered idle) has them too. Nil while the still has no art.
     lazy var restColumns: ClosedRange<Int>? = idleFrame(1).flatMap { Self.opaqueColumns(of: $0) }
 
+    /// The lowest opaque row of `01-idle-f1`, counted from the top: where a hover leaves the figure above its feet. Read once, as the
+    /// rest columns are, because a designed familiar's company drop asks for it on every tracker refresh.
+    lazy var restLowestRow: Int? = idleFrame(1).flatMap { Self.opaqueRows(of: $0)?.upperBound }
+
     /// The still idle image and its blink stencil when no breathing track is configured.
     lazy var idleStillArt: TrackerAvatarIdleFrameArt? = {
         guard let idle = animation.idle, let image = idleFrame(1) else {
@@ -343,15 +348,90 @@ final class TrackerAvatarSprites {
             return cached
         }
         let url = (directory ?? folder).appendingPathComponent("\(name).png")
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        #if DEBUG
+        let started = ProcessInfo.processInfo.systemUptime
+        #endif
+        guard let image = Self.decodeFrame(at: url) else {
             return nil
         }
+        #if DEBUG
+        TrackerAvatarDecodeProbe.record(seconds: ProcessInfo.processInfo.systemUptime - started)
+        #endif
         images[name] = image
         return image
     }
 
+    /// How many frames the cache holds, from a switch's decode or a prefetch. The self-tests and the switch timing wait on it.
+    var cachedFrameCount: Int {
+        images.count
+    }
+
+    /// The decoded size of the cached frames, in bytes (width × height × 4 each).
+    var cachedByteCount: Int {
+        images.values.reduce(0) { $0 + $1.width * $1.height * 4 }
+    }
+
+    /// The poses whose frames a background decode has been asked for, so a pose is requested once per art.
+    private var requestedPoses: Set<TrackerAvatarPose> = []
+
+    /// Decodes the frames of `poses` on a background queue into the cache, so a switch to one of them finds its frames already decoded.
+    /// A pose's frames are the PNGs under its `NN-pose-` prefix (every layer, frame and breathing loop), and the shared bubble. Requests
+    /// for poses already asked for do nothing, so each tracker update may ask again at no cost.
+    func prefetch(_ poses: [TrackerAvatarPose]) {
+        let fresh = poses.filter { requestedPoses.insert($0).inserted }
+        guard !fresh.isEmpty else {
+            return
+        }
+        let prefixes = fresh.map { "\($0.resourceName)-" }
+        let folder = folder
+        let bubbleURL = bubbleFolder.appendingPathComponent("bubble.png")
+        let wantsBubble = images["bubble"] == nil
+        // The sprites live as long as the app (`TrackerAvatarLibrary`), so the task holds them outright.
+        let owner = self
+        Task.detached(priority: .utility) {
+            let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            let frames: [(name: String, image: CGImage)] = files
+                .filter { url in url.pathExtension == "png" && prefixes.contains { url.lastPathComponent.hasPrefix($0) } }
+                .compactMap { url in
+                    Self.decodeFrame(at: url).map { (url.deletingPathExtension().lastPathComponent, $0) }
+                }
+            let bubble: [(name: String, image: CGImage)] = wantsBubble ? Self.decodeFrame(at: bubbleURL).map { [("bubble", $0)] } ?? [] : []
+            let decoded = frames + bubble
+            await MainActor.run {
+                owner.adopt(decoded)
+            }
+        }
+    }
+
+    /// Caches the background-decoded frames whose names the cache doesn't hold yet.
+    private func adopt(_ frames: [(name: String, image: CGImage)]) {
+        for frame in frames where images[frame.name] == nil {
+            images[frame.name] = frame.image
+        }
+    }
+
+    /// The PNG at `url`, decoded when it is read rather than at its first draw (`kCGImageSourceShouldCacheImmediately`). The pixels and
+    /// their format are the same as a lazy read gives; only the time of the decode moves.
+    nonisolated static func decodeFrame(at url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+    }
 }
+
+#if DEBUG
+/// Dev-only timing of cold PNG decodes (`TrackerAvatarSprites.image(named:)` misses). The switch timing reads it.
+enum TrackerAvatarDecodeProbe {
+    private(set) static var count = 0
+    private(set) static var seconds: TimeInterval = 0
+
+    static func record(seconds decode: TimeInterval) {
+        count += 1
+        seconds += decode
+    }
+}
+#endif
 
 /// The class avatar in the tracker column, in its slot. `beat` is the director's beat count: it rises whenever a pose's cue
 /// starts, so a one-shot that repeats on the same pose plays again. `finish` is how far into the pose's finish the avatar is, while it
@@ -1078,6 +1158,17 @@ final class TrackerAvatarView: NSView {
     var isBlinkScheduled: Bool {
         blinkTimer != nil
     }
+
+    #if DEBUG
+    /// The pose on screen, for the switch timing: a fidget shows as idle, and nil with no rig on screen.
+    var probePose: TrackerAvatarPose? {
+        switch shownKey {
+        case .pose(let pose)?: pose
+        case .fidget?: .idle
+        case nil: nil
+        }
+    }
+    #endif
 
     /// Shows the eyelids over the eyes of an idle that has them, for the render previews; a blink does the same for a moment.
     func showEyelids(_ shown: Bool) {

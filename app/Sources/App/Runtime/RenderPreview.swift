@@ -273,6 +273,7 @@ enum RenderPreview {
         recordRefreshSpinner(to: outputDir)
         recordTrackerAvatarMotion(to: outputDir)
         recordTrackerAvatarRound2(to: outputDir)
+        AvatarSwitchTiming.runIfRequested(to: outputDir)
         recordTrackerAvatarAllPoses(to: outputDir)
         renderTrackerAvatarStills(to: outputDir)
         // A long quest scrolled partway down, with the overflow cue at the page's bottom edge.

@@ -25,6 +25,7 @@ struct TrackerAvatarFamiliarTests {
         aFamiliarWorksWhileSubagentsRun()
         aFamiliarCallingOutKeepsItsTurn()
         aMasterIgnoresTheTurnsToolMemory()
+        aSwitchFindsToolUseOnlyWhileAToolRuns()
         print("TrackerAvatarFamiliarTests: all tests passed")
     }
 
@@ -287,6 +288,16 @@ struct TrackerAvatarFamiliarTests {
         let master = AvatarSessionFixture.session(sessionClass: "bard")
         let pose = TrackerAvatarPose.pose(for: master, catalog: AvatarAnimationFixture.catalogWithFamiliar(), turnUsedTool: true)
         expect(pose == .pondering, "a master with no cast between tools should still think, got \(name(pose))")
+    }
+
+    /// A switch to a worker finds its turn's tool use only while a tool or sub-agents run in a turn that is still going: the pose it shows
+    /// first is working then, and pondering otherwise.
+    private static func aSwitchFindsToolUseOnlyWhileAToolRuns() {
+        expect(TrackerAvatarDirector.turnUsedToolWhenSwitched(to: turnWorker(tool: "Read")), "a worker running a tool should find its turn using one")
+        expect(TrackerAvatarDirector.turnUsedToolWhenSwitched(to: turnWorker(subagents: 1)), "a worker running sub-agents should find its turn using a tool")
+        expect(!TrackerAvatarDirector.turnUsedToolWhenSwitched(to: turnWorker()), "a worker between tools should find no tool use")
+        expect(!TrackerAvatarDirector.turnUsedToolWhenSwitched(to: turnWorker(state: "done", tool: "Read")), "a finished turn should find no tool use")
+        expect(!TrackerAvatarDirector.turnUsedToolWhenSwitched(to: nil), "no session should find no tool use")
     }
 
     private static func expectError(_ expected: TrackerAvatarAnimationError, _ message: String, _ body: () throws -> Void) {

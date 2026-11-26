@@ -448,6 +448,7 @@ struct TrackerRootView: View {
     private func feedAvatar() {
         let sessions = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
         let attachedID = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID)
+        TrackerAvatarLibrary.prefetch(for: sessions)
         avatarStage.observe(sessions: sessions, attachedID: attachedID)
         companyStage.observe(sessions: sessions, attachedID: attachedID)
     }
