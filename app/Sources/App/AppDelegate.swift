@@ -287,7 +287,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.bottomDockShell.onRefreshArtifact = { [weak self] in self?.shellHandles?.dockView.refreshCurrentArtifact() }
         handles.dockView.onShowArtifactListIntent = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockView.onOpenArtifactIntent = { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
-        handles.dockView.onAttachSession = { [weak self] sessionID in self?.attachSession(sessionID) }
+        handles.dockView.onAttachSession = { [weak self] sessionID in self?.attachWorkerFromLog(sessionID) }
         handles.terminalShell.onReturnToMaster = { [weak self] in self?.returnToMaster() }
         handles.dockView.onOpenArtifactExternal = { [weak self] artifact in self?.openArtifactExternally(artifact) }
         handles.dockView.onSetArtifactScope = { [weak self] scope in self?.setArtifactScope(scope) }
@@ -496,26 +496,40 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    /// Attaches the terminal to `sessionID` — the same path a tracker row click or a Cmd+1..9
-    /// menu selection uses (`selectTrackerSession`).
-    /// Activates by exact id, so it works whether or not `sessionID`'s master is collapsed in the
-    /// tracker: `selectableSessions` hides a collapsed master's workers (right for Cmd+1..9's
-    /// position-based lookup, which `selectTrackerSession` still uses to resolve the id first),
-    /// but activation only needs the id to exist, not to be numbered/visible.
-    private func attachSession(_ sessionID: String) {
-        guard let window = shellHandles?.window else {
+    /// Activates by exact id, including workers hidden by a collapsed master. Uses the same
+    /// switch, continue, and focus rules as a tracker row.
+    private func attachSession(_ sessionID: String, onAttached: (() -> Void)? = nil) {
+        guard shellHandles != nil, let sessionCoordinator else {
             return
         }
         let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot))
-        var commandState = TrackerCommandState()
-        guard let effects = commandState.effects(
-            for: .activate(openedID: sessionID),
-            rows: rows,
-            currentTerminalSessionID: runtimeStore.currentTerminalSessionID
-        ) else {
+        guard let session = TrackerActivationTarget.session(openedID: sessionID, selectedID: nil, sessions: rows) else {
             return
         }
-        makeTrackerEffectExecutor(window: window).execute(effects)
+        let action = TrackerActivationDecision.action(for: session, currentTerminalSessionID: runtimeStore.currentTerminalSessionID)
+        if action == .focusCurrentSession {
+            focusTerminal()
+            onAttached?()
+            return
+        }
+        let intent: TrackerActivationIntent = action == .continueSession ? .continueSession : .switchSession
+        sessionCoordinator.activateTerminalSession(sessionID, intent: intent) { attached in
+            if attached {
+                onAttached?()
+            }
+        }
+        if intent == .continueSession {
+            focusTerminal()
+        }
+    }
+
+    private func attachWorkerFromLog(_ workerID: String) {
+        guard let masterID = runtimeStore.currentTerminalSessionID else {
+            return
+        }
+        attachSession(workerID) { [weak self] in
+            self?.runtimeStore.rememberWorkerLogJump(from: masterID, to: workerID)
+        }
     }
 
     @objc private func focusTerminal() {
@@ -527,7 +541,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
               let sessionID = runtimeStore.returnToMasterSessionID else {
             return
         }
-        attachSession(sessionID)
+        let restoreWorkerLog = runtimeStore.workerLogReturnMasterID == sessionID
+        attachSession(sessionID) { [weak self] in
+            guard let self, restoreWorkerLog, self.dockPanels.bottom,
+                  self.dockCoordinator.state.dockContent == .workerChat else {
+                return
+            }
+            self.focusCoordinator.focusDockPanel(.bottom)
+        }
     }
 
     // Also reached from MenuController's key monitor, which runs before menu validation.
@@ -807,9 +828,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let sessionID = TrackerSessionShortcuts.sessionID(atPosition: sender.tag, in: rows) else {
             return
         }
-        // attachSession mirrors the tracker view's own click-to-activate path
-        // (TrackerRootView.activate): .activate(openedID:) resolves the target session directly,
-        // keeping continue-if-stopped / focus-if-current parity with a mouse click.
         attachSession(sessionID)
     }
 

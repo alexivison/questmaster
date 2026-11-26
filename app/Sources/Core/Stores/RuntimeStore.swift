@@ -52,6 +52,16 @@ public final class RuntimeStore {
         return master.id
     }
 
+    /// The master whose Worker Log launched the attached worker.
+    public private(set) var workerLogReturnMasterID: String?
+
+    public func rememberWorkerLogJump(from masterID: String, to workerID: String) {
+        guard currentTerminalSessionID == workerID, returnToMasterSessionID == masterID else {
+            return
+        }
+        workerLogReturnMasterID = masterID
+    }
+
     /// Registers a change observer. The returned token unsubscribes on `cancel()` or when it is
     /// released, so observers should retain the token for as long as they want notifications.
     public func observe(_ block: @escaping () -> Void) -> RuntimeStoreObservation {
@@ -96,6 +106,7 @@ public final class RuntimeStore {
         guard currentTerminalSessionID != id else {
             return
         }
+        workerLogReturnMasterID = nil
         currentTerminalSessionID = id
         notify()
     }
