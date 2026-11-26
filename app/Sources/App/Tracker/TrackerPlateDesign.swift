@@ -32,7 +32,7 @@ enum TrackerPlateDesign {
     /// Canvas sizes, and the rows' sizes. The plate's right edge limits how many collapsed circles fit.
     /// The master's canvas stops under the crown pieces; the circles are drawn apart.
     /// Plates end at the same right edge; the worker keeps its portrait indent. Only the straight SVG runs shorten.
-    static let plateWidth: CGFloat = 240
+    static let plateWidth: CGFloat = 250
     static let topLevelSize = CGSize(width: plateWidth, height: ControlHeight.row)
     static let workerSize = CGSize(width: plateWidth, height: ControlHeight.bar)
     static let topLevelArtSize = CGSize(width: plateWidth + Space.row, height: 55)
