@@ -19,12 +19,13 @@ const (
 	// Bump this whenever a payload change cannot be decoded by an older app.
 	ServeProtocolVersion = 3
 
-	topicTracker          = "tracker"
-	topicDirSuggest       = "dir_suggest"
-	topicModels           = "models"
-	topicReasoningEfforts = "reasoning_efforts"
-	topicWorkerFeed       = "worker_feed"
-	topicPullRequests     = "pull_requests"
+	topicTracker           = "tracker"
+	topicDirSuggest        = "dir_suggest"
+	topicAgentAvailability = "agent_availability"
+	topicModels            = "models"
+	topicReasoningEfforts  = "reasoning_efforts"
+	topicWorkerFeed        = "worker_feed"
+	topicPullRequests      = "pull_requests"
 )
 
 // Request is one JSON line sent by a client.
@@ -85,6 +86,8 @@ func (s *Server) HandleRequest(ctx context.Context, req Request) Envelope {
 	switch req.Method {
 	case topicDirSuggest:
 		data, err = s.dirSuggest(req)
+	case topicAgentAvailability:
+		data, err = s.agentAvailability()
 	case topicModels:
 		data, err = s.models(ctx, req)
 	case topicReasoningEfforts:

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/agentavailability"
 	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -41,6 +42,14 @@ func (s *Server) models(ctx context.Context, req Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	agentName = strings.ToLower(strings.TrimSpace(agentName))
+	root := state.StateRoot()
+	if s.Snapshotter != nil {
+		root = s.Snapshotter.StateRoot()
+	}
+	if err := agentavailability.RequireEnabled(root, agentName); err != nil {
+		return nil, err
+	}
 	limit := payload.Limit
 	if limit <= 0 || limit > maxServeModelSuggestions {
 		limit = maxServeModelSuggestions
@@ -48,11 +57,6 @@ func (s *Server) models(ctx context.Context, req Request) (any, error) {
 	role, err := modelsuggest.ParseRole(payload.Role)
 	if err != nil {
 		return nil, err
-	}
-
-	root := state.StateRoot()
-	if s.Snapshotter != nil {
-		root = s.Snapshotter.StateRoot()
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, modelsOperationTimeout)

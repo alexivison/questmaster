@@ -4,9 +4,15 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/tmuxroute"
+	"github.com/spf13/cobra"
 )
 
 func TestAgentQuery_DefaultConfig(t *testing.T) {
@@ -35,23 +41,14 @@ func TestAgentQuery_NamesIgnoreRepoRoot(t *testing.T) {
 	}()
 
 	t.Setenv("PARTY_REPO_ROOT", repoRoot)
-
-	root := NewRootCmd()
-	var out bytes.Buffer
-	root.SetOut(&out)
-	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"agent", "query", "names"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute(agent query names): %v", err)
-	}
-	if got := out.String(); got != "claude\ncodex\nopencode\npi\n" {
+	if got := runAgentQuery(t, otherDir, "agent", "query", "names"); got != "claude\ncodex\nopencode\npi\n" {
 		t.Fatalf("names used PARTY_REPO_ROOT unexpectedly: got %q", got)
 	}
 }
 
 func TestAgentQuery_RemovesSingleValueQueries(t *testing.T) {
 	for _, query := range []string{"roles", "primary-name", "agent-name"} {
-		root := NewRootCmd()
+		root := newAgentTestRoot(t)
 		root.SetErr(&bytes.Buffer{})
 		root.SetArgs([]string{"agent", "query", query})
 		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "unknown query") {
@@ -76,7 +73,7 @@ func runAgentQuery(t *testing.T, cwd string, args ...string) string {
 		}
 	}()
 
-	root := NewRootCmd()
+	root := newAgentTestRoot(t)
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
@@ -85,4 +82,34 @@ func runAgentQuery(t *testing.T, cwd string, args ...string) string {
 		t.Fatalf("Execute(%v): %v", args, err)
 	}
 	return out.String()
+}
+
+func newAgentTestRoot(t *testing.T) *cobra.Command {
+	t.Helper()
+	store := setupStore(t)
+	client := tmux.NewClient(&mockRunner{fn: func(context.Context, ...string) (string, error) { return "", nil }})
+	router := tmuxroute.New(store, map[string]*tmux.Client{"dev_previous": client}, func() string { return "dev_previous" }, nil)
+	return NewRootCmd(WithDeps(store, client), WithTmuxRouter(router))
+}
+
+func TestAgentQueryNamesReflectAvailability(t *testing.T) {
+	store := setupStore(t)
+	if err := state.NewAgentAvailabilityStore(store.Root()).Set("codex", false); err != nil {
+		t.Fatalf("disable codex: %v", err)
+	}
+	got := runCmd(t, store, &mockRunner{fn: func(context.Context, ...string) (string, error) { return "", nil }}, "agent", "query", "names")
+	if got != "claude\nopencode\npi\n" {
+		t.Fatalf("enabled names = %q, want claude/opencode/pi", got)
+	}
+}
+
+func TestHiddenCodexSupervisorRespectsAvailability(t *testing.T) {
+	store := setupStore(t)
+	if err := state.NewAgentAvailabilityStore(store.Root()).Set("codex", false); err != nil {
+		t.Fatalf("disable codex: %v", err)
+	}
+	_, err := runCmdErr(t, store, &mockRunner{fn: func(context.Context, ...string) (string, error) { return "", nil }}, "agent", "codex", "--binary", "/bin/false")
+	if err == nil || !strings.Contains(err.Error(), `agent "codex" is disabled`) {
+		t.Fatalf("hidden Codex supervisor with disabled codex = %v, want disabled error before runtime checks", err)
+	}
 }

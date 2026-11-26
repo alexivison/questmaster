@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/agentavailability"
 	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/spf13/cobra"
@@ -48,7 +49,17 @@ spawn --model accept any id the harness understands, listed or not.`,
 				agentName = strings.TrimSpace(args[0])
 			}
 			if agentName == "" {
-				return fmt.Errorf("agent is required (one of: %s)", strings.Join(agent.Names(), ", "))
+				names, err := agentavailability.EnabledNames(store.Root())
+				if err != nil {
+					return err
+				}
+				if len(names) == 0 {
+					return fmt.Errorf("no agents are enabled; enable at least one in Settings before requesting model suggestions")
+				}
+				return fmt.Errorf("agent is required (one of: %s)", strings.Join(names, ", "))
+			}
+			if err := agentavailability.RequireEnabled(store.Root(), agentName); err != nil {
+				return err
 			}
 			role, err := parseModelsRoleFlag(opts.role)
 			if err != nil {

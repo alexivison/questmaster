@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/agentavailability"
 	"github.com/alexivison/questmaster/internal/config"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -309,6 +310,9 @@ func (s *Service) continueLaunchFor(m state.Manifest) (continueLaunch, error) {
 
 	for _, agentState := range manifestSpecs {
 		role := agent.Role(agentState.Role)
+		if err := agentavailability.RequireEnabled(s.Store.Root(), agentState.Name); err != nil {
+			return continueLaunch{}, fmt.Errorf("cannot continue session %s: %w", m.SessionID, err)
+		}
 		provider, err := agent.Resolve(agentState.Name, s.Registry)
 		if err != nil {
 			return continueLaunch{}, fmt.Errorf("resolve provider %q: %w", agentState.Name, err)

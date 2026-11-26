@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/agentavailability"
 	"github.com/alexivison/questmaster/internal/sessiontheme"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -54,11 +55,6 @@ type StartResult struct {
 
 // Start creates and launches a new questmaster session.
 func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error) {
-	handle, err := s.router().Creation()
-	if err != nil {
-		return StartResult{}, err
-	}
-	s = s.onHandle(handle)
 	role := roleMaster
 	if opts.MasterID != "" {
 		role = roleWorker
@@ -66,6 +62,29 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	if opts.Shell {
 		role = ""
 	}
+	var registry *agent.Registry
+	var bindings []*agent.RoleBinding
+	if !opts.Shell {
+		var err error
+		registry, err = s.agentRegistry()
+		if err != nil {
+			return StartResult{}, fmt.Errorf("load agent registry: %w", err)
+		}
+		bindings = registry.Bindings()
+		if len(bindings) == 0 {
+			return StartResult{}, fmt.Errorf("resolve session roles: agent role is not configured")
+		}
+		for _, binding := range bindings {
+			if err := agentavailability.RequireLaunch(s.Store.Root(), binding.Agent.Name()); err != nil {
+				return StartResult{}, err
+			}
+		}
+	}
+	handle, err := s.router().Creation()
+	if err != nil {
+		return StartResult{}, err
+	}
+	s = s.onHandle(handle)
 	if opts.Class != "" {
 		class, err := state.ValidateSessionClass(opts.Class)
 		if err != nil {
@@ -108,7 +127,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	agentRole := agentSessionRole(role)
 	agentPath := defaultAgentPath()
 
-	var bindings []*agent.RoleBinding
 	agentCmds := map[agent.Role]string{}
 	launchAgents := map[agent.Role]agent.Agent{}
 	agentResume := map[agent.Role]resumeInfo{}
@@ -116,16 +134,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	resumeMap := opts.ResumeIDs
 
 	if !opts.Shell {
-		registry, err := s.agentRegistry()
-		if err != nil {
-			return StartResult{}, fmt.Errorf("load agent registry: %w", err)
-		}
-
-		bindings = registry.Bindings()
-		if len(bindings) == 0 {
-			return StartResult{}, fmt.Errorf("resolve session roles: agent role is not configured")
-		}
-
 		resolvedModel := opts.Model
 		resolvedReasoningEffort := opts.ReasoningEffort
 
