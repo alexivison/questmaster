@@ -2831,13 +2831,23 @@ enum LogicSelfTests {
         let stage = TrackerCompanyStage(clock: { clock.now })
         let master = try testRow(["id": "qm-m", "title": "Necromancer", "session_type": "master", "class": "necromancer"])
         let titles = ["Ember", "Ledger sync", "Tray icon polish"]
-        let workers = try titles.enumerated().map { index, title in
-            try testRow(["id": "qm-w\(index)", "title": title, "session_type": "worker", "parent_id": "qm-m", "class": "necromancer"])
+        // Only a working worker's name shows: the middle worker is idle here, so it gets no tag.
+        func rows(middleState: String) throws -> [TrackerSession] {
+            try titles.enumerated().map { index, title in
+                try testRow(["id": "qm-w\(index)", "title": title, "session_type": "worker", "parent_id": "qm-m", "class": "necromancer",
+                             "state": index == 1 ? middleState : "working"])
+            }
         }
+        let workers = try rows(middleState: "idle")
         stage.observe(sessions: [master] + workers, attachedID: "qm-m")
-        // A name with no room on any tier gets no chip (the Necromancer's third familiar here, over its face), so the tags only follow spawn order.
         let ids = stage.nameTags.map(\.id)
-        try expect(ids.first == "qm-w0" && ids == ids.sorted(), "the first familiar should get a name tag, and the tags should follow spawn order, got \(ids)")
+        try expect(ids.first == "qm-w0" && ids == ids.sorted() && !ids.contains("qm-w1"),
+                   "the working familiars should get name tags in spawn order, and the idle one none, got \(ids)")
+        // A tag comes and goes with the status: the idle worker's name shows once it works, and goes when it is idle again.
+        stage.observe(sessions: [master] + (try rows(middleState: "working")), attachedID: "qm-m")
+        try expect(stage.nameTags.contains { $0.id == "qm-w1" }, "a worker's name should show once it is working, got \(stage.nameTags.map(\.id))")
+        stage.observe(sessions: [master] + workers, attachedID: "qm-m")
+        try expect(!stage.nameTags.contains { $0.id == "qm-w1" }, "a worker's name should go when it stops working, got \(stage.nameTags.map(\.id))")
         try expect(stage.nameTags.first?.text == "Ember", "the first name should keep its full text, got \(stage.nameTags.first?.text ?? "none")")
         for tag in stage.nameTags {
             try expect(tag.text == titles[tag.id == "qm-w0" ? 0 : tag.id == "qm-w1" ? 1 : 2] || tag.text.hasSuffix("…"),

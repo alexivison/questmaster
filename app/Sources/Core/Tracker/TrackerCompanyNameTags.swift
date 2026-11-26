@@ -1,7 +1,8 @@
 import Foundation
 
-/// The worker names above the familiars in the master's company, as the tiered treatment places them. Each shown familiar's name sits in a
-/// chip over its head on a stem. A name takes the lowest of `tierCount` tiers with room over its head, a chip keeping `chipGap` from its
+/// The worker names above the familiars in the master's company, as the tiered treatment places them. A familiar's name shows only while its
+/// worker is working (a busy turn), in a chip over its head on a stem; an idle, done, blocked, stopped or errored worker's name shows
+/// nowhere and takes no room. A name takes the lowest of `tierCount` tiers with room over its head, a chip keeping `chipGap` from its
 /// neighbours on its tier. A tier whose band runs into the master's face is blocked where the face is. A name with no room on any tier is
 /// cut with an ellipsis to the widest free run over its head, and a name that cannot keep `minimumLetters` letters and an ellipsis gets no
 /// chip. Pure: the App measures the text and cuts it, through the `cut` closure. Heights are points above the slot's bottom.
@@ -21,19 +22,26 @@ public enum TrackerCompanyNameTags {
     /// The fewest letters a cut name keeps before its ellipsis.
     public static let minimumLetters = 4
 
-    /// One familiar's name to place: the full text width (without the chip's padding), the x of the familiar's centre, and the y of its
-    /// visible top.
+    /// Whether a worker's name shows at all: only while its session is working, the busy turn whose familiar poses thinking or working.
+    public static func showsName(_ session: TrackerSession) -> Bool {
+        TrackerStatusClassifier.classify(session).kind == .working
+    }
+
+    /// One familiar's name to place: the full text width (without the chip's padding), the x of the familiar's centre, the y of its
+    /// visible top, and whether its worker is working. A name whose worker is not working gets no placement and takes no room.
     public struct Tag: Equatable, Sendable {
         public let name: String
         public let nameWidth: Double
         public let centre: Double
         public let headTop: Double
+        public let working: Bool
 
-        public init(name: String, nameWidth: Double, centre: Double, headTop: Double) {
+        public init(name: String, nameWidth: Double, centre: Double, headTop: Double, working: Bool) {
             self.name = name
             self.nameWidth = nameWidth
             self.centre = centre
             self.headTop = headTop
+            self.working = working
         }
     }
 
@@ -68,14 +76,19 @@ public enum TrackerCompanyNameTags {
         public var stemLeft: Double { centre - 0.5 }
     }
 
-    /// Places each name, the first familiar's first, so an earlier name keeps the lower tier when two collide. `cut` returns the widest
-    /// prefix of a name plus an ellipsis whose text width is at most the given width, with that width; nil when even `minimumLetters` letters
-    /// and the ellipsis don't fit. A name's chip stays inside the slot's `slotWidth`, and a name that is wider than the slot is cut.
+    /// Places each working name, the first familiar's first, so an earlier name keeps the lower tier when two collide; a name that isn't
+    /// working is nil and places nothing. `cut` returns the widest prefix of a name plus an ellipsis whose text width is at most the given
+    /// width, with that width; nil when even `minimumLetters` letters and the ellipsis don't fit. A name's chip stays inside the slot's
+    /// `slotWidth`, and a name that is wider than the slot is cut.
     public static func place(_ tags: [Tag], face: Box?, slotWidth: Double,
                              cut: (String, Double) -> (text: String, width: Double)?) -> [Placement?] {
         var placed: [Placement] = []
         var result: [Placement?] = []
         for tag in tags {
+            guard tag.working else {
+                result.append(nil)
+                continue
+            }
             let placement = placeOne(tag, placed: placed, face: face, slotWidth: slotWidth, cut: cut)
             if let placement {
                 placed.append(placement)

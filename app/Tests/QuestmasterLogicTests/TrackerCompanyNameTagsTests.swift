@@ -1,7 +1,8 @@
 import Foundation
 import QuestmasterCore
 
-/// The tiered worker names: the tier each name takes, its stem, the face it must not cover, and the cut to the room over its head.
+/// The tiered worker names: which names show (only a working worker's), the tier each name takes, its stem, the face it must not cover, and
+/// the cut to the room over its head.
 struct TrackerCompanyNameTagsTests {
     static func run() {
         aSingleNameStandsOnTheLowestTierCentred()
@@ -13,6 +14,9 @@ struct TrackerCompanyNameTagsTests {
         aNameWithNoRoomIsCutWithAnEllipsis()
         aNameThatFitsNowhereGetsNoChip()
         earlierNamesKeepTheLowerTier()
+        anIdleWorkersNameGetsNoChip()
+        anIdleWorkersNameTakesNoRoom()
+        onlyTheWorkingNamesAreTiered()
         print("TrackerCompanyNameTagsTests: all tests passed")
     }
 
@@ -21,8 +25,8 @@ struct TrackerCompanyNameTagsTests {
     private static let slotWidth = 280.0
     private static let headTop = 60.0
 
-    private static func tag(_ name: String, centre: Double) -> TrackerCompanyNameTags.Tag {
-        TrackerCompanyNameTags.Tag(name: name, nameWidth: charWidth * Double(name.count), centre: centre, headTop: headTop)
+    private static func tag(_ name: String, centre: Double, working: Bool = true) -> TrackerCompanyNameTags.Tag {
+        TrackerCompanyNameTags.Tag(name: name, nameWidth: charWidth * Double(name.count), centre: centre, headTop: headTop, working: working)
     }
 
     /// A cut like the App's: the whole name if it fits, else the widest prefix of at least four letters plus an ellipsis.
@@ -123,6 +127,31 @@ struct TrackerCompanyNameTagsTests {
     private static func earlierNamesKeepTheLowerTier() {
         let placed = place([tag("Ember", centre: 140), tag("Quartz", centre: 140)])
         expect(placed[0]?.tier == 0 && placed[1]?.tier == 1, "the first name should keep the lower tier, got \(placed.map { $0?.tier ?? -1 })")
+    }
+
+    /// A worker that is not working has no name over its familiar, even with room over its head.
+    private static func anIdleWorkersNameGetsNoChip() {
+        let placed = place([tag("Ember", centre: 140, working: false)])
+        expect(placed[0] == nil, "an idle worker's name should get no chip, got \(String(describing: placed[0]))")
+    }
+
+    /// An idle worker's name takes no room: a working name over the same head keeps the lowest tier, and the idle one between two working
+    /// names does not push the later one up.
+    private static func anIdleWorkersNameTakesNoRoom() {
+        let placed = place([tag("Ember", centre: 140), tag("Quartz", centre: 140, working: false), tag("Ash", centre: 140)])
+        expect(placed[1] == nil, "the idle name should have no chip")
+        let first = expectPlaced(placed[0], "Ember")
+        let last = expectPlaced(placed[2], "Ash")
+        expect(first.tier == 0, "the first working name should stand on the lowest tier, got \(first.tier)")
+        expect(last.tier == 1, "the third name should climb one tier, over the first working name only, got \(last.tier)")
+    }
+
+    /// Tiers are counted among the working names only: a name over an idle worker's old place stays on the lowest tier.
+    private static func onlyTheWorkingNamesAreTiered() {
+        let placed = place([tag("Ember", centre: 60, working: false), tag("Quartz", centre: 140), tag("Ash", centre: 150, working: false)])
+        expect(placed[0] == nil && placed[2] == nil, "the idle names should have no chip")
+        let second = expectPlaced(placed[1], "Quartz")
+        expect(second.tier == 0 && abs(second.bottom - (headTop + 5)) < 1e-9, "a working name should stand on the lowest tier with no idle name over it, got tier \(second.tier)")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

@@ -1655,11 +1655,13 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The Necromancer and the Barbarian with worker names over their familiars, at one, three, a full row and a full row plus one. The titles
-    /// are invented, of mixed lengths up to 16 characters. Named by RENDER_ONLY=name-tags.
+    /// The Necromancer and the Barbarian with worker names over their working familiars, at one, three, a full row and a full row plus one.
+    /// The workers are a mix of working and idle, so only the working ones have names. The titles are invented, of mixed lengths up to 16
+    /// characters. Named by RENDER_ONLY=name-tags.
     @MainActor
     private static func companyNameTagsView() -> some View {
         let titles = ["Familiar app", "Avatar switch", "Elemental FX", "Ledger sync", "Nightly build", "Search index", "Tray icon polish", "Docs pass 2"]
+        let busy = [true, false, true, true, false, true, true, false]
         let rows: [(classID: String, full: Int)] = [("necromancer", 7), ("barbarian", 5)]
         return VStack(alignment: .leading, spacing: Space.item) {
             ForEach(rows, id: \.classID) { row in
@@ -1667,7 +1669,7 @@ enum RenderPreview {
                     ForEach([1, 3, row.full, row.full + 1], id: \.self) { count in
                         VStack(alignment: .leading, spacing: 0) {
                             Text("\(row.classID) \(count)").font(Font(AppFonts.monoSmall)).foregroundStyle(AppPalette.text.swiftUI)
-                            companyCell(classID: row.classID, workers: count, titles: titles)
+                            companyCell(classID: row.classID, workers: count, titles: titles, working: busy)
                                 .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
                                 .padding(.bottom, TrackerListMetrics.avatarBannerGap)
                         }
@@ -1734,13 +1736,15 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// One master's company: its stages fed with the master and its workers, drawn as the tracker draws them.
+    /// One master's company: its stages fed with the master and its workers, drawn as the tracker draws them. `working`, when given, says
+    /// which workers are busy, by index cycling through it; the others are idle.
     @MainActor
-    private static func companyCell(classID: String, workers count: Int, titles: [String]? = nil) -> some View {
+    private static func companyCell(classID: String, workers count: Int, titles: [String]? = nil, working: [Bool]? = nil) -> some View {
         let master = try! testFixtureRow(["id": "qm-m", "title": classID, "session_type": "master", "class": classID, "state": "working"])
         let workers = (0..<count).map { index -> TrackerSession in
             let title = titles.map { $0[index % $0.count] } ?? "Worker \(index)"
-            return try! testFixtureRow(["id": "qm-w\(index)", "title": title, "session_type": "worker", "parent_id": "qm-m", "class": classID, "state": "working"])
+            let busy = working.map { $0[index % $0.count] } ?? true
+            return try! testFixtureRow(["id": "qm-w\(index)", "title": title, "session_type": "worker", "parent_id": "qm-m", "class": classID, "state": busy ? "working" : "idle"])
         }
         let avatar = TrackerAvatarStage(clock: { 0 })
         let company = TrackerCompanyStage(clock: { 0 })

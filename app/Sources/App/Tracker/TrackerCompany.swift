@@ -13,8 +13,10 @@ final class TrackerCompanyStage {
     /// One familiar on the row: its place in the slot, its art and the pose its own director plays.
     struct Companion: Identifiable {
         let id: String
-        /// The worker's session title: the name its tag shows.
+        /// The worker's session title: the name its tag shows, while the worker is working.
         let title: String
+        /// Whether the worker is working (`TrackerCompanyNameTags.showsName`): only then does its name show over it.
+        let working: Bool
         let sprites: TrackerAvatarSprites
         /// The points one frame pixel draws at: a familiar's company frame draws at its half point a pixel.
         let pixel: CGFloat
@@ -42,7 +44,8 @@ final class TrackerCompanyStage {
 
     /// The familiars that show, in spawn order: each stands further right than the one before, so the right-most is drawn on top.
     private(set) var companions: [Companion] = []
-    /// The names over the shown familiars, in spawn order. A name that fits nowhere has no tag, and the "+n" workers have none.
+    /// The names over the shown familiars, in spawn order. Only a working worker's name shows, a name that fits nowhere has no tag, and the
+    /// "+n" workers have none.
     private(set) var nameTags: [NameTag] = []
     /// The workers counted in the "+n" marker.
     private(set) var overflow = 0
@@ -94,12 +97,13 @@ final class TrackerCompanyStage {
         }
         // Each worker's familiar, in spawn order, from its company frames at a half point a pixel. A worker whose familiar has no art shows
         // nothing and takes no place.
-        let familiars: [(id: String, title: String, sprites: TrackerAvatarSprites, pixel: CGFloat)] = TrackerCompanyLayout.liveWorkers(of: master, in: sessions)
-            .compactMap { worker in
+        let familiars: [(id: String, title: String, working: Bool, sprites: TrackerAvatarSprites, pixel: CGFloat)] =
+            TrackerCompanyLayout.liveWorkers(of: master, in: sessions).compactMap { worker in
                 guard let key = catalog.art(for: worker), key.kind == .familiar, art[key] != nil, let company = companionArt[key.classID] else {
                     return nil
                 }
-                return (worker.id, worker.title, company, CGFloat(TrackerCompanyLayout.companyPixelPoints))
+                return (worker.id, worker.title, TrackerCompanyNameTags.showsName(worker), company,
+                        CGFloat(TrackerCompanyLayout.companyPixelPoints))
             }
         guard let first = familiars.first, let row = first.sprites.animation.companyRow else {
             clear()
@@ -136,6 +140,7 @@ final class TrackerCompanyStage {
             return Companion(
                 id: entry.id,
                 title: entry.title,
+                working: entry.working,
                 sprites: entry.sprites,
                 pixel: pixel,
                 bodyX: CGFloat(bodyX),
@@ -188,7 +193,8 @@ final class TrackerCompanyStage {
                 name: companion.title,
                 nameWidth: textWidth(companion.title),
                 centre: Double(companion.bodyX) + restCentreOffset(of: companion.sprites) * Double(companion.pixel),
-                headTop: -TrackerCompanyLayout.belowFeet + restHeight(of: companion.sprites) * Double(companion.pixel)
+                headTop: -TrackerCompanyLayout.belowFeet + restHeight(of: companion.sprites) * Double(companion.pixel),
+                working: companion.working
             )
         }
         let placements = TrackerCompanyNameTags.place(tags, face: faceBox(master: master, slotWidth: slotWidth), slotWidth: slotWidth) {
