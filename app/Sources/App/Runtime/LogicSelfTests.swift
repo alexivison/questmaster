@@ -1141,12 +1141,11 @@ enum LogicSelfTests {
         try expectClose(SelectedSessionTagMetrics.tabInset, 5, "id tab inset on each side")
         try expectClose(TrackerListMetrics.contentWidth, 282, "tracker content width reserves the badge column and band allowance")
 
-        // The collapsed workers sit right under the disc's row, 40 right of its left edge, and fill the plate's width.
-        let discLeft = TrackerNameplateRole.master.portraitOrigin.x
-        try expectClose(TrackerNameplateRole.circlesX - discLeft, 40, "first collapsed circle's offset from the disc's left edge")
+        // The first collapsed circle starts at the same edge as an expanded worker disc.
+        try expectClose(TrackerNameplateRole.circlesX, worker.discEdge.boundingRect.minX, "first collapsed circle aligns with the worker disc")
         try expectClose(TrackerPlateDesign.collapsedCircleDiameter, 25, "collapsed circle diameter")
         try expectClose(TrackerPlateDesign.collapsedCircleGap, 5, "gap between collapsed circles")
-        try expect(TrackerWorkerSummary.maxCircles == 6, "a master's 240pt collapsed row should hold six circles, got \(TrackerWorkerSummary.maxCircles)")
+        try expect(TrackerWorkerSummary.maxCircles == 7, "a master's 240pt collapsed row should hold seven circles, got \(TrackerWorkerSummary.maxCircles)")
         let rowRight = TrackerNameplateRole.circlesX
             + CGFloat(TrackerWorkerSummary.maxCircles) * TrackerPlateDesign.collapsedCircleDiameter
             + CGFloat(TrackerWorkerSummary.maxCircles - 1) * TrackerPlateDesign.collapsedCircleGap

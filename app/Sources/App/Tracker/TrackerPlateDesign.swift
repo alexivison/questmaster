@@ -28,8 +28,8 @@ enum TrackerPlateDesign {
         disc.boundingRect.maxX + gap
     }
 
-    /// Canvas sizes, and the rows' sizes. A row ends at its plate's right edge, which a master's collapsed circles' last
-    /// right edge lines up with. The master's canvas stops under the crown pieces; the circles are drawn apart.
+    /// Canvas sizes, and the rows' sizes. The plate's right edge limits how many collapsed circles fit.
+    /// The master's canvas stops under the crown pieces; the circles are drawn apart.
     /// Plates end at the same right edge; the worker keeps its portrait indent. Only the straight SVG runs shorten.
     static let plateWidth: CGFloat = 240
     static let topLevelSize = CGSize(width: plateWidth, height: ControlHeight.row)
@@ -82,11 +82,9 @@ enum TrackerPlateDesign {
     /// selected-session panel's disc take it too.
     static let discFill = AppPalette.window
 
-    /// The collapsed workers' circles: 25 points across with 5 between, the first's left edge 40 points right of the
-    /// master disc's, in a row right under the disc's.
+    /// The collapsed workers' circles: 25 points across with 5 between, aligned with the expanded worker's disc.
     static let collapsedCircleDiameter: CGFloat = 25
     static let collapsedCircleGap = Space.row
-    static let collapsedCirclesInset = Space.group
     static let collapsedCircleStroke: CGFloat = 1.5
     /// A collapsed circle's status ring and glow: centred on the circle, the stroke's path 0.75 inside its edge.
     static let collapsedCircleStatus = TrackerPortraitStatusGeometry(

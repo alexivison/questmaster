@@ -920,9 +920,8 @@ enum TrackerNameplateRole: Equatable {
     static let workerTextX = TrackerPlateDesign.textX(afterDisc: TrackerPlateDesign.worker.discEdge)
     static let workerTextRightEdge = TrackerPlateDesign.plateWidth - Space.item
     static let titleTimeGap = Space.row
-    /// The collapsed workers' circles start 40 points right of the master disc's left edge.
-    static let circlesX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x
-        - TrackerPlateDesign.topLevelDiscDiameter / 2 + TrackerPlateDesign.collapsedCirclesInset
+    /// The collapsed workers' circles start at the leading edge of the expanded worker's disc.
+    static let circlesX = TrackerNameplateRole.worker.portraitOrigin.x
 
     var titleX: CGFloat { isWorker ? Self.workerTextX : Self.topLevelTextX }
     var snippetX: CGFloat { titleX }
