@@ -361,7 +361,8 @@ struct TrackerRootView: View {
                 avatarBlock()
                 SelectedSessionTag(content: tagContent, onCopyID: copySessionID)
                     .padding(.leading, TrackerListMetrics.sidePadding)
-                    .padding(.bottom, showsShells ? Space.section : TrackerListMetrics.verticalPadding)
+                    // Last in the column, the tag's bottom sits on the column's own inset, level with the dock's bottom.
+                    .padding(.bottom, showsShells ? Space.section : 0)
                     .zIndex(2)
             }
             if showsShells {

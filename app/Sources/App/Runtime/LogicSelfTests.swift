@@ -3062,7 +3062,8 @@ enum LogicSelfTests {
                         throw TestFailure("the tracker should reserve an avatar slot, including for a class without art")
                     }
                     let shellHeight = CGFloat(shells) * TrackerShellMetrics.rowHeight
-                    let bannerBottom = fixture.size.height - TrackerListMetrics.verticalPadding - shellHeight - (shells > 0 ? Space.section : 0)
+                    // With no shells the banner ends on the column's bottom edge; with shells, `Space.section` above them.
+                    let bannerBottom = fixture.size.height - (shells > 0 ? TrackerListMetrics.verticalPadding + shellHeight + Space.section : 0)
                     let bannerTop = bannerBottom - SelectedSessionTagMetrics.height
                     let slot = fixture.view.convert(avatar.bounds, from: avatar)
                     let sole = fixture.view.isFlipped ? slot.maxY : fixture.size.height - slot.minY
