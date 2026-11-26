@@ -130,6 +130,8 @@ Building, installing and branch-running the app bundle: `app-bundle` skill.
   Quest rows carry optional `attachments` (id, name, stored path and size in bytes). Files are private copies in
   `quest-files`, capped at 20 per quest and 25 MiB each; add/edit mutations accept `attach_paths` and edit accepts
   `detach_ids`. Removing an attachment or its quest removes the copy. These fields are additive.
+  Tracker rows may carry `pi_progress`, a transient heading from a verified Pi provider summary. It is omitted
+  outside active work and is separate from narration and the Worker Log. It is additive.
   Master rows also carry optional `pull_request_counts` (non-zero `conflicts`, `open`, `draft`, `merged`, `closed`
   totals; a conflicting open or draft PR counts only under `conflicts`), scoped to the master and its workers, like
   `pull_requests_rev`. Unknown states are excluded; the object is omitted

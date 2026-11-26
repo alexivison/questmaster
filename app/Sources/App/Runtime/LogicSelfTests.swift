@@ -117,7 +117,7 @@ enum LogicSelfTests {
         ("testEveryBundledFamiliarFitsTheSlot", testEveryBundledFamiliarFitsTheSlot),
         ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
-        ("testOneWorkerStandsTwentyFivePastTheMastersBody", testOneWorkerStandsTwentyFivePastTheMastersBody),
+        ("testOneWorkerIsCentredOnTheMastersBody", testOneWorkerIsCentredOnTheMastersBody),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
         ("testTheWarHoundDrawsAtItsScaleOnTheBaseline", testTheWarHoundDrawsAtItsScaleOnTheBaseline),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
@@ -2713,15 +2713,15 @@ enum LogicSelfTests {
         try expect(stage.companions.isEmpty && stage.overflow == 0, "a master with no workers should show no company")
     }
 
-    /// Every class's first familiar stands 25 pt right of its master's body column when one worker is alone, whatever the master's art: the
-    /// Necromancer's scythe doesn't move the place. The familiar's visible left edge is read back from its placement, to within the half
-    /// point the placement snaps to.
+    /// Every class's one worker stands centred on its master's body column when it is alone: the middle of its visible figure (its rest's
+    /// left edge plus half its width, both read back from its placement) sits at the slot's centre, to within the half point the placement
+    /// snaps to.
     @MainActor
-    private static func testOneWorkerStandsTwentyFivePastTheMastersBody() throws {
+    private static func testOneWorkerIsCentredOnTheMastersBody() throws {
         final class Clock {
             var now: TimeInterval = 0
         }
-        let expected = TrackerAvatarMetrics.slotWidth / 2 + CGFloat(TrackerCompanyLayout.sideBySideOffset)
+        let centre = TrackerAvatarMetrics.slotWidth / 2
         for sessionClass in SessionClass.allCases {
             let clock = Clock()
             let stage = TrackerCompanyStage(clock: { clock.now })
@@ -2734,7 +2734,9 @@ enum LogicSelfTests {
                 throw TestFailure("the \(classID)'s first familiar should show with its rest art")
             }
             let left = companion.bodyX + CGFloat(columns.lowerBound - body) * companion.pixel
-            try expect(abs(left - expected) <= 0.5, "the \(classID)'s first familiar should stand 25 pt right of the master's body (\(expected)), got \(left)")
+            let width = CGFloat(columns.count) * companion.pixel
+            try expect(abs(left + width / 2 - centre) <= 0.5,
+                       "the \(classID)'s one worker should stand centred on the master's body (\(centre)), got \(left + width / 2)")
         }
     }
 

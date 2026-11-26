@@ -159,6 +159,7 @@ type SessionSnapshot struct {
 	LastExchange      *ExchangeRow       `json:"last_exchange,omitempty"`
 	ActiveSubagents   int                `json:"active_subagents,omitempty"`
 	Narration         string             `json:"narration,omitempty"`
+	PiProgress        string             `json:"pi_progress,omitempty"`
 	Cast              *CastSnapshot      `json:"cast,omitempty"`
 	LatestActivity    string             `json:"latest_activity,omitempty"`
 	LastKind          string             `json:"last_kind,omitempty"`
@@ -381,6 +382,7 @@ func sameClockTrackerRow(a, b SessionSnapshot) bool {
 		a.State == b.State &&
 		a.LatestActivity == b.LatestActivity &&
 		a.Narration == b.Narration &&
+		a.PiProgress == b.PiProgress &&
 		sameCast(a.Cast, b.Cast) &&
 		a.LastKind == b.LastKind &&
 		sameTime(a.LastChatAt, b.LastChatAt) &&
@@ -530,6 +532,7 @@ func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, 
 		row.LastExchange = nil
 		row.ActiveSubagents = 0
 		row.Narration = result.Narration
+		row.PiProgress = ""
 		row.Cast = nil
 		row.LatestActivity = ""
 		row.LastKind = ""
@@ -539,6 +542,7 @@ func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, 
 	row.LastExchange = exchangeRow(result)
 	row.ActiveSubagents = result.ActiveSubagents
 	row.Narration = result.Narration
+	row.PiProgress = result.PiProgress
 	row.Cast = castSnapshot(result, row.Agent, typicals)
 	if result.State != "" {
 		row.State = result.State
@@ -684,6 +688,7 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			LastExchange:      exchangeRow(result),
 			ActiveSubagents:   result.ActiveSubagents,
 			Narration:         result.Narration,
+			PiProgress:        result.PiProgress,
 			Cast:              castSnapshot(result, row.Agent, typicals),
 			LatestActivity:    snippet,
 			LastKind:          lastKind,

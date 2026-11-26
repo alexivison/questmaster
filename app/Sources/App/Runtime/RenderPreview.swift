@@ -231,8 +231,9 @@ enum RenderPreview {
             render(companySequenceView(classID: classID, full: full), size: CGSize(width: 360, height: 1), autoHeight: true,
                    to: "\(outputDir)/company-sequence-\(classID).png")
         }
-        // Every class's first familiar with one worker, in one image, for the 25 pt place beside the master.
+        // Every class's one worker, in one image: each stands centred on the master's body column.
         render(companyFirstWorkerView(), size: CGSize(width: 1200, height: 1), autoHeight: true, to: "\(outputDir)/company-first-worker.png")
+        render(elementalEffectsView(), size: CGSize(width: 1300, height: 1), autoHeight: true, to: "\(outputDir)/elemental-effects.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -1648,9 +1649,35 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// Each elemental's five poses in the worker slot, then its company at its full row. Named by RENDER_ONLY=elemental-effects.
+    @MainActor
+    private static func elementalEffectsView() -> some View {
+        let familiars = TrackerAvatarSprites.bundledFamiliars()
+        let rows: [(classID: String, full: Int)] = [("sorcerer", 6), ("wizard", 7)]
+        return VStack(alignment: .leading, spacing: Space.item) {
+            ForEach(rows, id: \.classID) { row in
+                HStack(spacing: 0) {
+                    Text(row.classID).font(Font(AppFonts.monoSmall)).foregroundStyle(AppPalette.text.swiftUI)
+                        .frame(width: 90, alignment: .leading)
+                    ForEach(TrackerAvatarPose.familiarPoses, id: \.self) { pose in
+                        TrackerAvatarSlot(pose: pose, sprites: familiars[row.classID])
+                            .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                    }
+                }
+                HStack(spacing: 0) {
+                    Text("company \(row.full)").font(Font(AppFonts.monoSmall)).foregroundStyle(AppPalette.text.swiftUI)
+                        .frame(width: 90, alignment: .leading)
+                    companyCell(classID: row.classID, workers: row.full)
+                        .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                        .padding(.bottom, TrackerListMetrics.avatarBannerGap)
+                }
+            }
+        }
+        .background(AppPalette.window.swiftUI)
+    }
+
     /// Every class's company with one worker, four to a row: each in its slot and labelled with its class. A thin guide marks the slot's middle,
-    /// the master's body column, and a fainter one marks the 25 pt place where the first familiar's visible left edge stands. Named by
-    /// RENDER_ONLY=company-first-worker.
+    /// the master's body column, where one worker's row stands centred. Named by RENDER_ONLY=company-first-worker.
     @MainActor
     private static func companyFirstWorkerView() -> some View {
         let classes = SessionClass.allCases.map(\.rawValue)
@@ -1666,11 +1693,6 @@ enum RenderPreview {
                                     Rectangle().fill(AppPalette.line.swiftUI.opacity(0.5))
                                         .frame(width: 1, height: TrackerAvatarMetrics.slotHeight)
                                         .offset(x: TrackerAvatarMetrics.slotWidth / 2)
-                                }
-                                .overlay(alignment: .leading) {
-                                    Rectangle().fill(AppPalette.line.swiftUI.opacity(0.25))
-                                        .frame(width: 1, height: TrackerAvatarMetrics.slotHeight)
-                                        .offset(x: TrackerAvatarMetrics.slotWidth / 2 + CGFloat(TrackerCompanyLayout.sideBySideOffset))
                                 }
                                 .padding(.bottom, TrackerListMetrics.avatarBannerGap)
                         }

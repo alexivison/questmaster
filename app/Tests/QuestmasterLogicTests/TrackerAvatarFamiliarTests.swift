@@ -10,6 +10,7 @@ struct TrackerAvatarFamiliarTests {
 
     static func run() {
         everyBundledFamiliarReads()
+        aWorkingLoopLongerThanOneAndAHalfSecondsKeepsItsLength()
         familiarsNameOnlyTheirPoses()
         aClassFileRejectsTheFamiliarWorkingPose()
         aFamiliarFileRejectsItsMissingPoseAndAClassPose()
@@ -69,6 +70,27 @@ struct TrackerAvatarFamiliarTests {
             expect(animation.fidgets.isEmpty, "the \(classID)'s familiar should play no fidgets")
             expect(animation.animation(for: .callingOut)?.bubble != nil, "the \(classID)'s familiar should anchor its bubble")
         }
+    }
+
+    /// The Fire Elemental's working loop is 2.4 s on every track, longer than the 1.2 s of the Lightning's and the other loops. A block lasts
+    /// as long as its longest track, so the loop keeps 2.4 s, and each track cycles on its own clock: 2.5 s in shows the 0.1 s frame again.
+    private static func aWorkingLoopLongerThanOneAndAHalfSecondsKeepsItsLength() {
+        guard let wizard = try? AvatarAnimationFixture.decodeFamiliar(AvatarAnimationFixture.familiarJSON("wizard")),
+              let loop = wizard.animation(for: .working)?.loop else {
+            fail("the wizard's familiar should name a working loop")
+        }
+        expect(abs(loop.seconds - 2.4) < 1e-9, "the Fire's working loop should last its longest track, 2.4 s, got \(loop.seconds)")
+        expect(abs(loop.character.seconds - 2.4) < 1e-9, "the Fire's working character track should last 2.4 s, got \(loop.character.seconds)")
+        for layer in [TrackerAvatarLayer.front, .behind] {
+            guard let track = loop.track(for: layer) else {
+                fail("the Fire's working loop should carry its \(layer) track")
+            }
+            expect(abs(track.seconds - 2.4) < 1e-9, "the Fire's working \(layer) track should last 2.4 s, got \(track.seconds)")
+            expect(track.frame(at: 0.05, looping: true) == track.frame(at: 2.45, looping: true),
+                   "the Fire's working \(layer) track should cycle: 2.45 s in shows the first frame again, as 0.05 s does")
+        }
+        expect(loop.character.frame(at: 0.05, looping: true) == loop.character.frame(at: 2.45, looping: true),
+               "the Fire's working character should cycle at 2.4 s")
     }
 
     private static func familiarsNameOnlyTheirPoses() {

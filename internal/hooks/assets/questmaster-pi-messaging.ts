@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import { accessSync, closeSync, constants, fstatSync, openSync, readSync, watch, type FSWatcher } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { basename, delimiter, isAbsolute, join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -24,6 +25,8 @@ const maxRequestBytes = 1 << 20;
 const maxIDBytes = 128;
 const recentLimit = 40;
 const snippetLimit = 180;
+const progressLimit = 80;
+const responsesAPIs = new Set(["openai-codex-responses", "openai-responses", "azure-openai-responses"]);
 // The hook bounds itself (800 ms), so this only catches a hook that hangs.
 const hookTimeoutMs = 5_000;
 const hookBatchLimit = 32;
@@ -80,6 +83,23 @@ function safeLine(text: string, limit = snippetLimit): string {
 
 function cleanString(value: unknown, limit = snippetLimit): string | undefined {
 	return typeof value === "string" && value.trim() ? safeLine(value, limit) : undefined;
+}
+
+function summaryHeading(part: unknown): string {
+	const summary = part as { type?: unknown; text?: unknown } | undefined;
+	if (summary?.type !== "summary_text" || typeof summary.text !== "string") return "";
+	const scanLimit = 4_096;
+	const lines = stripVTControlCharacters(summary.text.slice(0, scanLimit)).split(/\r\n?|\n/);
+	if (summary.text.length > scanLimit) lines.pop();
+	for (const line of lines.reverse()) {
+		const heading = /^\s*\*\*(.+?)\*\*\s*$/.exec(line.replace(/\t/g, " ").replace(/[\p{Cc}\p{Cf}]/gu, ""));
+		if (!heading || heading[1].includes("**")) continue;
+		const text = heading[1].replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[*_~\x60]/g, "").replace(/\s+/g, " ").trim();
+		const characters = Array.from(text);
+		if (characters.length > progressLimit) return characters.slice(0, progressLimit - 1).join("") + "…";
+		if (text) return text;
+	}
+	return "";
 }
 
 function boundedString(value: unknown, limit: number): string | undefined {
@@ -664,6 +684,8 @@ export default function (pi: ExtensionAPI) {
 	let usage: { last: Record<string, number> } | undefined;
 	let pendingNarration = "";
 	let pendingNarrationAt = 0;
+	let progress = "";
+	let streamedProgressItem = "";
 	let hookQueue: QueuedHook[] = [];
 	let hookQueueBytes = 0;
 	let hookFlushTimer: NodeJS.Timeout | undefined;
@@ -765,7 +787,7 @@ export default function (pi: ExtensionAPI) {
 
 	async function emitHook(action: string, extra?: Record<string, unknown>, flush = false, occurredAtMS = Date.now()): Promise<void> {
 		if (!sessionPattern.test(questmasterSessionID) || Buffer.byteLength(questmasterSessionID) > maxIDBytes) return;
-		const payload = activityPayload(extra, occurredAtMS);
+		const payload = action === "progress" ? { session_id: questmasterSessionID, ...extra } : activityPayload(extra, occurredAtMS);
 		const event = { action, payload };
 		const bytes = Buffer.byteLength(JSON.stringify(event));
 		if (bytes > hookBatchByteLimit) {
@@ -778,6 +800,12 @@ export default function (pi: ExtensionAPI) {
 		hookQueueBytes += bytes;
 		if (flush || hookQueue.length >= hookBatchLimit || hookQueueBytes >= hookBatchByteLimit) await drainHookQueue();
 		else scheduleHookFlush();
+	}
+
+	async function setProgress(label: string): Promise<void> {
+		if (label === progress) return;
+		progress = label;
+		await emitHook("progress", { progress: label });
 	}
 
 	const subagentEvents = (pi as unknown as {
@@ -981,6 +1009,7 @@ export default function (pi: ExtensionAPI) {
 		refreshMetadata(ctx);
 		tool = undefined;
 		promptWaiting = false;
+		progress = "";
 		const line = identityLine(identity);
 		if (line && ctx?.hasUI) ctx.ui?.setStatus?.("questmaster", line);
 		setBusy(false, "idle");
@@ -1006,6 +1035,8 @@ export default function (pi: ExtensionAPI) {
 		tool = undefined;
 		pendingNarration = "";
 		pendingNarrationAt = 0;
+		progress = "";
+		streamedProgressItem = "";
 		finalRun = {};
 		refreshMetadata(ctx);
 		setBusy(true, "thinking");
@@ -1023,6 +1054,7 @@ export default function (pi: ExtensionAPI) {
 		refreshMetadata(rawContext as PiContext | undefined);
 		pendingNarration = "";
 		pendingNarrationAt = 0;
+		streamedProgressItem = "";
 		turn = {
 			index: cleanNumber(event.turnIndex),
 			status: "running",
@@ -1042,10 +1074,44 @@ export default function (pi: ExtensionAPI) {
 			errors: Array.isArray(event.toolResults) ? Math.min(event.toolResults.filter((result) => result?.isError).length, 1_000_000) : undefined,
 		};
 		pendingNarration = "";
+		progress = "";
 		await emitHook("turn_end");
 	});
 
-	pi.on("message_update", (event: { message?: unknown; assistantMessageEvent?: { type?: string; content?: unknown } }) => {
+	// Pi's normalized thinking events can contain either a summary or raw reasoning.
+	// The provider stream identifies user-facing summary parts before normalization.
+	pi.on("provider_stream_event", async (event) => {
+		if (!responsesAPIs.has(event.api)) return;
+		if (!busy || turn?.status !== "running" || compacting || promptWaiting) return;
+		const data = event.data as {
+			type?: unknown;
+			status?: unknown;
+			item_id?: unknown;
+			part?: unknown;
+			item?: { type?: unknown; id?: unknown; status?: unknown; summary?: unknown };
+		} | undefined;
+		if (data?.type === "response.reasoning_summary_part.done") {
+			if (data.status !== undefined && data.status !== "completed") return;
+			const heading = summaryHeading(data.part);
+			if (!heading) return;
+			streamedProgressItem = typeof data.item_id === "string" ? data.item_id : "";
+			await setProgress(heading);
+		} else if (data?.type === "response.output_item.done" && data.item?.type === "reasoning") {
+			const { id, status, summary } = data.item;
+			if (status !== undefined && status !== "completed") return;
+			// The completed item repeats any summary parts already sent for it.
+			if ((streamedProgressItem && id === streamedProgressItem) || !Array.isArray(summary)) return;
+			for (const part of summary.slice(-8).reverse()) {
+				const heading = summaryHeading(part);
+				if (heading) {
+					await setProgress(heading);
+					break;
+				}
+			}
+		}
+	});
+
+	pi.on("message_update", async (event: { message?: unknown; assistantMessageEvent?: { type?: string; content?: unknown } }) => {
 		const occurredAtMS = Date.now();
 		const delta = event.assistantMessageEvent;
 		if (delta?.type !== "text_end") return;
@@ -1055,6 +1121,7 @@ export default function (pi: ExtensionAPI) {
 		setSnippet(lastTextLine(text), false);
 		pendingNarration = capChatText(`${pendingNarration}${pendingNarration ? "\n" : ""}${text}`);
 		pendingNarrationAt = occurredAtMS;
+		await setProgress("");
 	});
 
 	pi.on("tool_execution_start", async (event: { toolCallId?: string; toolName?: string; args?: unknown }) => {
@@ -1078,6 +1145,7 @@ export default function (pi: ExtensionAPI) {
 			const args = event.args && typeof event.args === "object" ? event.args as Record<string, unknown> : {};
 			// The question is the prompt, so the dialog's own start does not report it again.
 			promptWaiting = true;
+			progress = "";
 			await emitHook("waiting_for_user", { prompt: typeof args.question === "string" ? safeLine(args.question) : currentTool }, true, occurredAtMS);
 		}
 		await emitHook("tool_execution_start", {
@@ -1111,7 +1179,7 @@ export default function (pi: ExtensionAPI) {
 
 	// agent_end is not idle: Pi may retry, compact or run queued messages after it.
 	// Keep what it carries for the report agent_settled makes.
-	pi.on("agent_end", (event: { messages?: unknown[] }, rawContext) => {
+	pi.on("agent_end", async (event: { messages?: unknown[] }, rawContext) => {
 		let finalText = "";
 		let stopReason: string | undefined;
 		let errorMessage: string | undefined;
@@ -1132,6 +1200,7 @@ export default function (pi: ExtensionAPI) {
 			...(stopReason ? { stopReason } : {}),
 			...(errorMessage ? { errorMessage } : {}),
 		};
+		await setProgress("");
 	});
 
 	// agent_settled is the final boundary: Pi will not run again on its own.
@@ -1142,6 +1211,7 @@ export default function (pi: ExtensionAPI) {
 		setBusy(false, "done", snippet || "Done");
 		pendingNarration = "";
 		pendingNarrationAt = 0;
+		progress = "";
 		const run = finalRun;
 		finalRun = {};
 		const payload = {
@@ -1156,6 +1226,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("ui_prompt_start", async (event: { title?: unknown; kind?: unknown }) => {
 		if (promptWaiting) return;
 		promptWaiting = true;
+		progress = "";
 		const prompt = cleanString(event.title) ?? cleanString(event.kind, 40) ?? "Waiting for input";
 		await emitHook("waiting_for_user", { prompt }, true);
 	});
@@ -1166,8 +1237,9 @@ export default function (pi: ExtensionAPI) {
 		await emitHook("ui_prompt_end", undefined, true);
 	});
 
-	pi.on("session_before_compact", () => {
+	pi.on("session_before_compact", async () => {
 		compacting = true;
+		await setProgress("");
 	});
 
 	pi.on("session_compact", () => {
@@ -1183,6 +1255,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		const occurredAtMS = Date.now();
 		setBusy(false, "idle");
+		progress = "";
 		await stop();
 		held = [];
 		if (heldFlush) {

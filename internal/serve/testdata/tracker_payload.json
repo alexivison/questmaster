@@ -89,6 +89,23 @@
       },
       "display_color": "violet",
       "class": "wizard"
+    },
+    {
+      "id": "qm-pi",
+      "title": "Inspect the index",
+      "status": "active",
+      "state": "working",
+      "elapsed_ms": 0,
+      "narration": "I will look at the changed files.",
+      "pi_progress": "Reviewing index changes",
+      "agent": "pi",
+      "parent_id": "qm-demo",
+      "worker_count": 0,
+      "repo": {
+        "identity": "/tmp/questmaster/.git",
+        "name": "questmaster",
+        "color": "green"
+      }
     }
   ],
   "projects": [

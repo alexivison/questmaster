@@ -56,9 +56,9 @@ nothing attached or an unknown id, so neither banner nor avatar slot appears. A 
 draws over the list; the banner draws in front of the sprite, keeping its raised shadow; art hanging below the sole shows in the gap.
 `SelectedSessionPanel` remains for its standalone previews and self-tests. An attached worker's slot draws its master's class's familiar
 in the same slot and above the same banner (`.agents/skills/class-avatar/SKILL.md`); its size and place never change for a worker. An
-attached master's slot also holds its live workers' familiars, small, in one row to its right: a designed row starts its first familiar 25pt
-right of the master's body column and steps at its pitch, and once the next worker would pass the full row's right-most place, the row
-stands at its places from there leftwards, in front of the master. A `+n`
+attached master's slot also holds its live workers' familiars, small, in one row: its workers stand at their pitch, in spawn
+order, centred on a point that moves from the master's body column toward the full row's centre as workers are added (the newest is the
+right-most; one worker is centred on the body column). A `+n`
 chip sits above the master's familiar's disc once the row is full (`TrackerCompanySlot`, `TrackerCompanyStage`). The master never moves,
 standing at the slot's centre; the slot, banner and plate list stay put.
 
@@ -67,6 +67,11 @@ and cast bars end flush with the masters at x240; only straight SVG runs shorten
 keep their shapes. The retained standalone selected-session panel uses the same width. The tracker content reserves
 `TrackerListMetrics.contentWidth` (282pt), plus its 20pt leading gutter: the plate column, a permanent 40pt badge column
 (5pt gap and 35pt chip), and the existing 2pt band allowance. No watches leaves that column empty; its width never jumps.
+
+A working Pi plate can show a short heading from a completed provider summary part or reasoning item. The
+Pi extension reads structured summary fields from the Codex, OpenAI and Azure OpenAI Responses adapters.
+The heading can span the tool work in that turn. The next ordinary assistant text, turn end or blocking prompt
+clears it, and the plate falls back to its usual narration or activity. The heading stays out of the Worker Log.
 
 Only master plates show PR chips. The stack starts at the top of the plate's project tab (`TrackerPRBadgeMetrics.topInset`,
 an offset that leaves the group's reserved height alone), not the disc's top, and stacks a merge-conflicts chip first
