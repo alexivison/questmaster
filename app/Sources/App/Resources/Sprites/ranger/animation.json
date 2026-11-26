@@ -13,7 +13,7 @@
       "frames": [
         {
           "file": "01-idle-breath-f1.png",
-          "seconds": 0.4,
+          "seconds": 0.2,
           "eye_row": 26,
           "eye_columns": [
             44,
@@ -31,7 +31,7 @@
         },
         {
           "file": "01-idle-breath-f3.png",
-          "seconds": 0.2,
+          "seconds": 0.1,
           "eye_row": 25,
           "eye_columns": [
             44,
@@ -40,7 +40,7 @@
         },
         {
           "file": "01-idle-breath-f4.png",
-          "seconds": 0.2,
+          "seconds": 0.1,
           "eye_row": 24,
           "eye_columns": [
             44,
@@ -67,7 +67,7 @@
         },
         {
           "file": "01-idle-breath-f7.png",
-          "seconds": 0.2,
+          "seconds": 0.1,
           "eye_row": 25,
           "eye_columns": [
             44,
@@ -76,7 +76,7 @@
         },
         {
           "file": "01-idle-breath-f8.png",
-          "seconds": 0.2,
+          "seconds": 0.1,
           "eye_row": 25,
           "eye_columns": [
             44,
