@@ -32,6 +32,13 @@ struct ContractFixtureTests {
         expect(session.duration == "0:02:00", "tracker elapsed_ms did not decode")
         expect(session.artifacts.first?.label == "Plan", "tracker artifact did not decode")
         expect(session.narration == "It seems that something is still ...", "tracker narration did not decode")
+        expect(session.piProgress.isEmpty, "missing Pi progress should decode as empty")
+        guard var pi = tracker.repos.flatMap(\.sessions).first(where: { $0.id == "qm-pi" }) else {
+            fail("Pi tracker session missing")
+        }
+        expect(TrackerRowText.snippet(for: pi) == "Reviewing index changes", "the active Pi heading should appear on its plate")
+        pi.state = "done"
+        expect(TrackerRowText.snippet(for: pi) == "I will look at the changed files.", "the plate should return to narration after Pi finishes")
         expect(session.cast?.tool == "Bash" && session.cast?.typicalMS == 6000, "tracker cast did not decode")
         let castStart = Date(timeIntervalSince1970: 1_781_842_788.529)
         expect(abs((session.cast?.startedAt ?? .distantPast).timeIntervalSince(castStart)) < 0.001, "tracker cast started_at did not decode")

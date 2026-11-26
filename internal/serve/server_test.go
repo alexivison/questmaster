@@ -2838,6 +2838,37 @@ func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T)
 	}
 }
 
+func TestTrackerSessionChangeIncludesPiProgress(t *testing.T) {
+	env := seedServeFixture(t)
+	snapshotter := testSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	setProgress := func(progress string) {
+		t.Helper()
+		if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+			pane := ss.Panes["agent"]
+			pane.Agent = "pi"
+			pane.PiProgress = progress
+			ss.Panes["agent"] = pane
+			return true
+		}); err != nil {
+			t.Fatalf("update progress: %v", err)
+		}
+	}
+	setProgress("")
+	if _, err := snapshotter.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("initial tracker: %v", err)
+	}
+	for _, progress := range []string{"Reviewing index changes", ""} {
+		setProgress(progress)
+		got, err := snapshotter.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+		if err != nil {
+			t.Fatalf("tracker change: %v", err)
+		}
+		if row := got.Sessions[0]; row.PiProgress != progress || row.LatestActivity != "Bash: go test ./..." {
+			t.Fatalf("want progress %q with the existing activity, got %+v", progress, row)
+		}
+	}
+}
+
 func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 	env := seedServeFixture(t)
 	lastChatAt := env.now.Add(-time.Minute)
@@ -2852,6 +2883,8 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 		pane.LastExchangeKind = "report"
 		pane.LastExchangeAt = lastChatAt
 		pane.Narration = "latest narration"
+		pane.Agent = "pi"
+		pane.PiProgress = "Stale heading"
 		pane.RunningTools = []state.RunningTool{{Tool: "Bash", StartedAt: env.now.Add(-time.Minute)}}
 		ss.Panes["agent"] = pane
 		return true
@@ -2863,7 +2896,7 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 		if row.Status != "stopped" || row.State != "stopped" || row.Narration != "latest narration" {
 			t.Fatalf("%s stopped row state/narration = %#v", path, row)
 		}
-		if row.ElapsedMS != 0 || row.ElapsedSince != nil || row.LatestActivity != "" || row.LastKind != "" || row.LastChatAt != nil || row.LastExchange != nil || row.Cast != nil {
+		if row.ElapsedMS != 0 || row.ElapsedSince != nil || row.LatestActivity != "" || row.LastKind != "" || row.LastChatAt != nil || row.LastExchange != nil || row.Cast != nil || row.PiProgress != "" {
 			t.Fatalf("%s stopped row retained live state: %#v", path, row)
 		}
 	}

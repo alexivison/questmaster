@@ -68,6 +68,11 @@ keep their shapes. The retained standalone selected-session panel uses the same 
 `TrackerListMetrics.contentWidth` (282pt), plus its 20pt leading gutter: the plate column, a permanent 40pt badge column
 (5pt gap and 35pt chip), and the existing 2pt band allowance. No watches leaves that column empty; its width never jumps.
 
+A working Pi plate can show a short heading from a completed provider summary part or reasoning item. The
+Pi extension reads structured summary fields from the Codex, OpenAI and Azure OpenAI Responses adapters.
+The heading can span the tool work in that turn. The next ordinary assistant text, turn end or blocking prompt
+clears it, and the plate falls back to its usual narration or activity. The heading stays out of the Worker Log.
+
 Only master plates show PR chips. The stack starts at the top of the plate's project tab (`TrackerPRBadgeMetrics.topInset`,
 an offset that leaves the group's reserved height alone), not the disc's top, and stacks a merge-conflicts chip first
 (the Watcher's red X ring; a conflicting open or draft PR counts there only), then open, draft, merged, closed in

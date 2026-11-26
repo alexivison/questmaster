@@ -254,6 +254,8 @@ public struct TrackerSession: Decodable, Equatable {
     public var artifacts: [ArtifactReference]
     /// The session's latest narration: its newest chat entry of kind say or message, empty when it has none.
     public var narration: String
+    /// A short Pi summary heading while the current turn is working.
+    public var piProgress: String
     /// The tool the session is running, nil when none is.
     public var cast: TrackerCast?
     /// The session's latest message from its master or report to its master, nil when it has none. Unlike `lastChatAt`,
@@ -288,6 +290,7 @@ public struct TrackerSession: Decodable, Equatable {
         elapsedSeedMS: Int? = nil,
         artifacts: [ArtifactReference] = [],
         narration: String = "",
+        piProgress: String = "",
         cast: TrackerCast? = nil,
         lastExchange: TrackerExchange? = nil,
         activeSubagents: Int = 0
@@ -317,6 +320,7 @@ public struct TrackerSession: Decodable, Equatable {
         self.elapsedSeedMS = elapsedSeedMS
         self.artifacts = artifacts
         self.narration = narration
+        self.piProgress = piProgress
         self.cast = cast
         self.lastExchange = lastExchange
         self.activeSubagents = activeSubagents
@@ -344,6 +348,7 @@ public struct TrackerSession: Decodable, Equatable {
         case last_chat_at
         case artifacts
         case narration
+        case pi_progress
         case cast
         case last_exchange
         case active_subagents
@@ -395,6 +400,7 @@ public struct TrackerSession: Decodable, Equatable {
         duration = TrackerSession.formatElapsed(elapsedSeedMS) ?? ""
         artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
         narration = try container.decodeIfPresent(String.self, forKey: .narration) ?? ""
+        piProgress = try container.decodeIfPresent(String.self, forKey: .pi_progress) ?? ""
         cast = try container.decodeIfPresent(TrackerCast.self, forKey: .cast)
         let wireExchange = try container.decodeIfPresent(WireExchange.self, forKey: .last_exchange)
         lastExchange = wireExchange.flatMap { wire in

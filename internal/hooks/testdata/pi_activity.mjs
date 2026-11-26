@@ -128,6 +128,75 @@ try {
 	// The extension is loaded with -e from Questmaster's state directory, so it
 	// no longer writes an install marker into Pi's extensions directory.
 	await assert.rejects(readFile(join(root, "agent", "extensions", ".questmaster-installed"), "utf8"), { code: "ENOENT" });
+
+	const progressStart = entries.length;
+	const providerEvent = handlers.get("provider_stream_event");
+	const codex = { api: "openai-codex-responses", provider: "openai-codex" };
+	const openai = { api: "openai-responses", provider: "openai" };
+	const azure = { api: "azure-openai-responses", provider: "azure" };
+	const part = (item_id, text) => ({ type: "response.reasoning_summary_part.done", item_id, part: { type: "summary_text", text } });
+	const heading = "Reviewing the _index_\tchanges";
+	const privateText = "**Hidden draft**";
+	const completed = (id, text) => ({
+		type: "response.output_item.done",
+		item: { type: "reasoning", id, status: "completed", summary: [{ type: "summary_text", text }], content: [{ type: "reasoning_text", text: privateText }] },
+	});
+	await handlers.get("session_start")({}, context);
+	stopped = false;
+	await providerEvent({ ...codex, data: part("idle", "**Idle progress**") }, context);
+	await handlers.get("agent_start")({}, context);
+	await handlers.get("turn_start")({ turnIndex: 1 }, context);
+	for (const [api, data] of [
+		["anthropic-messages", { type: "content_block_delta", delta: { type: "thinking_delta", thinking: privateText } }],
+		["bedrock-converse-stream", { contentBlockDelta: { delta: { reasoningContent: { text: privateText } } } }],
+		["google-generative-ai", { candidates: [{ content: { parts: [{ thought: true, text: privateText }] } }] }],
+		["google-vertex", { candidates: [{ content: { parts: [{ thought: true, text: privateText }] } }] }],
+		["openai-completions", { choices: [{ delta: { reasoning_details: [{ type: "reasoning.summary", summary: privateText }] } }] }],
+		["mistral-conversations", { choices: [{ delta: { content: [{ type: "thinking", thinking: [{ text: privateText }] }] } }] }],
+		["pi-messages", { type: "thinking_end", content: privateText }],
+		["custom-api", part("lookalike", privateText)],
+	]) {
+		await providerEvent({ api, data }, context);
+	}
+	for (const data of [
+		{ type: "response.reasoning_text.delta", delta: privateText },
+		{ type: "response.reasoning_summary_text.delta", delta: privateText },
+		{ ...part("interrupted", privateText), status: "incomplete" },
+		{ type: "response.reasoning_summary_part.done", part: { type: "reasoning_text", text: privateText } },
+		{ type: "response.output_item.done", item: { type: "reasoning", content: [{ type: "reasoning_text", text: privateText }] } },
+		{ type: "response.output_item.done", item: { type: "reasoning", status: "incomplete", summary: [{ type: "summary_text", text: privateText }] } },
+		{ type: "response.output_item.done", item: { type: "message", summary: [{ type: "summary_text", text: privateText }] } },
+		part("inline", "A **bold phrase** inside summary prose"),
+	]) {
+		await providerEvent({ ...codex, data }, context);
+	}
+	await providerEvent({ ...codex, data: part("first", " \x1b[1m**" + heading + "\u202e**\x1b[0m\n\nSummary body.") }, context);
+	await handlers.get("message_update")({ assistantMessageEvent: { type: "thinking_end", content: privateText } }, context);
+	await handlers.get("message_update")({ assistantMessageEvent: { type: "text_end", content: "The index looks good." } }, context);
+	await providerEvent({ ...codex, data: completed("first", "**Stale repeat**") }, context);
+	await handlers.get("turn_end")({}, context);
+	await handlers.get("turn_start")({ turnIndex: 2 }, context);
+	await providerEvent({ ...openai, data: completed("second", "A summary paragraph.\n\n**Checking the test run**") }, context);
+	await providerEvent({ ...azure, data: part("third", "**" + "試".repeat(100) + "**") }, context);
+	await handlers.get("turn_end")({}, context);
+	await handlers.get("turn_start")({ turnIndex: 3 }, context);
+	await providerEvent({ ...azure, data: part("fourth", "**" + "試".repeat(100) + "**") }, context);
+	await handlers.get("ui_prompt_start")({ title: "Choose a target" }, context);
+	await providerEvent({ ...openai, data: completed("waiting", "**Waiting progress**") }, context);
+	await handlers.get("session_shutdown")();
+	stopped = true;
+	const progressEntries = entries.slice(progressStart);
+	const shortHeading = "試".repeat(79) + "…";
+	assert.deepEqual(progressEntries.filter(({ args }) => args[2] === "progress").map(({ payload }) => payload), [
+		{ session_id: sessionID, progress: "Reviewing the index changes" },
+		{ session_id: sessionID, progress: "" },
+		{ session_id: sessionID, progress: "Checking the test run" },
+		{ session_id: sessionID, progress: shortHeading },
+		{ session_id: sessionID, progress: shortHeading },
+	]);
+	assert(!progressEntries.filter(({ args }) => args[2] !== "progress").some(({ payload }) => JSON.stringify(payload).includes("Reviewing the index changes")));
+	assert(!JSON.stringify(progressEntries).includes("Hidden draft"));
+	assert(!JSON.stringify(progressEntries).includes("Summary body."));
 } finally {
 	if (!stopped) await handlers.get("session_shutdown")?.();
 	await rm(runtimeDir, { recursive: true, force: true });

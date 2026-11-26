@@ -156,6 +156,16 @@ func serveContractFixtures() []contractFixture {
 			},
 			DisplayColor: "violet",
 			Class:        "wizard",
+		}, {
+			ID:         "qm-pi",
+			Title:      "Inspect the index",
+			Status:     "active",
+			State:      "working",
+			Agent:      "pi",
+			ParentID:   "qm-demo",
+			PiProgress: "Reviewing index changes",
+			Narration:  "I will look at the changed files.",
+			Repo:       RepoSnapshot{Identity: "/tmp/questmaster/.git", Name: "questmaster", Color: "green"},
 		}},
 		Projects: []ProjectSnapshot{{
 			ID:          "/tmp/questmaster/.git",

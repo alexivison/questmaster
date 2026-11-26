@@ -4376,6 +4376,83 @@ func TestHookPiThinkingIsNotChat(t *testing.T) {
 	if got := chatEntries(rec.events[len(rec.events)-1]); len(got) != 1 || got[0]["chat_kind"] != "status" {
 		t.Fatalf("thinking produced unexpected chat entries: %#v", got)
 	}
+	if pane := rec.lastState.Panes["agent"]; pane.PiProgress != "" || pane.Activity != "" || pane.Narration != "" || len(pane.Recent) != 0 {
+		t.Fatalf("thinking reached display state: %+v", pane)
+	}
+}
+
+func TestHookPiProgressFollowsTurnBoundaries(t *testing.T) {
+	r, rec := newTestRunner(t)
+	const sessionID = "qm-progress"
+	hook := func(action string, payload map[string]interface{}) {
+		t.Helper()
+		if stderr := runHookWithStdin(r, "pi", action, sessionID, payload); stderr != "" {
+			t.Fatalf("%s: %s", action, stderr)
+		}
+	}
+	hook("agent_start", nil)
+	hook("say", map[string]interface{}{
+		"message": map[string]interface{}{"role": "assistant", "content": "I will review the change."},
+		"recent":  []string{"visible text"},
+	})
+	before := rec.lastState.Panes["agent"]
+	const label = "Reviewing the index changes"
+	hook("progress", map[string]interface{}{"progress": label})
+	after := rec.lastState.Panes["agent"]
+	if after.PiProgress != label || after.Narration != before.Narration || !slices.Equal(after.Recent, before.Recent) ||
+		after.LastKind != before.LastKind || after.LastChatAt != before.LastChatAt || after.Activity != before.Activity {
+		t.Fatalf("progress altered the ordinary activity or feed: before %+v, after %+v", before, after)
+	}
+	event := rec.events[len(rec.events)-1]
+	if event.Activity != "" || len(event.Fields) != 0 {
+		t.Fatalf("progress was written into the event history: %+v", event)
+	}
+
+	steps := []struct {
+		action  string
+		payload map[string]interface{}
+		want    string
+	}{
+		{"message_update", map[string]interface{}{
+			"assistantMessageEvent": map[string]interface{}{"type": "thinking_end", "content": "**Private label**"},
+		}, label},
+		{"tool_execution_start", map[string]interface{}{"tool_name": "bash", "tool_call_id": "sample"}, label},
+		{"tool_execution_end", map[string]interface{}{"tool_name": "bash", "tool_call_id": "sample"}, label},
+		{"turn_end", nil, ""},
+		{"progress", map[string]interface{}{"progress": "Checking the test run"}, "Checking the test run"},
+		{"progress", map[string]interface{}{"progress": ""}, ""},
+		{"progress", map[string]interface{}{"progress": label}, label},
+		{"waiting_for_user", map[string]interface{}{"prompt": "Choose a target"}, ""},
+		{"progress", map[string]interface{}{"progress": label}, ""},
+		{"ui_prompt_end", map[string]interface{}{"busy": true}, ""},
+		{"progress", map[string]interface{}{"progress": label}, label},
+		{"agent_settled", nil, ""},
+		{"progress", map[string]interface{}{"progress": label}, ""},
+	}
+	for _, step := range steps {
+		hook(step.action, step.payload)
+		pane := rec.lastState.Panes["agent"]
+		if pane.PiProgress != step.want || pane.Narration != before.Narration || pane.Activity == "**Private label**" {
+			t.Fatalf("after %s, want progress %q and original narration, got %+v", step.action, step.want, pane)
+		}
+	}
+}
+
+func TestHookPiProgressBatchKeepsSourceOrder(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "batch", "qm-progress", map[string]interface{}{
+		"events": []map[string]interface{}{
+			{"action": "agent_start"},
+			{"action": "progress", "payload": map[string]interface{}{"progress": "First heading"}},
+			{"action": "turn_end"},
+			{"action": "progress", "payload": map[string]interface{}{"progress": "Second heading"}},
+			{"action": "tool_execution_start", "payload": map[string]interface{}{"tool_name": "read"}},
+		},
+	})
+	pane := rec.lastState.Panes["agent"]
+	if pane.PiProgress != "Second heading" || pane.LastKind != "tool_execution_start" {
+		t.Fatalf("batch did not preserve progress and tool order: %+v", pane)
+	}
 }
 
 func TestHookPiAgentEndDoesNotUseActivityFallbackForChat(t *testing.T) {

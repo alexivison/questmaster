@@ -101,6 +101,7 @@ type PaneState struct {
 	RunningTools            []RunningTool        `json:"running_tools,omitempty"`
 	Narration               string               `json:"narration,omitempty"`
 	NarrationAt             time.Time            `json:"narration_at,omitempty"`
+	PiProgress              string               `json:"pi_progress,omitempty"`
 	Seq                     int64                `json:"seq"`
 	LastEvent               time.Time            `json:"last_event"`
 	LastKind                string               `json:"last_kind"`
