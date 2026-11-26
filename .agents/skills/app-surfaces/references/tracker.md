@@ -58,9 +58,9 @@ draws over the list; the banner draws in front of the sprite, keeping its raised
 `SelectedSessionPanel` remains for its standalone previews and self-tests. An attached worker's slot draws its master's class's familiar
 in the same slot and above the same banner (`.agents/skills/class-avatar/SKILL.md`); its size and place never change for a worker. An
 attached master's slot also holds its live workers' familiars, small, in one row: its workers stand at their pitch, in spawn
-order, centred on a point that moves from the master's body column toward the full row's centre as workers are added (the newest is the
-right-most; one worker is centred on the body column). A `+n`
-chip sits above the master's familiar's disc once the row is full (`TrackerCompanySlot`, `TrackerCompanyStage`). A familiar whose worker is working, or that the pointer is over, also carries its name in a 15 pt chip on a 5 pt stem, in up to three tiers 20 pt apart, placed by `TrackerCompanyNameTags` (Core): a name over the master's face goes up a tier, and a name with no room is cut with an ellipsis. Other names show nowhere. A name appears and goes with the status or the pointer, and hovering never moves a working name. The master never moves,
+order, centred on a point that starts 20 pt right of the master's body column for one worker and moves toward the full row's centre as
+workers are added (the newest is the right-most). Each familiar in the company has a one-pixel black outline, painted into its company frames. A `+n`
+chip sits above the master's familiar's disc once the row is full (`TrackerCompanySlot`, `TrackerCompanyStage`). A familiar whose worker is working, or that the pointer is over, also carries its name in a 15 pt chip on a 5 pt stem, in up to three tiers 20 pt apart, placed by `TrackerCompanyNameTags` (Core): a name over the master's face goes up a tier, and a name with no room is cut with an ellipsis. Other names show nowhere. A name appears and goes with the status or the pointer, and while the pointer is over a familiar its name always shows, with the working names giving way to it. The master never moves,
 standing at the slot's centre; the slot, banner and plate list stay put.
 
 Master plates are `TrackerPlateDesign.plateWidth` (240pt). Worker discs keep their 20-60pt column and their plates

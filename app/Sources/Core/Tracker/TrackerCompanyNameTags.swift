@@ -22,21 +22,22 @@ public enum TrackerCompanyNameTags {
     /// The fewest letters a cut name keeps before its ellipsis.
     public static let minimumLetters = 4
 
-    /// Why a familiar's name shows. `working` names place first, in spawn order, and `hovered` names after them, so a hovered name never moves
-    /// or cuts a working one. `hidden` names place nothing and take no room.
+    /// Why a familiar's name shows. `hovered` names place first, so a hovered name always shows and a working name gives way to it (moves up
+    /// a tier, is cut, or is left out) while the pointer is there. `working` names place after them, in spawn order. `hidden` names place
+    /// nothing and take no room.
     public enum Visibility: Equatable, Sendable {
         case hidden
         case working
         case hovered
     }
 
-    /// A familiar's name shows while its worker is working (a busy turn, whose familiar poses thinking or working), and while the pointer is
-    /// over that familiar. A working familiar counts as working even when it is hovered, so hovering it changes nothing.
+    /// A familiar's name shows while the pointer is over it, whatever its status, and while its worker is working (a busy turn, whose familiar
+    /// poses thinking or working). A hovered name is `hovered`, even for a working familiar, so it places first.
     public static func visibility(status: TrackerStatusKind, hovered: Bool) -> Visibility {
-        if status == .working {
-            return .working
+        if hovered {
+            return .hovered
         }
-        return hovered ? .hovered : .hidden
+        return status == .working ? .working : .hidden
     }
 
     /// One familiar's name to place: the full text width (without the chip's padding), the x of the familiar's centre, the y of its
@@ -88,15 +89,16 @@ public enum TrackerCompanyNameTags {
         public var stemLeft: Double { centre - 0.5 }
     }
 
-    /// Places each shown name: the working names first, in spawn order, so an earlier name keeps the lower tier when two collide; then the
-    /// hovered names, in spawn order, into the room left. A hidden name is nil and places nothing. `cut` returns the widest prefix of a name
-    /// plus an ellipsis whose text width is at most the given width, with that width; nil when even `minimumLetters` letters and the ellipsis
-    /// don't fit. A name's chip stays inside the slot's `slotWidth`, and a name that is wider than the slot is cut.
+    /// Places each shown name: the hovered names first, in spawn order, so a hovered name always gets a place and a working name gives way; then
+    /// the working names, in spawn order, into the room left, so an earlier name keeps the lower tier when two collide. A hidden name is nil
+    /// and places nothing. `cut` returns the widest prefix of a name plus an ellipsis whose text width is at most the given width, with that
+    /// width; nil when even `minimumLetters` letters and the ellipsis don't fit. A name's chip stays inside the slot's `slotWidth`, and a name
+    /// that is wider than the slot is cut.
     public static func place(_ tags: [Tag], face: Box?, slotWidth: Double,
                              cut: (String, Double) -> (text: String, width: Double)?) -> [Placement?] {
         var placed: [Placement] = []
         var result = [Placement?](repeating: nil, count: tags.count)
-        for visibility in [Visibility.working, .hovered] {
+        for visibility in [Visibility.hovered, .working] {
             for (index, tag) in tags.enumerated() where tag.visibility == visibility {
                 let placement = placeOne(tag, placed: placed, face: face, slotWidth: slotWidth, cut: cut)
                 if let placement {

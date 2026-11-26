@@ -143,11 +143,13 @@ enum LogicSelfTests {
         ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
         ("testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt", testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt),
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
-        ("testOneWorkerIsCentredOnTheMastersBody", testOneWorkerIsCentredOnTheMastersBody),
+        ("testOneWorkerStandsSoloOffsetRightOfTheMastersBody", testOneWorkerStandsSoloOffsetRightOfTheMastersBody),
         ("testWorkerNamesTagTheCompany", testWorkerNamesTagTheCompany),
         ("testPointingAtAFamiliarShowsItsName", testPointingAtAFamiliarShowsItsName),
+        ("testAHoveredNameAlwaysShowsInEveryClassAndCount", testAHoveredNameAlwaysShowsInEveryClassAndCount),
         ("testEveryClassHasAHeadBoxInItsArt", testEveryClassHasAHeadBoxInItsArt),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
+        ("testCompanyFramesCarryAOnePixelOutlineAndTheWorkerSlotDoesNot", testCompanyFramesCarryAOnePixelOutlineAndTheWorkerSlotDoesNot),
         ("testTheWarHoundDrawsAtItsScaleOnTheBaseline", testTheWarHoundDrawsAtItsScaleOnTheBaseline),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
@@ -2783,15 +2785,15 @@ enum LogicSelfTests {
         try expect(stage.companions.isEmpty && stage.overflow == 0, "a master with no workers should show no company")
     }
 
-    /// Every class's one worker stands centred on its master's body column when it is alone: the middle of its visible figure (its rest's
-    /// left edge plus half its width, both read back from its placement) sits at the slot's centre, to within the half point the placement
-    /// snaps to.
+    /// Every class's one worker stands `TrackerCompanyLayout.soloOffset` right of its master's body column when it is alone: the middle of its
+    /// visible figure (its rest's left edge plus half its width, both read back from its placement) sits there, to within the half point the
+    /// placement snaps to.
     @MainActor
-    private static func testOneWorkerIsCentredOnTheMastersBody() throws {
+    private static func testOneWorkerStandsSoloOffsetRightOfTheMastersBody() throws {
         final class Clock {
             var now: TimeInterval = 0
         }
-        let centre = TrackerAvatarMetrics.slotWidth / 2
+        let centre = TrackerAvatarMetrics.slotWidth / 2 + CGFloat(TrackerCompanyLayout.soloOffset)
         for sessionClass in SessionClass.allCases {
             let clock = Clock()
             let stage = TrackerCompanyStage(clock: { clock.now })
@@ -2806,7 +2808,7 @@ enum LogicSelfTests {
             let left = companion.bodyX + CGFloat(columns.lowerBound - body) * companion.pixel
             let width = CGFloat(columns.count) * companion.pixel
             try expect(abs(left + width / 2 - centre) <= 0.5,
-                       "the \(classID)'s one worker should stand centred on the master's body (\(centre)), got \(left + width / 2)")
+                       "the \(classID)'s one worker should stand 20 pt right of the master's body (\(centre)), got \(left + width / 2)")
         }
     }
 
@@ -2896,9 +2898,9 @@ enum LogicSelfTests {
                    "each resting box should stand from the visible bottom, under the feet, with a size")
 
         stage.setPointer(over: "qm-w1", inside: true)
+        // A hovered name goes first, so the pointed-at idle second worker's name shows, and the working names give way to it.
         try expect(stage.hoveredID == "qm-w1" && stage.nameTags.contains { $0.id == "qm-w1" },
                    "pointing at an idle familiar should show its name, got \(stage.nameTags.map(\.id))")
-        try expect(stage.nameTags.contains { $0.id == "qm-w0" }, "a working familiar should keep its name while another is pointed at")
 
         // The pointer leaves the idle familiar onto a working one: the enter comes first, so the exit clears nothing it did not set.
         stage.setPointer(over: "qm-w0", inside: true)
@@ -2926,9 +2928,114 @@ enum LogicSelfTests {
                    "the marker's worker should have no resting box, got \(stage.hoverAreas.map(\.id))")
     }
 
+    /// A hovered name always shows: for every class, at every count from one to its full row, pointing at each familiar on the row shows its
+    /// name, with every other worker working, so the names around it are as crowded as they get. The titles are the longest the tracker
+    /// shows, up to 16 characters.
+    @MainActor
+    private static func testAHoveredNameAlwaysShowsInEveryClassAndCount() throws {
+        final class Clock {
+            var now: TimeInterval = 0
+        }
+        let titles = ["Tray icon polish", "Familiar app", "Avatar switch", "Ledger sync", "Search index", "Docs pass 2", "Elemental FX", "Nightly build"]
+        for sessionClass in SessionClass.allCases {
+            let classID = sessionClass.rawValue
+            guard let capacity = TrackerAvatarSprites.bundledFamiliars()[classID]?.animation.companyRow?.capacity else {
+                throw TestFailure("the \(classID)'s familiar should have a company row")
+            }
+            for count in 1...capacity {
+                let clock = Clock()
+                let stage = TrackerCompanyStage(clock: { clock.now })
+                let master = try testRow(["id": "qm-m", "title": classID, "session_type": "master", "class": classID])
+                let workers = try (0..<count).map { index in
+                    try testRow(["id": "qm-w\(index)", "title": titles[index % titles.count], "session_type": "worker", "parent_id": "qm-m", "class": classID])
+                }
+                stage.observe(sessions: [master] + workers, attachedID: "qm-m")
+                for companion in stage.companions {
+                    stage.setPointer(over: companion.id, inside: true)
+                    try expect(stage.nameTags.contains { $0.id == companion.id },
+                               "the \(classID)'s hovered familiar \(companion.id) should show its name at \(count) workers, got \(stage.nameTags.map(\.id))")
+                    stage.setPointer(over: companion.id, inside: false)
+                }
+            }
+        }
+    }
+
     /// Every designed familiar's company frames are on the 2x device grid at its scale: each full frame has a company frame of the same
     /// name, sized by the scale (the full canvas times two times the scale, rounded to whole pixels), and its feet stay on its canvas.
     @MainActor
+    /// The company frames carry a one-pixel outline in the familiar outline token round their art: each pixel is the raw frame's where the
+    /// art is, the token's colour where the ring reaches, and clear elsewhere. The worker slot's full frames carry none.
+    private static func testCompanyFramesCarryAOnePixelOutlineAndTheWorkerSlotDoesNot() throws {
+        guard let resources = AppSymbolStyle.resourceBundle().resourceURL else {
+            throw TestFailure("the resource bundle should be readable")
+        }
+        let ink = TrackerAvatarOutlineInk(AppPalette.familiarOutline)
+        let rawURL = resources.appendingPathComponent("Familiars/paladin/company/01-idle-f1.png")
+        guard let raw = TrackerAvatarSprites.decodeFrame(at: rawURL),
+              let outlined = TrackerAvatarLibrary.companions["paladin"]?.idleFrame(1) else {
+            throw TestFailure("the paladin's company frame should decode")
+        }
+        try expect(raw.width == outlined.width && raw.height == outlined.height, "the outline should keep the frame's size")
+        let before = try rgbaBytes(raw)
+        let after = try rgbaBytes(outlined)
+        let width = raw.width
+        let height = raw.height
+        var ringed = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let offset = (y * width + x) * 4
+                if before[offset + 3] > 0 {
+                    try expect(Array(after[offset..<offset + 4]) == Array(before[offset..<offset + 4]),
+                               "the art's own pixel at \(x),\(y) should not change")
+                    continue
+                }
+                let touchesArt = (-1...1).contains { dy in (-1...1).contains { dx in
+                    let nx = x + dx, ny = y + dy
+                    return (dx != 0 || dy != 0) && nx >= 0 && nx < width && ny >= 0 && ny < height && before[(ny * width + nx) * 4 + 3] > 0
+                } }
+                if touchesArt {
+                    ringed += 1
+                    try expect(Array(after[offset..<offset + 4]) == [ink.red, ink.green, ink.blue, 0xff],
+                               "the ring at \(x),\(y) should be the outline token, opaque")
+                } else {
+                    try expect(after[offset + 3] == 0, "a pixel with no art beside it should stay clear at \(x),\(y)")
+                }
+            }
+        }
+        try expect(ringed > 0, "the outline should ring the paladin's figure")
+        // The effect layers stand bare: the cleric's front spark frame is the art as it is.
+        guard let effectRaw = TrackerAvatarSprites.decodeFrame(at: resources.appendingPathComponent("Familiars/cleric/company/01-idle-front-f1.png")),
+              let effect = TrackerAvatarLibrary.companions["cleric"]?.frame(.idle, .front, 1) else {
+            throw TestFailure("the cleric's company effect frame should decode")
+        }
+        try expect(try rgbaBytes(effect) == rgbaBytes(effectRaw), "an effect layer should carry no outline")
+        // The worker slot's full frame of the same figure: no outline.
+        guard let slotRaw = TrackerAvatarSprites.decodeFrame(at: resources.appendingPathComponent("Familiars/paladin/01-idle-f1.png")),
+              let slot = TrackerAvatarSprites.bundledFamiliars()["paladin"]?.idleFrame(1) else {
+            throw TestFailure("the paladin's worker-slot frame should decode")
+        }
+        try expect(try rgbaBytes(slot) == rgbaBytes(slotRaw), "the worker slot's frame should be the art as it is")
+    }
+
+    /// The frame's premultiplied RGBA bytes, row by row from the top, for comparing pixels.
+    private static func rgbaBytes(_ image: CGImage) throws -> [UInt8] {
+        let bytesPerRow = image.width * 4
+        var bytes = [UInt8](repeating: 0, count: bytesPerRow * image.height)
+        let drawn = bytes.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8,
+                                          bytesPerRow: bytesPerRow, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                return false
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
+        }
+        guard drawn else {
+            throw TestFailure("the frame's pixels should be readable")
+        }
+        return bytes
+    }
+
     private static func testEveryCompanyFrameIsPresentAtItsDeviceSize() throws {
         guard let resources = AppSymbolStyle.resourceBundle().resourceURL else {
             throw TestFailure("the resource bundle should be readable")

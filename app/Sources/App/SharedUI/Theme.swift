@@ -68,6 +68,9 @@ enum AppPalette {
     static let light = NSColor.white
     /// The opaque colour of a mask layer or view: only its alpha counts.
     static let mask = NSColor.black
+    /// The one-pixel outline a worker's familiar draws in the master's company (`TrackerAvatarSprites`): the darkest tone, so it separates
+    /// a familiar from a light master's robe and from a dark master's armour.
+    static let familiarOutline = NSColor.black
 
     /// The text steps at rest: body text, and meta text (hints, placeholders, dates). A highlighted or selected
     /// item's text comes from its state look (`RowLook`, `OutlineLook`), never from here.
