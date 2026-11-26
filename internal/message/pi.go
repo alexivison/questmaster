@@ -44,7 +44,7 @@ type piMessageAck struct {
 	Status string `json:"status"`
 }
 
-func (s *Service) deliverPi(ctx context.Context, m state.Manifest, message string) error {
+func (s *Service) deliverPi(ctx context.Context, m state.Manifest, message string, beforeSend func() error) error {
 	frame, id, err := piFrame(message)
 	if err != nil {
 		return err
@@ -74,6 +74,11 @@ func (s *Service) deliverPi(ctx context.Context, m state.Manifest, message strin
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
 			return fmt.Errorf("set Pi socket deadline: %w", err)
+		}
+	}
+	if beforeSend != nil {
+		if err := beforeSend(); err != nil {
+			return err
 		}
 	}
 	n, err := conn.Write(frame)

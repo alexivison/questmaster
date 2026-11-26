@@ -48,7 +48,7 @@ type claudeMessageFrame struct {
 	Type      string `json:"type"`
 }
 
-func (s *Service) nativeDeliver(ctx context.Context, client *tmux.Client, m state.Manifest, target, message string) error {
+func (s *Service) nativeDeliver(ctx context.Context, client *tmux.Client, m state.Manifest, target, message string, beforeSend func() error) error {
 	switch manifestAgentName(m) {
 	case "claude":
 		if restricted, err := claudeInboundRestricted(m.Cwd); err != nil {
@@ -56,11 +56,11 @@ func (s *Service) nativeDeliver(ctx context.Context, client *tmux.Client, m stat
 		} else if restricted {
 			return fmt.Errorf("%w: Claude project settings restrict inbound messages", errNativeUnavailable)
 		}
-		return s.deliverClaude(ctx, client, target, message)
+		return s.deliverClaude(ctx, client, target, message, beforeSend)
 	case "pi":
-		return s.deliverPi(ctx, m, message)
+		return s.deliverPi(ctx, m, message, beforeSend)
 	case "codex":
-		return s.deliverCodex(ctx, m, message)
+		return s.deliverCodex(ctx, m, message, beforeSend)
 	default:
 		return errNativeUnavailable
 	}
@@ -97,7 +97,7 @@ func claudeInboundRestricted(cwd string) (bool, error) {
 	return false, nil
 }
 
-func (s *Service) deliverClaude(ctx context.Context, client *tmux.Client, target, message string) error {
+func (s *Service) deliverClaude(ctx context.Context, client *tmux.Client, target, message string, beforeSend func() error) error {
 	frame, err := claudeFrame(message)
 	if err != nil {
 		return err
@@ -128,6 +128,11 @@ func (s *Service) deliverClaude(ctx context.Context, client *tmux.Client, target
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := conn.SetWriteDeadline(deadline); err != nil {
 			return fmt.Errorf("set Claude socket write deadline: %w", err)
+		}
+	}
+	if beforeSend != nil {
+		if err := beforeSend(); err != nil {
+			return err
 		}
 	}
 	n, err := conn.Write(frame)

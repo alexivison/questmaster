@@ -41,13 +41,19 @@ var paneIDPattern = regexp.MustCompile(`^%[0-9]+$`)
 // pane ID resolved first, and the pane must still be alive before Enter: keys
 // sent to a dead pane vanish without an error.
 func (c *Client) Send(ctx context.Context, lockDir, target, text string) SendResult {
+	return c.SendWithCheck(ctx, lockDir, target, text, nil)
+}
+
+// SendWithCheck runs beforeSend with the pane lock held after all readiness
+// checks. A check error aborts before any text is typed.
+func (c *Client) SendWithCheck(ctx context.Context, lockDir, target, text string, beforeSend func() error) SendResult {
 	ctx, cancel := context.WithTimeout(ctx, c.SendTimeout)
 	defer cancel()
-	err := c.send(ctx, lockDir, target, text)
+	err := c.send(ctx, lockDir, target, text, beforeSend)
 	return SendResult{Submitted: err == nil, Target: target, Err: err}
 }
 
-func (c *Client) send(ctx context.Context, lockDir, target, text string) error {
+func (c *Client) send(ctx context.Context, lockDir, target, text string, beforeSend func() error) error {
 	deadline, _ := ctx.Deadline()
 	waitCtx, cancel := context.WithDeadline(ctx, deadline.Add(-sendSubmitReserve))
 	defer cancel()
@@ -63,6 +69,11 @@ func (c *Client) send(ctx context.Context, lockDir, target, text string) error {
 	defer unlock()
 	if err := c.waitIdle(waitCtx, pane); err != nil {
 		return err
+	}
+	if beforeSend != nil {
+		if err := beforeSend(); err != nil {
+			return err
+		}
 	}
 	// Each step above can return at once, even past waitCtx's deadline.
 	if err := waitCtx.Err(); err != nil {

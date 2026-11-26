@@ -135,6 +135,12 @@ func resolveSocket(dir string) (string, error) {
 // acceptance, not model consumption. All errors are final for this attempt;
 // callers must not fall back to tmux after a possibly accepted RPC.
 func Send(ctx context.Context, dir, threadID, text string) error {
+	return SendWithCheck(ctx, dir, threadID, text, nil)
+}
+
+// SendWithCheck runs beforeSend after the thread handshake, immediately before
+// each submit attempt. A check error leaves the pending input untouched.
+func SendWithCheck(ctx context.Context, dir, threadID, text string, beforeSend func() error) error {
 	if threadID == "" || len(threadID) > 128 {
 		return errors.New("Codex thread identity is not ready")
 	}
@@ -192,6 +198,11 @@ func Send(ctx context.Context, dir, threadID, text string) error {
 			ID string `json:"id"`
 		} `json:"turn"`
 	}
+	if beforeSend != nil {
+		if err := beforeSend(); err != nil {
+			return err
+		}
+	}
 	if err := rpc.call(ctx, "turn/start", params, &reply); err != nil {
 		var rejection *rpcRejection
 		if !errors.As(err, &rejection) || rejection.code != -32603 ||
@@ -205,6 +216,11 @@ func Send(ctx context.Context, dir, threadID, text string) error {
 			QueuedSubmission struct {
 				ID string `json:"id"`
 			} `json:"queuedSubmission"`
+		}
+		if beforeSend != nil {
+			if err := beforeSend(); err != nil {
+				return err
+			}
 		}
 		if err := rpc.call(ctx, "thread/queue/add", params, &queued); err != nil {
 			return err
