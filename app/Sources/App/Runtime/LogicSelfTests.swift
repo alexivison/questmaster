@@ -267,6 +267,7 @@ enum LogicSelfTests {
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
         ("testSettingsLoadsAvailabilityInDaemonOrderAndFetchesOnlyEnabledAgents", testSettingsLoadsAvailabilityInDaemonOrderAndFetchesOnlyEnabledAgents),
         ("testSettingsDisablingInvalidatesSuggestionsAndBlocksRoleChanges", testSettingsDisablingInvalidatesSuggestionsAndBlocksRoleChanges),
+        ("testSettingsKeyboardReachesAndTogglesAgentSwitch", testSettingsKeyboardReachesAndTogglesAgentSwitch),
         ("testSettingsKeepsEditedDefaultsVisibleAfterDisablingAndReopening", testSettingsKeepsEditedDefaultsVisibleAfterDisablingAndReopening),
         ("testSettingsDroppedAvailabilityReplyReadsSavedValue", testSettingsDroppedAvailabilityReplyReadsSavedValue),
         ("testSettingsRejectedAvailabilitySaveRestoresTheToggle", testSettingsRejectedAvailabilitySaveRestoresTheToggle),
@@ -9289,6 +9290,48 @@ enum LogicSelfTests {
         try waitForMainQueue("reopened Settings availability", until: { reopened.isAvailabilityLoaded })
         try expect(reopened.savedDefault(agent: "claude", role: "master", field: .model) == "sonnet", "reopening should use the saved model returned by the daemon")
         try expect(reopened.state.agents.contains("opencode") && reopened.state.selectedAgent == "claude", "reopening should keep built-in tabs and the saved selection")
+    }
+
+    private static func testSettingsKeyboardReachesAndTogglesAgentSwitch() throws {
+        let client = SettingsTestMutationClient(configuration: settingsFixtureAvailability())
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: client,
+                modelClient: nil,
+                effortClient: nil,
+                runtime: RuntimeStore(sourceLabel: "test")
+            ),
+            dismiss: {}
+        )
+        model.present()
+        try waitForMainQueue("agent availability", until: { model.isAvailabilityLoaded })
+        guard let opencode = model.state.agents.firstIndex(of: "opencode") else {
+            throw TestFailure("Settings should include the OpenCode tab")
+        }
+        model.selectTab(opencode)
+
+        let tab = try keyEvent("\t", keyCode: 48)
+        for _ in 0..<RoleDefaultsSettingsModel.focusableFieldCount {
+            try expect(model.handle(tab), "Tab should move around the agent's form")
+        }
+        try expect(model.isAvailabilityToggleFocused(for: "opencode"), "Tab after the last role field should reach the switch")
+        try expect(model.handle(tab) && !model.isAvailabilityToggleFocused(for: "opencode"),
+                   "Tab from the switch should return to the first role field")
+        try expect(model.state.focusedRoleIndex == 0 && model.state.focusedField == .model, "Master Model should be the first role field")
+
+        model.state.setModelOptions([SessionModelOption(id: "example-model", label: "Example")], defaultModel: "example-model", agent: "opencode", role: "master")
+        model.search(role: "master", field: .model)
+        model.typePickerText("unfinished query", role: "master", field: .model)
+        try expect(model.state.pickerMode == .search, "the Model field should be editing before Shift-Tab")
+        try expect(model.handle(try keyEvent("\t", keyCode: 48, modifierFlags: .shift)), "Shift-Tab should leave the Model field")
+        try expect(model.isAvailabilityToggleFocused(for: "opencode") && model.state.pickerMode == .select,
+                   "moving to the switch should close the Model search")
+        try expect(model.handle(try keyEvent(" ", keyCode: 49)), "Space should toggle the focused switch")
+        try waitForMainQueue("availability save", until: { !model.isSavingAvailability(for: "opencode") })
+        let mutations = client.requests.filter { $0.method == "agent_availability.set" }
+        try expect(mutations.count == 1 && mutations.first?.data == ["agent": "opencode", "enabled": "false"],
+                   "keyboard activation should save OpenCode as disabled")
+        try expect(!client.configuration.enabledNames.contains("opencode"), "the saved preference should disable OpenCode")
     }
 
     private static func testSettingsDroppedAvailabilityReplyReadsSavedValue() throws {
