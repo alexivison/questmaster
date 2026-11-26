@@ -39,8 +39,8 @@ struct SettingsSheetPresentation: Identifiable {
 }
 
 /// settings-models.svg (900 x 780): the sections as pill tabs down the left (250 wide), and the selected
-/// section on the right (x 290-880): the agent tabs, then a "Master" and a "Worker" section, each a bold
-/// title over a vine-ended rule and separate searchable model and reasoning fields.
+/// section on the right (x 290-880): the agent tabs and availability switch, then a "Master" and a "Worker"
+/// section, each a bold title over a vine-ended rule and separate searchable model and reasoning fields.
 enum SettingsMetrics {
     static let inset = PanelMetrics.contentInset
     static let sidebarWidth: CGFloat = 250
@@ -50,8 +50,12 @@ enum SettingsMetrics {
     /// A section's glyph fills its tab's 20pt icon square. The keylined brain, folder and terminal measure 15 x 15, 15 x 14
     /// and 15 x 13 there, against the SF symbols' 15.6 x 15, 16.3 x 13.2 and 16.0 x 12.5 that the tab fitted into that square.
     static let sectionIconSide: CGFloat = PillTabMetrics.iconSide
-    /// From the top of the agent tabs: the first section title's baseline, then each next one 175 on.
-    static let firstSectionBaseline: CGFloat = 65
+    /// The availability row follows the agent tabs by one item gap.
+    static let availabilityOffset = PillTabMetrics.rowHeight + Space.item
+    static let availabilityHeight = ControlHeight.field + Space.row
+    /// The first role section follows the availability row by one group gap.
+    static let firstSectionBaseline = availabilityOffset + availabilityHeight + Space.group
+    /// Each role section title sits 175 below the previous one.
     static let sectionPitch: CGFloat = 175
     /// From a section title's baseline: its rule, then each row's picker top, 55 apart (a field and the 20 between).
     static let ruleDrop: CGFloat = 15
@@ -185,6 +189,7 @@ struct SettingsSheetView: View {
                     }
                 }
             )
+            availabilityRow
             ForEach(Array(Self.roleGroups.enumerated()), id: \.offset) { offset, group in
                 roleSection(role: group.0, title: group.1)
                     .offset(y: SettingsMetrics.firstSectionBaseline + CGFloat(offset) * SettingsMetrics.sectionPitch)
@@ -193,11 +198,49 @@ struct SettingsSheetView: View {
         }
     }
 
+    private var availabilityRow: some View {
+        let agent = model.state.selectedAgent
+        let agentName = AgentKind.displayName(for: agent)
+        let enabled = model.isAgentEnabled(agent)
+        return HStack(alignment: .center, spacing: Space.item) {
+            VStack(alignment: .leading, spacing: Space.row) {
+                Text("Enable Agent")
+                    .font(Font(AppFonts.settingsLabel))
+                    .foregroundStyle(AppPalette.textBody.swiftUI)
+                Text("Turning this off hides the agent from New Session and blocks launches. Running sessions stay available.")
+                    .font(Font(AppFonts.settingsDescription))
+                    .foregroundStyle(AppPalette.settingsDescription.swiftUI)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Toggle("", isOn: Binding(
+                get: { model.isAgentEnabled(agent) },
+                set: { model.setAgentEnabled(agent, enabled: $0) }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .tint(AppPalette.accent.swiftUI)
+            .overlay {
+                if model.isAvailabilityToggleFocused(for: agent) {
+                    RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius)
+                        .strokeBorder(OutlineLook.field(focused: true).border.color.swiftUI, lineWidth: Token.Size.divider)
+                }
+            }
+            .accessibilityLabel("Enable \(agentName)")
+            .accessibilityValue(enabled ? "Enabled" : "Disabled")
+            .accessibilityHint("Turning this off hides \(agentName) from New Session and blocks launches. Running sessions stay available.")
+            .disabled(!model.isAvailabilityLoaded || model.isSavingAvailability(for: agent))
+        }
+        .frame(width: SettingsMetrics.columnWidth, height: SettingsMetrics.availabilityHeight, alignment: .center)
+        .offset(y: SettingsMetrics.availabilityOffset)
+    }
+
     /// Laid out from the title's baseline, which sits at the section's top.
     @ViewBuilder
     private func roleSection(role: String, title: String) -> some View {
         if let rowIndex = model.state.index(agent: model.state.selectedAgent, role: role) {
             let row = model.state.rows[rowIndex]
+            let enabled = model.isAgentEnabled(row.agent)
             ZStack(alignment: .topLeading) {
                 BaselineText(title, font: AppFonts.settingsSectionTitle, color: AppPalette.text, baseline: 0)
                 SettingsSectionRule(width: SettingsMetrics.columnWidth)
@@ -209,32 +252,72 @@ struct SettingsSheetView: View {
                 .offset(y: SettingsMetrics.firstRowDrop + SettingsMetrics.rowPitch)
             }
             .frame(width: SettingsMetrics.columnWidth, alignment: .topLeading)
+            .opacity(model.isAvailabilityLoaded && !enabled ? Token.Opacity.dimmed : 1)
         }
     }
 
     private func roleField(role: String, field: RoleDefaultField, title: String, isLoading: Bool) -> some View {
+        let agent = model.state.selectedAgent
         let focused = RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == role && model.state.focusedField == field
-        return SettingsRoleRow(title: title, isLoading: isLoading) {
-            FormTextField(
-                text: Binding(
-                    get: { model.state.text(role: role, field: field) },
-                    set: { model.typePickerText($0, role: role, field: field) }
-                ),
-                placeholder: "Not configured",
-                focusNonce: model.focusNonce(role: role, field: field),
-                focused: focused,
-                onFocusChanged: { editing in
-                    if editing { model.search(role: role, field: field) }
-                }
-            )
-            .accessibilityLabel("\(role) \(title)")
-            .suggestionDropdown(focused && model.state.showsPickerSuggestions ? SuggestionDropdown(
-                rows: model.state.pickerSuggestions.map(\.label),
-                highlightedIndex: model.state.pickerWindow.visibleHighlightIndex,
-                onSelect: { model.pickSuggestion(visibleRow: $0) }
-            ) : nil)
+        let disabled = model.isAvailabilityLoaded && !model.isAgentEnabled(agent)
+        let waiting = !model.isAvailabilityLoaded || (model.isAgentEnabled(agent) && isLoading)
+        return SettingsRoleRow(title: title, isLoading: waiting) {
+            if disabled {
+                SettingsSavedDefaultControl(
+                    value: model.savedDefault(agent: agent, role: role, field: field),
+                    accessibilityLabel: "\(role) \(title)"
+                )
+            } else {
+                FormTextField(
+                    text: Binding(
+                        get: { model.state.text(role: role, field: field) },
+                        set: { model.typePickerText($0, role: role, field: field) }
+                    ),
+                    placeholder: "Not configured",
+                    focusNonce: model.focusNonce(role: role, field: field),
+                    focused: focused,
+                    onFocusChanged: { editing in
+                        if editing { model.search(role: role, field: field) }
+                    }
+                )
+                .accessibilityLabel("\(role) \(title)")
+                .suggestionDropdown(focused && model.state.showsPickerSuggestions ? SuggestionDropdown(
+                    rows: model.state.pickerSuggestions.map(\.label),
+                    highlightedIndex: model.state.pickerWindow.visibleHighlightIndex,
+                    onSelect: { model.pickSuggestion(visibleRow: $0) }
+                ) : nil)
+            }
         }
     }
+}
+
+/// A saved value remains readable when its agent is disabled, while avoiding
+/// a focusable field or suggestion list.
+private struct SettingsSavedDefaultControl: View {
+    let value: String
+    let accessibilityLabel: String
+
+    var body: some View {
+        BaselineText(
+            value.isEmpty ? "Not configured" : value,
+            font: AppFonts.questLogBody,
+            color: value.isEmpty ? AppPalette.textMeta : AppPalette.textBody,
+            baseline: FormFieldMetrics.baseline
+        )
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .padding(.horizontal, FormFieldMetrics.textInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .fieldChrome(focused: false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(value.isEmpty ? "Not configured" : value)
+    }
+}
+
+private struct AgentAvailabilitySetAck: Decodable {
+    let agent: String
+    let enabled: Bool
 }
 
 /// The rule under a section title: a 1pt line with the Quest Log's rule vines at each end. `QuestLogArt`
@@ -310,6 +393,9 @@ final class SettingsSheetModel: ObservableObject {
     @Published var state = RoleDefaultsSettingsModel()
     @Published var section = SettingsSection.modelsAndReasoning
     @Published var errorMessage: String?
+    @Published private(set) var availability: AgentAvailability?
+    @Published private(set) var isAvailabilityLoading = false
+    @Published private(set) var savingAvailabilityAgents: Set<String> = []
     @Published private(set) var focusNonces: [String: [RoleDefaultField: Int]] = [:]
     @Published private(set) var sinkNonce = 0
     let projects: SettingsProjectsModel
@@ -327,6 +413,11 @@ final class SettingsSheetModel: ObservableObject {
     /// clobber a newer one — mirrors NewSessionSheetModel's request-ID guard.
     private var modelRequestIDs: [Int]
     private var effortRequestIDs: [Int]
+    private var suggestionRequestSequence = 0
+    private var availabilityRequestID = 0
+    private var availabilityRequestStarted = false
+    private var isShowing = false
+    private var focusedAvailabilityToggleAgent: String?
 
     init(presentation: SettingsSheetPresentation, dismiss: @escaping () -> Void) {
         mutationClient = presentation.mutationClient
@@ -348,8 +439,178 @@ final class SettingsSheetModel: ObservableObject {
         errorMessage ?? projects.errorMessage
     }
 
+    var isAvailabilityLoaded: Bool { availability != nil }
+
+    func isAgentEnabled(_ agent: String) -> Bool {
+        availability?.agents.first(where: { $0.name == agent })?.enabled ?? false
+    }
+
+    func isSavingAvailability(for agent: String) -> Bool {
+        savingAvailabilityAgents.contains(agent)
+    }
+
+    func isAvailabilityToggleFocused(for agent: String) -> Bool {
+        focusedAvailabilityToggleAgent == agent
+    }
+
+    func savedDefault(agent: String, role: String, field: RoleDefaultField) -> String {
+        guard let value = availability?.agents.first(where: { $0.name == agent })?.defaults[role] else {
+            return ""
+        }
+        return field == .model ? value.model : value.reasoningEffort
+    }
+
+    /// Starts or stops one agent. Disabling takes effect in the view
+    /// immediately; a failed save restores it and fetches fresh options.
+    func setAgentEnabled(_ agent: String, enabled: Bool) {
+        guard isAvailabilityLoaded,
+              !isSavingAvailability(for: agent),
+              isAgentEnabled(agent) != enabled else {
+            return
+        }
+        errorMessage = nil
+        savingAvailabilityAgents.insert(agent)
+        focusedAvailabilityToggleAgent = agent
+        if !enabled {
+            updateAgentEnabled(agent, enabled: false)
+            state.invalidateOptions(agent: agent)
+            invalidateSuggestions(for: agent)
+            sinkNonce += 1
+        }
+
+        do {
+            let request = try ServeMutationRequests.setAgentEnabled(agent: agent, enabled: enabled)
+            mutationClient.send(request) { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self, self.isShowing else { return }
+                    switch result {
+                    case .success(let ack):
+                        do {
+                            let persisted = try ack.decoded(AgentAvailabilitySetAck.self)
+                            guard persisted.agent == agent, persisted.enabled == enabled else {
+                                throw ServeClientError.protocolError("agent availability response did not match the request")
+                            }
+                            self.savingAvailabilityAgents.remove(agent)
+                            self.updateAgentEnabled(agent, enabled: enabled)
+                            if enabled {
+                                self.requestSuggestions(for: agent)
+                            }
+                        } catch {
+                            self.failAvailabilitySave(agent, requested: enabled, error: error)
+                        }
+                    case .failure(let error):
+                        self.failAvailabilitySave(agent, requested: enabled, error: error)
+                    }
+                }
+            }
+        } catch {
+            failAvailabilitySave(agent, requested: enabled, error: error)
+        }
+    }
+
+    /// Keeps every built-in harness present in the tab row while using the
+    /// daemon's order for the entries it returned.
+    func applyAvailability(_ response: AgentAvailability) {
+        var entries = response.agents
+        let names = Set(entries.map(\.name))
+        for agent in RoleDefaultsSettingsModel.defaultAgents where !names.contains(agent) {
+            entries.append(AgentAvailability.Entry(name: agent, enabled: true))
+        }
+        let orderedNames = entries.map(\.name)
+        if state.agents != orderedNames {
+            state.reconcileAgents(orderedNames)
+            modelRequestIDs = Array(repeating: 0, count: state.rows.count)
+            effortRequestIDs = Array(repeating: 0, count: state.rows.count)
+        }
+        availability = AgentAvailability(agents: entries)
+        focusedAvailabilityToggleAgent = isAgentEnabled(state.selectedAgent) ? nil : state.selectedAgent
+    }
+
+    private func fetchAvailability(completion: @escaping (Result<AgentAvailability, Error>) -> Void) {
+        availabilityRequestID += 1
+        let requestID = availabilityRequestID
+        mutationClient.send(ServeMutationRequests.agentAvailability()) { [weak self] result in
+            let decoded: Result<AgentAvailability, Error>
+            switch result {
+            case .success(let ack):
+                do {
+                    decoded = .success(try ack.decoded(AgentAvailability.self))
+                } catch {
+                    decoded = .failure(error)
+                }
+            case .failure(let error):
+                decoded = .failure(error)
+            }
+            DispatchQueue.main.async {
+                guard let self, self.isShowing, self.availabilityRequestID == requestID else { return }
+                completion(decoded)
+            }
+        }
+    }
+
+    private func failAvailabilitySave(_ agent: String, requested enabled: Bool, error: Error) {
+        savingAvailabilityAgents.remove(agent)
+        updateAgentEnabled(agent, enabled: !enabled)
+        if !enabled {
+            requestSuggestions(for: agent)
+        }
+        errorMessage = error.localizedDescription
+    }
+
+    private func updateAgentEnabled(_ agent: String, enabled: Bool) {
+        guard let availability,
+              let index = availability.agents.firstIndex(where: { $0.name == agent }) else {
+            return
+        }
+        var entries = availability.agents
+        let current = entries[index]
+        entries[index] = AgentAvailability.Entry(name: agent, enabled: enabled, defaults: current.defaults)
+        self.availability = AgentAvailability(agents: entries)
+    }
+
+    private func updateSavedDefault(agent: String, role: String, model: String, reasoningEffort: String) {
+        guard let availability,
+              let index = availability.agents.firstIndex(where: { $0.name == agent }) else {
+            return
+        }
+        var entries = availability.agents
+        let current = entries[index]
+        var defaults = current.defaults
+        defaults[role] = AgentAvailability.RoleDefault(model: model, reasoningEffort: reasoningEffort)
+        entries[index] = AgentAvailability.Entry(name: agent, enabled: current.enabled, defaults: defaults)
+        self.availability = AgentAvailability(agents: entries)
+    }
+
+    private func requestSuggestionsForEnabledAgents() {
+        for index in state.rows.indices where isAgentEnabled(state.rows[index].agent) {
+            requestModelSuggestions(rowIndex: index)
+            requestEffortSuggestions(rowIndex: index)
+        }
+    }
+
+    private func requestSuggestions(for agent: String) {
+        guard isAgentEnabled(agent) else { return }
+        for index in state.rows.indices where state.rows[index].agent == agent {
+            requestModelSuggestions(rowIndex: index)
+            requestEffortSuggestions(rowIndex: index)
+        }
+    }
+
+    private func invalidateSuggestions(for agent: String) {
+        for index in state.rows.indices where state.rows[index].agent == agent {
+            modelRequestIDs[index] = nextSuggestionRequestID()
+            effortRequestIDs[index] = nextSuggestionRequestID()
+        }
+    }
+
+    private func nextSuggestionRequestID() -> Int {
+        suggestionRequestSequence += 1
+        return suggestionRequestSequence
+    }
+
     func selectSection(_ next: SettingsSection) {
         state.endPickerSearch()
+        focusedAvailabilityToggleAgent = next == .modelsAndReasoning && !isAgentEnabled(state.selectedAgent) ? state.selectedAgent : nil
         sinkNonce += 1
         section = next
         if next == .tmux { tmux.loadIfNeeded() }
@@ -369,21 +630,38 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     func present() {
+        isShowing = true
         if section == .tmux { tmux.loadIfNeeded() }
-        for index in state.rows.indices {
-            requestModelSuggestions(rowIndex: index)
-            requestEffortSuggestions(rowIndex: index)
+        guard !availabilityRequestStarted else {
+            return
+        }
+        availabilityRequestStarted = true
+        isAvailabilityLoading = true
+        fetchAvailability { [weak self] result in
+            guard let self else { return }
+            self.isAvailabilityLoading = false
+            switch result {
+            case .success(let response):
+                self.applyAvailability(response)
+                self.errorMessage = nil
+                self.requestSuggestionsForEnabledAgents()
+            case .failure(let error):
+                self.errorMessage = error.localizedDescription
+            }
         }
     }
 
     /// Invalidates any in-flight suggestion fetches so a response arriving
     /// after the sheet closes cannot mutate state nobody will ever see.
     func disappear() {
+        isShowing = false
+        availabilityRequestStarted = false
+        availabilityRequestID += 1
         for index in modelRequestIDs.indices {
-            modelRequestIDs[index] += 1
+            modelRequestIDs[index] = nextSuggestionRequestID()
         }
         for index in effortRequestIDs.indices {
-            effortRequestIDs[index] += 1
+            effortRequestIDs[index] = nextSuggestionRequestID()
         }
     }
 
@@ -391,17 +669,20 @@ final class SettingsSheetModel: ObservableObject {
         guard let roleIndex = RoleDefaultsSettingsModel.roles.firstIndex(of: role) else {
             return
         }
+        focusedAvailabilityToggleAgent = nil
         state.focusedRoleIndex = roleIndex
         state.focusedField = field
     }
 
     func selectTab(_ index: Int) {
         state.selectTab(index)
+        focusedAvailabilityToggleAgent = isAgentEnabled(state.selectedAgent) ? nil : state.selectedAgent
         sinkNonce += 1
     }
 
     private func moveTab(_ delta: Int) {
         state.moveTab(delta)
+        focusedAvailabilityToggleAgent = isAgentEnabled(state.selectedAgent) ? nil : state.selectedAgent
         sinkNonce += 1
     }
 
@@ -410,16 +691,19 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     func search(role: String, field: RoleDefaultField) {
+        guard isAgentEnabled(state.selectedAgent) else { return }
         focus(role: role, field: field)
         if state.pickerMode == .select { applyPickerCommand(.startSearch(.editCurrent)) }
     }
 
     func typePickerText(_ text: String, role: String, field: RoleDefaultField) {
+        guard isAgentEnabled(state.selectedAgent) else { return }
         search(role: role, field: field)
         state.typePickerText(text)
     }
 
     func pickSuggestion(visibleRow: Int) {
+        guard isAgentEnabled(state.selectedAgent) else { return }
         changeFocusedValue { self.state.pickSuggestion(visibleRow: visibleRow) }
     }
 
@@ -443,7 +727,7 @@ final class SettingsSheetModel: ObservableObject {
     private var modalKeyContext: ModalKeyContext {
         switch section {
         case .modelsAndReasoning:
-            return ModalKeyContext(focus: state.pickerMode == .search ? .line : .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount, hasTextFields: true, submitting: false, submits: false)
+            return ModalKeyContext(focus: state.pickerMode == .search ? .line : .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount + 1, hasTextFields: true, submitting: false, submits: false)
         case .projects:
             return ModalKeyContext(focus: nil, fieldCount: projects.entries.count, hasTextFields: false, submitting: false, submits: true)
         case .tmux:
@@ -471,7 +755,23 @@ final class SettingsSheetModel: ObservableObject {
     private func moveFocus(_ delta: Int) {
         switch section {
         case .modelsAndReasoning:
-            state.moveFocus(delta)
+            let agent = state.selectedAgent
+            guard isAvailabilityLoaded, isAgentEnabled(agent) else {
+                focusedAvailabilityToggleAgent = agent
+                sinkNonce += 1
+                return
+            }
+            let current = state.focusedRoleIndex * 2 + (state.focusedField == .model ? 0 : 1)
+            if focusedAvailabilityToggleAgent == agent {
+                focusedAvailabilityToggleAgent = nil
+                let target = delta > 0 ? 0 : RoleDefaultsSettingsModel.focusableFieldCount - 1
+                state.focusedRoleIndex = target / 2
+                state.focusedField = target.isMultiple(of: 2) ? .model : .effort
+            } else if (delta < 0 && current == 0) || (delta > 0 && current == RoleDefaultsSettingsModel.focusableFieldCount - 1) {
+                focusedAvailabilityToggleAgent = agent
+            } else {
+                state.moveFocus(delta)
+            }
             sinkNonce += 1
         case .projects:
             projects.moveHighlight(by: delta)
@@ -489,6 +789,14 @@ final class SettingsSheetModel: ObservableObject {
 
     private func handleFieldKey(_ event: NSEvent) -> Bool {
         let press = event.keymapPress
+        if section == .modelsAndReasoning,
+           state.pickerMode != .search,
+           isAvailabilityToggleFocused(for: state.selectedAgent),
+           press.keyCode == 49,
+           press.modifiers.isEmpty {
+            setAgentEnabled(state.selectedAgent, enabled: !isAgentEnabled(state.selectedAgent))
+            return true
+        }
         if section == .modelsAndReasoning, state.pickerMode == .search {
             // Printable section/tab shortcuts belong to the query while editing.
             return handlePickerKey(press)
@@ -519,6 +827,7 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     private func handlePickerKey(_ press: Keymap.KeyPress) -> Bool {
+        guard isAgentEnabled(state.selectedAgent), !isAvailabilityToggleFocused(for: state.selectedAgent) else { return false }
         guard let command = PickerFieldKey.command(press, mode: state.pickerMode, showsSuggestions: state.showsPickerSuggestions) else { return false }
         applyPickerCommand(command)
         return true
@@ -539,11 +848,15 @@ final class SettingsSheetModel: ObservableObject {
     /// invalidates the effort list (valid levels can depend on the model), so
     /// only that case re-fetches; cycling the effort itself needs no refetch.
     private func cycleFocusedValue(_ delta: Int) {
+        guard !isAvailabilityToggleFocused(for: state.selectedAgent) else { return }
         changeFocusedValue { self.state.cycleFocusedValue(delta) }
     }
 
     /// Query edits never persist. A pick or cycle saves only an actual selection change.
     private func changeFocusedValue(_ change: () -> Void) {
+        guard isAgentEnabled(state.selectedAgent), !isAvailabilityToggleFocused(for: state.selectedAgent) else {
+            return
+        }
         guard let rowIndex = state.focusedRowIndex else {
             return
         }
@@ -571,15 +884,21 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     private func requestModelSuggestions(rowIndex: Int) {
-        guard let modelClient, state.rows.indices.contains(rowIndex) else {
+        guard let modelClient,
+              state.rows.indices.contains(rowIndex),
+              isAvailabilityLoaded,
+              isAgentEnabled(state.rows[rowIndex].agent) else {
             return
         }
-        modelRequestIDs[rowIndex] += 1
-        let requestID = modelRequestIDs[rowIndex]
+        let requestID = nextSuggestionRequestID()
+        modelRequestIDs[rowIndex] = requestID
         let row = state.rows[rowIndex]
         modelClient.suggestModels(agent: row.agent, role: row.role, refresh: false) { [weak self] result in
             DispatchQueue.main.async {
-                guard let self, self.modelRequestIDs[rowIndex] == requestID else {
+                guard let self,
+                      self.modelRequestIDs.indices.contains(rowIndex),
+                      self.modelRequestIDs[rowIndex] == requestID,
+                      self.isAgentEnabled(row.agent) else {
                     return
                 }
                 if case .success(let response) = result {
@@ -595,16 +914,22 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     private func requestEffortSuggestions(rowIndex: Int) {
-        guard let effortClient, state.rows.indices.contains(rowIndex) else {
+        guard let effortClient,
+              state.rows.indices.contains(rowIndex),
+              isAvailabilityLoaded,
+              isAgentEnabled(state.rows[rowIndex].agent) else {
             return
         }
-        effortRequestIDs[rowIndex] += 1
-        let requestID = effortRequestIDs[rowIndex]
+        let requestID = nextSuggestionRequestID()
+        effortRequestIDs[rowIndex] = requestID
         let row = state.rows[rowIndex]
         let model = row.selectedModel
         effortClient.suggestReasoningEfforts(agent: row.agent, role: row.role, model: model) { [weak self] result in
             DispatchQueue.main.async {
-                guard let self, self.effortRequestIDs[rowIndex] == requestID else {
+                guard let self,
+                      self.effortRequestIDs.indices.contains(rowIndex),
+                      self.effortRequestIDs[rowIndex] == requestID,
+                      self.isAgentEnabled(row.agent) else {
                     return
                 }
                 if case .success(let response) = result {
@@ -620,6 +945,9 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     private func sendRoleDefault(agent: String, role: String, model: String, reasoningEffort: String) {
+        guard isAvailabilityLoaded, isAgentEnabled(agent) else {
+            return
+        }
         do {
             let request = try ServeMutationRequests.setRoleDefault(agent: agent, role: role, model: model, reasoningEffort: reasoningEffort)
             mutationClient.send(request) { [weak self] result in
@@ -630,11 +958,14 @@ final class SettingsSheetModel: ObservableObject {
                     switch result {
                     case .success(let ack):
                         let persisted = ack.data as? [String: Any]
+                        let savedModel = persisted?["model"] as? String ?? model
+                        let savedEffort = persisted?["reasoning_effort"] as? String ?? reasoningEffort
+                        self.updateSavedDefault(agent: agent, role: role, model: savedModel, reasoningEffort: savedEffort)
                         self.state.markSaved(
                             agent: agent,
                             role: role,
-                            model: persisted?["model"] as? String ?? model,
-                            reasoningEffort: persisted?["reasoning_effort"] as? String ?? reasoningEffort,
+                            model: savedModel,
+                            reasoningEffort: savedEffort,
                             sentModel: model,
                             sentReasoningEffort: reasoningEffort
                         )

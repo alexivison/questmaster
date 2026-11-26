@@ -311,6 +311,7 @@ enum RenderPreview {
         renderView(dockFrameView(focused: false), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-unfocused.png")
         render(ToastBanner(message: "Copied qm-1783901769").background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
+        render(settingsView(disabledAgent: "claude"), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-agent-disabled.png")
         render(settingsView(searchField: .model), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-model-search.png")
         render(settingsView(searchField: .effort), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-reasoning-search.png")
         render(settingsView(loading: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-skeleton.png")
@@ -2791,18 +2792,20 @@ enum RenderPreview {
 
     /// `loading` leaves every picker's options unanswered, so each shows its skeleton.
     @MainActor
-    private static func settingsView(loading: Bool = false, searchField: RoleDefaultField? = nil) -> some View {
+    private static func settingsView(loading: Bool = false, searchField: RoleDefaultField? = nil, disabledAgent: String? = nil) -> some View {
         let modelClient: ServeModelSuggesting = loading ? SettingsPreviewStalledClient() : SettingsPreviewModelClient()
         let effortClient: ServeReasoningEffortSuggesting = loading ? SettingsPreviewStalledClient() : SettingsPreviewEffortClient()
+        let mutationClient = SettingsPreviewMutationClient(disabledAgent: disabledAgent)
         let model = SettingsSheetModel(
             presentation: SettingsSheetPresentation(
-                mutationClient: SettingsPreviewMutationClient(),
+                mutationClient: mutationClient,
                 modelClient: searchField != nil ? nil : modelClient,
                 effortClient: searchField != nil ? nil : effortClient,
                 runtime: RuntimeStore(sourceLabel: "preview")
             ),
             dismiss: {}
         )
+        model.applyAvailability(mutationClient.configuration)
         if let searchField {
             for role in RoleDefaultsSettingsModel.roles {
                 model.state.setModelOptions([
@@ -3496,7 +3499,43 @@ enum RenderPreview {
 /// directly rather than accepting pre-populated state, so previewing it means
 /// answering the sheet's own fetches with a plausible model/effort per agent.
 private final class SettingsPreviewMutationClient: ServeMutationSending {
-    func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {}
+    let configuration: AgentAvailability
+
+    init(disabledAgent: String? = nil) {
+        let defaults: [String: [String: AgentAvailability.RoleDefault]] = [
+            "claude": [
+                "master": AgentAvailability.RoleDefault(model: "claude-opus-5.5", reasoningEffort: "xhigh"),
+                "worker": AgentAvailability.RoleDefault(model: "claude-haiku-5.5", reasoningEffort: "high"),
+            ],
+            "codex": ["master": AgentAvailability.RoleDefault(model: "gpt-6-sol", reasoningEffort: "high")],
+            "opencode": ["master": AgentAvailability.RoleDefault(model: "example-standard", reasoningEffort: "medium")],
+            "pi": ["master": AgentAvailability.RoleDefault(model: "local-model", reasoningEffort: "high")],
+        ]
+        configuration = AgentAvailability(agents: RoleDefaultsSettingsModel.defaultAgents.map { agent in
+            AgentAvailability.Entry(name: agent, enabled: agent != disabledAgent, defaults: defaults[agent] ?? [:])
+        })
+    }
+
+    func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {
+        switch request.method {
+        case "agent_availability":
+            let agents = configuration.agents.map { entry in
+                [
+                    "name": entry.name,
+                    "enabled": entry.enabled,
+                    "defaults": entry.defaults.mapValues { ["model": $0.model, "reasoning_effort": $0.reasoningEffort] },
+                ] as [String: Any]
+            }
+            completion(.success(ServeMutationAck(data: ["agents": agents])))
+        case "agent_availability.set":
+            completion(.success(ServeMutationAck(data: [
+                "agent": request.data["agent"] ?? "",
+                "enabled": request.data["enabled"] == "true",
+            ])))
+        default:
+            completion(.success(ServeMutationAck(data: nil)))
+        }
+    }
 }
 
 private final class NewSessionPreviewMutationClient: ServeMutationSending {
@@ -3519,8 +3558,8 @@ private final class SettingsPreviewModelClient: ServeModelSuggesting {
         refresh: Bool,
         completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
     ) {
-        // settings-models.svg's values: opus-5 for the master, haiku for the worker.
-        let model = role == "worker" ? "haiku" : "opus-5"
+        // settings-models.svg's values: Opus for the master, Haiku for the worker.
+        let model = role == "worker" ? "claude-haiku-5.5" : "claude-opus-5.5"
         completion(.success(ModelSuggestionResponse(
             models: [SessionModelOption(id: model, label: model, note: "")],
             defaultModel: model

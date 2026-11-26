@@ -8,6 +8,30 @@ import QuestmasterCore
 import SwiftUI
 import WebKit
 
+private func settingsFixtureAvailability() -> AgentAvailability {
+    AgentAvailability(agents: RoleDefaultsSettingsModel.defaultAgents.map { agent in
+        AgentAvailability.Entry(name: agent, enabled: true, defaults: [
+            "master": AgentAvailability.RoleDefault(
+                model: agent == "claude" ? "opus" : "model-\(agent)",
+                reasoningEffort: "high"
+            ),
+            "worker": AgentAvailability.RoleDefault(
+                model: agent == "claude" ? "haiku" : "worker-\(agent)",
+                reasoningEffort: "medium"
+            ),
+        ])
+    })
+}
+
+private func settingsAvailabilityObject(_ availability: AgentAvailability) -> [String: Any] {
+    ["agents": availability.agents.map { entry in
+        let defaults = entry.defaults.mapValues { value in
+            ["model": value.model, "reasoning_effort": value.reasoningEffort]
+        }
+        return ["name": entry.name, "enabled": entry.enabled, "defaults": defaults] as [String: Any]
+    }]
+}
+
 @MainActor
 enum LogicSelfTests {
     private static let selfTestWaitTimeout: TimeInterval = 10
@@ -239,6 +263,10 @@ enum LogicSelfTests {
         ("testServeClientStopEndsTheRetryWait", testServeClientStopEndsTheRetryWait),
         ("testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE", testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
+        ("testSettingsLoadsAvailabilityInDaemonOrderAndFetchesOnlyEnabledAgents", testSettingsLoadsAvailabilityInDaemonOrderAndFetchesOnlyEnabledAgents),
+        ("testSettingsDisablingInvalidatesSuggestionsAndBlocksRoleChanges", testSettingsDisablingInvalidatesSuggestionsAndBlocksRoleChanges),
+        ("testSettingsKeepsEditedDefaultsVisibleAfterDisablingAndReopening", testSettingsKeepsEditedDefaultsVisibleAfterDisablingAndReopening),
+        ("testSettingsFailedAvailabilitySaveRestoresTheToggle", testSettingsFailedAvailabilitySaveRestoresTheToggle),
         ("testSettingsSearchPicksDefaultsWithoutSavingQueries", testSettingsSearchPicksDefaultsWithoutSavingQueries),
         ("testSettingsSearchOwnsTypingAndRestoresOnEscape", testSettingsSearchOwnsTypingAndRestoresOnEscape),
         ("testSettingsArrangeMovesAProjectWithShiftJAndK", testSettingsArrangeMovesAProjectWithShiftJAndK),
@@ -9051,6 +9079,158 @@ enum LogicSelfTests {
         try expect(sent.data["model"] == "sonnet", "should send the newly cycled value")
     }
 
+    private static func testSettingsLoadsAvailabilityInDaemonOrderAndFetchesOnlyEnabledAgents() throws {
+        let config = AgentAvailability(agents: [
+            AgentAvailability.Entry(name: "pi", enabled: false, defaults: [
+                "master": AgentAvailability.RoleDefault(model: "pi-saved", reasoningEffort: "high"),
+            ]),
+            AgentAvailability.Entry(name: "opencode", enabled: false),
+            AgentAvailability.Entry(name: "codex", enabled: true),
+            AgentAvailability.Entry(name: "claude", enabled: false, defaults: [
+                "worker": AgentAvailability.RoleDefault(model: "claude-saved", reasoningEffort: "medium"),
+            ]),
+        ])
+        let mutationClient = SettingsTestMutationClient(configuration: config)
+        let modelClient = StubModelClient(models: ["codex": [SessionModelOption(id: "codex-model", label: "codex-model")]])
+        let effortClient = StubReasoningEffortClient(efforts: ["codex": ["high"]])
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: mutationClient,
+                modelClient: modelClient,
+                effortClient: effortClient,
+                runtime: RuntimeStore(sourceLabel: "test")
+            ),
+            dismiss: {}
+        )
+
+        model.present()
+        try waitForMainQueue("agent availability", until: { model.isAvailabilityLoaded })
+        try expect(model.state.agents == ["pi", "opencode", "codex", "claude"], "Settings should preserve the daemon's backend order and include OpenCode")
+        try expect(model.state.selectedAgent == "claude", "reordering tabs should keep the selected agent")
+        try expect(modelClient.requests.map(\.agent) == ["codex", "codex"], "only the enabled agent should resolve model suggestions")
+        try waitForMainQueue("enabled agent effort suggestions", until: { effortClient.requests.count == 2 })
+        try expect(effortClient.requests.allSatisfy { $0.agent == "codex" }, "only the enabled agent should resolve effort suggestions")
+        try expect(!model.isAgentEnabled("claude") && !model.isAgentEnabled("opencode") && !model.isAgentEnabled("pi"), "disabled states should come from the daemon")
+        try expect(model.savedDefault(agent: "pi", role: "master", field: .model) == "pi-saved", "a disabled agent should show its saved model from the availability read")
+        try expect(model.savedDefault(agent: "claude", role: "worker", field: .effort) == "medium", "a disabled agent should show its saved effort from the availability read")
+        try expect(mutationClient.requests.first?.method == "agent_availability", "Settings should load configuration through the mutation client")
+    }
+
+    private static func testSettingsDisablingInvalidatesSuggestionsAndBlocksRoleChanges() throws {
+        let mutationClient = SettingsTestMutationClient(configuration: settingsFixtureAvailability())
+        let modelClient = StubModelClient(
+            models: ["claude": [
+                SessionModelOption(id: "opus", label: "opus"),
+                SessionModelOption(id: "sonnet", label: "sonnet"),
+            ]],
+            defaults: ["claude": "opus"],
+            deferCompletions: true
+        )
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: mutationClient,
+                modelClient: modelClient,
+                effortClient: nil,
+                runtime: RuntimeStore(sourceLabel: "test")
+            ),
+            dismiss: {}
+        )
+
+        model.present()
+        try waitForMainQueue("initial model requests", until: { modelClient.requests.count == 8 })
+        model.setAgentEnabled("claude", enabled: false)
+        try waitForMainQueue("disable acknowledgment", until: { !model.isAgentEnabled("claude") && !model.isSavingAvailability(for: "claude") })
+        modelClient.fireCompletion(forRequestAt: 0)
+        try waitForMainQueueTurn()
+        try expect(!model.state.rows[0].hasResolvedModelOptions, "an in-flight suggestion arriving after disable must be discarded")
+
+        model.focus(role: "master", field: .model)
+        try expect(model.handle(try keyEvent("", keyCode: 124)), "the disabled picker should still consume its cycle key")
+        _ = model.handle(try keyEvent("s", keyCode: 1))
+        model.search(role: "master", field: .model)
+        model.pickSuggestion(visibleRow: 0)
+        try expect(model.state.pickerMode == .select, "disabled fields must not enter search")
+        try expect(modelClient.requests.count == 8, "disabled fields must not fetch additional suggestions")
+        try expect(!mutationClient.requests.contains(where: { $0.method == "role_default.set" }), "disabled fields must not write model or effort defaults")
+
+        try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab should reach the disabled agent toggle")
+        try expect(model.isAvailabilityToggleFocused(for: "claude"), "the disabled agent toggle should receive keyboard focus")
+        try expect(model.handle(try keyEvent(" ", keyCode: 49)), "Space should activate the toggle while role fields are off")
+        try waitForMainQueue("enable acknowledgment and refetch", until: { model.isAgentEnabled("claude") && !model.isSavingAvailability(for: "claude") })
+        try expect(modelClient.requests.count == 10, "enabling an agent should refetch both role model lists")
+        try expect(!model.state.rows[0].hasResolvedModelOptions, "fresh options should load after enabling")
+        modelClient.fireCompletion(forRequestAt: 0)
+        try waitForMainQueueTurn()
+        try expect(!model.state.rows[0].hasResolvedModelOptions, "a stale pre-disable response must not resolve the re-enabled row")
+        modelClient.fireCompletion(forRequestAt: 8)
+        try waitForMainQueue("fresh enabled model options", until: { model.state.rows[0].hasResolvedModelOptions })
+    }
+
+    private static func testSettingsKeepsEditedDefaultsVisibleAfterDisablingAndReopening() throws {
+        let mutationClient = SettingsTestMutationClient(configuration: settingsFixtureAvailability())
+        let modelClient = StubModelClient(
+            models: ["claude": [
+                SessionModelOption(id: "opus", label: "opus"),
+                SessionModelOption(id: "sonnet", label: "sonnet"),
+            ]],
+            defaults: ["claude": "opus"]
+        )
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: mutationClient,
+                modelClient: modelClient,
+                effortClient: nil,
+                runtime: RuntimeStore(sourceLabel: "test")
+            ),
+            dismiss: {}
+        )
+
+        model.present()
+        try waitForMainQueue("initial model options", until: { model.state.rows[0].hasResolvedModelOptions })
+        model.focus(role: "master", field: .model)
+        try expect(model.handle(try keyEvent("", keyCode: 124)), "→ should select another model")
+        try waitForMainQueue("saved model default", until: { model.savedDefault(agent: "claude", role: "master", field: .model) == "sonnet" })
+
+        model.setAgentEnabled("claude", enabled: false)
+        try waitForMainQueue("disable and saved-default refresh", until: { !model.isAgentEnabled("claude") && !model.isSavingAvailability(for: "claude") })
+        try expect(model.savedDefault(agent: "claude", role: "master", field: .model) == "sonnet", "disabling should retain the acknowledged saved default")
+
+        let reopened = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: mutationClient,
+                modelClient: nil,
+                effortClient: nil,
+                runtime: RuntimeStore(sourceLabel: "test")
+            ),
+            dismiss: {}
+        )
+        reopened.present()
+        try waitForMainQueue("reopened Settings availability", until: { reopened.isAvailabilityLoaded })
+        try expect(reopened.savedDefault(agent: "claude", role: "master", field: .model) == "sonnet", "reopening should use the saved model returned by the daemon")
+        try expect(reopened.state.agents.contains("opencode") && reopened.state.selectedAgent == "claude", "reopening should keep built-in tabs and the saved selection")
+    }
+
+    private static func testSettingsFailedAvailabilitySaveRestoresTheToggle() throws {
+        let mutationClient = SettingsTestMutationClient(configuration: settingsFixtureAvailability())
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: mutationClient,
+                modelClient: nil,
+                effortClient: nil,
+                runtime: RuntimeStore(sourceLabel: "test")
+            ),
+            dismiss: {}
+        )
+        model.present()
+        try waitForMainQueue("agent availability", until: { model.isAvailabilityLoaded })
+        mutationClient.agentAvailabilitySetError = StubMutationError()
+
+        model.setAgentEnabled("claude", enabled: false)
+        try waitForMainQueue("failed availability save", until: { model.errorMessage != nil && !model.isSavingAvailability(for: "claude") })
+        try expect(model.isAgentEnabled("claude"), "a failed disable should restore the previous enabled state")
+        try expect(model.errorMessage != nil, "a failed toggle should surface its error")
+    }
+
     private static func testSettingsSearchPicksDefaultsWithoutSavingQueries() throws {
         let mutationClient = StubMutationClient(result: .success(ServeMutationAck(data: nil)))
         let effortClient = StubReasoningEffortClient(efforts: ["codex": ["low", "high"]], defaults: ["codex": "low"])
@@ -10856,15 +11036,18 @@ enum LogicSelfTests {
         effortClient: ServeReasoningEffortSuggesting? = nil,
         dismiss: @escaping () -> Void = {}
     ) -> SettingsSheetModel {
-        SettingsSheetModel(
+        let fixtureClient = SettingsAvailabilityFixtureMutationClient(underlying: mutationClient)
+        let model = SettingsSheetModel(
             presentation: SettingsSheetPresentation(
-                mutationClient: mutationClient,
+                mutationClient: fixtureClient,
                 modelClient: modelClient,
                 effortClient: effortClient,
                 runtime: RuntimeStore(sourceLabel: "test")
             ),
             dismiss: dismiss
         )
+        model.applyAvailability(settingsFixtureAvailability())
+        return model
     }
 
     private static func sessionCoordinator(
@@ -10980,6 +11163,79 @@ enum LogicSelfTests {
     private static func expect(_ condition: Bool, _ message: String) throws {
         if !condition {
             throw TestFailure(message)
+        }
+    }
+
+    /// Supplies only Settings' availability read while leaving the shared
+    /// mutation stub's behavior unchanged for every other Settings action.
+    private final class SettingsAvailabilityFixtureMutationClient: ServeMutationSending {
+        private let underlying: ServeMutationSending
+
+        init(underlying: ServeMutationSending) {
+            self.underlying = underlying
+        }
+
+        func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {
+            if request.method == "agent_availability" {
+                completion(.success(ServeMutationAck(data: settingsAvailabilityObject(settingsFixtureAvailability()))))
+            } else {
+                underlying.send(request, completion: completion)
+            }
+        }
+    }
+
+    private final class SettingsTestMutationClient: ServeMutationSending {
+        private(set) var configuration: AgentAvailability
+        private(set) var requests: [ServeMutationRequest] = []
+        var agentAvailabilitySetError: Error?
+
+        init(configuration: AgentAvailability) {
+            self.configuration = configuration
+        }
+
+        func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {
+            requests.append(request)
+            switch request.method {
+            case "agent_availability":
+                completion(.success(ServeMutationAck(data: settingsAvailabilityObject(configuration))))
+            case "agent_availability.set":
+                if let agentAvailabilitySetError {
+                    completion(.failure(agentAvailabilitySetError))
+                    return
+                }
+                let agent = request.data["agent"] ?? ""
+                let enabled = request.data["enabled"] == "true"
+                updateAgent(agent) { current in
+                    AgentAvailability.Entry(name: current.name, enabled: enabled, defaults: current.defaults)
+                }
+                completion(.success(ServeMutationAck(data: ["agent": agent, "enabled": enabled])))
+            case "role_default.set":
+                let agent = request.data["agent"] ?? ""
+                let role = request.data["role"] ?? ""
+                let existing = configuration.agents.first(where: { $0.name == agent })?.defaults[role]
+                let model = request.data["model"].flatMap { $0.isEmpty ? nil : $0 } ?? existing?.model ?? ""
+                let reasoningEffort = request.data["reasoning_effort"].flatMap { $0.isEmpty ? nil : $0 } ?? existing?.reasoningEffort ?? ""
+                updateAgent(agent) { current in
+                    var defaults = current.defaults
+                    defaults[role] = AgentAvailability.RoleDefault(model: model, reasoningEffort: reasoningEffort)
+                    return AgentAvailability.Entry(name: current.name, enabled: current.enabled, defaults: defaults)
+                }
+                completion(.success(ServeMutationAck(data: [
+                    "agent": agent,
+                    "role": role,
+                    "model": model,
+                    "reasoning_effort": reasoningEffort,
+                ])))
+            default:
+                completion(.success(ServeMutationAck(data: nil)))
+            }
+        }
+
+        private func updateAgent(_ agent: String, change: (AgentAvailability.Entry) -> AgentAvailability.Entry) {
+            guard let index = configuration.agents.firstIndex(where: { $0.name == agent }) else { return }
+            var agents = configuration.agents
+            agents[index] = change(agents[index])
+            configuration = AgentAvailability(agents: agents)
         }
     }
 

@@ -139,6 +139,22 @@ public struct RoleDefaultRow: Equatable {
         )
     }
 
+    /// Drops the resolved options when this agent is disabled. Its persisted
+    /// values are kept by Settings' availability response and will seed the
+    /// row again when the agent is enabled and suggestions are fetched.
+    public mutating func invalidateOptions() {
+        modelOptions = []
+        selectedModelIndex = nil
+        effortOptions = []
+        selectedEffortIndex = nil
+        hasResolvedModelOptions = false
+        hasResolvedEffortOptions = false
+        canReturnToNotConfiguredModel = true
+        canReturnToNotConfiguredEffort = true
+        savedModelIndexAtResolve = nil
+        savedEffortIndexAtResolve = nil
+    }
+
     /// Search only commits a resolved choice; typing cannot clear a persisted default.
     public mutating func select(_ id: String, field: RoleDefaultField) {
         switch field {
@@ -180,7 +196,7 @@ public struct RoleDefaultsSettingsModel: Equatable {
     /// Each role's model and effort: the fields Tab moves between on a tab.
     public static var focusableFieldCount: Int { roles.count * 2 }
 
-    public let agents: [String]
+    public private(set) var agents: [String]
     public private(set) var rows: [RoleDefaultRow]
     public var selectedAgentIndex: Int {
         didSet { if selectedAgentIndex != oldValue { endPickerSearch() } }
@@ -209,6 +225,42 @@ public struct RoleDefaultsSettingsModel: Equatable {
         selectedAgentIndex = 0
         focusedRoleIndex = 0
         focusedField = .model
+    }
+
+    /// Applies the daemon's agent order while keeping the selected tab and
+    /// any Settings rows that were already populated for those agents.
+    public mutating func reconcileAgents(_ names: [String]) {
+        let resolvedNames = names.isEmpty ? Self.defaultAgents : names
+        guard resolvedNames != agents else {
+            return
+        }
+
+        let selected = selectedAgent
+        let previousRows = rows
+        let previousRoleIndex = focusedRoleIndex
+        let previousField = focusedField
+        agents = resolvedNames
+        rows = resolvedNames.flatMap { agent in
+            Self.roles.map { role in
+                previousRows.first(where: { $0.agent == agent && $0.role == role }) ?? RoleDefaultRow(agent: agent, role: role)
+            }
+        }
+        selectedAgentIndex = resolvedNames.firstIndex(of: selected) ?? 0
+        focusedRoleIndex = min(previousRoleIndex, Self.roles.count - 1)
+        focusedField = previousField
+        endPickerSearch()
+    }
+
+    /// Makes the next enable fetch resolve each row afresh instead of
+    /// exposing suggestions that were fetched before the agent was turned
+    /// off.
+    public mutating func invalidateOptions(agent: String) {
+        for index in rows.indices where rows[index].agent == agent {
+            rows[index].invalidateOptions()
+        }
+        if selectedAgent == agent {
+            endPickerSearch()
+        }
     }
 
     public var selectedAgent: String {
