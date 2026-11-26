@@ -233,6 +233,7 @@ enum RenderPreview {
         }
         // Every class's one worker, in one image: each stands centred on the master's body column.
         render(companyFirstWorkerView(), size: CGSize(width: 1200, height: 1), autoHeight: true, to: "\(outputDir)/company-first-worker.png")
+        render(elementalEffectsView(), size: CGSize(width: 1300, height: 1), autoHeight: true, to: "\(outputDir)/elemental-effects.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -1645,6 +1646,33 @@ enum RenderPreview {
             }
         }
         .padding(.leading, Space.item)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// Each elemental's five poses in the worker slot, then its company at its full row. Named by RENDER_ONLY=elemental-effects.
+    @MainActor
+    private static func elementalEffectsView() -> some View {
+        let familiars = TrackerAvatarSprites.bundledFamiliars()
+        let rows: [(classID: String, full: Int)] = [("sorcerer", 6), ("wizard", 7)]
+        return VStack(alignment: .leading, spacing: Space.item) {
+            ForEach(rows, id: \.classID) { row in
+                HStack(spacing: 0) {
+                    Text(row.classID).font(Font(AppFonts.monoSmall)).foregroundStyle(AppPalette.text.swiftUI)
+                        .frame(width: 90, alignment: .leading)
+                    ForEach(TrackerAvatarPose.familiarPoses, id: \.self) { pose in
+                        TrackerAvatarSlot(pose: pose, sprites: familiars[row.classID])
+                            .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                    }
+                }
+                HStack(spacing: 0) {
+                    Text("company \(row.full)").font(Font(AppFonts.monoSmall)).foregroundStyle(AppPalette.text.swiftUI)
+                        .frame(width: 90, alignment: .leading)
+                    companyCell(classID: row.classID, workers: row.full)
+                        .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                        .padding(.bottom, TrackerListMetrics.avatarBannerGap)
+                }
+            }
+        }
         .background(AppPalette.window.swiftUI)
     }
 
