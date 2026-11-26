@@ -37,6 +37,8 @@ final class TerminalSessionController {
     private var reappearedSessionIDs: Set<String> = []
     private var routeCache = TmuxRouteCache()
     private var cachedAttachRefresh: CachedAttachRefresh?
+    /// The latest switch. Only its settling clears the avatar's switch in flight, so a superseded switch leaves that to the newer one.
+    private var switchToken = 0
     private(set) var terminalHost: TerminalPaneHosting?
     private(set) var activeTmuxSession: String?
     private(set) var attachedRoute: TmuxRoute?
@@ -184,7 +186,22 @@ final class TerminalSessionController {
             completion?(false)
             return
         }
-        attachEmbeddedTerminal(to: sessionID, completion: completion)
+        switchToken += 1
+        let token = switchToken
+        // The avatar follows the selection at once; the attach settles it when it lands or fails.
+        runtimeStore.setPendingAttachedSessionID(sessionID)
+        attachEmbeddedTerminal(to: sessionID) { [weak self] succeeded in
+            self?.settlePendingSwitch(token: token)
+            completion?(succeeded)
+        }
+    }
+
+    /// Clears the avatar's switch in flight once it has settled, unless a newer switch has taken over the slot.
+    private func settlePendingSwitch(token: Int) {
+        guard token == switchToken else {
+            return
+        }
+        runtimeStore.setPendingAttachedSessionID(nil)
     }
 
     func drainPendingTerminalAttachments() {
@@ -221,10 +238,12 @@ final class TerminalSessionController {
         cachedAttachRefresh = nil
         inFlightCompletion = completion
         let request = attachGeneration.request()
+        recordAttachRequest(request)
         hasPendingAttach = true
         if !reappearedSessionIDs.contains(sessionID), case .cached(let route) = routeCache.lookup(sessionID) {
             // A daemon re-exec must not hold up an attach to a known server.
             cachedAttachRefresh = CachedAttachRefresh(request: request, route: route, completion: completion)
+            markRouted(request)
             connect(terminalHost, to: route, request: request, completion: completion)
             refreshCachedRoute(sessionID, request: request)
             return
@@ -244,6 +263,7 @@ final class TerminalSessionController {
                 )
                 switch resolved {
                 case .success(let route):
+                    self.markRouted(request)
                     self.connect(terminalHost, to: route, request: request, completion: completion)
                 case .failure(let error):
                     self.finishAttachFailure("switch \(sessionID)", error: error, completion: completion)
@@ -325,7 +345,10 @@ final class TerminalSessionController {
     }
 
     private func finishAttach(_ result: Result<String?, Error>, route: TmuxRoute, sessionID: String, request: UInt64, completion: ((Bool) -> Void)?) {
-        guard attachGeneration.accepts(request) else { return }
+        guard attachGeneration.accepts(request) else {
+            discardAttachRequest(request)
+            return
+        }
         if case .failure(let error) = result,
            var refresh = cachedAttachRefresh,
            refresh.request == request, refresh.route == route {
@@ -337,6 +360,11 @@ final class TerminalSessionController {
         cachedAttachRefresh = nil
         hasPendingAttach = false
         inFlightCompletion = nil
+        if case .success = result {
+            logAttach(request, sessionID: sessionID, succeeded: true)
+        } else {
+            logAttach(request, sessionID: sessionID, succeeded: false)
+        }
         switch result {
         case .success(let attachedSessionID):
             guard TerminalSessionChipResolver.cleanSessionID(attachedSessionID) == sessionID else {
@@ -363,6 +391,45 @@ final class TerminalSessionController {
             completion?(false)
         }
     }
+
+#if DEBUG
+    /// Dev-only attach timing: when each request was made, and when its route resolved (the connect starts then).
+    private struct AttachTiming {
+        let requested: TimeInterval
+        var routed: TimeInterval?
+    }
+
+    private var attachTimings: [UInt64: AttachTiming] = [:]
+
+    private func recordAttachRequest(_ request: UInt64) {
+        attachTimings[request] = AttachTiming(requested: ProcessInfo.processInfo.systemUptime, routed: nil)
+    }
+
+    private func markRouted(_ request: UInt64) {
+        attachTimings[request]?.routed = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func discardAttachRequest(_ request: UInt64) {
+        attachTimings.removeValue(forKey: request)
+    }
+
+    /// Logs a switch's route and connect times, from its request to the attach landing: the wait the avatar follows.
+    private func logAttach(_ request: UInt64, sessionID: String, succeeded: Bool) {
+        guard let timing = attachTimings.removeValue(forKey: request) else {
+            return
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        let routed = timing.routed ?? timing.requested
+        let outcome = succeeded ? "attached" : "failed"
+        NSLog("Questmaster attach %@: route %.1f ms, connect %.1f ms, requested to finish %.1f ms (%@)",
+              sessionID, (routed - timing.requested) * 1000, (now - routed) * 1000, (now - timing.requested) * 1000, outcome)
+    }
+#else
+    private func recordAttachRequest(_ request: UInt64) {}
+    private func markRouted(_ request: UInt64) {}
+    private func discardAttachRequest(_ request: UInt64) {}
+    private func logAttach(_ request: UInt64, sessionID: String, succeeded: Bool) {}
+#endif
 
     private func configureCallbacks(_ host: TerminalPaneHosting?) {
         host?.onFocusRequested = onFocusRequested

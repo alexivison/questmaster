@@ -444,10 +444,12 @@ struct TrackerRootView: View {
             .contains(where: { $0.parentID == sessionID })
     }
 
-    /// Feeds the class avatar and the master's company the tracker's sessions and the attached session's id.
+    /// Feeds the class avatar and the master's company the tracker's sessions and the avatar's session: the switch in flight, which the
+    /// slot follows at once, else the attached session.
     private func feedAvatar() {
         let sessions = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
-        let attachedID = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID)
+        let attachedID = TerminalSessionChipResolver.cleanSessionID(store.avatarAttachedSessionID)
+        TrackerAvatarLibrary.prefetch(for: sessions)
         avatarStage.observe(sessions: sessions, attachedID: attachedID)
         companyStage.observe(sessions: sessions, attachedID: attachedID)
     }

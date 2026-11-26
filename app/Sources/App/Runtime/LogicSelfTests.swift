@@ -141,6 +141,7 @@ enum LogicSelfTests {
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
         ("testEveryBundledFamiliarFitsTheSlot", testEveryBundledFamiliarFitsTheSlot),
         ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
+        ("testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt", testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt),
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
         ("testOneWorkerIsCentredOnTheMastersBody", testOneWorkerIsCentredOnTheMastersBody),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
@@ -2712,6 +2713,34 @@ enum LogicSelfTests {
     /// A master's company stands in its slot: seven Fire Elementals show of eight (the design's full row), the marker counts one above the
     /// master's familiar's disc, each familiar's rest stays inside the row's first place and the marker's left edge, each drops below the
     /// feet, and the master stays at the slot's centre.
+    /// The tracker prefetches a session's pose on its update, before the attach that shows it, so the switch finds the frames decoded: the
+    /// decode runs off the main thread, and the frame the switch draws is then a cache hit. A pose asked for again decodes nothing.
+    @MainActor
+    private static func testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt() throws {
+        guard let resources = AppSymbolStyle.resourceBundle().resourceURL,
+              let sprites = TrackerAvatarSprites(classID: "bard", folder: resources.appendingPathComponent("Sprites/bard", isDirectory: true)) else {
+            throw TestFailure("the bard's sprites should load from the app bundle")
+        }
+        let before = sprites.cachedFrameCount
+        sprites.prefetch([.idle])
+        let deadline = Date().addingTimeInterval(10)
+        while sprites.cachedFrameCount == before, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        try expect(sprites.cachedFrameCount > before, "a prefetch should decode the pose's frames in the background")
+        #if DEBUG
+        let decodesBefore = TrackerAvatarDecodeProbe.count
+        #endif
+        try expect(sprites.frame(.idle, .character, 1) != nil, "the idle's first frame should be decoded once the prefetch has run")
+        #if DEBUG
+        try expect(TrackerAvatarDecodeProbe.count == decodesBefore, "a prefetched frame should come from the cache, with no decode on the switch")
+        #endif
+        let decoded = sprites.cachedFrameCount
+        sprites.prefetch([.idle])
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        try expect(sprites.cachedFrameCount == decoded, "asking again for a pose that was requested should decode nothing")
+    }
+
     @MainActor
     private static func testTheMastersCompanyFitsItsSlot() throws {
         final class Clock {
@@ -11690,7 +11719,11 @@ enum LogicSelfTests {
         controller.installPlaceholder(fake)
         var completions: [Bool] = []
         controller.switchTerminal(to: "qm-old") { completions.append($0) }
+        try expect(runtime.avatarAttachedSessionID == "qm-old" && runtime.pendingAttachedSessionID == "qm-old",
+                   "the avatar should follow a selection as soon as its switch starts")
         controller.switchTerminal(to: "qm-new") { completions.append($0) }
+        try expect(runtime.avatarAttachedSessionID == "qm-new",
+                   "a second selection should take the avatar over before the first has settled")
         try expect(routes.pending.count == 2, "the route client must hold both lookups")
         routes.pending[1](.success([try TmuxRoute(sessionID: "qm-new", label: "default", configFiles: [], live: true, createdUnix: 1)]))
         try expect(waitUntil { fake.pending.count == 1 }, "newest route should reach host")
@@ -11698,6 +11731,8 @@ enum LogicSelfTests {
         fake.pending[0](.success("qm-new"))
         try expect(runtime.currentTerminalSessionID == "qm-new" && fake.starts == 1,
                    "the controller must apply only the newest attach result")
+        try expect(runtime.pendingAttachedSessionID == nil && runtime.avatarAttachedSessionID == "qm-new",
+                   "a landed switch should settle the avatar on the attached session")
         try expect(completions == [false, true], "a superseded activation must finish false and the newest true")
 
         controller.switchTerminal(to: "qm-detach") { completions.append($0) }
@@ -11715,6 +11750,23 @@ enum LogicSelfTests {
         fake.pending[2](.success("qm-stop"))
         try expect(runtime.currentTerminalSessionID == nil && fake.starts == 1 && completions.last == false,
                    "stop must discard a pending attach")
+        try expect(runtime.pendingAttachedSessionID == nil, "stop must settle the avatar's switch")
+
+        controller.switchTerminal(to: "qm-keep") { completions.append($0) }
+        routes.pending[4](.success([try TmuxRoute(sessionID: "qm-keep", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        try expect(waitUntil { fake.pending.count == 4 }, "the kept session should reach the host")
+        fake.pending[3](.success("qm-keep"))
+        try expect(runtime.currentTerminalSessionID == "qm-keep" && runtime.avatarAttachedSessionID == "qm-keep",
+                   "a landed switch should leave the avatar on the attached session")
+
+        controller.switchTerminal(to: "qm-bad") { completions.append($0) }
+        try expect(runtime.avatarAttachedSessionID == "qm-bad", "the avatar should follow the failing selection too")
+        routes.pending[5](.success([try TmuxRoute(sessionID: "qm-bad", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        try expect(waitUntil { fake.pending.count == 5 }, "the failing session should reach the host")
+        fake.pending[4](.failure(TestFailure("connect refused")))
+        try expect(runtime.currentTerminalSessionID == "qm-keep" && runtime.pendingAttachedSessionID == nil
+                   && runtime.avatarAttachedSessionID == "qm-keep" && completions.last == false,
+                   "a failed attach must revert the avatar to the attached session")
     }
 
     private static func testEditorWindowOpensOffMain() throws {

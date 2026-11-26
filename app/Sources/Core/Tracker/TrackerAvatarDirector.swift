@@ -550,6 +550,21 @@ public struct TrackerAvatarDirector {
         return animation?.animation(for: shown)?.finish
     }
 
+    /// Whether the turn a switch to `session` finds has used a tool: a cast or sub-agents running while the session works, is blocked or
+    /// needs input. It is the rule `noteToolUse` applies to a fresh turn, so the pose a switch shows is
+    /// `TrackerAvatarPose.pose(for:catalog:turnUsedTool:)` with this value.
+    public static func turnUsedToolWhenSwitched(to session: TrackerSession?) -> Bool {
+        guard let session else {
+            return false
+        }
+        switch TrackerStatusClassifier.classify(session).kind {
+        case .working, .blocked, .needsInput:
+            return session.cast != nil || session.activeSubagents > 0
+        case .done, .stopped, .error, .idle:
+            return false
+        }
+    }
+
     /// Whether `session` shows an avatar and is working.
     private func isWorking(_ session: TrackerSession?) -> Bool {
         guard let session, TrackerAvatarPose.pose(for: session, catalog: catalog) != nil else {

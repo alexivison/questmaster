@@ -191,11 +191,6 @@ extension TrackerAvatarSprites {
         }
         return CGFloat(columns.count) * pixel
     }
-
-    /// The resting figure's lowest visible row, in art pixels from the top. A hover leaves it above the feet row.
-    var restLowestRow: Int? {
-        idleFrame(1).flatMap { Self.opaqueRows(of: $0)?.upperBound }
-    }
 }
 
 /// The master's slot with its company: the master where it stands, each familiar beside it or in front of it in spawn order, and the `+n`
