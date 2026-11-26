@@ -125,7 +125,10 @@ session-local: `internal/sessiontheme` uses tracker colour precedence and worker
 inheritance, sets it at launch, and refreshes live sessions after CLI/app
 recolours and CLI/app config reloads. Writes are serialized under `theme.lock`
 after metadata commits. Inventory is once per server; stopped sessions and
-missing/default ownership are skipped.
+missing/default ownership are skipped. The same sync atomically replaces
+`pi-accent` in each live Pi session's recorded runtime directory. The Pi extension
+watches the directory and uses the file's effective colour (`#rrggbb`, or empty
+if unset or explicitly cleared) for the input border, on launch and on live recolours.
 
 Template v4 sources the theme. Existing user configs and status scripts are
 never rewritten. To adopt it, add `source-file ~/.questmaster-state/tmux/theme.conf`

@@ -8,17 +8,18 @@
 //   QUESTMASTER_TITLE         the session title, when set
 //   QUESTMASTER_CLASS         a master's class id (paladin, wizard, ...), when set
 //   QUESTMASTER_MASTER_CLASS  a worker's master's class id, when set (its familiar)
+// The effective tracker colour is published as pi-accent in QUESTMASTER_RUNTIME_DIR.
 // The footer status key is "questmaster". Routed messages are custom messages with
 // the customType names in cardStyles.
 import { chmod, lstat, unlink } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { accessSync, constants } from "node:fs";
+import { accessSync, closeSync, constants, fstatSync, openSync, readSync, watch, type FSWatcher } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { basename, delimiter, isAbsolute, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const maxRequestBytes = 1 << 20;
 const maxIDBytes = 128;
@@ -407,6 +408,116 @@ function paint(rgb: number[], text: string, bold = false): string {
 	return `${bold ? "\x1b[1m" : ""}\x1b[38;2;${rgb.join(";")}m${text}\x1b[39m${bold ? "\x1b[22m" : ""}`;
 }
 
+const piAccentFile = "pi-accent";
+const hexAccent = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
+
+async function ownedRuntimeDirectory(): Promise<string | undefined> {
+	const sessionID = process.env.QUESTMASTER_SESSION ?? "";
+	const dir = process.env.QUESTMASTER_RUNTIME_DIR ?? "";
+	if (!sessionPattern.test(sessionID) || !isAbsolute(dir) || basename(dir) !== sessionID) return;
+	try {
+		const runtime = await lstat(dir);
+		if (runtime.isDirectory() && runtime.uid === process.getuid() && (runtime.mode & 0o022) === 0) return dir;
+	} catch {}
+}
+
+function readPiAccent(path: string): string | undefined {
+	let fd: number | undefined;
+	try {
+		fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+		const file = fstatSync(fd);
+		if (!file.isFile() || file.uid !== process.getuid() || (file.mode & 0o077) !== 0 || file.size !== 7) return;
+		const bytes = Buffer.alloc(8);
+		const size = readSync(fd, bytes, 0, bytes.length, 0);
+		const value = bytes.toString("utf8", 0, size);
+		return hexAccent.test(value) ? value : undefined;
+	} catch {
+		return undefined;
+	} finally {
+		if (fd !== undefined) closeSync(fd);
+	}
+}
+
+function watchInputBorder(ctx: ExtensionContext, runtimeDir: string): (() => void) | undefined {
+	if (ctx?.mode !== "tui" || !ctx.hasUI || !ctx.ui.getEditorComponent || !ctx.ui.setWidget) return;
+	const key = "questmaster.input-border";
+	const path = join(runtimeDir, piAccentFile);
+
+	// The empty above-editor widget provides the TUI and runs before the input
+	// slot in both Pi renderers. Never use setEditorComponent here: swapping
+	// editors copies visible text, not cursor, undo, history draft, or selectors.
+	ctx.ui.setWidget(key, (tui) => {
+		let accent: string | undefined;
+		let border: ((text: string) => string) | undefined;
+		let editor: CustomEditor | undefined;
+		let detach: (() => void) | undefined;
+		let closed = false;
+
+		const refresh = () => {
+			if (closed) return;
+			const next = readPiAccent(path);
+			if (next === accent) return;
+			accent = next;
+			const rgb = next?.match(hexAccent)?.slice(1).map((channel) => Number.parseInt(channel, 16));
+			border = rgb ? (text) => paint(rgb, text) : undefined;
+			tui.requestRender();
+		};
+
+		// Watch the directory: the backend replaces the colour file by rename.
+		let watcher: FSWatcher | undefined;
+		try {
+			watcher = watch(runtimeDir, { persistent: false }, (_event, name) => {
+				if (name === null || name === piAccentFile) refresh();
+			});
+			watcher.on("error", () => watcher?.close());
+		} catch {}
+		refresh();
+
+		const widget = {
+			render() {
+				if (!border || ctx.ui.getEditorComponent()) return [];
+				// Locate only the input slot beside this widget. If Pi's layout
+				// differs, or a selector occupies the slot, leave it alone.
+				const anchor = tui.children.findIndex((child) => child instanceof Container && child.children.includes(widget));
+				const slot = anchor < 0 ? undefined : tui.children[anchor + 1];
+				if (!(slot instanceof Container) || slot.children.length !== 1) return [];
+				const native = slot.children[0];
+				if (!(native instanceof CustomEditor) || native === editor) return [];
+
+				detach?.();
+				editor = native;
+				const original = native.render;
+				const render = (width: number) => {
+					if (!border || ctx.ui.getEditorComponent() || native.getText().trimStart().startsWith("!")) {
+						return original.call(native, width);
+					}
+					const stockBorder = native.borderColor;
+					native.borderColor = border;
+					try {
+						return original.call(native, width);
+					} finally {
+						native.borderColor = stockBorder;
+					}
+				};
+				native.render = render;
+				detach = () => {
+					if (native.render === render) native.render = original;
+				};
+				return [];
+			},
+			invalidate() {},
+			dispose() {
+				closed = true;
+				watcher?.close();
+				detach?.();
+			},
+		};
+		return widget;
+	}, { placement: "aboveEditor" });
+
+	return () => ctx.ui.setWidget(key, undefined);
+}
+
 // identityLine is the footer status: the role's glyph and colour, the title, and
 // the class or, for a worker, its master's familiar. A session Questmaster did
 // not launch gets none.
@@ -553,6 +664,7 @@ async function questsList(projectDir: string): Promise<ListEntry> {
 }
 
 export default function (pi: ExtensionAPI) {
+	let restoreInputBorder: (() => void) | undefined;
 	let server: Server | undefined;
 	const connections = new Set<Socket>();
 	let busy = false;
@@ -748,6 +860,8 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function stop(): Promise<void> {
+		restoreInputBorder?.();
+		restoreInputBorder = undefined;
 		const active = server;
 		server = undefined;
 		for (const connection of connections) connection.destroy();
@@ -837,20 +951,8 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
-	async function start(): Promise<void> {
+	async function start(runtimeDir: string): Promise<void> {
 		if (typeof pi.sendMessage !== "function") return;
-		const sessionID = process.env.QUESTMASTER_SESSION ?? "";
-		if (!sessionPattern.test(sessionID)) return;
-		// Questmaster names the session's runtime directory; without it there is
-		// no socket, and messages fall back to typed input.
-		const runtimeDir = process.env.QUESTMASTER_RUNTIME_DIR ?? "";
-		if (!isAbsolute(runtimeDir) || basename(runtimeDir) !== sessionID) return;
-		try {
-			const runtime = await lstat(runtimeDir);
-			if (!runtime.isDirectory() || runtime.uid !== process.getuid() || (runtime.mode & 0o022) !== 0) return;
-		} catch {
-			return;
-		}
 		const socketPath = join(runtimeDir, "pi.sock");
 		if (!(await clearStaleSocket(socketPath))) return;
 		const next = createServer(handle);
@@ -895,7 +997,11 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, rawContext) => {
 		const occurredAtMS = Date.now();
 		await stop();
-		await start();
+		const runtimeDir = await ownedRuntimeDirectory();
+		if (runtimeDir) {
+			await start(runtimeDir);
+			restoreInputBorder = watchInputBorder(rawContext, runtimeDir);
+		}
 		const ctx = rawContext as PiContext | undefined;
 		const sessionManager = ctx?.sessionManager;
 		piSessionID = sessionManager?.getSessionId?.() || piSessionID;

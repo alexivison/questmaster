@@ -3,12 +3,15 @@
 package session
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/palette"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 func callsAfter(runner *mockRunner, from int, command string) [][]string {
@@ -135,6 +138,57 @@ func TestContinueRefusesPiRespawnWithLegacyExtensionSymlinkBeforeRespawningPane(
 	assertLegacyPiBlock(t, err, link)
 	if respawns := callsAfter(runner, before, "respawn-pane"); len(respawns) != 0 {
 		t.Fatalf("Continue respawned a pane before reporting the legacy Pi extension symlink: %v", respawns)
+	}
+}
+
+func TestContinuePublishesPiAccentBeforeRespawn(t *testing.T) {
+	for _, kind := range []string{"missing accent", "missing runtime", "legacy manifest"} {
+		t.Run(kind, func(t *testing.T) {
+			svc, runner := setupService(t)
+			svc.Now = uniqueSessionClock()
+			setPiTestHome(t)
+			setPiTestAgent(t, svc)
+
+			result, err := svc.Start(t.Context(), StartOpts{
+				Cwd: t.TempDir(), Class: "paladin", DisplayColor: "cyan",
+				ResumeIDs: map[string]string{"pi": "resume-pi"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := state.NewRuntimeDir(svc.Store.Root(), result.SessionID)
+			colorPath := filepath.Join(dir, "pi-accent")
+			if kind == "missing accent" {
+				err = os.Remove(colorPath)
+			} else {
+				err = os.RemoveAll(dir)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind == "legacy manifest" {
+				if err := svc.Store.Update(result.SessionID, func(m *state.Manifest) { m.RuntimeDir = "" }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner.deadPanes[runner.sessionPane(result.SessionID)] = "17"
+			baseRun := runner.fn
+			runner.fn = func(ctx context.Context, args ...string) (string, error) {
+				for _, cmd := range splitBatchArgs(args) {
+					if len(cmd) > 0 && cmd[0] == "respawn-pane" {
+						got, err := os.ReadFile(colorPath)
+						if err != nil || string(got) != palette.Display("cyan") {
+							t.Fatalf("before respawn, accent = %q, %v; want cyan", got, err)
+						}
+					}
+				}
+				return baseRun(ctx, args...)
+			}
+			got, err := svc.Continue(t.Context(), result.SessionID)
+			if err != nil || !got.Respawned {
+				t.Fatalf("Continue = %+v, %v; want a respawn", got, err)
+			}
+		})
 	}
 }
 

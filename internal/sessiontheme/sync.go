@@ -1,10 +1,14 @@
-// Package sessiontheme keeps tmux's session accent in step with tracker colours.
+// Package sessiontheme shares the tracker's session accent with tmux and Pi.
 package sessiontheme
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/palette"
@@ -14,6 +18,8 @@ import (
 )
 
 const AccentOption = "@questmaster_session_accent"
+
+const piAccentFile = "pi-accent"
 
 // Sync refreshes live sessions after a colour change or config reload. A
 // nonempty sessionID targets a newly launched session directly. Otherwise one
@@ -55,13 +61,43 @@ func Sync(ctx context.Context, store *state.Store, router *tmuxroute.Router, ses
 				continue
 			}
 			handle, err := router.Route(m)
-			if err == nil {
-				err = handle.Client().SetSessionOption(ctx, m.SessionID, AccentOption, palette.Display(colors[m.SessionID]))
-			}
 			if err != nil {
 				errs = append(errs, fmt.Errorf("sync tmux colour for %s: %w", m.SessionID, err))
+				continue
+			}
+			color := colors[m.SessionID]
+			accent := palette.Display(color)
+			if err := handle.Client().SetSessionOption(ctx, m.SessionID, AccentOption, accent); err != nil {
+				errs = append(errs, fmt.Errorf("sync tmux colour for %s: %w", m.SessionID, err))
+				continue
+			}
+			if m.RuntimeDir != "" && slices.ContainsFunc(m.Agents, func(a state.AgentManifest) bool { return a.Name == "pi" }) {
+				// An unset or explicitly cleared display colour leaves Pi's
+				// native input border in place.
+				if color == "" || color == "none" {
+					accent = ""
+				}
+				if err := publishPiAccent(m, accent); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					errs = append(errs, fmt.Errorf("publish Pi colour for %s: %w", m.SessionID, err))
+				}
 			}
 		}
 		return errors.Join(errs...)
 	})
+}
+
+// The theme lock serializes writers. Rename publishes a complete value to the
+// directory watcher; writing the watched file in place would expose truncation.
+func publishPiAccent(m state.Manifest, accent string) error {
+	dir, err := m.RuntimeDirOrLegacy()
+	if err != nil {
+		return err
+	}
+	const temp = "." + piAccentFile + ".tmp"
+	if err := state.WriteRuntimeFile(dir, temp, []byte(accent)); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, temp)
+	defer os.Remove(path)
+	return os.Rename(path, filepath.Join(dir, piAccentFile))
 }
