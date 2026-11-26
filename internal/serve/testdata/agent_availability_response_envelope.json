@@ -1,0 +1,36 @@
+{
+  "protocol_version": 3,
+  "type": "response",
+  "id": "availability-read",
+  "ok": true,
+  "topic": "agent_availability",
+  "data": {
+    "agents": [
+      {
+        "name": "claude",
+        "enabled": false,
+        "defaults": {
+          "master": {
+            "model": "example-model",
+            "reasoning_effort": "high"
+          }
+        }
+      },
+      {
+        "name": "codex",
+        "enabled": true,
+        "defaults": {}
+      },
+      {
+        "name": "opencode",
+        "enabled": true,
+        "defaults": {}
+      },
+      {
+        "name": "pi",
+        "enabled": true,
+        "defaults": {}
+      }
+    ]
+  }
+}

@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -99,6 +101,64 @@ func TestModelsCmdRequiresAnAgent(t *testing.T) {
 
 	if _, err := runCmdErr(t, store, runner, "models"); err == nil {
 		t.Fatal("expected an error naming the available agents")
+	}
+}
+
+func TestModelsCmdHintListsOnlyEnabledAgents(t *testing.T) {
+	store := setupStore(t)
+	if err := state.NewAgentAvailabilityStore(store.Root()).Set("codex", false); err != nil {
+		t.Fatalf("disable codex: %v", err)
+	}
+	_, err := runCmdErr(t, store, idleRunner(), "models")
+	if err == nil || !strings.Contains(err.Error(), "claude, opencode, pi") || strings.Contains(err.Error(), "codex") {
+		t.Fatalf("models hint error = %v, want enabled agents only", err)
+	}
+}
+
+func TestModelsCmdWithAllAgentsDisabledExplainsRecovery(t *testing.T) {
+	store := setupStore(t)
+	availability := state.NewAgentAvailabilityStore(store.Root())
+	for _, name := range agent.Names() {
+		if err := availability.Set(name, false); err != nil {
+			t.Fatalf("disable %s: %v", name, err)
+		}
+	}
+	_, err := runCmdErr(t, store, idleRunner(), "models")
+	if err == nil || !strings.Contains(err.Error(), "no agents are enabled") || !strings.Contains(err.Error(), "Settings") {
+		t.Fatalf("bare models with all agents disabled = %v, want recovery guidance", err)
+	}
+}
+
+func TestModelsCmdRejectsDisabledAgentBeforeSuggestions(t *testing.T) {
+	store := setupStore(t)
+	if err := state.NewAgentAvailabilityStore(store.Root()).Set("codex", false); err != nil {
+		t.Fatalf("disable codex: %v", err)
+	}
+	_, err := runCmdErr(t, store, idleRunner(), "models", "codex")
+	if err == nil || !strings.Contains(err.Error(), `agent "codex" is disabled`) {
+		t.Fatalf("models for disabled codex = %v, want disabled error", err)
+	}
+}
+
+func TestModelsCmdDoesNotProbeDisabledHarness(t *testing.T) {
+	store := setupStore(t)
+	if err := state.NewAgentAvailabilityStore(store.Root()).Set("opencode", false); err != nil {
+		t.Fatalf("disable opencode: %v", err)
+	}
+	t.Setenv(modelsuggest.CatalogURLEnv, "off")
+	marker := filepath.Join(t.TempDir(), "opencode-probed")
+	binary := filepath.Join(t.TempDir(), "opencode")
+	script := "#!/bin/sh\nprintf called > " + strconv.Quote(marker) + "\n"
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatalf("write OpenCode fixture: %v", err)
+	}
+	t.Setenv("OPENCODE_BIN", binary)
+	_, err := runCmdErr(t, store, idleRunner(), "models", "opencode")
+	if err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("models for disabled OpenCode = %v, want disabled error", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("OpenCode probe marker stat = %v, want no harness probe", err)
 	}
 }
 

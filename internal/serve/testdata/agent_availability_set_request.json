@@ -1,0 +1,8 @@
+{
+  "id": "availability-set",
+  "method": "agent_availability.set",
+  "data": {
+    "agent": "claude",
+    "enabled": "false"
+  }
+}

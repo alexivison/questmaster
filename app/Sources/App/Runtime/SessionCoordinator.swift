@@ -40,18 +40,23 @@ final class SessionCoordinator {
         clearTerminalOnSuccess: Bool = false,
         onSuccess: (() -> Void)? = nil
     ) {
+        let attachedBeforeMutation = store.currentTerminalSessionID
         if switchBeforeMutation, let switchToSessionID {
+            // Switching to a replacement is best effort once Delete is confirmed.
+            let isDelete = request.method == "delete"
             activateTerminalSession(
                 switchToSessionID,
-                intent: switchBeforeMutationIntent
+                intent: switchBeforeMutationIntent,
+                reportContinueFailure: !isDelete
             ) { [weak self] activated in
-                guard activated else {
+                guard let self, activated || isDelete else {
                     return
                 }
-                self?.sendMutation(
+                let clearOriginalTerminal = !activated && self.store.currentTerminalSessionID == attachedBeforeMutation
+                self.sendMutation(
                     request,
                     label: label,
-                    clearTerminalOnSuccess: clearTerminalOnSuccess,
+                    clearTerminalOnSuccess: clearTerminalOnSuccess || clearOriginalTerminal,
                     onSuccess: onSuccess
                 )
             }
@@ -75,8 +80,11 @@ final class SessionCoordinator {
                     if let switchToSessionID {
                         self?.dependencies.switchTerminal(switchToSessionID, nil)
                     }
-                    if self?.shouldClearTerminal(after: request, clearTerminalOnSuccess: clearTerminalOnSuccess) == true {
-                        self?.showTerminalSessionEnded()
+                    if let self {
+                        let stillAttached = self.store.currentTerminalSessionID == attachedBeforeMutation
+                        if self.shouldClearTerminal(after: request, clearTerminalOnSuccess: clearTerminalOnSuccess && stillAttached) {
+                            self.showTerminalSessionEnded()
+                        }
                     }
                     onSuccess?()
                 case .failure(let error):
@@ -90,18 +98,24 @@ final class SessionCoordinator {
     func activateTerminalSession(
         _ sessionID: String,
         intent: TrackerActivationIntent,
+        reportContinueFailure: Bool = true,
         completion: @escaping (Bool) -> Void
     ) {
         switch intent {
         case .switchSession:
             dependencies.switchTerminal(sessionID, completion)
         case .continueSession:
+            let failContinue: (String) -> Void = { [weak self] description in
+                if reportContinueFailure {
+                    self?.dependencies.showMutationFailure("continue \(sessionID)", description)
+                    self?.dependencies.render()
+                }
+                completion(false)
+            }
             do {
                 let request = try ServeMutationRequests.`continue`(sessionID: sessionID)
                 guard let mutationClient else {
-                    dependencies.showMutationFailure("continue \(sessionID)", "serve mutation client is not configured")
-                    dependencies.render()
-                    completion(false)
+                    failContinue("serve mutation client is not configured")
                     return
                 }
                 dependencies.render()
@@ -112,16 +126,12 @@ final class SessionCoordinator {
                             self?.dependencies.didContinueSession(sessionID)
                             self?.dependencies.switchTerminal(sessionID, completion)
                         case .failure(let error):
-                            self?.dependencies.showMutationFailure("continue \(sessionID)", error.localizedDescription)
-                            self?.dependencies.render()
-                            completion(false)
+                            failContinue(error.localizedDescription)
                         }
                     }
                 }
             } catch {
-                dependencies.showMutationFailure("continue \(sessionID)", error.localizedDescription)
-                dependencies.render()
-                completion(false)
+                failContinue(error.localizedDescription)
             }
         }
     }

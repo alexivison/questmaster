@@ -285,6 +285,56 @@ func TestIntegrationStartWithBaseIndexOne(t *testing.T) {
 	}
 }
 
+func TestIntegrationDisablingAgentKeepsLiveSessionAttachable(t *testing.T) {
+	tmuxtest.RequireIntegration(t)
+	t.Setenv("CLAUDE_BIN", "")
+	runner := baseIndexOneRunner(t)
+	svc := fakeAgentService(t, runner, "exec sleep 600\n")
+	svc.Now = uniqueSessionClock()
+	ctx := t.Context()
+	start, err := svc.Start(ctx, StartOpts{
+		Cwd:       t.TempDir(),
+		ResumeIDs: map[string]string{"claude": "saved-conversation"},
+	})
+	if err != nil {
+		t.Fatalf("start initial session: %v", err)
+	}
+	isLiveAgent := func(p livePane) bool { return p.role == tmux.RoleAgent && p.dead == "0" }
+	initial := waitForPane(t, runner, start.SessionID, isLiveAgent)
+
+	availability := state.NewAgentAvailabilityStore(svc.Store.Root())
+	if err := availability.Set("claude", false); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Continue(ctx, start.SessionID)
+	if err != nil || !result.Reattach || result.Respawned {
+		t.Fatalf("continue disabled live agent = %+v, %v; want reattach", result, err)
+	}
+	if current := waitForPane(t, runner, start.SessionID, isLiveAgent); current.id != initial.id {
+		t.Fatalf("agent pane changed from %s to %s", initial.id, current.id)
+	}
+	if _, err := svc.Spawn(ctx, start.SessionID, SpawnOpts{Title: "worker"}); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("spawn with disabled inherited agent: %v", err)
+	}
+
+	if _, err := runner.Run(ctx, "kill-session", "-t", tmux.SessionTarget(start.SessionID)); err != nil {
+		t.Fatalf("stop private session: %v", err)
+	}
+	if _, err := svc.Continue(ctx, start.SessionID); err == nil || !strings.Contains(err.Error(), "disabled") || !strings.Contains(err.Error(), "Models and Reasoning") {
+		t.Fatalf("continue disabled stopped agent: %v", err)
+	}
+	if alive, err := svc.Client.HasSession(ctx, start.SessionID); err != nil || alive {
+		t.Fatalf("stopped session was relaunched while disabled, alive=%t err=%v", alive, err)
+	}
+	if err := availability.Set("claude", true); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := svc.Continue(ctx, start.SessionID); err != nil || result.Reattach {
+		t.Fatalf("continue re-enabled agent = %+v, %v; want relaunch", result, err)
+	}
+	waitForPane(t, runner, start.SessionID, isLiveAgent)
+}
+
 // An agent that exits leaves a dead pane (remain-on-exit). Continue finds it
 // through the session's alive check, respawns the agent with its resume ID in
 // the same pane, and records the exit status.

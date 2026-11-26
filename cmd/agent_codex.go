@@ -14,6 +14,7 @@ func newAgentCodexCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "codex [flags] -- [TUI arguments]", Short: "Run a session-owned Codex app-server and its TUI", Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// The session lifecycle already checked availability before preparing the native runtime.
 			return codexnative.Run(cmd.Context(), codexnative.Options{
 				Binary: binary, RuntimeDir: os.Getenv(state.RuntimeDirEnv), Config: settings, Args: args,
 				In: cmd.InOrStdin(), Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),

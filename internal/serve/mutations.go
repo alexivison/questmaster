@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/agentavailability"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tmuxconfig"
@@ -52,6 +53,10 @@ func (selfMutationCommandRunner) RunMutationCommand(ctx context.Context, args []
 			detail = strings.TrimSpace(stdout.String())
 		}
 		if detail != "" {
+			// Continue's diagnostic is shown in the app's short error banner.
+			if len(args) > 0 && args[0] == "continue" {
+				return nil, errors.New(strings.TrimPrefix(detail, "Error: "))
+			}
 			return nil, fmt.Errorf("qm %s: %w: %s", strings.Join(args, " "), err, detail)
 		}
 		return nil, fmt.Errorf("qm %s: %w", strings.Join(args, " "), err)
@@ -60,22 +65,23 @@ func (selfMutationCommandRunner) RunMutationCommand(ctx context.Context, args []
 }
 
 type mutationPayload struct {
-	AttachPaths []string `json:"attach_paths"`
-	DetachIDs   []string `json:"detach_ids"`
-	ID          string   `json:"id"`
-	SessionID   string   `json:"session_id"`
-	TargetID    string   `json:"target_id"`
-	MasterID    string   `json:"master_id"`
-	Name        string   `json:"name"`
-	Body        string   `json:"body"`
-	Content     string   `json:"content"`
-	Message     string   `json:"message"`
-	Scope       string   `json:"scope"`
-	Repo        string   `json:"repo"`
-	RepoID      string   `json:"repo_identity"`
-	Title       string   `json:"title"`
-	Cwd         string   `json:"cwd"`
-	Agent       string   `json:"agent"`
+	AttachPaths  []string `json:"attach_paths"`
+	DetachIDs    []string `json:"detach_ids"`
+	ID           string   `json:"id"`
+	SessionID    string   `json:"session_id"`
+	TargetID     string   `json:"target_id"`
+	MasterID     string   `json:"master_id"`
+	Name         string   `json:"name"`
+	Body         string   `json:"body"`
+	Content      string   `json:"content"`
+	Message      string   `json:"message"`
+	Scope        string   `json:"scope"`
+	Repo         string   `json:"repo"`
+	RepoID       string   `json:"repo_identity"`
+	Title        string   `json:"title"`
+	Cwd          string   `json:"cwd"`
+	Agent        string   `json:"agent"`
+	AgentEnabled string   `json:"enabled"`
 	// Decode only to reject old start/spawn clients explicitly.
 	LegacyPrimary   json.RawMessage `json:"primary"`
 	Role            string          `json:"role"`
@@ -132,6 +138,9 @@ var mutationRegistry = map[string]mutationHandler{
 	},
 	"role_default.set": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRoleDefaultSet(ctx, payload)
+	},
+	"agent_availability.set": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateAgentAvailabilitySet(payload)
 	},
 	"project.add": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
 		result, err := s.mutateProjectAdd(payload)
@@ -448,6 +457,9 @@ func (s *Server) mutateRoleDefaultSet(ctx context.Context, payload mutationPaylo
 	agentName = strings.ToLower(strings.TrimSpace(agentName))
 	if !slices.Contains(agent.Names(), agentName) {
 		return nil, fmt.Errorf("unknown agent %q (want one of %s)", agentName, strings.Join(agent.Names(), ", "))
+	}
+	if err := agentavailability.RequireEnabled(s.mutationStore().Root(), agentName); err != nil {
+		return nil, err
 	}
 
 	role := strings.ToLower(strings.TrimSpace(payload.Role))

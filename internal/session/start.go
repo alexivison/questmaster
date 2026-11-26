@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/agentavailability"
 	"github.com/alexivison/questmaster/internal/sessiontheme"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -131,6 +132,9 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 
 		resolvedAgentCLIs := make(map[agent.Role]string, len(bindings))
 		for _, binding := range bindings {
+			if err := agentavailability.RequireLaunch(s.Store.Root(), binding.Agent.Name()); err != nil {
+				return StartResult{}, err
+			}
 			cli, resolvedPath, ok := resolveAgentBinary(binding.Agent, agentPath)
 			if !ok {
 				return StartResult{}, agentBinaryNotFoundError(binding.Agent)

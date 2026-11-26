@@ -3,38 +3,34 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/agentavailability"
+	"github.com/alexivison/questmaster/internal/state"
 	"github.com/spf13/cobra"
 )
 
-func newAgentCmd() *cobra.Command {
+func newAgentCmd(store *state.Store) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "Query configured agents",
+		Short: "Query enabled agents",
 	}
-	cmd.AddCommand(newAgentQueryCmd())
+	cmd.AddCommand(newAgentQueryCmd(store))
 	cmd.AddCommand(newAgentCodexCmd())
 	return cmd
 }
 
-func newAgentQueryCmd() *cobra.Command {
+func newAgentQueryCmd(store *state.Store) *cobra.Command {
 	return &cobra.Command{
 		Use:   "query <mode>",
 		Short: "Query agent config for hooks and scripts",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := agent.LoadConfig(nil)
-			if err != nil {
-				return err
-			}
-			registry, err := agent.NewRegistry(cfg)
-			if err != nil {
-				return err
-			}
-
 			switch args[0] {
 			case "names":
-				for _, name := range registry.Names() {
+				names, err := agentavailability.EnabledNames(store.Root())
+				if err != nil {
+					return err
+				}
+				for _, name := range names {
 					fmt.Fprintln(cmd.OutOrStdout(), name)
 				}
 				return nil

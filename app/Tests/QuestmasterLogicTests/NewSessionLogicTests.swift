@@ -6,6 +6,8 @@ struct NewSessionLogicTests {
         focusMovesThroughFieldsWithControlJAndK()
         focusCycleWrapsThroughFields()
         defaultAgentListIncludesOpenCode()
+        enabledAgentListPreservesFilteredCatalogueOrder()
+        emptyAndFailedAgentAvailabilityDoNotFallBack()
         modelFieldStartsEmptyAndTakesSettingsDefault()
         typedModelSurvivesLaterResolves()
         modelSuggestionsMatchWhatIsTyped()
@@ -69,6 +71,48 @@ struct NewSessionLogicTests {
             NewSessionFormModel.defaultAgents == ["claude", "codex", "opencode", "pi"],
             "default agent order mismatch: \(NewSessionFormModel.defaultAgents)"
         )
+    }
+
+    private static func enabledAgentListPreservesFilteredCatalogueOrder() {
+        let availability = AgentAvailability(agents: [
+            .init(name: "claude", enabled: false),
+            .init(name: "codex", enabled: true),
+            .init(name: "opencode", enabled: false),
+            .init(name: "pi", enabled: true),
+        ])
+        expect(availability.enabledNames == ["codex", "pi"], "availability should retain enabled agents in catalogue order")
+
+        var model = NewSessionFormModel(
+            initialPath: "/tmp/project",
+            agents: [],
+            agentPickerState: .loading
+        )
+        model.setEnabledAgents(availability.enabledNames)
+        expect(model.agentPickerState == .loaded, "a successful read should finish loading")
+        expect(model.agents == ["codex", "pi"], "the form should show only enabled agents in response order")
+        expect(model.selectedAgent == "codex", "the first enabled agent should be selected")
+        expect(model.canSubmit, "an enabled agent and a path should allow submission")
+    }
+
+    private static func emptyAndFailedAgentAvailabilityDoNotFallBack() {
+        var model = NewSessionFormModel(
+            initialPath: "/tmp/project",
+            agents: [],
+            agentPickerState: .loading
+        )
+        expect(model.agentPickerState == .loading && !model.hasEnabledAgents, "the explicit loading state should start without a selected agent")
+        expect(!model.canSubmit, "loading availability should block submission")
+        model.setEnabledAgents([])
+        expect(model.agentPickerState == .loaded && model.agents.isEmpty, "a successful empty response should stay empty")
+        expect(model.selectedAgent.isEmpty, "an empty response must not select Claude or another fallback")
+        expect(!model.canSubmit && model.submitPayload() == nil, "an empty response must block submission")
+        expect(!model.activeFormOrder.contains(.agent) && !model.activeFormOrder.contains(.model), "unavailable agent and model controls should be skipped")
+
+        model.setEnabledAgents(["codex"])
+        model.failAgentAvailabilityLoad()
+        expect(model.agentPickerState == .failed && model.agents.isEmpty, "a failed read should remain distinct from an empty response")
+        expect(model.selectedAgent.isEmpty, "a failed read must not select a static fallback")
+        expect(!model.canSubmit && model.submitPayload() == nil, "a failed read must block submission")
     }
 
     // Options are never declared in the app — they come entirely from the

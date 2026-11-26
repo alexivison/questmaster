@@ -6,6 +6,7 @@ struct ContractFixtureTests {
         do {
             try payloadFixturesDecode()
             try envelopeFixturesDecode()
+            try agentAvailabilityFixturesMatch()
             let emptyCounts = try JSONDecoder().decode(PullRequestCounts.self, from: Data("{}".utf8))
             expect(emptyCounts == PullRequestCounts(), "omitted PR counts should default to zero")
             let sparseCounts = try JSONDecoder().decode(PullRequestCounts.self, from: Data(#"{"merged":2,"future":7}"#.utf8))
@@ -165,6 +166,22 @@ struct ContractFixtureTests {
         expect(refresh.data.hosts["github.com"]?.checkedAt == "2026-06-19T04:20:00Z", "pr.refresh checked_at did not decode")
     }
 
+    private static func agentAvailabilityFixturesMatch() throws {
+        let response = try decodeFixture(AgentAvailabilityEnvelopeFixture.self, "agent_availability_response_envelope.json")
+        expect(response.topic == ServeMutationRequests.agentAvailability().method, "agent availability read method drifted from the golden")
+        expect(response.data.enabledNames == ["codex", "opencode", "pi"], "only enabled agents should be selectable, in catalogue order")
+        let disabled = response.data.agents.first
+        expect(disabled?.name == "claude" && disabled?.enabled == false, "disabled agent should remain in Settings")
+        expect(disabled?.defaults["master"] == AgentAvailability.RoleDefault(model: "example-model", reasoningEffort: "high"),
+               "disabled agent should retain saved role defaults")
+        expect(response.data.agents.last?.defaults.isEmpty == true, "an agent without defaults should decode an empty map")
+
+        let request = try ServeMutationRequests.setAgentEnabled(agent: "claude", enabled: false)
+        let actual = request.jsonObject(id: "availability-set")
+        let golden = try JSONSerialization.jsonObject(with: fixtureData("agent_availability_set_request.json")) as? NSDictionary
+        expect(golden?.isEqual(actual) == true, "agent availability mutation drifted from the golden")
+    }
+
     private static func decodeFixture<T: Decodable>(_ type: T.Type, _ name: String) throws -> T {
         try JSONDecoder().decode(T.self, from: fixtureData(name))
     }
@@ -213,6 +230,11 @@ struct ContractFixtureTests {
         fputs("ContractFixtureTests failed: \(message)\n", stderr)
         Foundation.exit(1)
     }
+}
+
+private struct AgentAvailabilityEnvelopeFixture: Decodable {
+    let topic: String
+    let data: AgentAvailability
 }
 
 private struct DirSuggestFixture: Decodable {

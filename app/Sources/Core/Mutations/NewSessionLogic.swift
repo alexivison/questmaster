@@ -18,6 +18,12 @@ public enum NewSessionField: CaseIterable, Equatable, Hashable {
     public static let formOrder: [NewSessionField] = [.path, .title, .agent, .model, .prompt]
 }
 
+public enum NewSessionAgentPickerState: Equatable {
+    case loading
+    case loaded
+    case failed
+}
+
 /// One model suggestion for the model field.
 ///
 /// The options are pushed in from the serve `models` topic rather than
@@ -111,6 +117,7 @@ public struct NewSessionFormModel: Equatable {
     public var errorMessage: String?
 
     public private(set) var agents: [String]
+    public private(set) var agentPickerState: NewSessionAgentPickerState
     public private(set) var colors: [String]
     public private(set) var modelOptions: [SessionModelOption]
     public private(set) var effortOptions: [SessionReasoningEffortOption]
@@ -151,6 +158,7 @@ public struct NewSessionFormModel: Equatable {
         initialFocus: NewSessionField = .path,
         initialColor: String = NewSessionFormModel.noColor,
         agents: [String] = NewSessionFormModel.defaultAgents,
+        agentPickerState: NewSessionAgentPickerState = .loaded,
         colors: [String] = NewSessionFormModel.defaultColors
     ) {
         focusedField = initialFocus
@@ -159,7 +167,8 @@ public struct NewSessionFormModel: Equatable {
         prompt = initialPrompt
         submitting = false
         errorMessage = nil
-        self.agents = agents.isEmpty ? NewSessionFormModel.defaultAgents : agents
+        self.agents = agents
+        self.agentPickerState = agentPickerState
         self.colors = colors.isEmpty ? NewSessionFormModel.defaultColors : colors
         modelOptions = []
         effortOptions = []
@@ -169,7 +178,44 @@ public struct NewSessionFormModel: Equatable {
     }
 
     public var selectedAgent: String {
-        value(at: selectedAgentIndex, in: agents) ?? NewSessionFormModel.defaultAgents[0]
+        value(at: selectedAgentIndex, in: agents) ?? ""
+    }
+
+    public var hasEnabledAgents: Bool {
+        agentPickerState == .loaded && !agents.isEmpty
+    }
+
+    /// The unavailable agent and model controls stay out of Tab and modal-key focus until an enabled
+    /// agent arrives. Their rows remain visible so the sheet layout does not jump while loading.
+    public var activeFormOrder: [NewSessionField] {
+        hasEnabledAgents ? NewSessionField.formOrder : NewSessionField.formOrder.filter { $0 != .agent && $0 != .model }
+    }
+
+    public mutating func beginAgentAvailabilityLoad() {
+        agentPickerState = .loading
+        agents = []
+        selectedAgentIndex = 0
+        resetAgentDependentOptions()
+    }
+
+    public mutating func setEnabledAgents(_ agents: [String]) {
+        self.agents = agents
+        selectedAgentIndex = 0
+        agentPickerState = .loaded
+        resetAgentDependentOptions()
+    }
+
+    public mutating func failAgentAvailabilityLoad() {
+        agentPickerState = .failed
+        agents = []
+        selectedAgentIndex = 0
+        resetAgentDependentOptions()
+    }
+
+    private mutating func resetAgentDependentOptions() {
+        modelTextEdited = false
+        resetModelOptions()
+        resetEffortOptions()
     }
 
     public var selectedColor: String {
@@ -308,9 +354,9 @@ public struct NewSessionFormModel: Equatable {
         sessionClass = SessionClass.next(after: sessionClass)
     }
 
-    /// Whether the form can be submitted: a path is all it needs.
+    /// Whether the form can be submitted: an enabled agent and a path are both required.
     public var canSubmit: Bool {
-        !submitting && clean(path) != nil
+        hasEnabledAgents && !submitting && clean(path) != nil
     }
 
     /// The selected reasoning-effort level, empty when nothing is selected.
@@ -399,6 +445,9 @@ public struct NewSessionFormModel: Equatable {
     }
 
     public mutating func submitPayload() -> NewSessionSubmitPayload? {
+        guard hasEnabledAgents else {
+            return nil
+        }
         let cleanPath = clean(path) ?? ""
         guard !cleanPath.isEmpty else {
             errorMessage = "path is required"
@@ -448,7 +497,7 @@ public struct NewSessionFormModel: Equatable {
 
     /// Moves focus one field through the form (`formOrder`), wrapping.
     public mutating func moveFocus(_ delta: Int) {
-        let fields = NewSessionField.formOrder
+        let fields = activeFormOrder
         guard let index = fields.firstIndex(of: focusedField) else {
             focusedField = .path
             return
@@ -460,6 +509,9 @@ public struct NewSessionFormModel: Equatable {
     public mutating func cycleSelection(_ delta: Int) {
         switch focusedField {
         case .agent:
+            guard hasEnabledAgents else {
+                return
+            }
             let previousAgent = selectedAgent
             selectedAgentIndex = wrapped(selectedAgentIndex + delta, count: agents.count)
             // Model ids are harness-specific, so another agent's list never

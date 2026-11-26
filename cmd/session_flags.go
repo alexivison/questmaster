@@ -14,7 +14,7 @@ type sessionAgentFlags struct {
 }
 
 func (f *sessionAgentFlags) AddFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&f.Agent, "agent", "", "agent to use for this session (e.g. codex, claude)")
+	cmd.Flags().StringVar(&f.Agent, "agent", "", "agent harness to use (run `qm agent query names` to see enabled agents)")
 	cmd.Flags().StringVar(&f.ResumeAgent, "resume-agent", "", "resume the session agent from this ID")
 }
 

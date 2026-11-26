@@ -135,7 +135,7 @@ When invoked with no subcommand, this CLI shows help.`,
 	root.AddCommand(newReadCmd(o.store, o.client, router))
 	root.AddCommand(newChatCmd(o.store, o.client))
 	root.AddCommand(newWorkersCmd(o.store, o.client, router))
-	root.AddCommand(newAgentCmd())
+	root.AddCommand(newAgentCmd(o.store))
 	root.AddCommand(newModelsCmd(o.store))
 	root.AddCommand(newHookCmd(o.store, o.client, router))
 	root.AddCommand(newHooksCmd())

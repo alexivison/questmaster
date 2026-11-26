@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/agentavailability"
 	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -45,15 +46,18 @@ func (s *Server) reasoningEfforts(ctx context.Context, req Request) (any, error)
 		return nil, err
 	}
 	agentName = strings.ToLower(strings.TrimSpace(agentName))
+	root := state.StateRoot()
+	if s.Snapshotter != nil {
+		root = s.Snapshotter.StateRoot()
+	}
+	if err := agentavailability.RequireEnabled(root, agentName); err != nil {
+		return nil, err
+	}
 	role, err := modelsuggest.ParseRole(payload.Role)
 	if err != nil {
 		return nil, err
 	}
 
-	root := state.StateRoot()
-	if s.Snapshotter != nil {
-		root = s.Snapshotter.StateRoot()
-	}
 	def, hasDefault, _ := state.NewRoleDefaultsStore(root).Get(agentName, agent.RoleDefaultsKey(role))
 
 	defaultEffort := ""
