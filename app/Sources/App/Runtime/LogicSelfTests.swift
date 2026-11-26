@@ -148,6 +148,7 @@ enum LogicSelfTests {
         ("testPointingAtAFamiliarShowsItsName", testPointingAtAFamiliarShowsItsName),
         ("testEveryClassHasAHeadBoxInItsArt", testEveryClassHasAHeadBoxInItsArt),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
+        ("testCompanyFramesCarryAOnePixelOutlineAndTheWorkerSlotDoesNot", testCompanyFramesCarryAOnePixelOutlineAndTheWorkerSlotDoesNot),
         ("testTheWarHoundDrawsAtItsScaleOnTheBaseline", testTheWarHoundDrawsAtItsScaleOnTheBaseline),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
@@ -2929,6 +2930,73 @@ enum LogicSelfTests {
     /// Every designed familiar's company frames are on the 2x device grid at its scale: each full frame has a company frame of the same
     /// name, sized by the scale (the full canvas times two times the scale, rounded to whole pixels), and its feet stay on its canvas.
     @MainActor
+    /// The company frames carry a one-pixel outline in the familiar outline token round their art: each pixel is the raw frame's where the
+    /// art is, the token's colour where the ring reaches, and clear elsewhere. The worker slot's full frames carry none.
+    private static func testCompanyFramesCarryAOnePixelOutlineAndTheWorkerSlotDoesNot() throws {
+        guard let resources = AppSymbolStyle.resourceBundle().resourceURL else {
+            throw TestFailure("the resource bundle should be readable")
+        }
+        let ink = TrackerAvatarOutlineInk(AppPalette.familiarOutline)
+        let rawURL = resources.appendingPathComponent("Familiars/paladin/company/01-idle-f1.png")
+        guard let raw = TrackerAvatarSprites.decodeFrame(at: rawURL),
+              let outlined = TrackerAvatarLibrary.companions["paladin"]?.idleFrame(1) else {
+            throw TestFailure("the paladin's company frame should decode")
+        }
+        try expect(raw.width == outlined.width && raw.height == outlined.height, "the outline should keep the frame's size")
+        let before = try rgbaBytes(raw)
+        let after = try rgbaBytes(outlined)
+        let width = raw.width
+        let height = raw.height
+        var ringed = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let offset = (y * width + x) * 4
+                if before[offset + 3] > 0 {
+                    try expect(Array(after[offset..<offset + 4]) == Array(before[offset..<offset + 4]),
+                               "the art's own pixel at \(x),\(y) should not change")
+                    continue
+                }
+                let touchesArt = (-1...1).contains { dy in (-1...1).contains { dx in
+                    let nx = x + dx, ny = y + dy
+                    return (dx != 0 || dy != 0) && nx >= 0 && nx < width && ny >= 0 && ny < height && before[(ny * width + nx) * 4 + 3] > 0
+                } }
+                if touchesArt {
+                    ringed += 1
+                    try expect(Array(after[offset..<offset + 4]) == [ink.red, ink.green, ink.blue, 0xff],
+                               "the ring at \(x),\(y) should be the outline token, opaque")
+                } else {
+                    try expect(after[offset + 3] == 0, "a pixel with no art beside it should stay clear at \(x),\(y)")
+                }
+            }
+        }
+        try expect(ringed > 0, "the outline should ring the paladin's figure")
+        // The worker slot's full frame of the same figure: no outline.
+        guard let slotRaw = TrackerAvatarSprites.decodeFrame(at: resources.appendingPathComponent("Familiars/paladin/01-idle-f1.png")),
+              let slot = TrackerAvatarSprites.bundledFamiliars()["paladin"]?.idleFrame(1) else {
+            throw TestFailure("the paladin's worker-slot frame should decode")
+        }
+        try expect(try rgbaBytes(slot) == rgbaBytes(slotRaw), "the worker slot's frame should be the art as it is")
+    }
+
+    /// The frame's premultiplied RGBA bytes, row by row from the top, for comparing pixels.
+    private static func rgbaBytes(_ image: CGImage) throws -> [UInt8] {
+        let bytesPerRow = image.width * 4
+        var bytes = [UInt8](repeating: 0, count: bytesPerRow * image.height)
+        let drawn = bytes.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8,
+                                          bytesPerRow: bytesPerRow, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                return false
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
+        }
+        guard drawn else {
+            throw TestFailure("the frame's pixels should be readable")
+        }
+        return bytes
+    }
+
     private static func testEveryCompanyFrameIsPresentAtItsDeviceSize() throws {
         guard let resources = AppSymbolStyle.resourceBundle().resourceURL else {
             throw TestFailure("the resource bundle should be readable")

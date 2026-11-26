@@ -237,6 +237,7 @@ enum RenderPreview {
         // Every class's one worker, in one image: each stands centred on the master's body column.
         render(companyFirstWorkerView(), size: CGSize(width: 1200, height: 1), autoHeight: true, to: "\(outputDir)/company-first-worker.png")
         render(elementalEffectsView(), size: CGSize(width: 1300, height: 1), autoHeight: true, to: "\(outputDir)/elemental-effects.png")
+        render(companyOutlineView(), size: CGSize(width: 1000, height: 1), autoHeight: true, to: "\(outputDir)/company-outline.png")
         render(companyNameTagsView(), size: CGSize(width: 1200, height: 1), autoHeight: true, to: "\(outputDir)/name-tags.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
@@ -1684,6 +1685,31 @@ enum RenderPreview {
                         companyCell(classID: row.classID, workers: row.full, titles: titles, working: busy, hovered: "qm-w1")
                             .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
                             .padding(.bottom, TrackerListMetrics.avatarBannerGap)
+                    }
+                }
+            }
+        }
+        .padding(Space.item)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The Paladin (a dark master) and the Cleric (a light one) with one worker, two and a full row, their workers idle so no name covers a
+    /// figure. Named by RENDER_ONLY=company-outline.
+    @MainActor
+    private static func companyOutlineView() -> some View {
+        let rows: [(classID: String, full: Int)] = [("paladin", 6), ("cleric", 7)]
+        let idle: [Bool] = [false]
+        return VStack(alignment: .leading, spacing: Space.item) {
+            ForEach(rows, id: \.classID) { row in
+                let counts = [1, 2, row.full]
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(counts, id: \.self) { count in
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("\(row.classID) \(count)").font(Font(AppFonts.monoSmall)).foregroundStyle(AppPalette.text.swiftUI)
+                            companyCell(classID: row.classID, workers: count, working: idle)
+                                .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                                .padding(.bottom, TrackerListMetrics.avatarBannerGap)
+                        }
                     }
                 }
             }

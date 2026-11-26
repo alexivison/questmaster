@@ -85,19 +85,23 @@ final class TrackerAvatarSprites {
     private let folder: URL
     /// The folder of the shared calling-out bubble: `Sprites/shared`, for classes and familiars alike.
     private let bubbleFolder: URL
+    /// The outline painted round each frame of this folder, or nil for none: a company's frames carry it, the worker slot's don't.
+    private let outline: TrackerAvatarOutlineInk?
     private var images: [String: CGImage] = [:]
 
     /// The art from its parsed file, with its idle figure measured from the art beside it.
-    init(classID: String, animation: TrackerAvatarAnimation, folder: URL, bubbleFolder: URL? = nil) {
+    init(classID: String, animation: TrackerAvatarAnimation, folder: URL, bubbleFolder: URL? = nil, outline: TrackerAvatarOutlineInk? = nil) {
         self.classID = classID
         self.animation = animation
         self.folder = folder
         self.bubbleFolder = bubbleFolder ?? folder.deletingLastPathComponent().appendingPathComponent("shared", isDirectory: true)
+        self.outline = outline
         idleFigureHeight = measureIdleFigure()
     }
 
     /// The sprites in `folder`, or nil when it has no `animation.json`, or the file doesn't read. A familiar's file is read as one.
-    convenience init?(classID: String, folder: URL, kind: TrackerAvatarArtKind = .master, bubbleFolder: URL? = nil) {
+    convenience init?(classID: String, folder: URL, kind: TrackerAvatarArtKind = .master, bubbleFolder: URL? = nil,
+                      outline: TrackerAvatarOutlineInk? = nil) {
         let file = folder.appendingPathComponent("animation.json")
         guard FileManager.default.fileExists(atPath: file.path) else {
             return nil
@@ -113,7 +117,7 @@ final class TrackerAvatarSprites {
             NSLog("Questmaster: %@ has no usable animation.json (%@), so its art shows no avatar", file.path, String(describing: error))
             return nil
         }
-        self.init(classID: classID, animation: animation, folder: folder, bubbleFolder: bubbleFolder)
+        self.init(classID: classID, animation: animation, folder: folder, bubbleFolder: bubbleFolder, outline: outline)
     }
 
     /// The idle figure's height: from idle's foot row to idle f1's top opaque row. Nil while idle's first frame has no art.
@@ -156,7 +160,7 @@ final class TrackerAvatarSprites {
     }
 
     /// The image's premultiplied RGBA pixels, row by row from the top; nil when they can't be drawn.
-    private static func premultipliedPixels(of image: CGImage) -> [UInt8]? {
+    nonisolated private static func premultipliedPixels(of image: CGImage) -> [UInt8]? {
         let width = image.width
         let height = image.height
         let bytesPerRow = width * bytesPerPixel
@@ -175,8 +179,8 @@ final class TrackerAvatarSprites {
     }
 
     /// Premultiplied RGBA pixels, four bytes each, with alpha last.
-    private static let bytesPerPixel = 4
-    private static let alphaByte = 3
+    nonisolated private static let bytesPerPixel = 4
+    nonisolated private static let alphaByte = 3
 
     /// The sprites of every session class with a readable `animation.json` in the app bundle.
     static func bundled() -> [String: TrackerAvatarSprites] {
@@ -215,7 +219,9 @@ final class TrackerAvatarSprites {
             if let subfolder {
                 folder = folder.appendingPathComponent(subfolder, isDirectory: true)
             }
-            sprites[classID] = TrackerAvatarSprites(classID: classID, folder: folder, kind: .familiar, bubbleFolder: shared)
+            // A company's frames carry the outline; the worker slot's full frames don't.
+            let outline = subfolder == nil ? nil : TrackerAvatarOutlineInk(AppPalette.familiarOutline)
+            sprites[classID] = TrackerAvatarSprites(classID: classID, folder: folder, kind: .familiar, bubbleFolder: shared, outline: outline)
         }
         return sprites.compactMapValues { $0 }
     }
@@ -356,7 +362,9 @@ final class TrackerAvatarSprites {
         #if DEBUG
         let started = ProcessInfo.processInfo.systemUptime
         #endif
-        guard let image = Self.decodeFrame(at: url) else {
+        // A frame of this folder carries the outline; a shared bubble doesn't.
+        let decoded = directory == nil ? Self.decodedFrame(at: url, outline: outline) : Self.decodeFrame(at: url)
+        guard let image = decoded else {
             return nil
         }
         #if DEBUG
@@ -393,12 +401,13 @@ final class TrackerAvatarSprites {
         let wantsBubble = images["bubble"] == nil
         // The sprites live as long as the app (`TrackerAvatarLibrary`), so the task holds them outright.
         let owner = self
+        let outline = self.outline
         Task.detached(priority: .utility) {
             let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
             let frames: [(name: String, image: CGImage)] = files
                 .filter { url in url.pathExtension == "png" && prefixes.contains { url.lastPathComponent.hasPrefix($0) } }
                 .compactMap { url in
-                    Self.decodeFrame(at: url).map { (url.deletingPathExtension().lastPathComponent, $0) }
+                    Self.decodedFrame(at: url, outline: outline).map { (url.deletingPathExtension().lastPathComponent, $0) }
                 }
             let bubble: [(name: String, image: CGImage)] = wantsBubble ? Self.decodeFrame(at: bubbleURL).map { [("bubble", $0)] } ?? [] : []
             let decoded = frames + bubble
@@ -422,6 +431,73 @@ final class TrackerAvatarSprites {
             return nil
         }
         return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+    }
+
+    /// The PNG at `url`, with the outline painted round its art when `outline` is given. The PNG as it is when the outline can't be painted.
+    nonisolated static func decodedFrame(at url: URL, outline: TrackerAvatarOutlineInk?) -> CGImage? {
+        guard let image = decodeFrame(at: url) else {
+            return nil
+        }
+        guard let outline else {
+            return image
+        }
+        return outlined(image, ink: outline) ?? image
+    }
+
+    /// The image with a one-pixel outline in `ink` round its art: each transparent pixel that the ring from `TrackerCompanyOutline` reaches
+    /// is painted opaque, and the art keeps its own pixels. The ring stays on the canvas, so the image keeps its size. Nil when its pixels
+    /// can't be read.
+    nonisolated static func outlined(_ image: CGImage, ink: TrackerAvatarOutlineInk) -> CGImage? {
+        guard var pixels = premultipliedPixels(of: image) else {
+            return nil
+        }
+        let width = image.width
+        let height = image.height
+        let opaque = (0..<(width * height)).map { pixels[$0 * bytesPerPixel + alphaByte] > 0 }
+        let ring = TrackerCompanyOutline.ring(opaque: opaque, width: width, height: height)
+        for (index, inRing) in ring.enumerated() where inRing {
+            let offset = index * bytesPerPixel
+            pixels[offset] = ink.red
+            pixels[offset + 1] = ink.green
+            pixels[offset + 2] = ink.blue
+            pixels[offset + 3] = 0xff
+        }
+        guard let provider = CGDataProvider(data: Data(pixels) as CFData) else {
+            return nil
+        }
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * bytesPerPixel,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+    }
+}
+
+/// A familiar's company outline colour as bytes, so the frames can be painted on the background decode queue. Read from its token once,
+/// on the main thread.
+struct TrackerAvatarOutlineInk: Sendable {
+    let red: UInt8
+    let green: UInt8
+    let blue: UInt8
+
+    init(_ colour: NSColor) {
+        // A colour that has no sRGB form paints black, the darkest tone.
+        let srgb = colour.usingColorSpace(.sRGB)
+        red = Self.byte(srgb?.redComponent ?? 0)
+        green = Self.byte(srgb?.greenComponent ?? 0)
+        blue = Self.byte(srgb?.blueComponent ?? 0)
+    }
+
+    private static func byte(_ component: CGFloat) -> UInt8 {
+        UInt8((component * 255).rounded())
     }
 }
 

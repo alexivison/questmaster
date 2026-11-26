@@ -4,6 +4,7 @@ import Darwin
 enum QuestmasterLogicTests {
     static func main() throws {
         timed("TrackerRendererTests") { TrackerRendererTests.run() }
+        timed("TrackerCompanyOutlineTests") { TrackerCompanyOutlineTests.run() }
         timed("TrackerPlateVariantTests") { TrackerPlateVariantTests.run() }
         timed("TrackerShellSectionTests") { TrackerShellSectionTests.run() }
         timed("TrackerAttachedDotTests") { TrackerAttachedDotTests.run() }
