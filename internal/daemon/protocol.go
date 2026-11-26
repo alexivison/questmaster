@@ -31,7 +31,9 @@ type Config struct {
 	ClockInterval                            time.Duration
 	LoginEnvironmentRunner                   LoginEnvironmentRunner
 	Exec                                     func(string, []string, []string) error
-	Clock                                    func() time.Time // nil means time.Now; tests inject a fake
+	// OnLifetimeLockWait is a test hook called once when Ensure waits on a daemon lifetime lock.
+	OnLifetimeLockWait func()
+	Clock              func() time.Time // nil means time.Now; tests inject a fake
 }
 
 func (c Config) now() time.Time {
@@ -342,6 +344,41 @@ func Ensure(ctx context.Context, c Config) (Record, error) {
 		select {
 		case <-deadline.Done():
 			return Record{}, fmt.Errorf("wait for daemon starter: %w", deadline.Err())
+		case <-tick.C:
+		}
+	}
+	if record, err := Status(c); err == nil {
+		return record, nil
+	}
+	lifetime, err := os.OpenFile(filepath.Join(dir, id+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return Record{}, fmt.Errorf("open daemon lifetime lock: %w", err)
+	}
+	defer lifetime.Close()
+	waitingForLock := false
+	for {
+		if record, err := Status(c); err == nil {
+			return record, nil
+		}
+		err := syscall.Flock(int(lifetime.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			if err := syscall.Flock(int(lifetime.Fd()), syscall.LOCK_UN); err != nil {
+				return Record{}, fmt.Errorf("release daemon lifetime lock probe: %w", err)
+			}
+			break
+		}
+		if err != syscall.EWOULDBLOCK {
+			return Record{}, fmt.Errorf("probe daemon lifetime lock: %w", err)
+		}
+		if !waitingForLock {
+			waitingForLock = true
+			if c.OnLifetimeLockWait != nil {
+				c.OnLifetimeLockWait()
+			}
+		}
+		select {
+		case <-deadline.Done():
+			return Record{}, fmt.Errorf("wait for daemon lifetime lock holder: %w", deadline.Err())
 		case <-tick.C:
 		}
 	}
