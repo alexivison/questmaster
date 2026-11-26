@@ -117,6 +117,7 @@ enum LogicSelfTests {
         ("testEveryBundledFamiliarFitsTheSlot", testEveryBundledFamiliarFitsTheSlot),
         ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
+        ("testOneWorkerStandsTwentyFivePastTheMastersBody", testOneWorkerStandsTwentyFivePastTheMastersBody),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
         ("testTheWarHoundDrawsAtItsScaleOnTheBaseline", testTheWarHoundDrawsAtItsScaleOnTheBaseline),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
@@ -2712,6 +2713,31 @@ enum LogicSelfTests {
         try expect(stage.companions.isEmpty && stage.overflow == 0, "a master with no workers should show no company")
     }
 
+    /// Every class's first familiar stands 25 pt right of its master's body column when one worker is alone, whatever the master's art: the
+    /// Necromancer's scythe doesn't move the place. The familiar's visible left edge is read back from its placement, to within the half
+    /// point the placement snaps to.
+    @MainActor
+    private static func testOneWorkerStandsTwentyFivePastTheMastersBody() throws {
+        final class Clock {
+            var now: TimeInterval = 0
+        }
+        let expected = TrackerAvatarMetrics.slotWidth / 2 + CGFloat(TrackerCompanyLayout.sideBySideOffset)
+        for sessionClass in SessionClass.allCases {
+            let clock = Clock()
+            let stage = TrackerCompanyStage(clock: { clock.now })
+            let classID = sessionClass.rawValue
+            let master = try testRow(["id": "qm-m", "title": classID, "session_type": "master", "class": classID])
+            let worker = try testRow(["id": "qm-w0", "title": "Worker", "session_type": "worker", "parent_id": "qm-m", "class": classID])
+            stage.observe(sessions: [master, worker], attachedID: "qm-m")
+            guard let companion = stage.companions.first, let columns = companion.sprites.restColumns,
+                  let body = companion.sprites.animation.animation(for: .idle)?.bodyColumn else {
+                throw TestFailure("the \(classID)'s first familiar should show with its rest art")
+            }
+            let left = companion.bodyX + CGFloat(columns.lowerBound - body) * companion.pixel
+            try expect(abs(left - expected) <= 0.5, "the \(classID)'s first familiar should stand 25 pt right of the master's body (\(expected)), got \(left)")
+        }
+    }
+
     /// Every designed familiar's company frames are on the 2x device grid at its scale: each full frame has a company frame of the same
     /// name, sized by the scale (the full canvas times two times the scale, rounded to whole pixels), and its feet stay on its canvas.
     @MainActor
@@ -2721,7 +2747,7 @@ enum LogicSelfTests {
         }
         let companions = TrackerAvatarSprites.bundledCompanions()
         let designed = TrackerAvatarSprites.bundledFamiliars().filter { $0.value.animation.companyRow != nil }
-        try expect(designed.count == 10, "ten familiars should carry a company row, got \(designed.count)")
+        try expect(designed.count == 11, "eleven familiars should carry a company row, got \(designed.count)")
         for (classID, sprites) in designed.sorted(by: { $0.key < $1.key }) {
             guard let company = companions[classID] else {
                 throw TestFailure("\(classID) should have its company frames")

@@ -14,12 +14,11 @@ final class TrackerCompanyStage {
     struct Companion: Identifiable {
         let id: String
         let sprites: TrackerAvatarSprites
-        /// The points one frame pixel draws at: a designed familiar's company frame draws at its half point a pixel, and a fit-rule
-        /// familiar's full frames at its scale as a fraction of one art pixel per point.
+        /// The points one frame pixel draws at: a familiar's company frame draws at its half point a pixel.
         let pixel: CGFloat
         /// The body column's x in the slot, in points. The familiar's art stands on it.
         let bodyX: CGFloat
-        /// How far the art drops below the slot's baseline, in points: a designed familiar's visible bottom sits below the master's feet.
+        /// How far the art drops below the slot's baseline, in points: the familiar's visible bottom sits below the master's feet.
         let drop: CGFloat
         let pose: TrackerAvatarPose?
         let beat: Int
@@ -73,39 +72,28 @@ final class TrackerCompanyStage {
     private func refresh(at now: TimeInterval) {
         let (sessions, attachedID) = latest
         guard let master = sessions.first(where: { $0.id == attachedID }), let classID = catalog.classID(for: master),
-              let masterArt = art[TrackerAvatarArtKey(kind: .master, classID: classID)] else {
+              art[TrackerAvatarArtKey(kind: .master, classID: classID)] != nil else {
             clear()
             return
         }
-        // Each worker's familiar, in spawn order. A designed familiar draws from its company frames, a half point a pixel; any other from
-        // its full frames at its scale. A worker whose familiar has no art shows nothing and takes no place.
+        // Each worker's familiar, in spawn order, from its company frames at a half point a pixel. A worker whose familiar has no art shows
+        // nothing and takes no place.
         let familiars: [(id: String, sprites: TrackerAvatarSprites, pixel: CGFloat)] = TrackerCompanyLayout.liveWorkers(of: master, in: sessions)
             .compactMap { worker in
-                guard let key = catalog.art(for: worker), key.kind == .familiar, let full = art[key] else {
+                guard let key = catalog.art(for: worker), key.kind == .familiar, art[key] != nil, let company = companionArt[key.classID] else {
                     return nil
                 }
-                if full.animation.companyRow != nil, let company = companionArt[key.classID] {
-                    return (worker.id, company, CGFloat(TrackerCompanyLayout.companyPixelPoints))
-                }
-                return (worker.id, full, full.scaleFraction)
+                return (worker.id, company, CGFloat(TrackerCompanyLayout.companyPixelPoints))
             }
-        guard let reach = Self.reach(of: masterArt), let first = familiars.first else {
+        guard let first = familiars.first, let row = first.sprites.animation.companyRow else {
             clear()
             return
         }
-        let slotWidth = Double(TrackerAvatarMetrics.slotWidth)
-        // A familiar with a company row keeps its designed row. The workers of one master share its class, so one row decides for all.
-        let isDesigned = first.sprites.animation.companyRow != nil
-        let layout: TrackerCompanyLayout.Result
-        if let row = first.sprites.animation.companyRow {
-            layout = TrackerCompanyLayout.designLayout(
-                count: familiars.count, row: row, restWidth: Double(first.sprites.restWidth(pixel: first.pixel)), master: reach, slotWidth: slotWidth
-            )
-        } else {
-            layout = TrackerCompanyLayout.layout(
-                restWidths: familiars.map { Double($0.sprites.restWidth(pixel: $0.pixel)) }, slotWidth: slotWidth
-            )
-        }
+        // The workers of one master share its class, so the first worker's row decides for all.
+        let layout = TrackerCompanyLayout.designLayout(
+            count: familiars.count, row: row, restWidth: Double(first.sprites.restWidth(pixel: first.pixel)),
+            slotWidth: Double(TrackerAvatarMetrics.slotWidth)
+        )
         var stepped: [String: TrackerAvatarDirector] = [:]
         var frames: [String: TrackerAvatarFrame] = [:]
         var nextChange: TimeInterval?
@@ -128,7 +116,7 @@ final class TrackerCompanyStage {
             let pixel = entry.pixel
             // Its rest's left edge stands on the layout's `left`: the body column sits the rest's offset to the right of that edge.
             let bodyX = Self.halfPoint(placed.left - Self.restOffset(of: entry.sprites) * Double(pixel))
-            let drop = isDesigned ? Self.halfPoint(Self.drop(of: entry.sprites, pixel: Double(pixel))) : 0
+            let drop = Self.halfPoint(Self.drop(of: entry.sprites, pixel: Double(pixel)))
             return Companion(
                 id: entry.id,
                 sprites: entry.sprites,
@@ -173,14 +161,6 @@ final class TrackerCompanyStage {
         refresh(at: clock())
     }
 
-    /// The master's reach from its body column, in points at its own scale: how far its resting art extends left and right.
-    private static func reach(of sprites: TrackerAvatarSprites) -> TrackerCompanyLayout.MasterReach? {
-        guard let columns = sprites.restColumns, let body = sprites.animation.animation(for: .idle)?.bodyColumn else {
-            return nil
-        }
-        return TrackerCompanyLayout.MasterReach(left: Double(body - columns.lowerBound), right: Double(columns.upperBound + 1 - body))
-    }
-
     /// How far the familiar's resting art starts left of its body column, in art pixels (negative when the body is right of its edge).
     private static func restOffset(of sprites: TrackerAvatarSprites) -> Double {
         guard let columns = sprites.restColumns, let body = sprites.animation.animation(for: .idle)?.bodyColumn else {
@@ -204,11 +184,6 @@ final class TrackerCompanyStage {
 }
 
 extension TrackerAvatarSprites {
-    /// The familiar's scale as a fraction of one art pixel per point: 0.5 for a 50% familiar.
-    var scaleFraction: CGFloat {
-        CGFloat(animation.scalePercent) / 100
-    }
-
     /// The resting figure's width in points, drawn at `pixel` points a frame pixel: its opaque columns, times the pixel size.
     func restWidth(pixel: CGFloat) -> CGFloat {
         guard let columns = restColumns else {

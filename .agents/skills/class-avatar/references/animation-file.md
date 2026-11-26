@@ -20,8 +20,8 @@ the slot's size. The moves are horizontal only (`TrackerAvatarMotion`, Core), so
   and the effects export, copying each PNG byte for byte under the app's frame names. Fire and Lightning Elementals ship without effect
   layers until their export arrives. Its top-level `scale` is its size in percent of one art pixel per point, decimals allowed (50 when absent; the designed familiars
   are 46.5 to 82, the War Hound 82). It may also carry a `company` object, `{"pitch": points, "capacity": workers}`: the pitch between
-  neighbours in the master's company and the most workers its full row holds before the `+n` marker (`TrackerCompanyRow`). A familiar
-  with no `company` keeps the fit rule. A designed familiar (one with a `company` object) also has a `company/` folder: the same frame names on the 2x device grid at its
+  neighbours in the master's company and the most workers its full row holds before the `+n` marker (`TrackerCompanyRow`). Every familiar
+  has one: a familiar's file without a `company` object does not read. Each familiar also has a `company/` folder: the same frame names on the 2x device grid at its
   scale (each frame `round(260 x 2 x scale)` by `round(188 x 2 x scale)` pixels, palette-snapped), with its own `animation.json`
   whose pixel coordinates are on that grid. The master's company draws those frames at 0.5 pt a pixel, nearest-neighbour; the worker
   slot keeps the full frames. A class draws at 100, and its file has no `scale`. The App draws a familiar at `scale / 100` with nearest-neighbour filtering, so

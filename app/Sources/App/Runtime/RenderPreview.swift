@@ -227,10 +227,12 @@ enum RenderPreview {
         render(familiarSlotsView(), size: CGSize(width: 1290, height: 1925), to: "\(outputDir)/familiar-slots.png")
         render(masterCompanyView(), size: CGSize(width: 1210, height: 2035), to: "\(outputDir)/master-company.png")
         // The worker-count sequences: each class's company from none to its full row plus one, in the slot, for the fewer-workers rule.
-        for (classID, full) in [("necromancer", 7), ("wizard", 7), ("fighter", 6), ("ranger", 8), ("rogue", 6)] {
+        for (classID, full) in [("barbarian", 5), ("necromancer", 7), ("wizard", 7), ("fighter", 6), ("ranger", 8), ("rogue", 6)] {
             render(companySequenceView(classID: classID, full: full), size: CGSize(width: 360, height: 1), autoHeight: true,
                    to: "\(outputDir)/company-sequence-\(classID).png")
         }
+        // Every class's first familiar with one worker, in one image, for the 25 pt place beside the master.
+        render(companyFirstWorkerView(), size: CGSize(width: 1200, height: 1), autoHeight: true, to: "\(outputDir)/company-first-worker.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -1643,6 +1645,40 @@ enum RenderPreview {
             }
         }
         .padding(.leading, Space.item)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// Every class's company with one worker, four to a row: each in its slot and labelled with its class. A thin guide marks the slot's middle,
+    /// the master's body column, and a fainter one marks the 25 pt place where the first familiar's visible left edge stands. Named by
+    /// RENDER_ONLY=company-first-worker.
+    @MainActor
+    private static func companyFirstWorkerView() -> some View {
+        let classes = SessionClass.allCases.map(\.rawValue)
+        return VStack(alignment: .leading, spacing: Space.item) {
+            ForEach(Array(stride(from: 0, to: classes.count, by: 4)), id: \.self) { start in
+                HStack(alignment: .top, spacing: Space.item) {
+                    ForEach(Array(classes[start..<min(start + 4, classes.count)]), id: \.self) { classID in
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(classID).font(Font(AppFonts.monoSmall)).foregroundStyle(AppPalette.text.swiftUI)
+                            companyCell(classID: classID, workers: 1)
+                                .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                                .overlay(alignment: .leading) {
+                                    Rectangle().fill(AppPalette.line.swiftUI.opacity(0.5))
+                                        .frame(width: 1, height: TrackerAvatarMetrics.slotHeight)
+                                        .offset(x: TrackerAvatarMetrics.slotWidth / 2)
+                                }
+                                .overlay(alignment: .leading) {
+                                    Rectangle().fill(AppPalette.line.swiftUI.opacity(0.25))
+                                        .frame(width: 1, height: TrackerAvatarMetrics.slotHeight)
+                                        .offset(x: TrackerAvatarMetrics.slotWidth / 2 + CGFloat(TrackerCompanyLayout.sideBySideOffset))
+                                }
+                                .padding(.bottom, TrackerListMetrics.avatarBannerGap)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(Space.item)
         .background(AppPalette.window.swiftUI)
     }
 
