@@ -27,13 +27,14 @@ import (
 
 const (
 	// These tests observe separate CLI and daemon processes, so their file and socket events need a generous CI watchdog.
-	daemonProcessWaitTimeout   = 45 * time.Second
-	daemonProcessSocketTimeout = 10 * time.Second
-	daemonProcessPollInterval  = 20 * time.Millisecond
-	daemonProcessFastPoll      = 10 * time.Millisecond
-	daemonProcessIdleGrace     = 300 * time.Millisecond
-	daemonProcessLiveWorkCheck = 400 * time.Millisecond
-	daemonProcessStopCheck     = 300 * time.Millisecond
+	daemonProcessWaitTimeout          = 45 * time.Second
+	daemonProcessSocketTimeout        = 10 * time.Second
+	daemonProcessPollInterval         = 20 * time.Millisecond
+	daemonProcessFastPoll             = 10 * time.Millisecond
+	daemonProcessIdleGrace            = 300 * time.Millisecond
+	daemonProcessLiveWorkCheck        = 400 * time.Millisecond
+	daemonProcessStopCheck            = 300 * time.Millisecond
+	daemonProcessHandoffSettleTimeout = 5 * time.Second
 )
 
 func daemonProcessDeadline() time.Time { return time.Now().Add(daemonProcessWaitTimeout) }
@@ -297,6 +298,40 @@ func (h *daemonHarness) waitGeneration(generation float64) map[string]any {
 	return nil
 }
 
+func waitDaemonRunProcessCount(t *testing.T, executable string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(daemonProcessHandoffSettleTimeout)
+	var count int
+	for {
+		count = daemonRunProcessCount(t, executable)
+		if count == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("helper run process count = %d", count)
+		}
+		// Ensure can launch a contender while the old daemon is draining. Its
+		// caller may observe the resumed daemon before the contender exits.
+		time.Sleep(daemonProcessPollInterval)
+	}
+}
+
+func daemonRunProcessCount(t *testing.T, executable string) int {
+	t.Helper()
+	ps := exec.Command("ps", "-eo", "pid=,command=")
+	out, err := ps.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, executable+" daemon run") {
+			count++
+		}
+	}
+	return count
+}
+
 func TestDaemonConcurrentStartAndStop(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	var wg sync.WaitGroup
@@ -363,6 +398,13 @@ func TestDaemonExitHandoff(t *testing.T) {
 				t.Fatal(err)
 			}
 			old := h.must("daemon", "start")
+			startGate := filepath.Join(h.root, "daemon", "resume-start-gate")
+			if resume {
+				// Keep the replacement before its lock/readiness check so the
+				// caller can return for the resumed daemon while it still exists.
+				h.env = append(h.env, "QUESTMASTER_TEST_DAEMON_START_GATE="+startGate)
+				t.Cleanup(func() { _ = os.WriteFile(startGate+".release", nil, 0o600) })
+			}
 			release := filepath.Join(h.root, "daemon", "release-drain")
 			t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
 			deadline := daemonProcessDeadline()
@@ -392,6 +434,20 @@ func TestDaemonExitHandoff(t *testing.T) {
 						err    error
 					}{result, err}
 				}()
+			}
+			if resume {
+				deadline := time.Now().Add(daemonProcessHandoffSettleTimeout)
+				for {
+					if _, err := os.Stat(startGate + ".started"); err == nil {
+						break
+					} else if !os.IsNotExist(err) {
+						t.Fatal(err)
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("replacement daemon did not reach start gate")
+					}
+					time.Sleep(daemonProcessPollInterval)
+				}
 			}
 			if err := os.WriteFile(release, nil, 0o600); err != nil {
 				t.Fatal(err)
@@ -424,20 +480,15 @@ func TestDaemonExitHandoff(t *testing.T) {
 			if status := h.must("daemon", "status"); status["pid"] != pid {
 				t.Fatalf("handoff status: %+v", status)
 			}
-			ps := exec.Command("ps", "-eo", "pid=,command=")
-			out, err := ps.Output()
-			if err != nil {
-				t.Fatal(err)
-			}
-			count := 0
-			for _, line := range strings.Split(string(out), "\n") {
-				if strings.Contains(line, helper+" daemon run") {
-					count++
+			if resume {
+				if count := daemonRunProcessCount(t, helper); count != 2 {
+					t.Fatalf("gated helper run process count = %d, want 2", count)
+				}
+				if err := os.WriteFile(startGate+".release", nil, 0o600); err != nil {
+					t.Fatal(err)
 				}
 			}
-			if count != 1 {
-				t.Fatalf("helper run process count = %d", count)
-			}
+			waitDaemonRunProcessCount(t, helper, 1)
 			h.must("daemon", "stop")
 			h.waitStopped()
 		})
