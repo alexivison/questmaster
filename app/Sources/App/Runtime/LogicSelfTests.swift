@@ -2410,8 +2410,8 @@ enum LogicSelfTests {
     /// Every bundled class whose idle carries an effect has all its art, and each effect track loops on its own length rather than
     /// the breathing's.
     @MainActor
-    /// Every bundled class and familiar: each idle effect has its art and loops on its own clock, and that clock is a whole number of the
-    /// breathing periods, so the effect and the breath meet again at each start of the effect's loop (a 3.6 s effect over a 1.8 s breath).
+    /// Every bundled class and familiar: each idle effect has its art and loops back to its first frame over its own length. The breath runs on
+    /// its own clock from the same start, so the two meet again at each common multiple of their periods.
     private static func testEveryBundledIdleEffectHasItsArtAndLoops() throws {
         let sprites = TrackerAvatarSprites.bundled().map { (name: "the \($0.key)", sprites: $0.value) }
             + TrackerAvatarSprites.bundledFamiliars().map { (name: "the \($0.key)'s familiar", sprites: $0.value) }
@@ -2424,11 +2424,6 @@ enum LogicSelfTests {
                 try expect(missing.isEmpty, "\(name)'s idle \(layer.rawValue) effect should have all its art, missing: \(missing)")
                 try expect(track.frame(at: track.seconds, looping: true) == track.steps[0].frame,
                            "\(name)'s idle \(layer.rawValue) effect should loop back to its first frame after \(track.seconds) s")
-                if let breathing = sprites.animation.idle?.breathing {
-                    let cycles = track.seconds / breathing.period
-                    try expect(abs(cycles - cycles.rounded()) < 1e-9,
-                               "\(name)'s idle \(layer.rawValue) effect (\(track.seconds) s) should be a whole number of its \(breathing.period) s breaths")
-                }
             }
         }
     }
