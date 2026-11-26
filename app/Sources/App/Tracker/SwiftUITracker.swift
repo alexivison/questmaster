@@ -922,8 +922,10 @@ enum TrackerNameplateRole: Equatable {
     static let workerTextX = TrackerPlateDesign.textX(afterDisc: TrackerPlateDesign.worker.discEdge)
     static let workerTextRightEdge = TrackerPlateDesign.plateWidth - Space.item
     static let titleTimeGap = Space.row
-    /// The collapsed workers' circles start at the leading edge of the expanded worker's disc.
-    static let circlesX = TrackerNameplateRole.worker.portraitOrigin.x
+    /// The collapsed circles start one row step left of the expanded worker's disc.
+    static let circlesX = TrackerNameplateRole.worker.portraitOrigin.x - Space.row
+    /// The top of the circles with the cast row closed.
+    var circlesY: CGFloat { canvasSize.height + Space.row }
 
     var titleX: CGFloat { isWorker ? Self.workerTextX : Self.topLevelTextX }
     var snippetX: CGFloat { titleX }
@@ -944,10 +946,10 @@ enum TrackerNameplateRole: Equatable {
         return textRightEdge - Self.timeWidth(for: time) - Self.titleTimeGap - titleX
     }
 
-    /// The row's height: the canvas, plus the circles a point below its bottom under a master that shows them.
+    /// Include the collapsed circles and the gap above them in the row height.
     func rowHeight(showsCircles: Bool) -> CGFloat {
         guard showsCircles else { return canvasSize.height }
-        return canvasSize.height + TrackerPlateDesign.collapsedCircleDiameter
+        return circlesY + TrackerPlateDesign.collapsedCircleDiameter
     }
 }
 
@@ -1376,7 +1378,7 @@ private struct TrackerSessionRowContent: View {
     private var session: TrackerSession { rendered.session }
     private var showsCircles: Bool { role.isMaster && !collapsedWorkers.isEmpty }
     /// How far the cast row has pushed the row's bottom (and a master's circles) down: all the way while it is open.
-    private var castExtra: CGFloat { cast.isOpen ? TrackerCastLayout.extraHeight(role, showsCircles: showsCircles) : 0 }
+    private var castExtra: CGFloat { cast.isOpen ? TrackerCastLayout.extraHeight(role) : 0 }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -1403,7 +1405,7 @@ private struct TrackerSessionRowContent: View {
             }
             if showsCircles {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
-                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height + castExtra)
+                    .offset(x: TrackerNameplateRole.circlesX, y: role.circlesY + castExtra)
             }
         }
         .frame(width: role.canvasSize.width, height: role.rowHeight(showsCircles: showsCircles) + castExtra, alignment: .topLeading)

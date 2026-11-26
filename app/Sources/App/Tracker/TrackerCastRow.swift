@@ -33,11 +33,9 @@ enum TrackerCastLayout {
         role.canvasSize.width - squareX(role) - metrics(role).side - squareToBar
     }
 
-    /// How much taller the row is while the cast row shows: the row and the gap above it, and for a master with
-    /// collapsed circles, the gap down to them.
-    static func extraHeight(_ role: TrackerNameplateRole, showsCircles: Bool) -> CGFloat {
-        let row = spacing + metrics(role).side
-        return showsCircles ? row + spacing : row
+    /// The cast row and the gap above it. The circles reserve their own gap below it.
+    static func extraHeight(_ role: TrackerNameplateRole) -> CGFloat {
+        spacing + metrics(role).side
     }
 }
 
