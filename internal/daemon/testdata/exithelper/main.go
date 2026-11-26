@@ -98,6 +98,21 @@ func main() {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]int{"protocol_version": daemon.ProtocolVersion})
 		return
 	}
+	if gate := os.Getenv("QUESTMASTER_TEST_DAEMON_START_GATE"); gate != "" {
+		if err := os.WriteFile(gate+".started", nil, 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		for {
+			if _, err := os.Stat(gate + ".release"); err == nil {
+				break
+			} else if !os.IsNotExist(err) {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	root := os.Getenv("QUESTMASTER_STATE_ROOT")
