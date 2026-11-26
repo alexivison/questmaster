@@ -1695,7 +1695,7 @@
     },
     {
      "file": "01-idle-breath-f3.png",
-     "seconds": 0.2,
+     "seconds": 0.1,
      "lid_pixels": [
       [
        54,
@@ -1747,7 +1747,7 @@
     },
     {
      "file": "01-idle-breath-f5.png",
-     "seconds": 0.3,
+     "seconds": 0.2,
      "lid_pixels": [
       [
        53,
@@ -1773,7 +1773,7 @@
     },
     {
      "file": "01-idle-breath-f6.png",
-     "seconds": 0.2,
+     "seconds": 0.1,
      "lid_pixels": [
       [
        54,
@@ -1799,7 +1799,7 @@
     },
     {
      "file": "01-idle-breath-f7.png",
-     "seconds": 0.2,
+     "seconds": 0.1,
      "lid_pixels": [
       [
        54,
@@ -1825,7 +1825,7 @@
     },
     {
      "file": "01-idle-breath-f8.png",
-     "seconds": 0.3,
+     "seconds": 0.1,
      "lid_pixels": [
       [
        54,

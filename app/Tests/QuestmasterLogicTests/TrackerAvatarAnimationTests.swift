@@ -37,6 +37,8 @@ struct TrackerAvatarAnimationTests {
         aStillIdleMayUseAnAuthoredLidStencil()
         aBreathingTrackReadsSparseFilesAndFrameStencils()
         aBreathingTrackRejectsMalformedData()
+        aSpeedDividesEveryAuthoredDuration()
+        everyClassBreathesAndLoopsOnOneRhythm()
         aLoopingIdleTakesNoEnterFinishOrOnce()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
@@ -458,6 +460,47 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.blink == true, "an authored still stencil should enable blinking by default")
     }
 
+    /// A speed divides every authored duration as the file is read: a pose's steps and a breath's frames alike. A speed that is not a
+    /// finite number above 0 is refused.
+    private static func aSpeedDividesEveryAuthoredDuration() {
+        var json = bardJSON()
+        var idle = json["idle"] as? [String: Any] ?? [:]
+        idle["breathing"] = [
+            "resume_frame": "01-idle-breath-f1.png",
+            "frames": [["file": "01-idle-breath-f1.png", "seconds": 0.2], ["file": "01-idle-breath-f2.png", "seconds": 0.4]],
+        ]
+        json["idle"] = idle
+        guard let authored = try? decode(json),
+              let doubled = try? TrackerAvatarAnimation(data: JSONSerialization.data(withJSONObject: json), speed: 2) else {
+            fail("the file should decode at both speeds")
+        }
+        let loop = { (animation: TrackerAvatarAnimation) in animation.animation(for: .pondering)?.loop?.seconds ?? 0 }
+        expect(abs(loop(doubled) - loop(authored) / 2) < 1e-9, "at speed 2 a pose loop should take half its authored time")
+        expect(abs((doubled.idle?.breathing?.period ?? 0) - 0.3) < 1e-9, "at speed 2 the 0.6 s breath should take 0.3 s")
+        for speed in [0, -1, Double.infinity, Double.nan] {
+            expectRejected("speed \(speed)") {
+                _ = try TrackerAvatarAnimation(data: JSONSerialization.data(withJSONObject: json), speed: speed)
+            }
+        }
+    }
+
+    /// Every class breathes and loops on one rhythm: each pose loop and each idle breath lasts 1.2 s as authored.
+    private static func everyClassBreathesAndLoopsOnOneRhythm() {
+        for sessionClass in SessionClass.allCases {
+            guard let animation = try? decode(AvatarAnimationFixture.classJSON(sessionClass.rawValue)) else {
+                fail("the \(sessionClass.rawValue)'s file should decode")
+            }
+            let breath = animation.idle?.breathing?.period ?? animation.animation(for: .idle)?.loop?.seconds ?? 0
+            expect(abs(breath - 1.2) < 1e-9, "the \(sessionClass.rawValue)'s breath should last 1.2 s, got \(breath)")
+            for pose in TrackerAvatarPose.masterPoses where pose != .idle {
+                guard let loop = animation.animation(for: pose)?.loop else {
+                    continue
+                }
+                expect(abs(loop.seconds - 1.2) < 1e-9, "the \(sessionClass.rawValue)'s \(pose.resourceName) loop should last 1.2 s, got \(loop.seconds)")
+            }
+        }
+    }
+
     private static func aBreathingTrackReadsSparseFilesAndFrameStencils() {
         let animation = try? bardWithIdle { idle in
             idle["blink"] = true
@@ -769,7 +812,7 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.stillLidPixels.count == 2, "the cleric's two eye-ink pixels should take two lid pixels")
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f1.png", "the cleric should resume at the authored rest frame")
         expect(animation.idle?.breathing?.frames.count == 9, "the cleric's breathing should play its nine authored steps")
-        expect(animation.idle?.breathing?.frames.allSatisfy { $0.seconds == 0.2 } == true, "the cleric breathes 0.2 s a step")
+        expect(abs((animation.idle?.breathing?.period ?? 0) - 1.2) < 1e-9, "the cleric's breath should last 1.2 s, a pose loop's length")
         expect(animation.fidgets.map(\.name) == ["capelet", "circlet"], "the cleric should have the capelet and circlet fidgets")
         expect(animation.fidgets.first(where: { $0.name == "circlet" })?.frames == [2, 3, 4, 5, 6, 7, 8, 9], "the circlet should play idle frames 2 to 9")
         let pondering = animation.animation(for: .pondering)

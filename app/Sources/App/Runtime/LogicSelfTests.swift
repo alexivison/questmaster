@@ -1725,8 +1725,11 @@ enum LogicSelfTests {
         try expect(calling.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "calling out should not bob: its feet stay on the baseline")
         let character = calling.character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
         let front = calling.front.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
-        try expect(character?.duration == 0.25 && character?.values?.count == 2, "a 1-frame character should cycle on its own 0.25 s clock")
-        try expect(front?.duration == 1 && front?.values?.count == 9, "an 8-frame front should cycle on its own 1 s clock")
+        let speed = TrackerAvatarAnimation.playbackSpeed
+        try expect(abs((character?.duration ?? 0) - 0.25 / speed) < 1e-9 && character?.values?.count == 2,
+                   "a 1-frame character should cycle on its own 0.25 s clock, played at the app's speed")
+        try expect(abs((front?.duration ?? 0) - 1 / speed) < 1e-9 && front?.values?.count == 9,
+                   "an 8-frame front should cycle on its own 1 s clock, played at the app's speed")
     }
 
     /// A cast's finish plays in place: its frames show, and the figure never leaves its anchor.
@@ -1774,8 +1777,9 @@ enum LogicSelfTests {
                    "breathing should start at resume_frame and close on it")
         try expect(lidAnimation.values?.count == breathingArt.count + 1 && sameImage(lidAnimation.values?.first, breathingArt[0].lids),
                    "the full recorded lid stencil should advance with the same frame order")
-        try expect(abs(animation.duration - 0.6 * Motion.slowdown) < 1e-9 && abs(lidAnimation.duration - animation.duration) < 1e-9,
-                   "the breathing and lid tracks should share the authored period")
+        try expect(abs(animation.duration - 0.6 / TrackerAvatarAnimation.playbackSpeed * Motion.slowdown) < 1e-9
+                   && abs(lidAnimation.duration - animation.duration) < 1e-9,
+                   "the breathing and lid tracks should share the authored period, played at the app's speed")
         avatar.showEyelids(true)
         try expect(lids.opacity == 1, "the forced blink should show the authored lid image")
 
@@ -1937,8 +1941,9 @@ enum LogicSelfTests {
             throw TestFailure("a looping idle should cycle its character frames")
         }
         let first = sprites.idleFrame(1)
-        try expect(loop.values?.count == 4 && loop.calculationMode == .discrete && loop.repeatCount == .infinity && loop.duration == 0.4,
-                   "idle should loop its three frames as discrete keyframes over 0.4 s, closing on f1")
+        try expect(loop.values?.count == 4 && loop.calculationMode == .discrete && loop.repeatCount == .infinity
+                   && abs(loop.duration - 0.4 / TrackerAvatarAnimation.playbackSpeed) < 1e-9,
+                   "idle should loop its three frames as discrete keyframes over 0.4 s at the app's speed, closing on f1")
         try expect(sameImage(loop.values?.first, first) && sameImage(loop.values?.last, first), "the loop should start and close on idle f1")
         let figure = character.superlayer
         try expect(figure?.sublayers?.dropFirst().first?.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "the front effect should cycle on its own track")
@@ -2366,9 +2371,10 @@ enum LogicSelfTests {
               let behindPlay = behind.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation else {
             throw TestFailure("the effect layers should play their frames")
         }
-        try expect(abs(frontPlay.duration - 0.8) < 1e-9 && frontPlay.repeatCount == .infinity && frontPlay.values?.count == 4,
-                   "the front effect should loop its 0.8 s track and close on its first frame")
-        try expect(abs(behindPlay.duration - 0.5) < 1e-9, "the behind effect should keep its own 0.5 s clock")
+        let speed = TrackerAvatarAnimation.playbackSpeed
+        try expect(abs(frontPlay.duration - 0.8 / speed) < 1e-9 && frontPlay.repeatCount == .infinity && frontPlay.values?.count == 4,
+                   "the front effect should loop its 0.8 s track at the app's speed and close on its first frame")
+        try expect(abs(behindPlay.duration - 0.5 / speed) < 1e-9, "the behind effect should keep its own 0.5 s clock at the app's speed")
         let pixel = TrackerAvatarDesign.pixelPoints
         try expect(front.frame.minX == figure.frame.minX - 20 * pixel && front.frame.maxY == figure.frame.maxY + 10 * pixel,
                    "the effect canvas should place the figure's canvas at character_at, got \(front.frame) against \(figure.frame)")

@@ -123,7 +123,7 @@ final class TrackerAvatarSprites {
         }
         let animation: TrackerAvatarAnimation
         do {
-            animation = try TrackerAvatarAnimation(data: data, kind: kind)
+            animation = try TrackerAvatarAnimation(data: data, kind: kind, speed: TrackerAvatarAnimation.playbackSpeed)
         } catch {
             NSLog("Questmaster: %@ has no usable animation.json (%@), so its art shows no avatar", file.path, String(describing: error))
             return nil

@@ -2484,7 +2484,8 @@
   }
  },
  "idle": {
-  "blink": false, "lid_colour": "#eeb399",
+  "blink": false,
+  "lid_colour": "#eeb399",
   "breathing": {
    "resume_frame": "01-idle-breath-f1.png",
    "frames": [
@@ -2494,15 +2495,15 @@
     },
     {
      "file": "01-idle-breath-f2.png",
-     "seconds": 0.2
+     "seconds": 0.1
     },
     {
      "file": "01-idle-breath-f3.png",
-     "seconds": 0.2
+     "seconds": 0.1
     },
     {
      "file": "01-idle-breath-f4.png",
-     "seconds": 0.2
+     "seconds": 0.1
     },
     {
      "file": "01-idle-breath-f5.png",
@@ -2514,15 +2515,15 @@
     },
     {
      "file": "01-idle-breath-f7.png",
-     "seconds": 0.2
+     "seconds": 0.1
     },
     {
      "file": "01-idle-breath-f8.png",
-     "seconds": 0.2
+     "seconds": 0.1
     },
     {
      "file": "01-idle-breath-f9.png",
-     "seconds": 0.2
+     "seconds": 0.1
     }
    ]
   }
