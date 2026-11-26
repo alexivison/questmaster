@@ -1949,7 +1949,7 @@ enum RenderPreview {
             }
             if hasCollapsedWorkers {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
-                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height)
+                    .offset(x: TrackerNameplateRole.circlesX, y: role.circlesY)
             }
         }
         .frame(

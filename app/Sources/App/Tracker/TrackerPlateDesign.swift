@@ -9,7 +9,8 @@ import SwiftUI
 /// disc edge to disc edge. Every disc sits on the 5pt grid: the master's spans 0-50, the worker's 20-60. Each SVG keeps
 /// 2 points around its disc for the crown pieces or the filters, so a canvas starts 2 points above its row; the master's
 /// art moves 2 left too, so its side diamond and crown pieces reach past the row's left edge, which the canvases'
-/// bleed allows. Under a master that collapses its workers, a row of circles sits right under the disc's row.
+/// bleed allows. Under a master that collapses its workers, a row of circles sits `Space.row` below the disc's row
+/// or the cast row, when open.
 enum TrackerPlateDesign {
     /// The master SVG sits this far off whole points in x and y, a resize slip in the design file. The plate draws
     /// every one of its layers shifted back, with the shapes and sizes as drawn.
@@ -82,7 +83,7 @@ enum TrackerPlateDesign {
     /// selected-session panel's disc take it too.
     static let discFill = AppPalette.window
 
-    /// The collapsed workers' circles: 25 points across with 5 between, aligned with the expanded worker's disc.
+    /// The collapsed workers' circles are 25 points across with 5 between.
     static let collapsedCircleDiameter: CGFloat = 25
     static let collapsedCircleGap = Space.row
     static let collapsedCircleStroke: CGFloat = 1.5

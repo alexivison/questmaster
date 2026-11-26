@@ -1176,8 +1176,12 @@ enum LogicSelfTests {
         try expectClose(SelectedSessionTagMetrics.tabInset, 5, "id tab inset on each side")
         try expectClose(TrackerListMetrics.contentWidth, 282, "tracker content width reserves the badge column and band allowance")
 
-        // The first collapsed circle starts at the same edge as an expanded worker disc.
-        try expectClose(TrackerNameplateRole.circlesX, worker.discEdge.boundingRect.minX, "first collapsed circle aligns with the worker disc")
+        let masterRole = TrackerNameplateRole.master
+        try expectClose(TrackerNameplateRole.circlesX, worker.discEdge.boundingRect.minX - Space.row, "first collapsed circle starts one row step left of the worker disc")
+        try expectClose(masterRole.circlesY, masterRole.portraitDiameter + Space.row, "collapsed circles start one row step below the master disc")
+        let castBottom = TrackerCastLayout.top(masterRole) + TrackerCastLayout.metrics(masterRole).side
+        try expectClose(masterRole.circlesY + TrackerCastLayout.extraHeight(masterRole), castBottom + Space.row,
+                        "collapsed circles start one row step below the open cast row")
         try expectClose(TrackerPlateDesign.collapsedCircleDiameter, 25, "collapsed circle diameter")
         try expectClose(TrackerPlateDesign.collapsedCircleGap, 5, "gap between collapsed circles")
         try expect(TrackerWorkerSummary.maxCircles == 7, "a master's 240pt collapsed row should hold seven circles, got \(TrackerWorkerSummary.maxCircles)")
@@ -1186,7 +1190,7 @@ enum LogicSelfTests {
             + CGFloat(TrackerWorkerSummary.maxCircles - 1) * TrackerPlateDesign.collapsedCircleGap
         try expect(rowRight <= TrackerPlateDesign.topLevelSize.width && rowRight + TrackerPlateDesign.collapsedCircleGap + TrackerPlateDesign.collapsedCircleDiameter > TrackerPlateDesign.topLevelSize.width,
                    "the collapsed row should hold as many circles as fit inside the plate, ending at \(rowRight)")
-        try expectClose(TrackerNameplateRole.master.rowHeight(showsCircles: true), 75, "master row height with collapsed circles")
+        try expectClose(masterRole.rowHeight(showsCircles: true), 80, "master row height with collapsed circles")
         try expectClose(TrackerNameplateRole.worker.rowHeight(showsCircles: false), 40, "worker row height")
 
         // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents, above
