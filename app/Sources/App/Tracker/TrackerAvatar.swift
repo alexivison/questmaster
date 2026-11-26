@@ -8,14 +8,20 @@ enum TrackerAvatarMetrics {
     static let slotWidth = TrackerListMetrics.columnWidth
     /// The tallest bundled class's idle figure, in sprite pixels above its sole.
     @MainActor static let tallestFigureHeight = TrackerAvatarSprites.bundled().values.compactMap(\.idleFigureHeight).max() ?? 0
-    /// The slot's reserved height: the tallest figure rounded up to the 5 pt step, one point a sprite pixel. It is the same for every class.
-    @MainActor static let slotHeight = CGFloat(TrackerTagLayout.reservedHeight(tallestFigure: tallestFigureHeight, step: Int(Space.row)))
+    /// The slot's reserved height: the tallest figure in points at the master's pixel, rounded up to the 5 pt step. It is the same for every class.
+    @MainActor static let slotHeight = CGFloat(TrackerTagLayout.reservedHeight(
+        tallestFigure: Int((CGFloat(tallestFigureHeight) * TrackerAvatarDesign.pixelPoints).rounded(.up)), step: Int(Space.row)
+    ))
 }
 
-/// The avatar's drawing settings. Each sprite is drawn at one point a sprite pixel (two device pixels on Retina), nearest-neighbour.
-/// A class's frames, timings and placements come from its `animation.json` (`TrackerAvatarSprites`), not from here.
+/// The avatar's drawing settings. A class's sprite pixel draws at `pixelPoints`, nearest-neighbour: each is a 3x3 block of device pixels
+/// on a 2x screen. A worker's familiar alone in the attached slot draws at `familiarPixelPoints`, one point, as before. A class's frames,
+/// timings and placements come from its `animation.json` (`TrackerAvatarSprites`), not from here.
 enum TrackerAvatarDesign {
-    static let pixelPoints: CGFloat = 1
+    /// A class's sprite pixel: 1.5 pt, so every art pixel edge lands on a whole device pixel at 2x.
+    static let pixelPoints: CGFloat = 1.5
+    /// A worker's familiar in the attached slot: one point a sprite pixel, its size before the masters grew.
+    static let familiarPixelPoints: CGFloat = 1
     /// How long the lids stay down. A blink snaps shut and open, so no motion step applies.
     static let blinkClosedSeconds: TimeInterval = 0.15
     static let blinkIntervalSeconds: ClosedRange<TimeInterval> = 3...6
@@ -80,6 +86,8 @@ private enum TrackerAvatarIdleFramesAnimation {
 final class TrackerAvatarSprites {
     let classID: String
     let animation: TrackerAvatarAnimation
+    /// Whether these are a class's sprites or a familiar's, which sets how big a pixel draws in the attached slot.
+    let kind: TrackerAvatarArtKind
     /// The idle figure's height in sprite pixels above its sole, read once when the class loads to size the shared slot.
     private(set) var idleFigureHeight: Int?
     private let folder: URL
@@ -91,9 +99,11 @@ final class TrackerAvatarSprites {
     private var images: [String: CGImage] = [:]
 
     /// The art from its parsed file, with its idle figure measured from the art beside it.
-    init(classID: String, animation: TrackerAvatarAnimation, folder: URL, bubbleFolder: URL? = nil, outline: TrackerAvatarOutlineInk? = nil) {
+    init(classID: String, animation: TrackerAvatarAnimation, folder: URL, bubbleFolder: URL? = nil, outline: TrackerAvatarOutlineInk? = nil,
+         kind: TrackerAvatarArtKind = .master) {
         self.classID = classID
         self.animation = animation
+        self.kind = kind
         self.folder = folder
         self.bubbleFolder = bubbleFolder ?? folder.deletingLastPathComponent().appendingPathComponent("shared", isDirectory: true)
         self.outline = outline
@@ -118,7 +128,12 @@ final class TrackerAvatarSprites {
             NSLog("Questmaster: %@ has no usable animation.json (%@), so its art shows no avatar", file.path, String(describing: error))
             return nil
         }
-        self.init(classID: classID, animation: animation, folder: folder, bubbleFolder: bubbleFolder, outline: outline)
+        self.init(classID: classID, animation: animation, folder: folder, bubbleFolder: bubbleFolder, outline: outline, kind: kind)
+    }
+
+    /// The points one sprite pixel draws at in the attached slot: a class's pixel, or a familiar's in its own slot.
+    var pixelPoints: CGFloat {
+        kind == .master ? TrackerAvatarDesign.pixelPoints : TrackerAvatarDesign.familiarPixelPoints
     }
 
     /// The idle figure's height: from idle's foot row to idle f1's top opaque row. Nil while idle's first frame has no art.
@@ -531,7 +546,8 @@ struct TrackerAvatarSlot: View {
     var beat = 0
     var finish: TimeInterval?
     var enter: TimeInterval?
-    var scale: CGFloat = 1
+    /// Points a sprite pixel draws at, or nil for the sprites' own (a class's pixel, or a familiar's in the attached slot).
+    var scale: CGFloat?
 
     var body: some View {
         TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish, enter: enter, scale: scale)
@@ -547,7 +563,8 @@ struct TrackerAvatar: NSViewRepresentable {
     var beat = 0
     var finish: TimeInterval?
     var enter: TimeInterval?
-    var scale: CGFloat = 1
+    /// Points a sprite pixel draws at, or nil for the sprites' own.
+    var scale: CGFloat?
 
     func makeNSView(context: Context) -> TrackerAvatarView {
         TrackerAvatarView()
@@ -555,7 +572,7 @@ struct TrackerAvatar: NSViewRepresentable {
 
     func updateNSView(_ view: TrackerAvatarView, context: Context) {
         view.sprites = sprites
-        view.scale = scale
+        view.scale = scale ?? sprites?.pixelPoints ?? TrackerAvatarDesign.pixelPoints
         view.configure(pose: pose, fidget: fidget, beat: beat, finish: finish, enter: enter, reduceMotion: Motion.reducesMotion())
     }
 }
@@ -600,9 +617,9 @@ protocol TrackerAvatarPoseRig: AnyObject {
 fileprivate extension TrackerAvatarPoseRig {
     /// Frames the sprite (`pixels` on its canvas) with its body centre column (`bodyColumn`) on the centre column of `bounds`,
     /// and its feet (`footRow`) on the baseline at the bottom edge. Rows below the feet hang under the baseline. Both positions
-    /// are whole points, so every art pixel edge falls on a whole device pixel at 1x and 2x.
+    /// are multiples of half a point, so every art pixel edge falls on a whole device pixel at 2x (a class's 1.5 pt pixel is three of them).
     func placeRoot(pixels: CGSize, footRow: Int, bodyColumn: Int, in bounds: CGRect, scale: CGFloat) {
-        let pixel = TrackerAvatarDesign.pixelPoints * scale
+        let pixel = scale
         let hang = (pixels.height - 1 - CGFloat(footRow)) * pixel
         let size = CGSize(width: pixels.width * pixel, height: pixels.height * pixel)
         root.frame = CGRect(x: bounds.midX - CGFloat(bodyColumn) * pixel, y: -hang, width: size.width, height: size.height)
@@ -792,7 +809,7 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
     /// Set once a one-shot has started in this showing, so it plays once.
     private var oneShotStarted = false
     /// The scale its last placement drew at, so a move steps in the same units.
-    private var scale: CGFloat = 1
+    private var scale: CGFloat = TrackerAvatarDesign.pixelPoints
 
     /// Nil when the pose plays no frames, or a frame its blocks need has no art.
     init?(pose: TrackerAvatarPose, placement: TrackerAvatarPoseAnimation, sprites: TrackerAvatarSprites) {
@@ -861,7 +878,7 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         guard let anchor = placement.bubble, let image = sprites.bubble else {
             return
         }
-        let pixel = TrackerAvatarDesign.pixelPoints * scale
+        let pixel = scale
         let bottom = CGFloat(Int(canvas.height) - 1 - anchor.y) * pixel
         bubble.transform = CATransform3DIdentity
         bubble.frame = CGRect(
@@ -973,7 +990,7 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         guard let last = steps.last, figure.animation(forKey: TrackerAvatarMotionKey.move) == nil else {
             return
         }
-        let pixel = Double(TrackerAvatarDesign.pixelPoints * scale)
+        let pixel = Double(scale)
         // Each step holds until the next, and the last one holds to the end: its key at the duration is the terminal key.
         let offsets = (steps + [last]).map { NSNumber(value: Double($0.x) * pixel) }
         let move = CAKeyframeAnimation(keyPath: "position.x")
@@ -996,7 +1013,7 @@ fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
     private let sprites: TrackerAvatarSprites
     private var bounds = CGRect.zero
     private var canvas = CGSize.zero
-    private var scale: CGFloat = 1
+    private var scale: CGFloat = TrackerAvatarDesign.pixelPoints
     private var frame: Int?
 
     init(placement: TrackerAvatarPoseAnimation, sprites: TrackerAvatarSprites) {
@@ -1067,9 +1084,8 @@ final class TrackerAvatarView: NSView {
     private var enter: TimeInterval?
     private var reduceMotion = false
     private var blinkTimer: Timer?
-    /// The size the art draws at, in points an art pixel: 1 for a class, a familiar's scale for a worker's company. Changing it
-    /// re-places the rigs.
-    var scale: CGFloat = 1 {
+    /// The size the art draws at, in points an art pixel: a class's pixel, or a company familiar's. Changing it re-places the rigs.
+    var scale: CGFloat = TrackerAvatarDesign.pixelPoints {
         didSet {
             if scale != oldValue {
                 needsLayout = true

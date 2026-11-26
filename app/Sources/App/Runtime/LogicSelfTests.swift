@@ -136,6 +136,8 @@ enum LogicSelfTests {
         ("testTheBubbleStaysInTheSlotAboveTheBanner", testTheBubbleStaysInTheSlotAboveTheBanner),
         ("testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot", testTallAvatarDrawsOverThePlatesWithoutChangingTheSlot),
         ("testTheSoleStandsAboveTheBannerAndStaysVisible", testTheSoleStandsAboveTheBannerAndStaysVisible),
+        ("testTheMastersEffectsAreNeverClippedByTheColumn", testTheMastersEffectsAreNeverClippedByTheColumn),
+        ("testAFamiliarAloneKeepsItsPixelWhileTheMasterGrows", testAFamiliarAloneKeepsItsPixelWhileTheMasterGrows),
         ("testTheAvatarStandsOnTheFullWidthBannerAboveTheShells", testTheAvatarStandsOnTheFullWidthBannerAboveTheShells),
         ("testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList", testShellsAndNoAttachmentGiveTheAvatarSpaceBackToTheList),
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
@@ -807,7 +809,6 @@ enum LogicSelfTests {
         try expect(TrackerListMetrics.sidePadding + TrackerPlateDesign.topLevel.attachedDot.boundingRect.minX >= 0, "the master's dot should sit inside the list's gutter")
 
         // The pixels: a real tracker with an expanded master and its worker, a collapsed master and its worker, and a shell.
-        let size = CGSize(width: 340, height: 600)
         func components(_ color: NSColor?) throws -> [CGFloat] {
             guard let rgb = color?.usingColorSpace(.deviceRGB) else {
                 throw TestFailure("a colour should convert to RGB")
@@ -852,6 +853,10 @@ enum LogicSelfTests {
             y: workerTop + TrackerPlateDesign.workerPortraitCenter.y
         )
         let positions = ["expanded master": masterDot(masterTop), "expanded worker": workerDot, "collapsed master": masterDot(collapsedTop)]
+        // Tall enough for the collapsed master to clear the avatar block, the banner and one shell row beneath it.
+        let bottomRoom = TrackerListMetrics.avatarClearance + TrackerAvatarMetrics.slotHeight + TrackerListMetrics.avatarBannerGap
+            + SelectedSessionTagMetrics.height + TrackerShellMetrics.rowHeight + TrackerListMetrics.verticalPadding
+        let size = CGSize(width: 340, height: (collapsedTop + TrackerNameplateRole.master.canvasSize.height + bottomRoom).rounded(.up))
         let cases: [(attached: String?, shows: String?)] = [
             ("m", "expanded master"), ("m-w", "expanded worker"), ("n", "collapsed master"), ("n-w", "collapsed master"),
             ("sh", nil), ("gone", nil), (nil, nil),
@@ -1701,7 +1706,7 @@ enum LogicSelfTests {
               let calling = TrackerAvatarFrameRig(pose: .callingOut, placement: callingPlacement, sprites: sprites) else {
             throw TestFailure("the synthetic class's summoning and calling out should both draw")
         }
-        summoning.place(in: CGRect(x: 0, y: 0, width: 260, height: 160), scale: 1)
+        summoning.place(in: CGRect(x: 0, y: 0, width: 260, height: 160), scale: TrackerAvatarDesign.pixelPoints)
         try expect(summoning.root.sublayers?.first === summoning.behind && summoning.root.sublayers?.dropFirst().first === summoning.figure,
                    "the ground circle should draw under the figure, on the root, with the bubble above both")
         try expect(summoning.figure.sublayers?.first === summoning.character, "the character should be the figure's first layer")
@@ -1714,7 +1719,7 @@ enum LogicSelfTests {
         try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil && summoning.character.animation(forKey: TrackerAvatarMotionKey.frames) == nil,
                    "stopping should remove the move and the frames")
 
-        calling.place(in: CGRect(x: 0, y: 0, width: 260, height: 160), scale: 1)
+        calling.place(in: CGRect(x: 0, y: 0, width: 260, height: 160), scale: TrackerAvatarDesign.pixelPoints)
         try expect(calling.figure.sublayers?.last === calling.front, "the bubble should draw in front of the character, inside the figure")
         calling.startMotion()
         try expect(calling.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "calling out should not bob: its feet stay on the baseline")
@@ -1732,7 +1737,7 @@ enum LogicSelfTests {
               let rig = TrackerAvatarFrameRig(pose: .studying, placement: placement, sprites: sprites) else {
             throw TestFailure("the wizard's studying should draw")
         }
-        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight), scale: 1)
+        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight), scale: TrackerAvatarDesign.pixelPoints)
         rig.showFinish(elapsed: 0)
         try expect(rig.character.contents != nil, "a finish should show its first frame")
         try expect(rig.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "a finish should not move the figure")
@@ -2096,7 +2101,7 @@ enum LogicSelfTests {
             throw TestFailure("the synthetic class's release should draw")
         }
         try expect(placement.strikeFrame == 3, "the synthetic release should name frame 3 as its strike")
-        release.place(in: CGRect(x: 0, y: 0, width: 260, height: 160), scale: 1)
+        release.place(in: CGRect(x: 0, y: 0, width: 260, height: 160), scale: TrackerAvatarDesign.pixelPoints)
         release.startMotion()
         guard let move = release.figure.animation(forKey: TrackerAvatarMotionKey.move) as? CAKeyframeAnimation else {
             throw TestFailure("a release should move the figure")
@@ -2289,7 +2294,7 @@ enum LogicSelfTests {
         guard let rig = TrackerAvatarFrameRig(pose: .callingOut, placement: pose, sprites: sprites) else {
             throw TestFailure("the druid's calling out should draw")
         }
-        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight), scale: 1)
+        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight), scale: TrackerAvatarDesign.pixelPoints)
         try expect(CATransform3DEqualToTransform(rig.bubble.transform, CATransform3DMakeScale(-1, 1, 1)), "the druid's bubble should draw flipped")
     }
 
@@ -2454,8 +2459,8 @@ enum LogicSelfTests {
             throw TestFailure("both bubble fixtures should draw calling out")
         }
         let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
-        plainRig.place(in: slot, scale: 1)
-        mirroredRig.place(in: slot, scale: 1)
+        plainRig.place(in: slot, scale: TrackerAvatarDesign.pixelPoints)
+        mirroredRig.place(in: slot, scale: TrackerAvatarDesign.pixelPoints)
         try expect(plainPose.bubbleTail == .left && mirroredPose.bubbleTail == .right, "the fixtures should carry their tails")
         try expect(plainRig.bubble.frame == mirroredRig.bubble.frame, "a mirrored bubble should keep the unmirrored box, got \(mirroredRig.bubble.frame) vs \(plainRig.bubble.frame)")
         try expect(CATransform3DIsIdentity(plainRig.bubble.transform), "a left-tail bubble should be drawn as the art is")
@@ -2476,8 +2481,8 @@ enum LogicSelfTests {
         }
         let poseHeight = TrackerTagLayout.figureHeight(topRow: rows.lowerBound, footRow: pose.footRow)
         try expect(idleFigureHeight == 160, "the synthetic idle should be 160 px tall, got \(idleFigureHeight)")
-        try expect(CGFloat(poseHeight) > TrackerAvatarMetrics.slotHeight, "the synthetic pose should extend above the reserved slot")
-        try expect(TrackerAvatarMetrics.slotHeight == 175, "the avatar slot should keep its reserved height")
+        let pixel = TrackerAvatarDesign.pixelPoints
+        try expect(CGFloat(poseHeight) * pixel > TrackerAvatarMetrics.slotHeight, "the synthetic pose should extend above the reserved slot")
 
         let scale: CGFloat = 2
         let slotTop = TrackerAvatarOverflowFixture.slotTop
@@ -2503,9 +2508,11 @@ enum LogicSelfTests {
         window.contentView = host
         window.show()
 
-        let overflow = CGFloat(poseHeight) - TrackerAvatarMetrics.slotHeight
+        let overflow = CGFloat(poseHeight) * pixel - TrackerAvatarMetrics.slotHeight
         let bandHeight = Int(overflow * scale)
-        let columns = Int(90 * scale)..<Int(170 * scale)
+        // The fixture's red marker spans art columns 49 to 78, with its body at column 40, centred in the slot.
+        let slotCentre = TrackerAvatarMetrics.slotWidth / 2
+        let columns = Int((slotCentre + CGFloat(49 - 40) * pixel) * scale)..<Int((slotCentre + CGFloat(78 - 40) * pixel) * scale)
         let topBandStart = Int((slotTop - overflow) * scale)
         let topBandEnd = Int(slotTop * scale)
         let topBand = topBandStart..<topBandEnd
@@ -2554,7 +2561,8 @@ enum LogicSelfTests {
         let slot = fixture.view.convert(avatar.bounds, from: avatar)
         let sole = fixture.view.isFlipped ? slot.maxY : fixture.size.height - slot.minY
         let scale: CGFloat = 2
-        let column = Int((slot.minX + slot.width / 2 - CGFloat(pose.bodyColumn) + 7) * scale)
+        // Art column 7 of the marker, measured from the body column at the slot's centre.
+        let column = Int((slot.minX + slot.width / 2 + CGFloat(7 - pose.bodyColumn) * TrackerAvatarDesign.pixelPoints) * scale)
         let soleRow = Int(sole * scale) - 1
         let hangingRow = Int((sole + 2) * scale)
         var probe: PixelProbe?
@@ -2568,6 +2576,85 @@ enum LogicSelfTests {
         let tabRow = Int((sole + TrackerListMetrics.avatarBannerGap + 2) * scale)
         try expect(probe?.isColor(column, tabRow, AppPalette.panel) == true,
                    "the banner's id tab should start \(TrackerListMetrics.avatarBannerGap) below the sole")
+    }
+
+    /// A master's art may pass its slot's sides and the tracker column's edge, and nothing masks it on the way out. A marker in the avatar's
+    /// layer, 4 pt past the column's right edge, draws over the terminal, and no layer from the avatar up to the split masks its overflow.
+    /// The avatar takes no clicks there.
+    @MainActor
+    private static func testTheMastersEffectsAreNeverClippedByTheColumn() throws {
+        let store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: "master-0", expandedMasterIDs: [])
+        let master = TrackerSession(id: "master-0", title: "Master", repoName: "Repo", repoColor: "indigo", sessionClass: "barbarian", agent: "claude", role: "master", state: "idle", parentID: "")
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: [master])])))
+        let tracker = TrackerKeyboardHostingView(rootView: TrackerRootView(
+            store: store,
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        ))
+        let terminal = NSView()
+        terminal.wantsLayer = true
+        terminal.layer?.backgroundColor = AppPalette.terminal.cgColor
+        let dock = DockColumnView(
+            top: DockShellView(body: NSView(), model: DockChromeModel(topBar: .watcher)),
+            bottom: DockShellView(body: NSView(), model: DockChromeModel())
+        )
+        let size = CGSize(width: 1100, height: 700)
+        let split = MainSplitView(frame: NSRect(origin: .zero, size: size))
+        split.wantsLayer = true
+        split.addArrangedSubview(TrackerShellView(body: tracker))
+        split.addArrangedSubview(TerminalShellView(body: terminal))
+        split.addArrangedSubview(dock)
+        split.sendTerminalToBack()
+        split.trackerVisible = true
+        split.setDockVisible(true, animated: false)
+        split.applyCanonicalLayout()
+        let window = HeadlessWindow(size: size, scale: 1)
+        window.contentView = split
+        window.show()
+        defer { window.close() }
+
+        var avatar: TrackerAvatarView?
+        try expect(waitUntil {
+            avatar = descendants(of: split).compactMap { $0 as? TrackerAvatarView }.first
+            return avatar?.window != nil && (avatar?.bounds.width ?? 0) > 0
+        }, "the attached master's avatar should lay out in the tracker")
+        guard let avatar, let column = split.subviews.compactMap({ $0 as? TrackerShellView }).first else {
+            throw TestFailure("the tracker column and the avatar should be in the split")
+        }
+
+        var layer: NSView? = avatar
+        while let view = layer {
+            try expect(view.layer?.masksToBounds != true, "\(type(of: view)) should leave the master's overflow visible")
+            layer = view.superview
+        }
+
+        let columnRight = column.convert(column.bounds, to: split).maxX
+        let avatarFrame = avatar.convert(avatar.bounds, to: split)
+        let marker = CALayer()
+        marker.backgroundColor = NSColor(cgColor: TrackerAvatarOverflowFixture.markerColor)?.cgColor
+        marker.frame = CGRect(x: columnRight + 4 - avatarFrame.minX, y: 100, width: 10, height: 10)
+        avatar.layer?.addSublayer(marker)
+        let markerCentre = NSPoint(x: columnRight + 9, y: avatarFrame.minY + 105)
+        try expect(split.hitTest(markerCentre)?.isDescendant(of: avatar) != true, "the master's overflow should take no clicks from the terminal")
+
+        var probe: PixelProbe?
+        try expect(waitUntil {
+            guard let bitmap = try? snapshot(split, size: size, scale: 1) else { return false }
+            probe = PixelProbe(bitmap: bitmap, height: bitmap.pixelsHigh)
+            return probe?.isColor(Int(markerCentre.x), Int(size.height - markerCentre.y), NSColor(cgColor: TrackerAvatarOverflowFixture.markerColor) ?? .red) == true
+        }, "the marker past the column should draw over the terminal, unclipped")
+    }
+
+    /// A class's sprite pixel draws at the master's design size in the attached slot. A worker's familiar alone keeps its own one point, so
+    /// its slot is the size it was before the masters grew.
+    @MainActor
+    private static func testAFamiliarAloneKeepsItsPixelWhileTheMasterGrows() throws {
+        guard let master = TrackerAvatarSprites.bundled()["wizard"], let familiar = TrackerAvatarSprites.bundledFamiliars()["wizard"] else {
+            throw TestFailure("the wizard should have a class and a familiar")
+        }
+        try expect(master.pixelPoints == TrackerAvatarDesign.pixelPoints, "a class's sprite pixel should draw at \(TrackerAvatarDesign.pixelPoints) pt, got \(master.pixelPoints)")
+        try expect(familiar.pixelPoints == TrackerAvatarDesign.familiarPixelPoints,
+                   "a familiar alone should draw at \(TrackerAvatarDesign.familiarPixelPoints) pt a pixel, got \(familiar.pixelPoints)")
     }
 
     private static func descendants(of view: NSView) -> [NSView] {
@@ -2601,15 +2688,17 @@ enum LogicSelfTests {
             throw TestFailure("\(name) should draw its calling out with the shared bubble")
         }
         let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
-        rig.place(in: slot, scale: 1)
+        rig.place(in: slot, scale: sprites.pixelPoints)
         try expect(rig.root.sublayers?.last === rig.bubble, "\(name)'s bubble should draw over the figure and its effects")
         // Layers measure from the bottom left: the bubble is in the root's space, and the root in the slot's.
         let bubble = rig.bubble.frame.offsetBy(dx: rig.root.frame.minX, dy: rig.root.frame.minY)
         let bubbleTop = slot.height - bubble.maxY
         let bubbleBottom = slot.height - bubble.minY
         try expect(bubble.width > 0 && bubble.height > 0, "\(name)'s bubble should have a frame")
-        try expect(bubble.minX >= slot.minX && bubble.maxX <= slot.maxX && bubbleTop >= slot.minY && bubbleBottom <= slot.maxY,
-                   "\(name)'s bubble should sit inside the slot, got \(bubble)")
+        // A master's bubble may reach above the slot over the plates, as its tall figure does; a familiar's stays inside its slot.
+        let staysUnderTop = sprites.kind == .master || bubbleTop >= slot.minY
+        try expect(bubble.minX >= slot.minX && bubble.maxX <= slot.maxX && staysUnderTop && bubbleBottom <= slot.maxY,
+                   "\(name)'s bubble should sit inside the slot's width, got \(bubble)")
         try expect(bubbleBottom <= slot.height, "\(name)'s bubble should stay above the banner at the slot's bottom, got its bottom at \(bubbleBottom)")
     }
 
@@ -2624,7 +2713,13 @@ enum LogicSelfTests {
         }
         let tallest = sprites.values.compactMap(\.idleFigureHeight).max() ?? 0
         try expect(TrackerAvatarMetrics.tallestFigureHeight == tallest, "the tallest figure should be \(tallest) px, got \(TrackerAvatarMetrics.tallestFigureHeight)")
-        try expect(TrackerAvatarMetrics.slotHeight == 175, "the slot should reserve the tallest figure rounded up to 5, got \(TrackerAvatarMetrics.slotHeight)")
+        // The slot reserves the tallest figure in points at the master's pixel, rounded up to the 5 pt step; a pixel is whole device pixels at 2x.
+        let tallestPoints = CGFloat(tallest) * TrackerAvatarDesign.pixelPoints
+        try expect(TrackerAvatarMetrics.slotHeight >= tallestPoints && TrackerAvatarMetrics.slotHeight < tallestPoints + Space.row
+                   && TrackerAvatarMetrics.slotHeight.truncatingRemainder(dividingBy: Space.row) == 0,
+                   "the slot should reserve the tallest figure's \(tallestPoints) pt rounded up to 5, got \(TrackerAvatarMetrics.slotHeight)")
+        try expect((TrackerAvatarDesign.pixelPoints * 2).truncatingRemainder(dividingBy: 1) == 0,
+                   "a sprite pixel should be whole device pixels at 2x, got \(TrackerAvatarDesign.pixelPoints) pt")
     }
 
     /// Every bundled familiar loads with all the frames its file plays and its bubble, and each of its poses fits the slot as a class's
@@ -2661,7 +2756,7 @@ enum LogicSelfTests {
                 }
                 // Each frame pose stands its feet on the slot's baseline: the foot row, counted up from the canvas's bottom edge.
                 if pose != .idle, let rig = TrackerAvatarFrameRig(pose: pose, placement: placement, sprites: sprites) {
-                    rig.place(in: slot, scale: 1)
+                    rig.place(in: slot, scale: sprites.pixelPoints)
                     let canvasBottom = CGFloat(canvasHeight - 1 - placement.footRow)
                     try expect(abs(rig.root.frame.minY + canvasBottom) < 0.5,
                                "the \(classID)'s \(pose.resourceName) should stand its feet on the slot's baseline, got \(rig.root.frame.minY)")
