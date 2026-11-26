@@ -22,6 +22,9 @@ final class NewSessionViewState: ObservableObject {
 
     /// The model field takes focus in SELECT, without the caret (`showCaret` puts it in for a search).
     func requestFocus(_ field: NewSessionField) {
+        guard (field != .agent && field != .model) || model.hasEnabledAgents else {
+            return
+        }
         model.focusedField = field
         switch field {
         case .path, .title:
@@ -121,17 +124,50 @@ struct NewSessionRootView: View {
         }
     }
 
+    @ViewBuilder
     private var agentTabs: some View {
-        PillTabRow(
-            tabs: state.model.agents.map { .agent($0) },
-            selectedID: state.model.selectedAgent,
-            focused: state.model.focusedField == .agent,
-            onSelect: onSelectAgent
-        )
+        switch state.model.agentPickerState {
+        case .loading:
+            agentTabsSkeleton
+        case .loaded where state.model.agents.isEmpty:
+            agentAvailabilityNotice("No agents are enabled. Enable one in Settings.")
+        case .failed:
+            agentAvailabilityNotice("Couldn't load enabled agents.")
+        case .loaded:
+            PillTabRow(
+                tabs: state.model.agents.map { .agent($0) },
+                selectedID: state.model.selectedAgent,
+                focused: state.model.focusedField == .agent,
+                onSelect: onSelectAgent
+            )
+        }
+    }
+
+    private var agentTabsSkeleton: some View {
+        SkeletonPulse(from: NewSessionAgentPickerMetrics.skeletonPulseFrom, to: NewSessionAgentPickerMetrics.skeletonPulseTo) {
+            HStack(spacing: PillTabMetrics.spacing) {
+                ForEach(0..<NewSessionAgentPickerMetrics.skeletonTabCount, id: \.self) { _ in
+                    SkeletonBar(width: NewSessionAgentPickerMetrics.skeletonTabWidth, height: PillTabMetrics.height)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: PillTabMetrics.rowHeight, maxHeight: PillTabMetrics.rowHeight)
+        }
+    }
+
+    private func agentAvailabilityNotice(_ message: String) -> some View {
+        Text(message)
+            .font(AppFonts.monoSmall.swiftUI)
+            .foregroundStyle(AppPalette.textMeta.swiftUI)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, minHeight: PillTabMetrics.rowHeight, maxHeight: PillTabMetrics.rowHeight, alignment: .leading)
+            .accessibilityLabel(message)
     }
 
     private var modelField: some View {
         let model = state.model
+        let agentAvailable = model.hasEnabledAgents
         return FormTextField(
             text: Binding(
                 get: { state.model.modelText },
@@ -140,12 +176,12 @@ struct NewSessionRootView: View {
                     onModelChanged()
                 }
             ),
-            placeholder: "Default model...",
+            placeholder: agentAvailable ? "Default model..." : "Choose an enabled agent first...",
             focusNonce: state.focusNonces[.model, default: 0],
-            focused: model.focusedField == .model,
+            focused: agentAvailable && model.focusedField == .model,
             onFocusChanged: { editing in
                 // A click into the text: focus the field, and the click's caret starts a search.
-                guard editing, !state.model.submitting else {
+                guard editing, state.model.hasEnabledAgents, !state.model.submitting else {
                     return
                 }
                 focusedByClick(.model, true)
@@ -156,6 +192,9 @@ struct NewSessionRootView: View {
         ) {
             effortSegment
         }
+        .disabled(!agentAvailable)
+        .allowsHitTesting(agentAvailable)
+        .opacity(agentAvailable ? 1 : Token.Opacity.dimmed)
         .suggestionDropdown(model.showsModelSuggestions ? SuggestionDropdown(
             rows: model.modelSuggestions.map(\.label),
             highlightedIndex: model.visibleModelHighlightIndex,
@@ -204,10 +243,20 @@ struct NewSessionRootView: View {
     }
 
     private func focusedByClick(_ field: NewSessionField, _ focused: Bool) {
-        guard focused, state.model.focusedField != field, !state.model.submitting else {
+        guard focused,
+              (field != .agent && field != .model) || state.model.hasEnabledAgents,
+              state.model.focusedField != field,
+              !state.model.submitting else {
             return
         }
         state.model.focusedField = field
         onFocusChanged(field)
     }
+}
+
+private enum NewSessionAgentPickerMetrics {
+    static let skeletonTabCount = 4
+    static let skeletonTabWidth: CGFloat = 80
+    static let skeletonPulseFrom = 0.5
+    static let skeletonPulseTo = 0.7
 }

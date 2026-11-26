@@ -22,6 +22,9 @@ enum RenderPreview {
         }
 
         render(newSessionView(.initial), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-init.png")
+        render(newSessionView(.agentsLoading), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-agents-loading.png")
+        render(newSessionView(.agentsDisabled), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-agents-disabled.png")
+        render(newSessionView(.agentAvailabilityFailed), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-agents-failed.png")
         render(newSessionView(.filled), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")
         render(newSessionView(.openCode), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-opencode.png")
         render(newSessionView(.openCodeResting), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-opencode-resting.png")
@@ -2648,6 +2651,9 @@ enum RenderPreview {
     /// with OpenCode selected, or on a model that reports no effort levels.
     enum NewSessionPreview {
         case initial
+        case agentsLoading
+        case agentsDisabled
+        case agentAvailabilityFailed
         /// Searching the model field ("opus" typed, its match listed).
         case filled
         /// The model field focused in SELECT: no list, e cycles the effort.
@@ -2674,6 +2680,12 @@ enum RenderPreview {
             model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
             model.setEffortOptions(levels, defaultLevel: "medium")
             state.paths.show(["/Users/aleksi.tuominen/Code", "/Users/aleksi.tuominen/Code/Scry", "/Users/aleksi.tuominen/Code/Questmaster"])
+        case .agentsLoading:
+            model.beginAgentAvailabilityLoad()
+        case .agentsDisabled:
+            model.setEnabledAgents([])
+        case .agentAvailabilityFailed:
+            model.failAgentAvailabilityLoad()
         case .filled:
             model.path = "/Users/aleksi.tuominen/Code"
             model.title = "PR Reviews"
@@ -2975,7 +2987,7 @@ enum RenderPreview {
     @MainActor
     private static func newSessionSheetView(title: String = "", path: String = "/Users/aleksi.tuominen/Code/questmaster") -> some View {
         let presenter = NewSessionSheetPresenter()
-        presenter.present(initialPath: path, initialTitle: title, mutationClient: SettingsPreviewMutationClient(), directoryClient: nil, onSuccess: { _ in })
+        presenter.present(initialPath: path, initialTitle: title, mutationClient: NewSessionPreviewMutationClient(), directoryClient: nil, onSuccess: { _ in })
         return NewSessionSheetView(presentation: presenter.presentation!, dismiss: {})
     }
 
@@ -3485,6 +3497,19 @@ enum RenderPreview {
 /// answering the sheet's own fetches with a plausible model/effort per agent.
 private final class SettingsPreviewMutationClient: ServeMutationSending {
     func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {}
+}
+
+private final class NewSessionPreviewMutationClient: ServeMutationSending {
+    func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {
+        guard request.method == "agent_availability" else {
+            completion(.success(ServeMutationAck(data: ["session_id": "qm-preview"])))
+            return
+        }
+        let agents: [[String: Any]] = NewSessionFormModel.defaultAgents.map { name in
+            ["name": name, "enabled": true, "defaults": [String: Any]()]
+        }
+        completion(.success(ServeMutationAck(data: ["agents": agents])))
+    }
 }
 
 private final class SettingsPreviewModelClient: ServeModelSuggesting {

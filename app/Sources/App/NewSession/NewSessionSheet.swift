@@ -94,11 +94,13 @@ final class NewSessionSheetModel: ObservableObject {
     let state: NewSessionViewState
 
     private let mutationClient: ServeMutationSending
+    private let initialFocus: NewSessionField
     private let pathSuggester: PathSuggester
     private let modelClient: ServeModelSuggesting?
     private let effortClient: ServeReasoningEffortSuggesting?
     private let onSuccess: (String?) -> Void
     private let dismiss: () -> Void
+    private var agentAvailabilityRequestID = 0
     private var modelRequestID = 0
     private var effortRequestID = 0
     private var effortDebounceTask: Task<Void, Never>?
@@ -121,12 +123,18 @@ final class NewSessionSheetModel: ObservableObject {
         presentation: NewSessionSheetPresentation,
         dismiss: @escaping () -> Void
     ) {
+        initialFocus = presentation.initialFocus
+        let safeInitialFocus: NewSessionField = presentation.initialFocus == .agent || presentation.initialFocus == .model
+            ? .path
+            : presentation.initialFocus
         state = NewSessionViewState(
             model: NewSessionFormModel(
                 initialPath: presentation.initialPath,
                 initialTitle: presentation.initialTitle,
                 initialPrompt: presentation.initialPrompt,
-                initialFocus: presentation.initialFocus
+                initialFocus: safeInitialFocus,
+                agents: [],
+                agentPickerState: .loading
             )
         )
         mutationClient = presentation.mutationClient
@@ -146,13 +154,13 @@ final class NewSessionSheetModel: ObservableObject {
             self.state.requestFocus(self.state.model.focusedField)
         }
         requestPathSuggestions()
-        requestModelSuggestions()
-        requestReasoningEffortSuggestions()
+        requestAgentAvailability()
     }
 
     func disappear() {
         pathSuggester.cancel()
         effortDebounceTask?.cancel()
+        agentAvailabilityRequestID += 1
         modelRequestID += 1
         effortRequestID += 1
         state.paths.clear()
@@ -173,7 +181,7 @@ final class NewSessionSheetModel: ObservableObject {
     private var modalKeyContext: ModalKeyContext {
         ModalKeyContext(
             focus: state.model.modalFocus,
-            fieldCount: NewSessionField.formOrder.count,
+            fieldCount: state.model.activeFormOrder.count,
             hasTextFields: true,
             submitting: state.model.submitting,
             submits: true
@@ -332,7 +340,9 @@ final class NewSessionSheetModel: ObservableObject {
     }
 
     func selectAgent(_ agent: String) {
-        guard !state.model.submitting else {
+        guard state.model.hasEnabledAgents,
+              state.model.agents.contains(agent),
+              !state.model.submitting else {
             return
         }
         state.requestFocus(.agent)
@@ -370,7 +380,7 @@ final class NewSessionSheetModel: ObservableObject {
     /// `refresh` forces the backend past its catalog cache: only for ⌃r,
     /// never for the sheet's own resolves on open or an agent change.
     func requestModelSuggestions(refresh: Bool = false) {
-        guard let modelClient else {
+        guard state.model.hasEnabledAgents, let modelClient else {
             return
         }
         // Bump the request ID before the cache check too: it invalidates any
@@ -405,7 +415,7 @@ final class NewSessionSheetModel: ObservableObject {
     /// Resolves the reasoning-effort levels for the agent and the model in
     /// the field, whenever either changes.
     func requestReasoningEffortSuggestions() {
-        guard let effortClient else {
+        guard state.model.hasEnabledAgents, let effortClient else {
             return
         }
         // See requestModelSuggestions: bump first, so an in-flight request
@@ -441,8 +451,46 @@ final class NewSessionSheetModel: ObservableObject {
         }
     }
 
+    /// Enabled agents are per-user configuration, so each presentation reads them before asking for any
+    /// harness-specific model or effort suggestions. Empty and unreadable responses stay empty; neither
+    /// may expose the form model's catalogue defaults.
+    private func requestAgentAvailability() {
+        state.model.beginAgentAvailabilityLoad()
+        effortDebounceTask?.cancel()
+        agentAvailabilityRequestID += 1
+        modelRequestID += 1
+        effortRequestID += 1
+        let requestID = agentAvailabilityRequestID
+        mutationClient.send(ServeMutationRequests.agentAvailability()) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.agentAvailabilityRequestID == requestID else {
+                    return
+                }
+                switch result {
+                case .success(let ack):
+                    do {
+                        let enabledNames = try ack.decoded(AgentAvailability.self).enabledNames
+                        self.state.model.setEnabledAgents(enabledNames)
+                        guard self.state.model.hasEnabledAgents else {
+                            return
+                        }
+                        if self.initialFocus == .agent || self.initialFocus == .model {
+                            self.state.requestFocus(self.initialFocus)
+                        }
+                        self.requestModelSuggestions()
+                        self.requestReasoningEffortSuggestions()
+                    } catch {
+                        self.state.model.failAgentAvailabilityLoad()
+                    }
+                case .failure:
+                    self.state.model.failAgentAvailabilityLoad()
+                }
+            }
+        }
+    }
+
     func submit() {
-        guard !state.model.submitting else {
+        guard !state.model.submitting, state.model.hasEnabledAgents else {
             return
         }
         state.paths.clear()

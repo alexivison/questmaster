@@ -190,6 +190,8 @@ enum LogicSelfTests {
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
         ("testDeferredDeleteConfirmationRetainsExecutor", testDeferredDeleteConfirmationRetainsExecutor),
         ("testNewSessionArrowKeysNavigatePathSuggestions", testNewSessionArrowKeysNavigatePathSuggestions),
+        ("testNewSessionFetchesEnabledAgentsBeforeResolvingAndSubmitting", testNewSessionFetchesEnabledAgentsBeforeResolvingAndSubmitting),
+        ("testNewSessionEmptyOrUnreadableAvailabilityBlocksSubmission", testNewSessionEmptyOrUnreadableAvailabilityBlocksSubmission),
         ("testNewSessionResolvesModelsPerAgent", testNewSessionResolvesModelsPerAgent),
         ("testNewSessionKeepsDefaultModelWhenResolveFails", testNewSessionKeepsDefaultModelWhenResolveFails),
         ("testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne", testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne),
@@ -5236,12 +5238,18 @@ enum LogicSelfTests {
             try expect(waitUntil { window.firstResponder === terminal.view }, "\(start): the terminal should take focus before the sheet opens")
             let id = UUID()
             var summoned: String?
+            let mutationClient = NewSessionAvailabilityMutationClient(
+                availability: .success(NewSessionAvailabilityMutationClient.availabilityAck(
+                    NewSessionFormModel.defaultAgents.map { ($0, true) }
+                )),
+                mutation: .success(ServeMutationAck(data: ["session_id": "qm-new"]))
+            )
             let presentation = NewSessionSheetPresentation(
                 initialPath: NSTemporaryDirectory(),
                 initialTitle: "",
                 initialPrompt: "",
                 initialFocus: start,
-                mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: ["session_id": "qm-new"]))),
+                mutationClient: mutationClient,
                 directoryClient: nil,
                 modelClient: nil,
                 effortClient: nil,
@@ -5263,6 +5271,8 @@ enum LogicSelfTests {
             }, "\(start): the sheet should mount its key monitor and focus \(expected)")
             let holder = String(describing: window.firstResponder.map { type(of: $0) })
             try expect(holder.contains(expected), "\(start): the sheet should start with \(expected) focused, got \(holder)")
+            try expect(waitUntil { mutationClient.availabilityRequestCount == 1 }, "\(start): availability should be read before the picker is submitted")
+            try waitForMainQueueTurn()
 
             // ⌘Return, through the sheet's own key handler, as the user summons.
             guard let monitor = subviews(of: host).compactMap({ $0 as? SheetKeyEventMonitor.MonitorView }).first else {
@@ -7648,6 +7658,100 @@ enum LogicSelfTests {
         try expect(!model.handle(try keyEvent("", keyCode: 125)), "down arrow should not be consumed without suggestions")
     }
 
+    private static func testNewSessionFetchesEnabledAgentsBeforeResolvingAndSubmitting() throws {
+        let mutationClient = NewSessionAvailabilityMutationClient(
+            availability: .success(NewSessionAvailabilityMutationClient.availabilityAck([
+                ("claude", false),
+                ("codex", true),
+                ("opencode", false),
+                ("pi", true),
+            ])),
+            mutation: .success(ServeMutationAck(data: ["session_id": "qm-new"]))
+        )
+        let modelClient = StubModelClient(models: [
+            "codex": [SessionModelOption(id: "gpt-6-sol", label: "gpt-6-sol")],
+        ], defaults: ["codex": "gpt-6-sol"])
+        let model = NewSessionSheetModel(
+            presentation: NewSessionSheetPresentation(
+                initialPath: "/tmp/project",
+                initialTitle: "",
+                initialPrompt: "",
+                initialFocus: .path,
+                mutationClient: mutationClient,
+                directoryClient: nil,
+                modelClient: modelClient,
+                effortClient: nil,
+                onSuccess: { _ in }
+            ),
+            dismiss: {}
+        )
+
+        model.present()
+        try expect(model.state.model.agentPickerState == .loading && !model.state.model.canSubmit, "availability should start in a non-submittable loading state")
+        model.submit()
+        try expect(mutationClient.startRequests.isEmpty, "the production submit method should reject a summon while availability is loading")
+        try waitForMainQueue("enabled agents and model suggestions", until: {
+            model.state.model.hasEnabledAgents && !model.state.model.modelOptions.isEmpty
+        })
+        try expect(mutationClient.availabilityRequestCount == 1, "opening New Session should fetch availability")
+        try expect(model.state.model.agents == ["codex", "pi"], "only enabled agents should reach the picker in response order")
+        try expect(model.state.model.selectedAgent == "codex", "the first enabled agent should be selected")
+        try expect(modelClient.requests.first?.agent == "codex", "model lookup should wait for and use the selected enabled agent")
+
+        model.disappear()
+        model.present()
+        try waitForMainQueue("availability on the next presentation", until: {
+            model.state.model.agentPickerState == .loaded
+        })
+        try expect(mutationClient.availabilityRequestCount == 2, "every New Session presentation should fetch availability again")
+
+        model.submit()
+        try expect(mutationClient.startRequests.count == 1, "a valid enabled-agent form should submit once")
+        try expect(mutationClient.startRequests[0].data["agent"] == "codex", "submission should use the first enabled agent")
+    }
+
+    private static func testNewSessionEmptyOrUnreadableAvailabilityBlocksSubmission() throws {
+        let cases: [(name: String, availability: Result<ServeMutationAck, Error>, state: NewSessionAgentPickerState)] = [
+            ("empty response", .success(NewSessionAvailabilityMutationClient.availabilityAck([])), .loaded),
+            ("read failure", .failure(StubMutationError()), .failed),
+        ]
+        for testCase in cases {
+            let mutationClient = NewSessionAvailabilityMutationClient(availability: testCase.availability)
+            let modelClient = StubModelClient(models: ["claude": [SessionModelOption(id: "opus", label: "opus")]], defaults: [:])
+            let effortClient = StubReasoningEffortClient(efforts: ["claude": ["low", "high"]], defaults: [:])
+            let model = NewSessionSheetModel(
+                presentation: NewSessionSheetPresentation(
+                    initialPath: "/tmp/project",
+                    initialTitle: "",
+                    initialPrompt: "",
+                    initialFocus: .path,
+                    mutationClient: mutationClient,
+                    directoryClient: nil,
+                    modelClient: modelClient,
+                    effortClient: effortClient,
+                    onSuccess: { _ in }
+                ),
+                dismiss: {}
+            )
+
+            model.present()
+            try waitForMainQueue("\(testCase.name) availability", until: {
+                model.state.model.agentPickerState != .loading
+            })
+            try expect(model.state.model.agentPickerState == testCase.state, "\(testCase.name) should keep its distinct UI state")
+            try expect(model.state.model.agents.isEmpty && model.state.model.selectedAgent.isEmpty, "\(testCase.name) must not fall back to the static agent list")
+            try expect(!model.state.model.canSubmit, "\(testCase.name) should disable Summon despite a valid path")
+            try expect(modelClient.requests.isEmpty && effortClient.requests.isEmpty, "\(testCase.name) must not resolve models or effort for an unavailable selection")
+
+            model.state.model.focusedField = .path
+            try expect(model.handle(try keyEvent("\r", keyCode: 36)), "Return should be handled by the modal")
+            try expect(model.handle(try keyEvent("\r", keyCode: 36, modifierFlags: .command)), "⌘Return should be handled by the modal")
+            model.state.model.focusedField = .prompt
+            model.submit() // The prompt editor's Return and ⌃s callbacks reach this same submission guard.
+            try expect(mutationClient.startRequests.isEmpty, "\(testCase.name) must block keyboard and direct submission paths")
+        }
+    }
+
     // The sheet must never carry a model list of its own: it asks the backend
     // for one per agent and role, and re-asks when either changes.
     private static func testNewSessionResolvesModelsPerAgent() throws {
@@ -7726,6 +7830,7 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: client, initialFocus: .agent)
 
         model.present()
+        try waitForMainQueue("initial availability", until: { client.requests.count == 1 })
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the agent")
         try expect(client.requests.count == 2, "opening and the agent change should each fire one request")
 
@@ -8343,6 +8448,7 @@ enum LogicSelfTests {
             ),
             dismiss: {}
         )
+        model.state.model.setEnabledAgents(NewSessionFormModel.defaultAgents)
         let controlE = try keyEvent("\u{5}", keyCode: 14, modifierFlags: .control)
         try expect(model.state.model.sessionClass == nil && model.state.model.classLabel == "Random", "the sheet opens on Random")
 
@@ -8837,13 +8943,17 @@ enum LogicSelfTests {
         effortClient: ServeReasoningEffortSuggesting? = nil,
         initialFocus: NewSessionField
     ) -> NewSessionSheetModel {
-        NewSessionSheetModel(
+        let model = NewSessionSheetModel(
             presentation: NewSessionSheetPresentation(
                 initialPath: "/tmp/project",
                 initialTitle: "",
                 initialPrompt: "",
                 initialFocus: initialFocus,
-                mutationClient: StubMutationClient(result: .failure(StubMutationError())),
+                mutationClient: NewSessionAvailabilityMutationClient(
+                    availability: .success(NewSessionAvailabilityMutationClient.availabilityAck(
+                        NewSessionFormModel.defaultAgents.map { ($0, true) }
+                    ))
+                ),
                 directoryClient: nil,
                 modelClient: modelClient,
                 effortClient: effortClient,
@@ -8851,6 +8961,10 @@ enum LogicSelfTests {
             ),
             dismiss: {}
         )
+        // A few key-only tests exercise the sheet without presenting it. Their fixture starts with the
+        // same full set of agents the asynchronous availability read supplies to the other tests.
+        model.state.model.setEnabledAgents(NewSessionFormModel.defaultAgents)
+        return model
     }
 
     // Guards the live-apply contract: cycling a value sends its
@@ -10901,6 +11015,42 @@ enum LogicSelfTests {
             let fire = pendingCompletions[index]
             pendingCompletions[index] = { () -> Void in }
             fire()
+        }
+    }
+
+    /// New Session's fixture routes the availability read separately from the start mutation. The shared
+    /// StubMutationClient keeps its single-result behavior for every other surface's tests.
+    private final class NewSessionAvailabilityMutationClient: ServeMutationSending {
+        private let availability: Result<ServeMutationAck, Error>
+        private let mutation: Result<ServeMutationAck, Error>
+        private(set) var sentRequests: [ServeMutationRequest] = []
+
+        var availabilityRequestCount: Int {
+            sentRequests.filter { $0.method == "agent_availability" }.count
+        }
+
+        var startRequests: [ServeMutationRequest] {
+            sentRequests.filter { $0.method == "start" }
+        }
+
+        init(
+            availability: Result<ServeMutationAck, Error>,
+            mutation: Result<ServeMutationAck, Error> = .failure(StubMutationError())
+        ) {
+            self.availability = availability
+            self.mutation = mutation
+        }
+
+        func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {
+            sentRequests.append(request)
+            completion(request.method == "agent_availability" ? availability : mutation)
+        }
+
+        static func availabilityAck(_ entries: [(String, Bool)]) -> ServeMutationAck {
+            let agents: [[String: Any]] = entries.map { name, enabled in
+                ["name": name, "enabled": enabled, "defaults": [String: Any]()]
+            }
+            return ServeMutationAck(data: ["agents": agents])
         }
     }
 
