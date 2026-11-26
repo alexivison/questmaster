@@ -146,6 +146,7 @@ enum LogicSelfTests {
         ("testOneWorkerStandsSoloOffsetRightOfTheMastersBody", testOneWorkerStandsSoloOffsetRightOfTheMastersBody),
         ("testWorkerNamesTagTheCompany", testWorkerNamesTagTheCompany),
         ("testPointingAtAFamiliarShowsItsName", testPointingAtAFamiliarShowsItsName),
+        ("testAHoveredNameAlwaysShowsInEveryClassAndCount", testAHoveredNameAlwaysShowsInEveryClassAndCount),
         ("testEveryClassHasAHeadBoxInItsArt", testEveryClassHasAHeadBoxInItsArt),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
         ("testCompanyFramesCarryAOnePixelOutlineAndTheWorkerSlotDoesNot", testCompanyFramesCarryAOnePixelOutlineAndTheWorkerSlotDoesNot),
@@ -2897,13 +2898,9 @@ enum LogicSelfTests {
                    "each resting box should stand from the visible bottom, under the feet, with a size")
 
         stage.setPointer(over: "qm-w1", inside: true)
-        try expect(stage.hoveredID == "qm-w1", "pointing at an idle familiar should hover it, got \(stage.hoveredID ?? "none")")
-        // With the first and second workers alone, the pointed-at idle second worker's name shows. With all three, the working names can
-        // cover its place on every tier, and a hovered name then has no room, so it shows nothing.
-        stage.observe(sessions: [master, workers[0], workers[1]], attachedID: "qm-m")
-        try expect(stage.nameTags.contains { $0.id == "qm-w1" }, "pointing at an idle familiar should show its name, got \(stage.nameTags.map(\.id))")
-        try expect(stage.nameTags.contains { $0.id == "qm-w0" }, "a working familiar should keep its name while another is pointed at")
-        stage.observe(sessions: [master] + workers, attachedID: "qm-m")
+        // A hovered name goes first, so the pointed-at idle second worker's name shows, and the working names give way to it.
+        try expect(stage.hoveredID == "qm-w1" && stage.nameTags.contains { $0.id == "qm-w1" },
+                   "pointing at an idle familiar should show its name, got \(stage.nameTags.map(\.id))")
 
         // The pointer leaves the idle familiar onto a working one: the enter comes first, so the exit clears nothing it did not set.
         stage.setPointer(over: "qm-w0", inside: true)
@@ -2929,6 +2926,38 @@ enum LogicSelfTests {
         stage.observe(sessions: [master] + many, attachedID: "qm-m")
         try expect(stage.overflow == 1 && stage.hoverAreas.count == stage.companions.count && !stage.hoverAreas.contains { $0.id == "qm-w7" },
                    "the marker's worker should have no resting box, got \(stage.hoverAreas.map(\.id))")
+    }
+
+    /// A hovered name always shows: for every class, at every count from one to its full row, pointing at each familiar on the row shows its
+    /// name, with every other worker working, so the names around it are as crowded as they get. The titles are the longest the tracker
+    /// shows, up to 16 characters.
+    @MainActor
+    private static func testAHoveredNameAlwaysShowsInEveryClassAndCount() throws {
+        final class Clock {
+            var now: TimeInterval = 0
+        }
+        let titles = ["Tray icon polish", "Familiar app", "Avatar switch", "Ledger sync", "Search index", "Docs pass 2", "Elemental FX", "Nightly build"]
+        for sessionClass in SessionClass.allCases {
+            let classID = sessionClass.rawValue
+            guard let capacity = TrackerAvatarSprites.bundledFamiliars()[classID]?.animation.companyRow?.capacity else {
+                throw TestFailure("the \(classID)'s familiar should have a company row")
+            }
+            for count in 1...capacity {
+                let clock = Clock()
+                let stage = TrackerCompanyStage(clock: { clock.now })
+                let master = try testRow(["id": "qm-m", "title": classID, "session_type": "master", "class": classID])
+                let workers = try (0..<count).map { index in
+                    try testRow(["id": "qm-w\(index)", "title": titles[index % titles.count], "session_type": "worker", "parent_id": "qm-m", "class": classID])
+                }
+                stage.observe(sessions: [master] + workers, attachedID: "qm-m")
+                for companion in stage.companions {
+                    stage.setPointer(over: companion.id, inside: true)
+                    try expect(stage.nameTags.contains { $0.id == companion.id },
+                               "the \(classID)'s hovered familiar \(companion.id) should show its name at \(count) workers, got \(stage.nameTags.map(\.id))")
+                    stage.setPointer(over: companion.id, inside: false)
+                }
+            }
+        }
     }
 
     /// Every designed familiar's company frames are on the 2x device grid at its scale: each full frame has a company frame of the same
