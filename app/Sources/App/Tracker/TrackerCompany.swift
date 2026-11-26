@@ -13,10 +13,10 @@ final class TrackerCompanyStage {
     /// One familiar on the row: its place in the slot, its art and the pose its own director plays.
     struct Companion: Identifiable {
         let id: String
-        /// The worker's session title: the name its tag shows, while the worker is working.
+        /// The worker's session title: the name its tag shows, while the worker is working or the pointer is over its familiar.
         let title: String
-        /// Whether the worker is working (`TrackerCompanyNameTags.showsName`): only then does its name show over it.
-        let working: Bool
+        /// The worker's status: a working worker's name shows (`TrackerCompanyNameTags.visibility`).
+        let status: TrackerStatusKind
         let sprites: TrackerAvatarSprites
         /// The points one frame pixel draws at: a familiar's company frame draws at its half point a pixel.
         let pixel: CGFloat
@@ -42,11 +42,25 @@ final class TrackerCompanyStage {
         let stemLeft: CGFloat
     }
 
+    /// One familiar's resting box, the pointer's hit area over it: its left edge and width, its bottom edge above the slot's baseline, and its
+    /// height. The pointer only highlights the familiar's name; it moves no cursor and clicks nothing.
+    struct HoverArea: Identifiable {
+        let id: String
+        let left: CGFloat
+        let width: CGFloat
+        let bottom: CGFloat
+        let height: CGFloat
+    }
+
     /// The familiars that show, in spawn order: each stands further right than the one before, so the right-most is drawn on top.
     private(set) var companions: [Companion] = []
-    /// The names over the shown familiars, in spawn order. Only a working worker's name shows, a name that fits nowhere has no tag, and the
-    /// "+n" workers have none.
+    /// The names over the shown familiars, in spawn order. A working worker's name shows, and the hovered familiar's too; a name that fits
+    /// nowhere has no tag, and the "+n" workers have none.
     private(set) var nameTags: [NameTag] = []
+    /// The resting boxes the pointer can hover, one per familiar on the row, in spawn order. The "+n" workers have none.
+    private(set) var hoverAreas: [HoverArea] = []
+    /// The familiar under the pointer, if any: its name shows whatever its status.
+    private(set) var hoveredID: String?
     /// The workers counted in the "+n" marker.
     private(set) var overflow = 0
     /// The portrait disc the marker sits above: the master's class's familiar.
@@ -97,12 +111,12 @@ final class TrackerCompanyStage {
         }
         // Each worker's familiar, in spawn order, from its company frames at a half point a pixel. A worker whose familiar has no art shows
         // nothing and takes no place.
-        let familiars: [(id: String, title: String, working: Bool, sprites: TrackerAvatarSprites, pixel: CGFloat)] =
+        let familiars: [(id: String, title: String, status: TrackerStatusKind, sprites: TrackerAvatarSprites, pixel: CGFloat)] =
             TrackerCompanyLayout.liveWorkers(of: master, in: sessions).compactMap { worker in
                 guard let key = catalog.art(for: worker), key.kind == .familiar, art[key] != nil, let company = companionArt[key.classID] else {
                     return nil
                 }
-                return (worker.id, worker.title, TrackerCompanyNameTags.showsName(worker), company,
+                return (worker.id, worker.title, TrackerStatusClassifier.classify(worker).kind, company,
                         CGFloat(TrackerCompanyLayout.companyPixelPoints))
             }
         guard let first = familiars.first, let row = first.sprites.animation.companyRow else {
@@ -140,7 +154,7 @@ final class TrackerCompanyStage {
             return Companion(
                 id: entry.id,
                 title: entry.title,
-                working: entry.working,
+                status: entry.status,
                 sprites: entry.sprites,
                 pixel: pixel,
                 bodyX: CGFloat(bodyX),
@@ -151,7 +165,12 @@ final class TrackerCompanyStage {
                 enter: frame?.enterElapsed
             )
         }
-        nameTags = Self.nameTags(for: companions, master: masterArt, slotWidth: Double(TrackerAvatarMetrics.slotWidth))
+        // The hovered familiar leaves when it is no longer on the row, so a worker that comes back is not shown as hovered.
+        if let hoveredID, !companions.contains(where: { $0.id == hoveredID }) {
+            self.hoveredID = nil
+        }
+        nameTags = Self.nameTags(for: companions, hovered: hoveredID, master: masterArt, slotWidth: Double(TrackerAvatarMetrics.slotWidth))
+        hoverAreas = companions.map(Self.hoverArea(of:))
         overflow = layout.overflow
         overflowPortrait = overflow > 0 ? SessionClass(id: master.sessionClass).map(SessionPortrait.familiar) : nil
         scheduleWake(at: nextChange)
@@ -160,9 +179,22 @@ final class TrackerCompanyStage {
     private func clear() {
         companions = []
         nameTags = []
+        hoverAreas = []
+        hoveredID = nil
         overflow = 0
         overflowPortrait = nil
         scheduleWake(at: nil)
+    }
+
+    /// The pointer moved over a familiar (`inside`) or off it. Only the familiar under the pointer shows its name, so leaving a familiar
+    /// clears the hover only when it is still this familiar's: a neighbour the pointer has just moved onto keeps its own.
+    func setPointer(over id: String, inside: Bool) {
+        let next: String? = inside ? id : (hoveredID == id ? nil : hoveredID)
+        guard next != hoveredID else {
+            return
+        }
+        hoveredID = next
+        refresh(at: clock())
     }
 
     /// Wakes the directors at their next change, if any. A change due now still wakes once, so a late frame never waits for the next payload.
@@ -187,14 +219,14 @@ final class TrackerCompanyStage {
 
     /// The name tags over the companions, in spawn order: each name measured in the tag's font, centred over its familiar's rest and set
     /// above its visible top, and placed by Core's tiers around the master's face. A name that fits nowhere gets no tag.
-    private static func nameTags(for companions: [Companion], master: TrackerAvatarSprites, slotWidth: Double) -> [NameTag] {
+    private static func nameTags(for companions: [Companion], hovered: String?, master: TrackerAvatarSprites, slotWidth: Double) -> [NameTag] {
         let tags = companions.map { companion in
             TrackerCompanyNameTags.Tag(
                 name: companion.title,
                 nameWidth: textWidth(companion.title),
                 centre: Double(companion.bodyX) + restCentreOffset(of: companion.sprites) * Double(companion.pixel),
                 headTop: -TrackerCompanyLayout.belowFeet + restHeight(of: companion.sprites) * Double(companion.pixel),
-                working: companion.working
+                visibility: TrackerCompanyNameTags.visibility(status: companion.status, hovered: companion.id == hovered)
             )
         }
         let placements = TrackerCompanyNameTags.place(tags, face: faceBox(master: master, slotWidth: slotWidth), slotWidth: slotWidth) {
@@ -214,6 +246,18 @@ final class TrackerCompanyStage {
                 stemLeft: CGFloat(placement.stemLeft)
             )
         }
+    }
+
+    /// A familiar's resting box as its hit area: the resting figure's columns and opaque rows at the company's scale, from the baseline's
+    /// visible bottom (`belowFeet` under the feet) up to its visible top, the same box the name's stem rises from.
+    private static func hoverArea(of companion: Companion) -> HoverArea {
+        HoverArea(
+            id: companion.id,
+            left: companion.bodyX + CGFloat(restOffset(of: companion.sprites) * Double(companion.pixel)),
+            width: companion.sprites.restWidth(pixel: companion.pixel),
+            bottom: CGFloat(-TrackerCompanyLayout.belowFeet),
+            height: CGFloat(restHeight(of: companion.sprites) * Double(companion.pixel))
+        )
     }
 
     /// A name's width in points, set in the tag's font.
@@ -337,11 +381,32 @@ struct TrackerCompanySlot: View {
             ForEach(company.nameTags) { tag in
                 TrackerCompanyNameChip(tag: tag)
             }
+            // After the familiars and the chips, in the same order, so the right-most familiar under the pointer takes the hover.
+            ForEach(company.hoverAreas) { area in
+                TrackerCompanyHoverArea(area: area) { inside in
+                    company.setPointer(over: area.id, inside: inside)
+                }
+            }
             if company.overflow > 0 {
                 TrackerCompanyOverflow(count: company.overflow, portrait: company.overflowPortrait)
             }
         }
         .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight, alignment: .bottomLeading)
+    }
+}
+
+/// A familiar's resting box, where the pointer is seen: it reports the pointer going over and off the familiar, and nothing else. No cursor
+/// change and no click, so it draws nothing and takes no tap.
+struct TrackerCompanyHoverArea: View {
+    let area: TrackerCompanyStage.HoverArea
+    let onHover: (Bool) -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: area.width, height: area.height)
+            .contentShape(Rectangle())
+            .onHover(perform: onHover)
+            .offset(x: area.left, y: -area.bottom)
     }
 }
 

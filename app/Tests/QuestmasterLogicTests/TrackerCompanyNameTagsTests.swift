@@ -17,6 +17,9 @@ struct TrackerCompanyNameTagsTests {
         anIdleWorkersNameGetsNoChip()
         anIdleWorkersNameTakesNoRoom()
         onlyTheWorkingNamesAreTiered()
+        visibilityFollowsTheStatusOrTheHover()
+        aHoveredNameStandsAfterTheWorkingOnes()
+        aHoveredNameKeepsOffTheFace()
         print("TrackerCompanyNameTagsTests: all tests passed")
     }
 
@@ -25,8 +28,8 @@ struct TrackerCompanyNameTagsTests {
     private static let slotWidth = 280.0
     private static let headTop = 60.0
 
-    private static func tag(_ name: String, centre: Double, working: Bool = true) -> TrackerCompanyNameTags.Tag {
-        TrackerCompanyNameTags.Tag(name: name, nameWidth: charWidth * Double(name.count), centre: centre, headTop: headTop, working: working)
+    private static func tag(_ name: String, centre: Double, _ visibility: TrackerCompanyNameTags.Visibility = .working) -> TrackerCompanyNameTags.Tag {
+        TrackerCompanyNameTags.Tag(name: name, nameWidth: charWidth * Double(name.count), centre: centre, headTop: headTop, visibility: visibility)
     }
 
     /// A cut like the App's: the whole name if it fits, else the widest prefix of at least four letters plus an ellipsis.
@@ -131,14 +134,14 @@ struct TrackerCompanyNameTagsTests {
 
     /// A worker that is not working has no name over its familiar, even with room over its head.
     private static func anIdleWorkersNameGetsNoChip() {
-        let placed = place([tag("Ember", centre: 140, working: false)])
+        let placed = place([tag("Ember", centre: 140, .hidden)])
         expect(placed[0] == nil, "an idle worker's name should get no chip, got \(String(describing: placed[0]))")
     }
 
     /// An idle worker's name takes no room: a working name over the same head keeps the lowest tier, and the idle one between two working
     /// names does not push the later one up.
     private static func anIdleWorkersNameTakesNoRoom() {
-        let placed = place([tag("Ember", centre: 140), tag("Quartz", centre: 140, working: false), tag("Ash", centre: 140)])
+        let placed = place([tag("Ember", centre: 140), tag("Quartz", centre: 140, .hidden), tag("Ash", centre: 140)])
         expect(placed[1] == nil, "the idle name should have no chip")
         let first = expectPlaced(placed[0], "Ember")
         let last = expectPlaced(placed[2], "Ash")
@@ -148,10 +151,39 @@ struct TrackerCompanyNameTagsTests {
 
     /// Tiers are counted among the working names only: a name over an idle worker's old place stays on the lowest tier.
     private static func onlyTheWorkingNamesAreTiered() {
-        let placed = place([tag("Ember", centre: 60, working: false), tag("Quartz", centre: 140), tag("Ash", centre: 150, working: false)])
+        let placed = place([tag("Ember", centre: 60, .hidden), tag("Quartz", centre: 140), tag("Ash", centre: 150, .hidden)])
         expect(placed[0] == nil && placed[2] == nil, "the idle names should have no chip")
         let second = expectPlaced(placed[1], "Quartz")
         expect(second.tier == 0 && abs(second.bottom - (headTop + 5)) < 1e-9, "a working name should stand on the lowest tier with no idle name over it, got tier \(second.tier)")
+    }
+
+    /// Only a working familiar's name shows on its own; a hovered one shows whatever its status, and a working one counts as working.
+    private static func visibilityFollowsTheStatusOrTheHover() {
+        let statuses: [TrackerStatusKind] = [.working, .blocked, .done, .idle, .stopped, .needsInput, .error]
+        for status in statuses {
+            let plain = TrackerCompanyNameTags.visibility(status: status, hovered: false)
+            let hovered = TrackerCompanyNameTags.visibility(status: status, hovered: true)
+            expect(plain == (status == .working ? .working : .hidden), "a \(status) familiar's name should show only while it works, got \(plain)")
+            expect(hovered == (status == .working ? .working : .hovered), "a hovered \(status) familiar's name should show, got \(hovered)")
+        }
+    }
+
+    /// A hovered name is placed after the working ones, so it never moves one: here the hovered name comes first in the list, yet the working
+    /// names keep their tiers and the hovered name climbs to the tier left over.
+    private static func aHoveredNameStandsAfterTheWorkingOnes() {
+        let placed = place([tag("Quartz", centre: 140, .hovered), tag("Ember", centre: 140), tag("Ash", centre: 140)])
+        let ember = expectPlaced(placed[1], "Ember")
+        let ash = expectPlaced(placed[2], "Ash")
+        let quartz = expectPlaced(placed[0], "Quartz")
+        expect(ember.tier == 0 && ash.tier == 1, "the working names should keep tiers 0 and 1 whatever the hovered name, got \(ember.tier) and \(ash.tier)")
+        expect(quartz.tier == 2, "the hovered name should take the tier left over, got tier \(quartz.tier)")
+    }
+
+    /// A hovered name joins the face rule like the others: a tier that runs into the face is skipped.
+    private static func aHoveredNameKeepsOffTheFace() {
+        let face = TrackerCompanyNameTags.Box(minX: 130, maxX: 150, minY: 60, maxY: 80)
+        let placed = expectPlaced(place([tag("Ember", centre: 140, .hovered)], face: face)[0], "Ember")
+        expect(placed.tier == 1, "a hovered name should skip a tier that runs into the face, got tier \(placed.tier)")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

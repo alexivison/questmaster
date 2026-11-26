@@ -145,6 +145,7 @@ enum LogicSelfTests {
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
         ("testOneWorkerIsCentredOnTheMastersBody", testOneWorkerIsCentredOnTheMastersBody),
         ("testWorkerNamesTagTheCompany", testWorkerNamesTagTheCompany),
+        ("testPointingAtAFamiliarShowsItsName", testPointingAtAFamiliarShowsItsName),
         ("testEveryClassHasAHeadBoxInItsArt", testEveryClassHasAHeadBoxInItsArt),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
         ("testTheWarHoundDrawsAtItsScaleOnTheBaseline", testTheWarHoundDrawsAtItsScaleOnTheBaseline),
@@ -2866,6 +2867,58 @@ enum LogicSelfTests {
             throw TestFailure("a long name should cut to a 40 pt room with four letters and an ellipsis")
         }
         try expect(cut.text.hasSuffix("…") && cut.width <= 40, "a cut name should end in an ellipsis and fit its room, got \(cut.text) at \(cut.width)")
+    }
+
+    /// Pointing at a familiar shows its name whatever its status. The idle middle worker's name shows while the pointer is over its familiar and
+    /// goes when it leaves; the working names keep theirs throughout. Each familiar on the row has a resting box to hover, and the "+n"
+    /// workers have none.
+    private static func testPointingAtAFamiliarShowsItsName() throws {
+        final class Clock {
+            var now: TimeInterval = 0
+        }
+        let clock = Clock()
+        let stage = TrackerCompanyStage(clock: { clock.now })
+        let master = try testRow(["id": "qm-m", "title": "Necromancer", "session_type": "master", "class": "necromancer"])
+        let titles = ["Ember", "Ledger sync", "Tray icon polish"]
+        let workers = try titles.enumerated().map { index, title in
+            try testRow(["id": "qm-w\(index)", "title": title, "session_type": "worker", "parent_id": "qm-m", "class": "necromancer",
+                         "state": index == 1 ? "idle" : "working"])
+        }
+        stage.observe(sessions: [master] + workers, attachedID: "qm-m")
+        try expect(!stage.nameTags.contains { $0.id == "qm-w1" }, "an idle familiar should show no name at rest, got \(stage.nameTags.map(\.id))")
+        try expect(stage.hoverAreas.map(\.id) == ["qm-w0", "qm-w1", "qm-w2"], "every familiar should have a resting box, in spawn order, got \(stage.hoverAreas.map(\.id))")
+        try expect(stage.hoverAreas.allSatisfy { abs($0.bottom + CGFloat(TrackerCompanyLayout.belowFeet)) < 1e-9 && $0.width > 0 && $0.height > 0 },
+                   "each resting box should stand from the visible bottom, under the feet, with a size")
+
+        stage.setPointer(over: "qm-w1", inside: true)
+        try expect(stage.hoveredID == "qm-w1" && stage.nameTags.contains { $0.id == "qm-w1" },
+                   "pointing at an idle familiar should show its name, got \(stage.nameTags.map(\.id))")
+        try expect(stage.nameTags.contains { $0.id == "qm-w0" }, "a working familiar should keep its name while another is pointed at")
+
+        // The pointer leaves the idle familiar onto a working one: the enter comes first, so the exit clears nothing it did not set.
+        stage.setPointer(over: "qm-w0", inside: true)
+        stage.setPointer(over: "qm-w1", inside: false)
+        try expect(stage.hoveredID == "qm-w0", "moving onto a neighbour should leave the hover on it, got \(stage.hoveredID ?? "none")")
+        try expect(!stage.nameTags.contains { $0.id == "qm-w1" }, "an idle familiar's name should go when the pointer leaves it")
+
+        stage.setPointer(over: "qm-w0", inside: false)
+        try expect(stage.hoveredID == nil && stage.nameTags.contains { $0.id == "qm-w0" },
+                   "leaving a working familiar should keep its working name and clear the hover")
+
+        // A hovered familiar that leaves the row is not shown as hovered when it comes back.
+        stage.setPointer(over: "qm-w1", inside: true)
+        stage.observe(sessions: [master, workers[0], workers[2]], attachedID: "qm-m")
+        try expect(stage.hoveredID == nil, "a hovered familiar that leaves the row should clear the hover")
+        stage.observe(sessions: [master] + workers, attachedID: "qm-m")
+        try expect(!stage.nameTags.contains { $0.id == "qm-w1" }, "a familiar that comes back should not show as hovered")
+
+        // The "+n" workers have no resting box: eight workers show seven familiars and one in the marker.
+        let many = try (0..<8).map { index in
+            try testRow(["id": "qm-w\(index)", "title": "Worker \(index)", "session_type": "worker", "parent_id": "qm-m", "class": "necromancer"])
+        }
+        stage.observe(sessions: [master] + many, attachedID: "qm-m")
+        try expect(stage.overflow == 1 && stage.hoverAreas.count == stage.companions.count && !stage.hoverAreas.contains { $0.id == "qm-w7" },
+                   "the marker's worker should have no resting box, got \(stage.hoverAreas.map(\.id))")
     }
 
     /// Every designed familiar's company frames are on the 2x device grid at its scale: each full frame has a company frame of the same
