@@ -24,7 +24,7 @@ the slot's size. The moves are horizontal only (`TrackerAvatarMotion`, Core), so
   has one: a familiar's file without a `company` object does not read. Each familiar also has a `company/` folder: the same frame names on the 2x device grid at its
   scale (each frame `round(260 x 2 x scale)` by `round(188 x 2 x scale)` pixels, palette-snapped), with its own `animation.json`
   whose pixel coordinates are on that grid. The master's company draws those frames at 0.5 pt a pixel, nearest-neighbour; the worker
-  slot keeps the full frames. A class draws at 100, and its file has no `scale`. The App draws a familiar at `scale / 100` with nearest-neighbour filtering, so
+  slot keeps the full frames. A class draws at 100, and its file has no `scale`. A class's file also gives its `head` box, `{"x", "y", "width", "height"}` in art pixels from the top left of its idle frame, covering its face (eyes, nose, mouth, hood or helm front): the worker names over the master keep off it. It is measured from the idle art and checked against an overlay; a box off the art, or with no width or height, does not read. The App draws a familiar at `scale / 100` with nearest-neighbour filtering, so
   at 50% and 2x one art pixel is one device pixel.
 - **Bubble:** calling out may show one shared `!` bubble for every class, `Resources/Sprites/shared/bubble.png`, drawn at one
   point a sprite pixel. Its bottom centre sits on the pose's `bubble` anchor (`{"x", "y"}`, in `11-calling-out`'s canvas

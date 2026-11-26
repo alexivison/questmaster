@@ -42,7 +42,33 @@ struct TrackerAvatarAnimationTests {
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
         aCatalogShowsEachClassWithArtAndNoOthers()
         aLidColourIsRequiredAndReadsAsHexRGB()
+        aClassReadsItsHeadBoxAndRefusesABadOne()
         print("TrackerAvatarAnimationTests: all tests passed")
+    }
+
+    /// A class's head box is read from its file: the Necromancer's is 45, 18, 35 by 38. A file without one reads with none, and a box with no
+    /// width or height, or a negative position, does not read.
+    private static func aClassReadsItsHeadBoxAndRefusesABadOne() {
+        let necromancer = AvatarAnimationFixture.classJSON("necromancer")
+        guard let animation = try? decode(necromancer) else {
+            fail("the Necromancer's animation.json should decode")
+        }
+        expect(animation.headBox == TrackerAvatarHeadBox(x: 45, y: 18, width: 35, height: 38), "the Necromancer's head box should be 45, 18, 35 by 38, got \(String(describing: animation.headBox))")
+        var missing = necromancer
+        missing.removeValue(forKey: "head")
+        expect((try? decode(missing))?.headBox == nil, "a class with no head box should read with none")
+        for box in [["x": 45, "y": 18, "width": 0, "height": 38], ["x": -1, "y": 18, "width": 35, "height": 38]] {
+            var bad = necromancer
+            bad["head"] = box
+            do {
+                _ = try decode(bad)
+                fail("a head box \(box) should not read")
+            } catch let error as TrackerAvatarAnimationError {
+                expect(error == .invalidHead, "a bad head box should be rejected as invalid, got \(error)")
+            } catch {
+                fail("a bad head box should give invalid head, got \(error)")
+            }
+        }
     }
 
     private static func bardJSON() -> [String: Any] {

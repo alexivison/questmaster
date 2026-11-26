@@ -65,6 +65,7 @@ again where it was when the keys come back.
 | | keyboard cursor, while the tracker has the keys (`RowLook.shellCursor`) | 1pt `controlBorder` outline inside the row, no fill, text and glyph as at rest, regular weight |
 | | the viewed shell (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
 | | the cursor on the viewed shell (`RowLook.shellSelectedCursor`) | the fill and bold, plus the `controlBorder` outline |
+| Company familiar (the master's company, `TrackerCompanyHoverArea`) | under the pointer, over its resting box | its name shows (`TrackerCompanyNameTags.visibility`); no outline, fill, cursor change or click |
 
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and

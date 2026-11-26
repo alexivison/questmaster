@@ -12,4 +12,6 @@ enum TrackerCompanyMetrics {
     static let chipGap = Space.row
     /// The portrait disc: 20 pt across, `Space.row` in from the slot's right edge.
     static let discSize: CGFloat = 20
+    /// A worker's name stem: a 1 pt line in the line colour, from the familiar's head up to its name's chip.
+    static let nameStemWidth: CGFloat = 1
 }
