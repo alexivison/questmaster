@@ -73,6 +73,24 @@ public final class RuntimeStore {
         notify()
     }
 
+    /// The session a switch in flight is attaching to, set when the switch starts. The avatar follows it at once; the attach clears it
+    /// when it settles, so on success the attached session shows and on failure or a stop the attached session shows again.
+    public private(set) var pendingAttachedSessionID: String?
+
+    /// The session the tracker's avatar shows: the switch in flight, else the attached session.
+    public var avatarAttachedSessionID: String? {
+        pendingAttachedSessionID ?? currentTerminalSessionID
+    }
+
+    /// Sets or clears the switch in flight, notifying observers only when it changes.
+    public func setPendingAttachedSessionID(_ id: String?) {
+        guard pendingAttachedSessionID != id else {
+            return
+        }
+        pendingAttachedSessionID = id
+        notify()
+    }
+
     /// Updates the foreground terminal session id, notifying observers only when it changes.
     public func setCurrentTerminalSessionID(_ id: String?) {
         guard currentTerminalSessionID != id else {

@@ -11143,7 +11143,11 @@ enum LogicSelfTests {
         controller.installPlaceholder(fake)
         var completions: [Bool] = []
         controller.switchTerminal(to: "qm-old") { completions.append($0) }
+        try expect(runtime.avatarAttachedSessionID == "qm-old" && runtime.pendingAttachedSessionID == "qm-old",
+                   "the avatar should follow a selection as soon as its switch starts")
         controller.switchTerminal(to: "qm-new") { completions.append($0) }
+        try expect(runtime.avatarAttachedSessionID == "qm-new",
+                   "a second selection should take the avatar over before the first has settled")
         try expect(routes.pending.count == 2, "the route client must hold both lookups")
         routes.pending[1](.success([try TmuxRoute(sessionID: "qm-new", label: "default", configFiles: [], live: true, createdUnix: 1)]))
         try expect(waitUntil { fake.pending.count == 1 }, "newest route should reach host")
@@ -11151,6 +11155,8 @@ enum LogicSelfTests {
         fake.pending[0](.success("qm-new"))
         try expect(runtime.currentTerminalSessionID == "qm-new" && fake.starts == 1,
                    "the controller must apply only the newest attach result")
+        try expect(runtime.pendingAttachedSessionID == nil && runtime.avatarAttachedSessionID == "qm-new",
+                   "a landed switch should settle the avatar on the attached session")
         try expect(completions == [false, true], "a superseded activation must finish false and the newest true")
 
         controller.switchTerminal(to: "qm-detach") { completions.append($0) }
@@ -11168,6 +11174,23 @@ enum LogicSelfTests {
         fake.pending[2](.success("qm-stop"))
         try expect(runtime.currentTerminalSessionID == nil && fake.starts == 1 && completions.last == false,
                    "stop must discard a pending attach")
+        try expect(runtime.pendingAttachedSessionID == nil, "stop must settle the avatar's switch")
+
+        controller.switchTerminal(to: "qm-keep") { completions.append($0) }
+        routes.pending[4](.success([try TmuxRoute(sessionID: "qm-keep", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        try expect(waitUntil { fake.pending.count == 4 }, "the kept session should reach the host")
+        fake.pending[3](.success("qm-keep"))
+        try expect(runtime.currentTerminalSessionID == "qm-keep" && runtime.avatarAttachedSessionID == "qm-keep",
+                   "a landed switch should leave the avatar on the attached session")
+
+        controller.switchTerminal(to: "qm-bad") { completions.append($0) }
+        try expect(runtime.avatarAttachedSessionID == "qm-bad", "the avatar should follow the failing selection too")
+        routes.pending[5](.success([try TmuxRoute(sessionID: "qm-bad", label: "default", configFiles: [], live: true, createdUnix: 1)]))
+        try expect(waitUntil { fake.pending.count == 5 }, "the failing session should reach the host")
+        fake.pending[4](.failure(TestFailure("connect refused")))
+        try expect(runtime.currentTerminalSessionID == "qm-keep" && runtime.pendingAttachedSessionID == nil
+                   && runtime.avatarAttachedSessionID == "qm-keep" && completions.last == false,
+                   "a failed attach must revert the avatar to the attached session")
     }
 
     private static func testEditorWindowOpensOffMain() throws {

@@ -7,6 +7,7 @@ struct RuntimeStoreTests {
         applyMergesUpdateAndNotifies()
         identicalApplyDoesNotNotifyOrTick()
         terminalSessionNotifiesOnlyOnChange()
+        avatarFollowsAPendingSwitchThenTheAttachedSession()
         returnToMasterFollowsOnlyAnAttachedWorkersExistingMaster()
         acknowledgedDeletionUpdatesSnapshot()
         cancelledObserverStopsReceivingNotifications()
@@ -56,6 +57,23 @@ struct RuntimeStoreTests {
         store.setCurrentTerminalSessionID("qm-2")
         expect(store.currentTerminalSessionID == "qm-2", "terminal id not updated")
         expect(notifications == 1, "terminal id change should notify once")
+        token.cancel()
+    }
+
+    private static func avatarFollowsAPendingSwitchThenTheAttachedSession() {
+        let store = RuntimeStore(sourceLabel: "label", currentTerminalSessionID: "qm-1")
+        expect(store.avatarAttachedSessionID == "qm-1", "with no switch in flight the avatar shows the attached session")
+        var notifications = 0
+        let token = store.observe { notifications += 1 }
+        store.setPendingAttachedSessionID("qm-2")
+        expect(store.avatarAttachedSessionID == "qm-2", "a pending switch should take the avatar before it attaches")
+        expect(store.currentTerminalSessionID == "qm-1", "a pending switch must not change the attached session")
+        expect(notifications == 1, "a pending switch should notify once")
+        store.setPendingAttachedSessionID("qm-2")
+        expect(notifications == 1, "the same pending switch should not notify again")
+        store.setPendingAttachedSessionID(nil)
+        expect(store.avatarAttachedSessionID == "qm-1", "clearing the switch should revert the avatar to the attached session")
+        expect(notifications == 2, "clearing a pending switch should notify once")
         token.cancel()
     }
 
