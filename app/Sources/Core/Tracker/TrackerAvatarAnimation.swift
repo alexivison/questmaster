@@ -345,6 +345,8 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case missingCompany
     /// A familiar's `company` needs a pitch above 0 and a capacity of at least one.
     case invalidCompany
+    /// A `head` box needs a position at or after the art's top left and a width and height above 0.
+    case invalidHead
 }
 
 /// A class's avatar art and timings, read from its `animation.json` (`Resources/Sprites/<class>/`). The file names every pose, and
@@ -363,6 +365,22 @@ public enum TrackerAvatarArtKind: Hashable, Sendable {
     }
 }
 
+/// A class's head box: the rectangle of its idle art, in art pixels from the top left, that covers its face (eyes, nose, mouth, hood or helm
+/// front). A worker's name over the master must not cover it.
+public struct TrackerAvatarHeadBox: Equatable, Sendable {
+    public let x: Int
+    public let y: Int
+    public let width: Int
+    public let height: Int
+
+    public init(x: Int, y: Int, width: Int, height: Int) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
 public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The only `version` this build reads.
     public static let supportedVersion = 1
@@ -376,6 +394,9 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     public let scalePercent: Double
     /// A familiar's place in the master's company: its pitch and full row, which every familiar's file gives. Nil for a class.
     public let companyRow: TrackerCompanyRow?
+    /// A class's head box, which covers its face: the rectangle of its idle art that the worker names over the master must not cover. Nil
+    /// when the file gives none.
+    public let headBox: TrackerAvatarHeadBox?
     private let poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation]
 
     /// Reads and checks an `animation.json`: a class's (`.master`) or a familiar's (`.familiar`), which name their own poses.
@@ -397,6 +418,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         self.poses = poses
         scalePercent = try Self.scalePercent(file.scale, kind: kind)
         companyRow = try Self.readCompanyRow(file.company, kind: kind)
+        headBox = try Self.readHeadBox(file.head)
         // Bard and Barbarian's authored idle loops keep their existing frame-loop behavior and do not read layered-idle metadata.
         if poses[.idle]?.loop != nil {
             idle = nil
@@ -636,10 +658,22 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         return TrackerCompanyRow(pitch: company.pitch, capacity: company.capacity)
     }
 
+    /// A file's head box, when it gives one: a position at or after the top left, with a width and height above 0.
+    private static func readHeadBox(_ head: File.Head?) throws -> TrackerAvatarHeadBox? {
+        guard let head else {
+            return nil
+        }
+        guard head.x >= 0, head.y >= 0, head.width > 0, head.height > 0 else {
+            throw TrackerAvatarAnimationError.invalidHead
+        }
+        return TrackerAvatarHeadBox(x: head.x, y: head.y, width: head.width, height: head.height)
+    }
+
     private struct File: Decodable {
         let version: Int
         let scale: Double?
         let company: Company?
+        let head: Head?
         let idle: Idle?
         let fidgets: [String: [TrackerAvatarStep]]?
         let poses: [String: Pose]
@@ -647,6 +681,13 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         struct Company: Decodable {
             let pitch: Double
             let capacity: Int
+        }
+
+        struct Head: Decodable {
+            let x: Int
+            let y: Int
+            let width: Int
+            let height: Int
         }
 
         struct Idle: Decodable {

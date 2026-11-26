@@ -146,7 +146,7 @@ final class TrackerCompanyStage {
                 enter: frame?.enterElapsed
             )
         }
-        nameTags = Self.nameTags(for: companions, master: masterArt, classID: classID, slotWidth: Double(TrackerAvatarMetrics.slotWidth))
+        nameTags = Self.nameTags(for: companions, master: masterArt, slotWidth: Double(TrackerAvatarMetrics.slotWidth))
         overflow = layout.overflow
         overflowPortrait = overflow > 0 ? SessionClass(id: master.sessionClass).map(SessionPortrait.familiar) : nil
         scheduleWake(at: nextChange)
@@ -182,7 +182,7 @@ final class TrackerCompanyStage {
 
     /// The name tags over the companions, in spawn order: each name measured in the tag's font, centred over its familiar's rest and set
     /// above its visible top, and placed by Core's tiers around the master's face. A name that fits nowhere gets no tag.
-    private static func nameTags(for companions: [Companion], master: TrackerAvatarSprites, classID: String, slotWidth: Double) -> [NameTag] {
+    private static func nameTags(for companions: [Companion], master: TrackerAvatarSprites, slotWidth: Double) -> [NameTag] {
         let tags = companions.map { companion in
             TrackerCompanyNameTags.Tag(
                 name: companion.title,
@@ -191,7 +191,7 @@ final class TrackerCompanyStage {
                 headTop: -TrackerCompanyLayout.belowFeet + restHeight(of: companion.sprites) * Double(companion.pixel)
             )
         }
-        let placements = TrackerCompanyNameTags.place(tags, face: faceBox(classID: classID, master: master, slotWidth: slotWidth), slotWidth: slotWidth) {
+        let placements = TrackerCompanyNameTags.place(tags, face: faceBox(master: master, slotWidth: slotWidth), slotWidth: slotWidth) {
             text, maxWidth in cutName(text, maxTextWidth: maxWidth)
         }
         return zip(companions, placements).compactMap { companion, placement in
@@ -233,20 +233,20 @@ final class TrackerCompanyStage {
         return nil
     }
 
-    /// The master's face box in slot points, y up from the bottom, from its art's box (`TrackerCompanyNameFaces`); nil for a class with none.
-    /// The master's body column stands at the slot's centre, and its feet row sits on the baseline.
-    private static func faceBox(classID: String, master: TrackerAvatarSprites, slotWidth: Double) -> TrackerCompanyNameTags.Box? {
-        guard let face = TrackerCompanyNameFaces.box(for: classID), let idle = master.animation.animation(for: .idle) else {
+    /// The master's face box in slot points, y up from the bottom, from its head box in the class's `animation.json`; nil for a class with
+    /// none. The master's body column stands at the slot's centre, and its feet row sits on the baseline.
+    private static func faceBox(master: TrackerAvatarSprites, slotWidth: Double) -> TrackerCompanyNameTags.Box? {
+        guard let head = master.animation.headBox, let idle = master.animation.animation(for: .idle) else {
             return nil
         }
         let body = Double(idle.bodyColumn)
         let feet = Double(idle.footRow)
-        let minX = slotWidth / 2 + (Double(face.x) - body)
+        let minX = slotWidth / 2 + (Double(head.x) - body)
         return TrackerCompanyNameTags.Box(
             minX: minX,
-            maxX: minX + Double(face.width),
-            minY: feet - Double(face.y + face.height),
-            maxY: feet - Double(face.y)
+            maxX: minX + Double(head.width),
+            minY: feet - Double(head.y + head.height),
+            maxY: feet - Double(head.y)
         )
     }
 

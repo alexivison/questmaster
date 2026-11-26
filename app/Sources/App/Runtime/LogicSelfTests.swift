@@ -145,6 +145,7 @@ enum LogicSelfTests {
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
         ("testOneWorkerIsCentredOnTheMastersBody", testOneWorkerIsCentredOnTheMastersBody),
         ("testWorkerNamesTagTheCompany", testWorkerNamesTagTheCompany),
+        ("testEveryClassHasAHeadBoxInItsArt", testEveryClassHasAHeadBoxInItsArt),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
         ("testTheWarHoundDrawsAtItsScaleOnTheBaseline", testTheWarHoundDrawsAtItsScaleOnTheBaseline),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
@@ -2800,6 +2801,21 @@ enum LogicSelfTests {
             let width = CGFloat(columns.count) * companion.pixel
             try expect(abs(left + width / 2 - centre) <= 0.5,
                        "the \(classID)'s one worker should stand centred on the master's body (\(centre)), got \(left + width / 2)")
+        }
+    }
+
+    /// Every class's head box is in its `animation.json` and lies inside its idle art: the names over the master avoid its face, so a class
+    /// without one, or with a box off its art, fails here.
+    @MainActor
+    private static func testEveryClassHasAHeadBoxInItsArt() throws {
+        for sessionClass in SessionClass.allCases {
+            let classID = sessionClass.rawValue
+            guard let sprites = TrackerAvatarLibrary.sprites[TrackerAvatarArtKey(kind: .master, classID: classID)],
+                  let box = sprites.animation.headBox, let frame = sprites.idleFrame(1) else {
+                throw TestFailure("the \(classID) should have a head box and its idle art")
+            }
+            try expect(box.x + box.width <= frame.width && box.y + box.height <= frame.height,
+                       "the \(classID)'s head box \(box) should lie inside its \(frame.width) by \(frame.height) idle art")
         }
     }
 
