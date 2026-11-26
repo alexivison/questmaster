@@ -34,6 +34,11 @@ enum AppPalette {
     static let warn = StateColor.warn.color
     /// The one gold: titles (modal titles included), project headers and marks.
     static let accent = StateColor.accent.color
+
+    static func settingsSwitch(isOn: Bool) -> (track: NSColor, border: NSColor, thumb: NSColor) {
+        isOn ? (accent, accent, panel) : (terminal, controlBorder, textBody)
+    }
+
     static let masterRole = NSColor(hex: 0xf2cc60)
     static let workerRole = NSColor(hex: 0xbc8cff)
     static let claude = NSColor(hex: 0xcc785c)

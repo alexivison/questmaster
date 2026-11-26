@@ -213,17 +213,17 @@ struct SettingsSheetView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Toggle("", isOn: Binding(
+            Toggle("Enable \(agentName)", isOn: Binding(
                 get: { model.isAgentEnabled(agent) },
                 set: { model.setAgentEnabled(agent, enabled: $0) }
             ))
             .labelsHidden()
-            .toggleStyle(.switch)
-            .tint(AppPalette.accent.swiftUI)
+            .toggleStyle(SettingsAgentSwitchStyle())
             .overlay {
                 if model.isAvailabilityToggleFocused(for: agent) {
-                    RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius)
+                    Capsule()
                         .strokeBorder(OutlineLook.field(focused: true).border.color.swiftUI, lineWidth: Token.Size.divider)
+                        .allowsHitTesting(false)
                 }
             }
             .accessibilityLabel("Enable \(agentName)")
@@ -287,6 +287,36 @@ struct SettingsSheetView: View {
                     onSelect: { model.pickSuggestion(visibleRow: $0) }
                 ) : nil)
             }
+        }
+    }
+}
+
+private struct SettingsAgentSwitchStyle: ToggleStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            let look = AppPalette.settingsSwitch(isOn: configuration.isOn)
+            Capsule()
+                .fill(look.track.swiftUI)
+                .overlay { Capsule().strokeBorder(look.border.swiftUI, lineWidth: Token.Size.divider) }
+                .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                    Circle()
+                        .fill(look.thumb.swiftUI)
+                        .frame(width: ControlHeight.chip, height: ControlHeight.chip)
+                        .padding(.horizontal, Token.Size.hairline)
+                }
+                .frame(width: Space.group, height: Space.section)
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : Token.Opacity.dimmed)
+        .accessibilityRepresentation {
+            Toggle(isOn: Binding(get: { configuration.isOn }, set: { configuration.isOn = $0 })) {
+                configuration.label
+            }
+            .toggleStyle(.switch)
         }
     }
 }
@@ -394,7 +424,6 @@ final class SettingsSheetModel: ObservableObject {
     @Published var section = SettingsSection.modelsAndReasoning
     @Published var errorMessage: String?
     @Published private(set) var availability: AgentAvailability?
-    @Published private(set) var isAvailabilityLoading = false
     @Published private(set) var savingAvailabilityAgents: Set<String> = []
     @Published private(set) var focusNonces: [String: [RoleDefaultField: Int]] = [:]
     @Published private(set) var sinkNonce = 0
@@ -460,7 +489,7 @@ final class SettingsSheetModel: ObservableObject {
         return field == .model ? value.model : value.reasoningEffort
     }
 
-    /// Starts or stops one agent. Disabling takes effect in the view
+    /// Saves one agent's launch preference. Disabling takes effect in the view
     /// immediately; a failed save restores it and fetches fresh options.
     func setAgentEnabled(_ agent: String, enabled: Bool) {
         guard isAvailabilityLoaded,
@@ -636,10 +665,8 @@ final class SettingsSheetModel: ObservableObject {
             return
         }
         availabilityRequestStarted = true
-        isAvailabilityLoading = true
         fetchAvailability { [weak self] result in
             guard let self else { return }
-            self.isAvailabilityLoading = false
             switch result {
             case .success(let response):
                 self.applyAvailability(response)

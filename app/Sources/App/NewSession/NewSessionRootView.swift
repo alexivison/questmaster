@@ -176,7 +176,7 @@ struct NewSessionRootView: View {
                     onModelChanged()
                 }
             ),
-            placeholder: agentAvailable ? "Default model..." : "Choose an enabled agent first...",
+            placeholder: "Default model...",
             focusNonce: state.focusNonces[.model, default: 0],
             focused: agentAvailable && model.focusedField == .model,
             onFocusChanged: { editing in
