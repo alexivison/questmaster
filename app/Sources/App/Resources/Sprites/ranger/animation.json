@@ -13,7 +13,7 @@
       "frames": [
         {
           "file": "01-idle-breath-f1.png",
-          "seconds": 0.2,
+          "seconds": 0.4,
           "eye_row": 26,
           "eye_columns": [
             44,
@@ -22,69 +22,6 @@
         },
         {
           "file": "01-idle-breath-f2.png",
-          "seconds": 0.1,
-          "eye_row": 26,
-          "eye_columns": [
-            44,
-            47
-          ]
-        },
-        {
-          "file": "01-idle-breath-f3.png",
-          "seconds": 0.1,
-          "eye_row": 25,
-          "eye_columns": [
-            44,
-            47
-          ]
-        },
-        {
-          "file": "01-idle-breath-f4.png",
-          "seconds": 0.1,
-          "eye_row": 24,
-          "eye_columns": [
-            44,
-            47
-          ]
-        },
-        {
-          "file": "01-idle-breath-f5.png",
-          "seconds": 0.1,
-          "eye_row": 24,
-          "eye_columns": [
-            44,
-            47
-          ]
-        },
-        {
-          "file": "01-idle-breath-f6.png",
-          "seconds": 0.1,
-          "eye_row": 24,
-          "eye_columns": [
-            44,
-            47
-          ]
-        },
-        {
-          "file": "01-idle-breath-f7.png",
-          "seconds": 0.1,
-          "eye_row": 25,
-          "eye_columns": [
-            44,
-            47
-          ]
-        },
-        {
-          "file": "01-idle-breath-f8.png",
-          "seconds": 0.1,
-          "eye_row": 25,
-          "eye_columns": [
-            44,
-            47
-          ]
-        },
-        {
-          "file": "01-idle-breath-f9.png",
           "seconds": 0.2,
           "eye_row": 26,
           "eye_columns": [
@@ -93,8 +30,8 @@
           ]
         },
         {
-          "file": "01-idle-breath-f8.png",
-          "seconds": 0.1,
+          "file": "01-idle-breath-f3.png",
+          "seconds": 0.2,
           "eye_row": 25,
           "eye_columns": [
             44,
@@ -102,17 +39,8 @@
           ]
         },
         {
-          "file": "01-idle-breath-f7.png",
-          "seconds": 0.1,
-          "eye_row": 25,
-          "eye_columns": [
-            44,
-            47
-          ]
-        },
-        {
-          "file": "01-idle-breath-f6.png",
-          "seconds": 0.1,
+          "file": "01-idle-breath-f4.png",
+          "seconds": 0.2,
           "eye_row": 24,
           "eye_columns": [
             44,
@@ -121,7 +49,7 @@
         },
         {
           "file": "01-idle-breath-f5.png",
-          "seconds": 0.1,
+          "seconds": 0.2,
           "eye_row": 24,
           "eye_columns": [
             44,
@@ -129,8 +57,8 @@
           ]
         },
         {
-          "file": "01-idle-breath-f4.png",
-          "seconds": 0.1,
+          "file": "01-idle-breath-f6.png",
+          "seconds": 0.2,
           "eye_row": 24,
           "eye_columns": [
             44,
@@ -138,8 +66,8 @@
           ]
         },
         {
-          "file": "01-idle-breath-f3.png",
-          "seconds": 0.1,
+          "file": "01-idle-breath-f7.png",
+          "seconds": 0.2,
           "eye_row": 25,
           "eye_columns": [
             44,
@@ -147,9 +75,9 @@
           ]
         },
         {
-          "file": "01-idle-breath-f2.png",
-          "seconds": 0.1,
-          "eye_row": 26,
+          "file": "01-idle-breath-f8.png",
+          "seconds": 0.2,
+          "eye_row": 25,
           "eye_columns": [
             44,
             47
@@ -350,19 +278,15 @@
             0.2
           ],
           [
-            10,
+            12,
             0.1
           ],
           [
-            9,
-            0.1
+            13,
+            0.2
           ],
           [
-            8,
-            0.1
-          ],
-          [
-            7,
+            14,
             0.1
           ]
         ],
@@ -599,14 +523,6 @@
           ],
           [
             8,
-            0.1
-          ],
-          [
-            9,
-            0.1
-          ],
-          [
-            10,
             0.2
           ],
           [
@@ -614,15 +530,19 @@
             0.1
           ],
           [
-            8,
+            10,
             0.1
           ],
           [
-            7,
+            11,
+            0.2
+          ],
+          [
+            12,
             0.1
           ],
           [
-            6,
+            13,
             0.1
           ]
         ],
@@ -843,34 +763,30 @@
           ],
           [
             7,
-            0.1
-          ],
-          [
-            8,
-            0.1
-          ],
-          [
-            9,
-            0.1
-          ],
-          [
-            10,
             0.2
           ],
           [
-            9,
-            0.1
-          ],
-          [
             8,
             0.1
           ],
           [
-            7,
+            9,
+            0.2
+          ],
+          [
+            10,
             0.1
           ],
           [
-            6,
+            11,
+            0.1
+          ],
+          [
+            12,
+            0.1
+          ],
+          [
+            13,
             0.1
           ]
         ],
@@ -1391,14 +1307,6 @@
           ],
           [
             9,
-            0.1
-          ],
-          [
-            10,
-            0.1
-          ],
-          [
-            11,
             0.2
           ],
           [
@@ -1406,15 +1314,19 @@
             0.1
           ],
           [
-            9,
+            11,
             0.1
           ],
           [
-            8,
+            12,
+            0.2
+          ],
+          [
+            13,
             0.1
           ],
           [
-            7,
+            14,
             0.1
           ]
         ]
@@ -1819,26 +1731,22 @@
           ],
           [
             9,
-            0.1
-          ],
-          [
-            10,
             0.2
           ],
           [
-            9,
+            10,
             0.1
           ],
           [
-            8,
+            11,
+            0.2
+          ],
+          [
+            12,
             0.1
           ],
           [
-            7,
-            0.1
-          ],
-          [
-            6,
+            13,
             0.1
           ]
         ]
@@ -1885,10 +1793,10 @@
       }
     }
   },
- "head": {
-  "x": 36,
-  "y": 10,
-  "width": 26,
-  "height": 28
- }
+  "head": {
+    "x": 36,
+    "y": 10,
+    "width": 26,
+    "height": 28
+  }
 }

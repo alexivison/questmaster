@@ -2265,16 +2265,16 @@ enum LogicSelfTests {
         try expect(missing.isEmpty, "every frame the cleric's file plays should have its art, missing: \(missing)")
     }
 
-    /// The ranger's sprites load from the app bundle: his breathing plays its authored steps up and back down with their eyelid
-    /// stencils, and he never blinks.
+    /// The ranger's sprites load from the app bundle: his breathing plays its eight frames once, one breath a cycle, with their
+    /// eyelid stencils, and he never blinks.
     @MainActor
     private static func testBundledRangerSpritesReadTheirAnimationFile() throws {
         guard let sprites = TrackerAvatarSprites.bundled()["ranger"] else {
             throw TestFailure("the ranger's sprites should load from the app bundle")
         }
         try expect(sprites.animation.idle?.blink == false, "the ranger should not schedule a blink")
-        try expect(sprites.animation.idle?.breathing?.frames.count == 16 && sprites.idleBreathingArt?.count == 16,
-                   "the ranger should load all sixteen breathing steps and their lid stencils")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 8 && sprites.idleBreathingArt?.count == 8,
+                   "the ranger should load all eight breathing frames and their lid stencils")
         try expect(sprites.animation.fidgets.map(\.name) == ["scarf-tug"], "the ranger should have the scarf-tug fidget")
         try expect(sprites.availableFidgets.count == 1, "the ranger's fidget should have its art")
         try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the ranger's art")
