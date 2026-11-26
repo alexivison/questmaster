@@ -311,7 +311,7 @@ func (s *Service) continueLaunchFor(m state.Manifest) (continueLaunch, error) {
 	for _, agentState := range manifestSpecs {
 		role := agent.Role(agentState.Role)
 		if err := agentavailability.RequireEnabled(s.Store.Root(), agentState.Name); err != nil {
-			return continueLaunch{}, fmt.Errorf("cannot continue session %s: %w", m.SessionID, err)
+			return continueLaunch{}, err
 		}
 		provider, err := agent.Resolve(agentState.Name, s.Registry)
 		if err != nil {

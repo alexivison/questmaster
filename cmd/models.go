@@ -54,7 +54,7 @@ spawn --model accept any id the harness understands, listed or not.`,
 					return err
 				}
 				if len(names) == 0 {
-					return fmt.Errorf("no agents are enabled; enable at least one in Settings before requesting model suggestions")
+					return fmt.Errorf("no agents are enabled. Enable at least one in Settings before requesting model suggestions.")
 				}
 				return fmt.Errorf("agent is required (one of: %s)", strings.Join(names, ", "))
 			}

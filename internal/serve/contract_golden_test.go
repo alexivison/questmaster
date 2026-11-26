@@ -31,6 +31,32 @@ func TestServeContractGoldens(t *testing.T) {
 	}
 }
 
+func TestAgentAvailabilityContractGoldens(t *testing.T) {
+	t.Parallel()
+	store := state.OpenStore(t.TempDir())
+	defaults := state.NewRoleDefaultsStore(store.Root())
+	if err := defaults.Set("claude", "master", state.RoleDefault{Model: "example-model", ReasoningEffort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{Snapshotter: NewSnapshotter(store, nil, nil)}
+	set := Request{
+		ID:     json.RawMessage(`"availability-set"`),
+		Method: "agent_availability.set",
+		Data:   json.RawMessage(`{"agent":"claude","enabled":"false"}`),
+	}
+	assertContractGolden(t, "agent_availability_set_request.json", marshalContractFixture(t, set))
+	if response := server.HandleRequest(t.Context(), set); response.OK == nil || !*response.OK {
+		t.Fatalf("disable agent: %s", response.Error)
+	}
+	read := Request{ID: json.RawMessage(`"availability-read"`), Method: "agent_availability"}
+	response := server.HandleRequest(t.Context(), read)
+	if response.OK == nil || !*response.OK {
+		t.Fatalf("read availability: %s", response.Error)
+	}
+	response.ProtocolVersion = ServeProtocolVersion
+	assertContractGolden(t, "agent_availability_response_envelope.json", marshalContractFixture(t, response))
+}
+
 func TestWriteEnvelopeStampsProtocolVersion(t *testing.T) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

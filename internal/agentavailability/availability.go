@@ -17,8 +17,9 @@ func EnabledNames(root string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(agent.Names()))
-	for _, name := range agent.Names() {
+	catalogue := agent.Names()
+	names := make([]string, 0, len(catalogue))
+	for _, name := range catalogue {
 		if enabled, ok := settings[name]; !ok || enabled {
 			names = append(names, name)
 		}
@@ -30,12 +31,12 @@ func EnabledNames(root string) ([]string, error) {
 // Names without a saved preference keep their existing availability.
 func RequireEnabled(root, name string) error {
 	name = strings.ToLower(strings.TrimSpace(name))
-	settings, err := state.NewAgentAvailabilityStore(root).Load()
+	enabled, err := state.NewAgentAvailabilityStore(root).Enabled(name)
 	if err != nil {
 		return err
 	}
-	if enabled, saved := settings[name]; saved && !enabled {
-		return fmt.Errorf("agent %q is disabled; re-enable it in Settings under Models and Reasoning before launching or querying it", name)
+	if !enabled {
+		return fmt.Errorf("agent %q is disabled. Re-enable it in Settings under Models and Reasoning.", name)
 	}
 	return nil
 }
@@ -60,7 +61,7 @@ func RequireLaunch(root, name string) error {
 		}
 	}
 	if allBuiltinsDisabled {
-		return fmt.Errorf("all agents are disabled; enable at least one in Settings under Models and Reasoning before launching an agent")
+		return fmt.Errorf("all agents are disabled. Enable at least one in Settings under Models and Reasoning.")
 	}
-	return fmt.Errorf("agent %q is disabled; re-enable it in Settings under Models and Reasoning or choose an enabled agent with --agent (run `qm agent query names` to see available agents)", name)
+	return fmt.Errorf("agent %q is disabled. To launch a session, re-enable it in Settings under Models and Reasoning or use --agent with an enabled agent from `qm agent query names`.", name)
 }

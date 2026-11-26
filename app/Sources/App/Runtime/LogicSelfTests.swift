@@ -3525,7 +3525,7 @@ enum LogicSelfTests {
     }
 
     private static func testContinueShowsHowToReenableDisabledAgent() throws {
-        let detail = "Claude is disabled. Re-enable it in Settings under Models and Reasoning."
+        let detail = "agent \"claude\" is disabled. Re-enable it in Settings under Models and Reasoning."
         let client = StubMutationClient(result: .failure(ServeClientError.responseError(detail)))
         var banner = ""
         var attached = false

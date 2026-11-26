@@ -11,7 +11,7 @@ import (
 func newAgentCmd(store *state.Store) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "Query configured agents",
+		Short: "Query enabled agents",
 	}
 	cmd.AddCommand(newAgentQueryCmd(store))
 	cmd.AddCommand(newAgentCodexCmd(store))
