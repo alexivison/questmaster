@@ -210,6 +210,7 @@ enum LogicSelfTests {
         ("testArtifactViewerCopiesAndRefreshesWithKeys", testArtifactViewerCopiesAndRefreshesWithKeys),
         ("testArtifactViewerBackKeysReturnToList", testArtifactViewerBackKeysReturnToList),
         ("testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck", testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck),
+        ("testConfirmedDeleteSurvivesUnavailableRecovery", testConfirmedDeleteSurvivesUnavailableRecovery),
         ("testEndedIconShowsOnlyWhenTheViewedSessionIsGone", testEndedIconShowsOnlyWhenTheViewedSessionIsGone),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
         ("testDeferredDeleteConfirmationRetainsExecutor", testDeferredDeleteConfirmationRetainsExecutor),
@@ -7582,6 +7583,54 @@ enum LogicSelfTests {
         try expect(failures.value == 0, "switch-before mutation should not report failure")
     }
 
+    private static func testConfirmedDeleteSurvivesUnavailableRecovery() throws {
+        let detail = "agent \"codex\" is disabled. Re-enable it in Settings under Models and Reasoning."
+        let recovery = try ServeMutationRequests.`continue`(sessionID: "qm-stopped")
+        let delete = try ServeMutationRequests.delete(sessionID: "qm-master")
+
+        for switchDuringDelete in [false, true] {
+            let store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: "qm-worker")
+            let client = StubMutationClient(result: .failure(ServeClientError.responseError(detail)), deferCompletions: true)
+            var failures: [String] = []
+            var attached = false
+            var ended = false
+            var finished = false
+            let coordinator = SessionCoordinator(
+                store: store,
+                mutationClient: client,
+                dependencies: .init(
+                    switchTerminal: { _, _ in attached = true },
+                    showMutationFailure: { _, description in failures.append(description) },
+                    clearTerminalEnded: {},
+                    showTerminalEnded: { ended = true },
+                    render: {}
+                )
+            )
+
+            coordinator.sendMutation(
+                delete,
+                label: "delete qm-master",
+                switchToSessionID: "qm-stopped",
+                switchBeforeMutation: true,
+                switchBeforeMutationIntent: .continueSession
+            ) { finished = true }
+            try expect(client.sentRequests == [recovery], "delete should first try to Continue the replacement")
+            client.result = .success(ServeMutationAck(data: nil))
+            client.fireCompletion(forRequestAt: 0)
+            try waitForMainQueue("Delete after rejected recovery", until: { client.sentRequests.count == 2 || !failures.isEmpty })
+            try expect(client.sentRequests == [recovery, delete], "rejected replacement should allow the confirmed Delete")
+            try expect(!finished && !ended && !attached && failures.isEmpty, "the rejected replacement should leave the terminal alone until Delete succeeds")
+
+            if switchDuringDelete {
+                store.setCurrentTerminalSessionID("qm-other")
+            }
+            client.fireCompletion(forRequestAt: 1)
+            try waitForMainQueue("Delete acknowledgement", until: { finished })
+            try expect(ended == !switchDuringDelete, "clear the terminal only if it still shows the deleted worker")
+            try expect(store.currentTerminalSessionID == (switchDuringDelete ? "qm-other" : nil), "Delete should preserve a newer terminal attachment")
+        }
+    }
+
     /// The ended-session icon means the viewed session is really gone: a delete of it that succeeded with nowhere to switch to.
     /// A plain mutation, a failed one and a delete that first switches to a recovery session (an attach, whose veil must show)
     /// never raise it; and the terminal pane's overlay is up only between `showEnded` and `clearEnded`.
@@ -11240,7 +11289,7 @@ enum LogicSelfTests {
     }
 
     private final class StubMutationClient: ServeMutationSending {
-        let result: Result<ServeMutationAck, Error>
+        var result: Result<ServeMutationAck, Error>
         private let deferCompletions: Bool
         private(set) var sentRequests: [ServeMutationRequest] = []
         private var pendingCompletions: [() -> Void] = []
