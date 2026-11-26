@@ -239,17 +239,14 @@ private struct QuestLogList: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView(.vertical) {
+            ListScrollView(indicators: .never) {
                 VStack(alignment: .leading, spacing: QuestLogMetrics.rowSpacing) {
                     ForEach(store.visibleQuests) { quest in
                         row(quest).id(quest.id)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(ScrollerHider())
             }
-            // `.never`, as `SectionedList` has it: a hidden indicator would narrow the cards on the right while the list scrolls.
-            .scrollIndicators(.never)
             // The view is rebuilt per opening, so the kept selection is scrolled to as it appears.
             .onAppear { scroll(proxy, to: store.selectedID) }
             .onChange(of: store.selectedID) { _, id in

@@ -20,3 +20,5 @@ Shared facts:
 - Dock state (which panels show) is app-wide; only the panels' contents follow the attached session.
 - The Action ticks are app-wide; the Worker Log's worker tab is kept per master.
 - An empty list is one `EmptyState` icon (see `.agents/skills/app-ui/references/empty-loading-states.md`).
+- Vertical scrolling lists use `ListScrollView`. Rows fade over the last `Space.item` of the viewport while more
+  rows lie below it. The fade clears at the bottom and when the whole list fits.

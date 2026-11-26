@@ -22,7 +22,8 @@
   stays there whatever the feed is doing (first read pending or failed, empty, lines). The feed fades in under its header,
   the bar and the chip when there is one, over its `topInset` (the Quest Log's overflow mask), so lines scrolled up under
   it are never cut hard. A feed's first line sits `PanelHeaderMetrics.contentGap` (20) under the chip, or
-  `PanelHeaderMetrics.bodyTopInset` (10) under the bar with no chip, and the fade covers that band.
+  `PanelHeaderMetrics.bodyTopInset` (10) under the bar with no chip, and the fade covers that band. The feed and the
+  scrolling Action dropdown also use the shared bottom fade while more rows lie below.
 - The Worker Log's worker tabs (`WorkerLogTabRow`, from `Tabs (Simple).svg`) are pinned to the bottom of the panel: All, then
   one text tab per worker of the attached master in tracker order (`WorkerChatStore.workers`), the feed's chat
   font (`AppFonts.workerTab`), a diamond (the `line` colour) between them (`TextTabMetrics.separatorGap` on each side). They take a `TextTabLook`. One tab is

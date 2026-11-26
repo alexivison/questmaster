@@ -198,6 +198,7 @@ enum LogicSelfTests {
         ("testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion", testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion),
         ("testEveryEmptyPanelDrawsTheOneIconCentredInItsSection", testEveryEmptyPanelDrawsTheOneIconCentredInItsSection),
         ("testAnOverflowingListKeepsItsRowsAtItsFullWidth", testAnOverflowingListKeepsItsRowsAtItsFullWidth),
+        ("testListBottomFadesWhileRowsAreHiddenBelow", testListBottomFadesWhileRowsAreHiddenBelow),
         ("testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
         ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
         ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
@@ -853,10 +854,11 @@ enum LogicSelfTests {
             y: workerTop + TrackerPlateDesign.workerPortraitCenter.y
         )
         let positions = ["expanded master": masterDot(masterTop), "expanded worker": workerDot, "collapsed master": masterDot(collapsedTop)]
-        // Tall enough for the collapsed master to clear the avatar block, the banner and one shell row beneath it.
+        // Fit the plate list, including the last master's circles and list padding, above the avatar and shell row.
         let bottomRoom = TrackerListMetrics.avatarClearance + TrackerAvatarMetrics.slotHeight + TrackerListMetrics.avatarBannerGap
-            + SelectedSessionTagMetrics.height + TrackerShellMetrics.rowHeight + TrackerListMetrics.verticalPadding
-        let size = CGSize(width: 340, height: (collapsedTop + TrackerNameplateRole.master.canvasSize.height + bottomRoom).rounded(.up))
+            + SelectedSessionTagMetrics.height + Space.section + TrackerShellMetrics.rowHeight + TrackerListMetrics.verticalPadding
+        let plateListBottom = collapsedTop + TrackerNameplateRole.master.rowHeight(showsCircles: true) + Space.row
+        let size = CGSize(width: 340, height: (plateListBottom + bottomRoom).rounded(.up))
         let cases: [(attached: String?, shows: String?)] = [
             ("m", "expanded master"), ("m-w", "expanded worker"), ("n", "collapsed master"), ("n-w", "collapsed master"),
             ("sh", nil), ("gone", nil), (nil, nil),
@@ -4536,6 +4538,60 @@ enum LogicSelfTests {
         }
         let clipWidth = scrollView.contentView.bounds.width
         try expect(abs(documentView.frame.width - clipWidth) < 0.5, "a scrolling list's rows should fill its width, got \(documentView.frame.width) of \(clipWidth)")
+    }
+
+    private static func testListBottomFadesWhileRowsAreHiddenBelow() throws {
+        let size = CGSize(width: 100, height: 80)
+        let overflowingHeight = size.height * 2
+        func list(height: CGFloat) -> some View {
+            ListScrollView {
+                AppPalette.text.swiftUI.frame(height: height)
+            }
+            .frame(width: size.width, height: size.height)
+            .background(AppPalette.panel.swiftUI)
+        }
+        let hosting = NSHostingView(rootView: list(height: overflowingHeight))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size)
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        try expect(waitUntil {
+            descendant(NSScrollView.self, in: hosting)?.documentView?.frame.height == overflowingHeight
+        }, "the list should overflow")
+        guard let scrollView = descendant(NSScrollView.self, in: hosting),
+              let background = AppPalette.panel.usingColorSpace(.deviceRGB) else {
+            throw TestFailure("the scrolling list should be visible on the panel")
+        }
+
+        func bottomCoverage() throws -> CGFloat {
+            try pumpOneMainRunLoopTurn()
+            let bitmap = try snapshot(hosting, size: size, scale: 2)
+            func ink(_ row: Int) -> CGFloat {
+                guard let pixel = bitmap.colorAt(x: bitmap.pixelsWide / 2, y: row)?.usingColorSpace(.deviceRGB) else {
+                    return 0
+                }
+                return abs(pixel.redComponent - background.redComponent)
+                    + abs(pixel.greenComponent - background.greenComponent)
+                    + abs(pixel.blueComponent - background.blueComponent)
+            }
+            let full = ink(bitmap.pixelsHigh / 2)
+            try expect(full > 0.5, "the middle of the list should be opaque")
+            return ink(bitmap.pixelsHigh - 2) / full
+        }
+
+        try expect(try bottomCoverage() < 0.2, "the bottom of an overflowing list should fade")
+        let clipView = scrollView.contentView
+        clipView.scroll(to: CGPoint(x: 0, y: overflowingHeight - clipView.bounds.height))
+        scrollView.reflectScrolledClipView(clipView)
+        try expect(try bottomCoverage() > 0.95, "the final row should be opaque at the bottom")
+
+        clipView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(clipView)
+        try expect(try bottomCoverage() < 0.2, "scrolling back up should restore the fade")
+        hosting.rootView = list(height: size.height)
+        try expect(waitUntil { scrollView.documentView?.frame.height == size.height }, "the list should shrink to fit")
+        try expect(try bottomCoverage() > 0.95, "a list that fits should stay opaque")
     }
 
     /// The refresh mark is the tracker's spinner, not a lookalike (one `SpinnerRing`): the same turn, once every

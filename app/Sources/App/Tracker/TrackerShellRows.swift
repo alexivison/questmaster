@@ -146,11 +146,9 @@ struct TrackerShellRows: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            ListScrollView {
                 rows
-                    .background(ScrollerHider())
             }
-            .scrollIndicators(.hidden)
             .frame(height: min(CGFloat(shells.count) * TrackerShellMetrics.rowHeight, TrackerShellMetrics.maxHeight))
             .onAppear { reveal(with: proxy) }
             .onChange(of: sessions.map(\.id)) { reveal(with: proxy) }
