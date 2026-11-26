@@ -69,6 +69,7 @@ The always-needed tmux rules (name the server and the exact session on every cal
   reported activity. Hooks record work events in `last_work_activity`.
   Older state uses the latest of `last_event` and `working_since`. The durable
   `inactivity_alerted` flag clears on the next work event or when work ends.
+  A held delivery defers further sends to that master until the next pass.
   A pass resumes after its last visited row when its budget expires, so slow sends
   cannot indefinitely starve later masters. Delivered episodes awaiting their
   state acknowledgement are retained only for registered live workers and retry

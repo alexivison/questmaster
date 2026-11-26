@@ -23,10 +23,11 @@ import (
 var blockedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
 type alertRunner struct {
-	live  []string
-	sends []string
-	err   error
-	lists int
+	live   []string
+	sends  []string
+	err    error
+	lists  int
+	checks int
 }
 
 func (r *alertRunner) Run(_ context.Context, args ...string) (string, error) {
@@ -35,6 +36,7 @@ func (r *alertRunner) Run(_ context.Context, args ...string) (string, error) {
 		r.lists++
 		return strings.Join(r.live, "\n"), r.err
 	case "has-session":
+		r.checks++
 		id := strings.TrimSuffix(strings.TrimPrefix(args[2], "="), ":")
 		if !slices.Contains(r.live, id) {
 			return "", &tmux.ExitError{Code: 1}
@@ -236,6 +238,42 @@ func TestInactivityAcknowledgementDoesNotSuppressNewEpisode(t *testing.T) {
 	step(t, j)
 	if sends != 2 || !loadPane(t, root, "qm-worker").InactivityAlerted {
 		t.Fatalf("expected the next inactivity episode to alert, got %d sends", sends)
+	}
+}
+
+func TestHeldInactivityAlertsCheckBusyMasterOncePerPass(t *testing.T) {
+	t.Parallel()
+	j, masterRunner := newAlertFixture(t)
+	const parent, first, second = "qm-master", "qm-worker", "qm-second"
+	worker := state.Manifest{SessionID: second, TmuxServer: "questmaster", Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}
+	worker.SetExtra("parent_session", parent)
+	if err := j.store.Create(worker); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.store.AddWorker(parent, second); err != nil {
+		t.Fatal(err)
+	}
+	router := tmuxroute.New(j.store, map[string]*tmux.Client{
+		"dev_previous": tmux.NewClient(masterRunner),
+		"questmaster":  tmux.NewClient(&alertRunner{live: []string{first, second}}),
+	}, func() string { return "questmaster" }, nil)
+	j = NewJob(j.store, router)
+	j.now = func() time.Time { return blockedAt.Add(inactivityThreshold) }
+	root := j.store.Root()
+	for _, id := range []string{first, second} {
+		writePane(t, root, id, state.PaneState{State: "working", LastWorkActivity: blockedAt})
+	}
+	writePane(t, root, parent, state.PaneState{State: "working"})
+	for pass := 1; pass <= 2; pass++ {
+		step(t, j)
+		if masterRunner.checks != pass || len(masterRunner.sends) != 0 {
+			t.Fatalf("busy master after pass %d: checks=%d, sends=%v", pass, masterRunner.checks, masterRunner.sends)
+		}
+	}
+	writePane(t, root, parent, state.PaneState{State: "idle"})
+	step(t, j)
+	if len(masterRunner.sends) != 2 {
+		t.Fatalf("expected both pending alerts when the master became idle, got %v", masterRunner.sends)
 	}
 }
 

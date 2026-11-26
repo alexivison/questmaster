@@ -145,6 +145,7 @@ func (j *Job) step(ctx context.Context) error {
 		start = j.nextRow % len(inv.Rows)
 	}
 	now := j.now()
+	heldMasters := make(map[string]bool)
 	for i := range inv.Rows {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -177,12 +178,18 @@ func (j *Job) step(ctx context.Context) error {
 		}
 		delivered := j.delivered[worker.SessionID]
 		if delivered.blocked != episode.blocked || !delivered.since.Equal(episode.since) {
+			if heldMasters[parent] {
+				continue
+			}
 			call, cancel := context.WithTimeout(ctx, 2*time.Second)
 			delivery, err := j.send(call, parent, alertText(worker, pane, episode))
 			cancel()
 			if err != nil {
 				errs = append(errs, fmt.Errorf("notify %s about %s: %w", parent, worker.SessionID, err))
 				continue
+			}
+			if delivery == "" {
+				heldMasters[parent] = true
 			}
 			if delivery != message.DeliveryAccepted && delivery != message.DeliverySubmitted {
 				continue
