@@ -31,8 +31,11 @@ func TestMasterPromptDescribesSpawnCWD(t *testing.T) {
 	}
 }
 
-func TestMasterPromptLeavesWorkflowChoicesOpen(t *testing.T) {
+func TestMasterPromptSuggestsWorkersAndLeavesWorkflowChoicesOpen(t *testing.T) {
 	got := masterPrompt
+	if !strings.Contains(got, "consider giving the coding assignment to a Questmaster worker") {
+		t.Fatal("master prompt should suggest considering a worker for implementation")
+	}
 	for _, unwanted := range []string{
 		"Delegate multi-step implementation",
 		"Spawn a fresh reviewer only",
