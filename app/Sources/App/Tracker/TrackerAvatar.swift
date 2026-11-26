@@ -274,9 +274,14 @@ final class TrackerAvatarSprites {
     /// with an authored idle loop (no layered idle) has them too. Nil while the still has no art.
     lazy var restColumns: ClosedRange<Int>? = idleFrame(1).flatMap { Self.opaqueColumns(of: $0) }
 
-    /// The lowest opaque row of `01-idle-f1`, counted from the top: where a hover leaves the figure above its feet. Read once, as the
-    /// rest columns are, because a designed familiar's company drop asks for it on every tracker refresh.
-    lazy var restLowestRow: Int? = idleFrame(1).flatMap { Self.opaqueRows(of: $0)?.upperBound }
+    /// The first and last opaque rows of `01-idle-f1`, counted from the top: the resting figure's height. Read once, as the rest columns
+    /// are, because a designed familiar's company drop and its name tag ask for them on every tracker refresh.
+    lazy var restRows: ClosedRange<Int>? = idleFrame(1).flatMap { Self.opaqueRows(of: $0) }
+
+    /// The lowest opaque row of `01-idle-f1`: where a hover leaves the figure above its feet.
+    var restLowestRow: Int? {
+        restRows?.upperBound
+    }
 
     /// The still idle image and its blink stencil when no breathing track is configured.
     lazy var idleStillArt: TrackerAvatarIdleFrameArt? = {

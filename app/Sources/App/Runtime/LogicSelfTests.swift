@@ -144,6 +144,7 @@ enum LogicSelfTests {
         ("testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt", testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt),
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
         ("testOneWorkerIsCentredOnTheMastersBody", testOneWorkerIsCentredOnTheMastersBody),
+        ("testWorkerNamesTagTheCompany", testWorkerNamesTagTheCompany),
         ("testEveryCompanyFrameIsPresentAtItsDeviceSize", testEveryCompanyFrameIsPresentAtItsDeviceSize),
         ("testTheWarHoundDrawsAtItsScaleOnTheBaseline", testTheWarHoundDrawsAtItsScaleOnTheBaseline),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
@@ -2800,6 +2801,45 @@ enum LogicSelfTests {
             try expect(abs(left + width / 2 - centre) <= 0.5,
                        "the \(classID)'s one worker should stand centred on the master's body (\(centre)), got \(left + width / 2)")
         }
+    }
+
+    /// A master's worker names tag its company: each shown familiar gets a name in spawn order, the first name keeps its full text on the lowest
+    /// tier, every cut name ends in an ellipsis and stays inside the slot, the "+n" workers get no tag, and an attached worker shows none. The
+    /// measured cut fits its room.
+    @MainActor
+    private static func testWorkerNamesTagTheCompany() throws {
+        final class Clock {
+            var now: TimeInterval = 0
+        }
+        let clock = Clock()
+        let stage = TrackerCompanyStage(clock: { clock.now })
+        let master = try testRow(["id": "qm-m", "title": "Necromancer", "session_type": "master", "class": "necromancer"])
+        let titles = ["Ember", "Ledger sync", "Tray icon polish"]
+        let workers = try titles.enumerated().map { index, title in
+            try testRow(["id": "qm-w\(index)", "title": title, "session_type": "worker", "parent_id": "qm-m", "class": "necromancer"])
+        }
+        stage.observe(sessions: [master] + workers, attachedID: "qm-m")
+        // A name with no room on any tier gets no chip (the Necromancer's third familiar here, over its face), so the tags only follow spawn order.
+        let ids = stage.nameTags.map(\.id)
+        try expect(ids.first == "qm-w0" && ids == ids.sorted(), "the first familiar should get a name tag, and the tags should follow spawn order, got \(ids)")
+        try expect(stage.nameTags.first?.text == "Ember", "the first name should keep its full text, got \(stage.nameTags.first?.text ?? "none")")
+        for tag in stage.nameTags {
+            try expect(tag.text == titles[tag.id == "qm-w0" ? 0 : tag.id == "qm-w1" ? 1 : 2] || tag.text.hasSuffix("…"),
+                       "a name should show whole or cut with an ellipsis, got \(tag.text)")
+            try expect(tag.left >= 0 && tag.left + tag.width <= TrackerAvatarMetrics.slotWidth, "a name tag should stay inside the slot, got \(tag.left) to \(tag.left + tag.width)")
+        }
+        let many = try (0..<8).map { index in
+            try testRow(["id": "qm-w\(index)", "title": "Worker \(index)", "session_type": "worker", "parent_id": "qm-m", "class": "necromancer"])
+        }
+        stage.observe(sessions: [master] + many, attachedID: "qm-m")
+        let markerTagged = stage.nameTags.contains(where: { $0.id == "qm-w7" })
+        try expect(stage.overflow == 1 && !markerTagged, "the marker's worker should get no name tag")
+        stage.observe(sessions: [master] + workers, attachedID: "qm-w0")
+        try expect(stage.nameTags.isEmpty, "an attached worker should show no name tags")
+        guard let cut = TrackerCompanyStage.cutName("Tray icon polish", maxTextWidth: 40) else {
+            throw TestFailure("a long name should cut to a 40 pt room with four letters and an ellipsis")
+        }
+        try expect(cut.text.hasSuffix("…") && cut.width <= 40, "a cut name should end in an ellipsis and fit its room, got \(cut.text) at \(cut.width)")
     }
 
     /// Every designed familiar's company frames are on the 2x device grid at its scale: each full frame has a company frame of the same

@@ -13,6 +13,8 @@ final class TrackerCompanyStage {
     /// One familiar on the row: its place in the slot, its art and the pose its own director plays.
     struct Companion: Identifiable {
         let id: String
+        /// The worker's session title: the name its tag shows.
+        let title: String
         let sprites: TrackerAvatarSprites
         /// The points one frame pixel draws at: a familiar's company frame draws at its half point a pixel.
         let pixel: CGFloat
@@ -26,8 +28,22 @@ final class TrackerCompanyStage {
         let enter: TimeInterval?
     }
 
+    /// One familiar's name over its head: the chip's text, its left edge and width, its bottom edge above the slot's baseline, and the stem
+    /// from its visible top (`headTop`) up to the chip.
+    struct NameTag: Identifiable {
+        let id: String
+        let text: String
+        let left: CGFloat
+        let width: CGFloat
+        let bottom: CGFloat
+        let headTop: CGFloat
+        let stemLeft: CGFloat
+    }
+
     /// The familiars that show, in spawn order: each stands further right than the one before, so the right-most is drawn on top.
     private(set) var companions: [Companion] = []
+    /// The names over the shown familiars, in spawn order. A name that fits nowhere has no tag, and the "+n" workers have none.
+    private(set) var nameTags: [NameTag] = []
     /// The workers counted in the "+n" marker.
     private(set) var overflow = 0
     /// The portrait disc the marker sits above: the master's class's familiar.
@@ -72,18 +88,18 @@ final class TrackerCompanyStage {
     private func refresh(at now: TimeInterval) {
         let (sessions, attachedID) = latest
         guard let master = sessions.first(where: { $0.id == attachedID }), let classID = catalog.classID(for: master),
-              art[TrackerAvatarArtKey(kind: .master, classID: classID)] != nil else {
+              let masterArt = art[TrackerAvatarArtKey(kind: .master, classID: classID)] else {
             clear()
             return
         }
         // Each worker's familiar, in spawn order, from its company frames at a half point a pixel. A worker whose familiar has no art shows
         // nothing and takes no place.
-        let familiars: [(id: String, sprites: TrackerAvatarSprites, pixel: CGFloat)] = TrackerCompanyLayout.liveWorkers(of: master, in: sessions)
+        let familiars: [(id: String, title: String, sprites: TrackerAvatarSprites, pixel: CGFloat)] = TrackerCompanyLayout.liveWorkers(of: master, in: sessions)
             .compactMap { worker in
                 guard let key = catalog.art(for: worker), key.kind == .familiar, art[key] != nil, let company = companionArt[key.classID] else {
                     return nil
                 }
-                return (worker.id, company, CGFloat(TrackerCompanyLayout.companyPixelPoints))
+                return (worker.id, worker.title, company, CGFloat(TrackerCompanyLayout.companyPixelPoints))
             }
         guard let first = familiars.first, let row = first.sprites.animation.companyRow else {
             clear()
@@ -119,6 +135,7 @@ final class TrackerCompanyStage {
             let drop = Self.halfPoint(Self.drop(of: entry.sprites, pixel: Double(pixel)))
             return Companion(
                 id: entry.id,
+                title: entry.title,
                 sprites: entry.sprites,
                 pixel: pixel,
                 bodyX: CGFloat(bodyX),
@@ -129,6 +146,7 @@ final class TrackerCompanyStage {
                 enter: frame?.enterElapsed
             )
         }
+        nameTags = Self.nameTags(for: companions, master: masterArt, classID: classID, slotWidth: Double(TrackerAvatarMetrics.slotWidth))
         overflow = layout.overflow
         overflowPortrait = overflow > 0 ? SessionClass(id: master.sessionClass).map(SessionPortrait.familiar) : nil
         scheduleWake(at: nextChange)
@@ -136,6 +154,7 @@ final class TrackerCompanyStage {
 
     private func clear() {
         companions = []
+        nameTags = []
         overflow = 0
         overflowPortrait = nil
         scheduleWake(at: nil)
@@ -159,6 +178,92 @@ final class TrackerCompanyStage {
 
     private func wake() {
         refresh(at: clock())
+    }
+
+    /// The name tags over the companions, in spawn order: each name measured in the tag's font, centred over its familiar's rest and set
+    /// above its visible top, and placed by Core's tiers around the master's face. A name that fits nowhere gets no tag.
+    private static func nameTags(for companions: [Companion], master: TrackerAvatarSprites, classID: String, slotWidth: Double) -> [NameTag] {
+        let tags = companions.map { companion in
+            TrackerCompanyNameTags.Tag(
+                name: companion.title,
+                nameWidth: textWidth(companion.title),
+                centre: Double(companion.bodyX) + restCentreOffset(of: companion.sprites) * Double(companion.pixel),
+                headTop: -TrackerCompanyLayout.belowFeet + restHeight(of: companion.sprites) * Double(companion.pixel)
+            )
+        }
+        let placements = TrackerCompanyNameTags.place(tags, face: faceBox(classID: classID, master: master, slotWidth: slotWidth), slotWidth: slotWidth) {
+            text, maxWidth in cutName(text, maxTextWidth: maxWidth)
+        }
+        return zip(companions, placements).compactMap { companion, placement in
+            guard let placement else {
+                return nil
+            }
+            return NameTag(
+                id: companion.id,
+                text: placement.text,
+                left: CGFloat(placement.left),
+                width: CGFloat(placement.width),
+                bottom: CGFloat(placement.bottom),
+                headTop: CGFloat(placement.headTop),
+                stemLeft: CGFloat(placement.stemLeft)
+            )
+        }
+    }
+
+    /// A name's width in points, set in the tag's font.
+    static func textWidth(_ text: String) -> Double {
+        Double((text as NSString).size(withAttributes: [.font: AppFonts.monoSmall]).width)
+    }
+
+    /// A name cut to fit `maxTextWidth` points: the whole name if it fits, else its widest prefix of at least `minimumLetters` letters with an
+    /// ellipsis. Nil when even that doesn't fit.
+    static func cutName(_ name: String, maxTextWidth: Double) -> (text: String, width: Double)? {
+        let whole = textWidth(name)
+        if whole <= maxTextWidth {
+            return (name, whole)
+        }
+        let letters = Array(name)
+        for count in stride(from: letters.count - 1, through: TrackerCompanyNameTags.minimumLetters, by: -1) {
+            let text = String(letters[0..<count]) + "…"
+            let width = textWidth(text)
+            if width <= maxTextWidth {
+                return (text, width)
+            }
+        }
+        return nil
+    }
+
+    /// The master's face box in slot points, y up from the bottom, from its art's box (`TrackerCompanyNameFaces`); nil for a class with none.
+    /// The master's body column stands at the slot's centre, and its feet row sits on the baseline.
+    private static func faceBox(classID: String, master: TrackerAvatarSprites, slotWidth: Double) -> TrackerCompanyNameTags.Box? {
+        guard let face = TrackerCompanyNameFaces.box(for: classID), let idle = master.animation.animation(for: .idle) else {
+            return nil
+        }
+        let body = Double(idle.bodyColumn)
+        let feet = Double(idle.footRow)
+        let minX = slotWidth / 2 + (Double(face.x) - body)
+        return TrackerCompanyNameTags.Box(
+            minX: minX,
+            maxX: minX + Double(face.width),
+            minY: feet - Double(face.y + face.height),
+            maxY: feet - Double(face.y)
+        )
+    }
+
+    /// The middle of the familiar's resting figure, in art pixels from its body column: the middle of its opaque columns.
+    private static func restCentreOffset(of sprites: TrackerAvatarSprites) -> Double {
+        guard let columns = sprites.restColumns, let body = sprites.animation.animation(for: .idle)?.bodyColumn else {
+            return 0
+        }
+        return Double(columns.lowerBound - body) + Double(columns.count) / 2
+    }
+
+    /// The resting figure's visible height in art pixels: its opaque rows.
+    private static func restHeight(of sprites: TrackerAvatarSprites) -> Double {
+        guard let rows = sprites.restRows else {
+            return 0
+        }
+        return Double(rows.count)
     }
 
     /// How far the familiar's resting art starts left of its body column, in art pixels (negative when the body is right of its edge).
@@ -219,6 +324,12 @@ struct TrackerCompanySlot: View {
                     scale: companion.pixel
                 )
                 .offset(x: companion.bodyX - TrackerAvatarMetrics.slotWidth / 2, y: companion.drop)
+            }
+            ForEach(company.nameTags) { tag in
+                TrackerCompanyNameStem(tag: tag)
+            }
+            ForEach(company.nameTags) { tag in
+                TrackerCompanyNameChip(tag: tag)
             }
             if company.overflow > 0 {
                 TrackerCompanyOverflow(count: company.overflow, portrait: company.overflowPortrait)

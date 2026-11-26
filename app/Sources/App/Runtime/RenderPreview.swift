@@ -237,6 +237,7 @@ enum RenderPreview {
         // Every class's one worker, in one image: each stands centred on the master's body column.
         render(companyFirstWorkerView(), size: CGSize(width: 1200, height: 1), autoHeight: true, to: "\(outputDir)/company-first-worker.png")
         render(elementalEffectsView(), size: CGSize(width: 1300, height: 1), autoHeight: true, to: "\(outputDir)/elemental-effects.png")
+        render(companyNameTagsView(), size: CGSize(width: 1200, height: 1), autoHeight: true, to: "\(outputDir)/name-tags.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -1654,6 +1655,30 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// The Necromancer and the Barbarian with worker names over their familiars, at one, three, a full row and a full row plus one. The titles
+    /// are invented, of mixed lengths up to 16 characters. Named by RENDER_ONLY=name-tags.
+    @MainActor
+    private static func companyNameTagsView() -> some View {
+        let titles = ["Familiar app", "Avatar switch", "Elemental FX", "Ledger sync", "Nightly build", "Search index", "Tray icon polish", "Docs pass 2"]
+        let rows: [(classID: String, full: Int)] = [("necromancer", 7), ("barbarian", 5)]
+        return VStack(alignment: .leading, spacing: Space.item) {
+            ForEach(rows, id: \.classID) { row in
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach([1, 3, row.full, row.full + 1], id: \.self) { count in
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("\(row.classID) \(count)").font(Font(AppFonts.monoSmall)).foregroundStyle(AppPalette.text.swiftUI)
+                            companyCell(classID: row.classID, workers: count, titles: titles)
+                                .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+                                .padding(.bottom, TrackerListMetrics.avatarBannerGap)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(Space.item)
+        .background(AppPalette.window.swiftUI)
+    }
+
     /// Each elemental's five poses in the worker slot, then its company at its full row. Named by RENDER_ONLY=elemental-effects.
     @MainActor
     private static func elementalEffectsView() -> some View {
@@ -1711,10 +1736,11 @@ enum RenderPreview {
 
     /// One master's company: its stages fed with the master and its workers, drawn as the tracker draws them.
     @MainActor
-    private static func companyCell(classID: String, workers count: Int) -> some View {
+    private static func companyCell(classID: String, workers count: Int, titles: [String]? = nil) -> some View {
         let master = try! testFixtureRow(["id": "qm-m", "title": classID, "session_type": "master", "class": classID, "state": "working"])
         let workers = (0..<count).map { index -> TrackerSession in
-            try! testFixtureRow(["id": "qm-w\(index)", "title": "Worker \(index)", "session_type": "worker", "parent_id": "qm-m", "class": classID, "state": "working"])
+            let title = titles.map { $0[index % $0.count] } ?? "Worker \(index)"
+            return try! testFixtureRow(["id": "qm-w\(index)", "title": title, "session_type": "worker", "parent_id": "qm-m", "class": classID, "state": "working"])
         }
         let avatar = TrackerAvatarStage(clock: { 0 })
         let company = TrackerCompanyStage(clock: { 0 })
