@@ -26,9 +26,11 @@ const (
 	historyChunkBytes       = 64 * 1024
 	maxIncrementalLineBytes = 64 * 1024
 	maxHistoryLineSize      = 2 * 1024 * 1024
-	// InitialEntryLimit bounds visible Worker Log records across workers. Hidden workers use
-	// the store's smaller hidden-history budget so they cannot displace visible history.
-	InitialEntryLimit       = 400
+	// InitialEntryLimit caps a worker's raw first read and the visible Worker Log budget.
+	InitialEntryLimit = 400
+	// InitialTotalEntryLimit preserves the raw ReadSince aggregate cap.
+	InitialTotalEntryLimit = InitialEntryLimit
+	// Hidden workers use the store's smaller history budget in the native Worker Log feed.
 	InitialHiddenEntryLimit = 150
 	DefaultLimit            = 50
 	MaxLimit                = 200
@@ -154,13 +156,14 @@ func recordChatEntryAt(root, sessionID, kind, text string, at time.Time, isExcha
 	})
 }
 
-// ReadSince returns bounded new entries for the workers listed by a master's manifest.
+// ReadSince returns the raw bounded feed for the workers listed by a master's manifest.
 func ReadSince(root, masterID string, cursors map[string]Cursor) (Response, error) {
-	return readSince(root, masterID, cursors, nil)
+	return readSince(root, masterID, cursors, nil, false)
 }
 
-// ReadSinceWithVisibleWorkers applies the Worker's Log's distinct visible and hidden history
-// budgets. A nil worker list preserves the all-visible behavior for older callers.
+// ReadSinceWithVisibleWorkers opts into the native Worker's Log initial-history filtering and
+// separate visible and hidden budgets. A nil worker list means all workers are visible; an empty
+// list means all workers are hidden. Incremental entries retain ReadSince's raw behavior.
 func ReadSinceWithVisibleWorkers(root, masterID string, cursors map[string]Cursor, visibleWorkerIDs []string) (Response, error) {
 	var visibleWorkers map[string]struct{}
 	if visibleWorkerIDs != nil {
@@ -169,16 +172,16 @@ func ReadSinceWithVisibleWorkers(root, masterID string, cursors map[string]Curso
 			visibleWorkers[workerID] = struct{}{}
 		}
 	}
-	return readSince(root, masterID, cursors, visibleWorkers)
+	return readSince(root, masterID, cursors, visibleWorkers, true)
 }
 
-func readSince(root, masterID string, cursors map[string]Cursor, visibleWorkers map[string]struct{}) (Response, error) {
+func readSince(root, masterID string, cursors map[string]Cursor, visibleWorkers map[string]struct{}, nativeInitial bool) (Response, error) {
 	workers, err := workersForMaster(root, masterID, "")
 	if err != nil {
 		return Response{}, err
 	}
 	result := Response{Entries: []Entry{}, Cursors: make(map[string]Cursor, len(workers)), HasMore: make(map[string]bool, len(workers))}
-	var visibleInitialEntries, hiddenInitialEntries []Entry
+	var rawInitialEntries, visibleInitialEntries, hiddenInitialEntries []Entry
 	for _, worker := range workers {
 		result.HasMore[worker.id] = false
 		entries, cursor, hasMore, err := readWorkerSince(root, worker, cursors[worker.id])
@@ -192,24 +195,39 @@ func readSince(root, masterID string, cursors map[string]Cursor, visibleWorkers 
 		}
 		initialRead := cursors[worker.id].FileID == ""
 		if initialRead {
-			entries = storeRecordableEntries(entries)
-			limit := InitialEntryLimit
-			candidates := &visibleInitialEntries
-			if visibleWorkers != nil {
-				if _, visible := visibleWorkers[worker.id]; !visible {
-					limit = InitialHiddenEntryLimit
-					candidates = &hiddenInitialEntries
+			if nativeInitial {
+				entries = storeRecordableEntries(entries)
+				limit := InitialEntryLimit
+				candidates := &visibleInitialEntries
+				if visibleWorkers != nil {
+					if _, visible := visibleWorkers[worker.id]; !visible {
+						limit = InitialHiddenEntryLimit
+						candidates = &hiddenInitialEntries
+					}
 				}
+				*candidates = newestEntries(append(*candidates, newestEntries(entries, limit)...), limit)
+			} else {
+				if len(entries) > InitialEntryLimit {
+					entries = entries[len(entries)-InitialEntryLimit:]
+				}
+				rawInitialEntries = append(rawInitialEntries, entries...)
 			}
-			*candidates = newestEntries(append(*candidates, newestEntries(entries, limit)...), limit)
 		} else {
-			result.Entries = append(result.Entries, storeRecordableEntries(entries)...)
+			result.Entries = append(result.Entries, entries...)
 		}
 		result.Cursors[worker.id] = cursor
 		result.HasMore[worker.id] = hasMore
 	}
-	result.Entries = append(result.Entries, visibleInitialEntries...)
-	result.Entries = append(result.Entries, hiddenInitialEntries...)
+	if nativeInitial {
+		result.Entries = append(result.Entries, visibleInitialEntries...)
+		result.Entries = append(result.Entries, hiddenInitialEntries...)
+	} else {
+		sortEntries(rawInitialEntries)
+		if len(rawInitialEntries) > InitialTotalEntryLimit {
+			rawInitialEntries = rawInitialEntries[len(rawInitialEntries)-InitialTotalEntryLimit:]
+		}
+		result.Entries = append(result.Entries, rawInitialEntries...)
+	}
 	sortEntries(result.Entries)
 	return result, nil
 }

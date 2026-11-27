@@ -185,7 +185,7 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 	})
 }
 
-func TestReadSinceBoundsAggregateInitialEntriesAcrossWorkers(t *testing.T) {
+func TestReadSinceWithVisibleWorkersBoundsAggregateInitialEntriesAcrossWorkers(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	workerIDs := []string{"qm-w1", "qm-w2", "qm-w3", "qm-w4", "qm-w5", "qm-w6", "qm-w7", "qm-w8"}
@@ -207,7 +207,7 @@ func TestReadSinceBoundsAggregateInitialEntriesAcrossWorkers(t *testing.T) {
 		}
 	}
 
-	first, err := ReadSince(root, "qm-master", nil)
+	first, err := ReadSinceWithVisibleWorkers(root, "qm-master", nil, workerIDs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestReadSinceBoundsAggregateInitialEntriesAcrossWorkers(t *testing.T) {
 
 	workerID := workerIDs[0]
 	appendEvent(t, root, workerID, chatEvent("message", "later arrival", time.Unix(total, 0)))
-	next, err := ReadSince(root, "qm-master", first.Cursors)
+	next, err := ReadSinceWithVisibleWorkers(root, "qm-master", first.Cursors, workerIDs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestReadSinceBoundsAggregateInitialEntriesAcrossWorkers(t *testing.T) {
 	}
 }
 
-func TestReadSinceInitialCapKeepsEligibleHistory(t *testing.T) {
+func TestReadSinceWithVisibleWorkersInitialCapKeepsEligibleHistory(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	workerIDs := []string{"qm-report", "qm-noise1", "qm-noise2"}
@@ -265,7 +265,7 @@ func TestReadSinceInitialCapKeepsEligibleHistory(t *testing.T) {
 	}
 	writeWorkerLogBodies(t, root, workerIDs, bodies)
 
-	first, err := ReadSince(root, "qm-master", nil)
+	first, err := ReadSinceWithVisibleWorkers(root, "qm-master", nil, []string{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,13 +286,14 @@ func TestReadSinceInitialCapKeepsEligibleHistory(t *testing.T) {
 		}
 	}
 
+	appendEvent(t, root, workerIDs[0], chatEvent("status", "queued", time.Unix(499, 0)))
 	appendEvent(t, root, workerIDs[0], chatEvent("report", "later report", time.Unix(500, 0)))
-	next, err := ReadSince(root, "qm-master", first.Cursors)
+	next, err := ReadSinceWithVisibleWorkers(root, "qm-master", first.Cursors, []string{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(next.Entries) != 1 || next.Entries[0].Text != "later report" {
-		t.Fatalf("incremental entries = %#v, want the later report only", next.Entries)
+	if len(next.Entries) != 2 || next.Entries[0].Text != "queued" || next.Entries[1].Text != "later report" {
+		t.Fatalf("incremental entries = %#v, want raw queued status then later report", next.Entries)
 	}
 }
 
