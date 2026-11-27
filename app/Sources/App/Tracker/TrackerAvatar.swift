@@ -79,9 +79,115 @@ private enum TrackerAvatarIdleFramesAnimation {
     }
 }
 
+/// The app-wide decoded sprite cache. One shared LRU bounds frames across masters, familiars and every company size.
+@MainActor
+final class TrackerAvatarFrameCache {
+    static let shared = TrackerAvatarFrameCache()
+    static let maximumRetainedBytes = 128 * 1_048_576
+
+    private struct Key: Hashable {
+        let ownerID: UUID
+        let name: String
+    }
+
+    private struct PoseKey: Hashable {
+        let ownerID: UUID
+        let pose: TrackerAvatarPose
+    }
+
+    private struct Entry {
+        let image: CGImage
+        let byteCount: Int
+        let pose: TrackerAvatarPose?
+        var access: UInt64
+    }
+
+    private var entries: [Key: Entry] = [:]
+    private var preparedPoses: Set<PoseKey> = []
+    private var retainedBytes = 0
+    private var accessClock: UInt64 = 0
+
+    private init() {}
+
+    var cachedFrameCount: Int {
+        entries.count
+    }
+
+    var cachedByteCount: Int {
+        retainedBytes
+    }
+
+    func image(ownerID: UUID, name: String) -> CGImage? {
+        let key = Key(ownerID: ownerID, name: name)
+        guard var entry = entries[key] else {
+            return nil
+        }
+        entry.access = nextAccess()
+        entries[key] = entry
+        return entry.image
+    }
+
+    func frameCount(ownerID: UUID) -> Int {
+        entries.keys.reduce(0) { $0 + ($1.ownerID == ownerID ? 1 : 0) }
+    }
+
+    func byteCount(ownerID: UUID) -> Int {
+        entries.reduce(0) { $0 + ($1.key.ownerID == ownerID ? $1.value.byteCount : 0) }
+    }
+
+    func isPrepared(ownerID: UUID, pose: TrackerAvatarPose) -> Bool {
+        preparedPoses.contains(PoseKey(ownerID: ownerID, pose: pose))
+    }
+
+    func insert(ownerID: UUID, name: String, image: CGImage, pose: TrackerAvatarPose?) {
+        let key = Key(ownerID: ownerID, name: name)
+        if var existing = entries[key] {
+            existing.access = nextAccess()
+            entries[key] = existing
+            return
+        }
+        let byteCount = image.width * image.height * 4
+        guard byteCount > 0, byteCount <= Self.maximumRetainedBytes else {
+            return
+        }
+        entries[key] = Entry(image: image, byteCount: byteCount, pose: pose, access: nextAccess())
+        retainedBytes += byteCount
+        trimToLimit()
+    }
+
+    func insertPrefetched(_ frames: [(name: String, image: CGImage)], ownerID: UUID, pose: TrackerAvatarPose) {
+        for frame in frames {
+            insert(ownerID: ownerID, name: frame.name, image: frame.image, pose: pose)
+        }
+        let poseKey = PoseKey(ownerID: ownerID, pose: pose)
+        let allFramesRetained = frames.allSatisfy { entries[Key(ownerID: ownerID, name: $0.name)] != nil }
+        if allFramesRetained {
+            preparedPoses.insert(poseKey)
+        } else {
+            preparedPoses.remove(poseKey)
+        }
+    }
+
+    private func trimToLimit() {
+        while retainedBytes > Self.maximumRetainedBytes,
+              let oldest = entries.min(by: { $0.value.access < $1.value.access }) {
+            entries.removeValue(forKey: oldest.key)
+            retainedBytes -= oldest.value.byteCount
+            if let pose = oldest.value.pose {
+                preparedPoses.remove(PoseKey(ownerID: oldest.key.ownerID, pose: pose))
+            }
+        }
+    }
+
+    private func nextAccess() -> UInt64 {
+        accessClock &+= 1
+        return accessClock
+    }
+}
+
 /// One session class's avatar: its `animation.json` and the art beside it in `Resources/Sprites/<class>/`. Art loads when it is first
-/// drawn, or ahead of that when the tracker prefetches its poses (`prefetch`), and stays. A class with no readable file has no sprites,
-/// and so no avatar.
+/// drawn, or ahead of that when the tracker prefetches its poses (`prefetch`). Decoded frames live in the shared, byte-bounded LRU cache.
+/// A class with no readable file has no sprites, and so no avatar.
 @MainActor
 final class TrackerAvatarSprites {
     let classID: String
@@ -96,7 +202,26 @@ final class TrackerAvatarSprites {
     /// The outline painted round each figure frame of this folder, or nil for none: a company's figure frames carry it, its effect layers and
     /// the worker slot's frames don't.
     private let outline: TrackerAvatarOutlineInk?
-    private var images: [String: CGImage] = [:]
+    private let cacheID = UUID()
+    private var prefetchingPoses: Set<TrackerAvatarPose> = []
+    private var unprefetchablePoses: Set<TrackerAvatarPose> = []
+
+    private struct PrefetchWork {
+        let owner: TrackerAvatarSprites
+        let poses: [TrackerAvatarPose]
+    }
+
+    private static var prefetchQueue: [PrefetchWork] = []
+    private static var activePrefetchWork = 0
+    private static let maximumOutstandingPrefetchWork = 64
+    private static let maximumConcurrentPrefetchWork = 1
+    private static let maximumPosesPerPrefetchWork = 3
+    private static let maximumPrefetchPoseBytes = 48 * 1_048_576
+
+    /// The current background prefetch queue size, including the active work item. Used by deterministic avatar cache checks.
+    static var outstandingPrefetchWork: Int {
+        prefetchQueue.count + activePrefetchWork
+    }
 
     /// The art from its parsed file, with its idle figure measured from the art beside it.
     init(classID: String, animation: TrackerAvatarAnimation, folder: URL, bubbleFolder: URL? = nil, outline: TrackerAvatarOutlineInk? = nil,
@@ -279,7 +404,7 @@ final class TrackerAvatarSprites {
 
     /// Every authored breathing image and its matching eyelid stencil, in playback order from `resume_frame`. Nil when any PNG is
     /// missing, differs in size, or cannot contain its recorded lid pixels.
-    lazy var idleBreathingArt: [TrackerAvatarIdleFrameArt]? = {
+    var idleBreathingArt: [TrackerAvatarIdleFrameArt]? {
         guard let idle = animation.idle, let breathing = idle.breathing, let colour = idle.lidColour else {
             return nil
         }
@@ -293,7 +418,9 @@ final class TrackerAvatarSprites {
                   frame.lidPixels.allSatisfy({ $0.x < image.width && $0.y < image.height }) else {
                 return nil
             }
-            let lids = frame.lidPixels.isEmpty ? nil : Self.lidImage(size: CGSize(width: image.width, height: image.height), pixels: frame.lidPixels, colour: colour)
+            let lids = frame.lidPixels.isEmpty ? nil : lidImage(
+                named: frame.file, size: CGSize(width: image.width, height: image.height), pixels: frame.lidPixels, colour: colour
+            )
             guard frame.lidPixels.isEmpty || lids != nil else {
                 return nil
             }
@@ -304,7 +431,7 @@ final class TrackerAvatarSprites {
             ))
         }
         return art.count == frames.count ? art : nil
-    }()
+    }
 
     /// The opaque columns of `01-idle-f1`, counted from its canvas's left edge: how wide the figure rests. Read from the file, so a class
     /// with an authored idle loop (no layered idle) has them too. Nil while the still has no art.
@@ -320,7 +447,7 @@ final class TrackerAvatarSprites {
     }
 
     /// The still idle image and its blink stencil when no breathing track is configured.
-    lazy var idleStillArt: TrackerAvatarIdleFrameArt? = {
+    var idleStillArt: TrackerAvatarIdleFrameArt? {
         guard let idle = animation.idle, let image = idleFrame(1) else {
             return nil
         }
@@ -331,11 +458,24 @@ final class TrackerAvatarSprites {
         return TrackerAvatarIdleFrameArt(
             definition: TrackerAvatarBreathingFrame(file: "01-idle-f1.png", seconds: 0, eyeRow: nil, eyeColumns: nil, lidPixels: stencil),
             image: image,
-            lids: stencil.isEmpty ? nil : idle.lidColour.flatMap {
-                Self.lidImage(size: CGSize(width: image.width, height: image.height), pixels: stencil, colour: $0)
+            lids: stencil.isEmpty ? nil : idle.lidColour.flatMap { colour in
+                lidImage(named: "01-idle-f1.png", size: CGSize(width: image.width, height: image.height), pixels: stencil, colour: colour)
             }
         )
-    }()
+    }
+
+    private func lidImage(named file: String, size: CGSize, pixels: [TrackerAvatarPixel], colour: TrackerAvatarColour) -> CGImage? {
+        let frameName = URL(fileURLWithPath: file).deletingPathExtension().lastPathComponent
+        let name = "\(frameName)-lids"
+        if let cached = TrackerAvatarFrameCache.shared.image(ownerID: cacheID, name: name) {
+            return cached
+        }
+        guard let image = Self.lidImage(size: size, pixels: pixels, colour: colour) else {
+            return nil
+        }
+        TrackerAvatarFrameCache.shared.insert(ownerID: cacheID, name: name, image: image, pose: Self.pose(forFrameNamed: frameName))
+        return image
+    }
 
     fileprivate static func lidImage(size: CGSize, pixels: [TrackerAvatarPixel], colour: TrackerAvatarColour) -> CGImage? {
         let width = Int(size.width)
@@ -383,9 +523,9 @@ final class TrackerAvatarSprites {
         animation.fidgets.filter { fidget in fidget.frames.allSatisfy { idleFrame($0) != nil } }
     }
 
-    /// The PNG `name` in `directory` (this class's folder by default), decoded once; nil when it is missing.
+    /// The PNG `name` in `directory` (this class's folder by default), decoded on a cache miss; nil when it is missing.
     private func image(named name: String, in directory: URL? = nil) -> CGImage? {
-        if let cached = images[name] {
+        if let cached = TrackerAvatarFrameCache.shared.image(ownerID: cacheID, name: name) {
             return cached
         }
         let url = (directory ?? folder).appendingPathComponent("\(name).png")
@@ -400,58 +540,116 @@ final class TrackerAvatarSprites {
         #if DEBUG
         TrackerAvatarDecodeProbe.record(seconds: ProcessInfo.processInfo.systemUptime - started)
         #endif
-        images[name] = image
+        TrackerAvatarFrameCache.shared.insert(ownerID: cacheID, name: name, image: image, pose: Self.pose(forFrameNamed: name))
         return image
     }
 
     /// How many frames the cache holds, from a switch's decode or a prefetch. The self-tests and the switch timing wait on it.
     var cachedFrameCount: Int {
-        images.count
+        TrackerAvatarFrameCache.shared.frameCount(ownerID: cacheID)
     }
 
     /// The decoded size of the cached frames, in bytes (width × height × 4 each).
     var cachedByteCount: Int {
-        images.values.reduce(0) { $0 + $1.width * $1.height * 4 }
+        TrackerAvatarFrameCache.shared.byteCount(ownerID: cacheID)
     }
 
-    /// The poses whose frames a background decode has been asked for, so a pose is requested once per art.
-    private var requestedPoses: Set<TrackerAvatarPose> = []
-
-    /// Decodes the frames of `poses` on a background queue into the cache, so a switch to one of them finds its frames already decoded.
-    /// A pose's frames are the PNGs under its `NN-pose-` prefix (every layer, frame and breathing loop), and the shared bubble. Requests
-    /// for poses already asked for do nothing, so each tracker update may ask again at no cost.
+    /// Decodes the frames of `poses` on a bounded background queue. A pose is requested again after eviction, so warm switches remain
+    /// available without retaining every pose for the lifetime of the app.
     func prefetch(_ poses: [TrackerAvatarPose]) {
-        let fresh = poses.filter { requestedPoses.insert($0).inserted }
-        guard !fresh.isEmpty else {
-            return
+        var seen: Set<TrackerAvatarPose> = []
+        let fresh = poses.filter { pose in
+            animation.animation(for: pose) != nil
+                && seen.insert(pose).inserted
+                && !prefetchingPoses.contains(pose)
+                && !unprefetchablePoses.contains(pose)
+                && !TrackerAvatarFrameCache.shared.isPrepared(ownerID: cacheID, pose: pose)
         }
-        let prefixes = fresh.map { "\($0.resourceName)-" }
+        guard !fresh.isEmpty else { return }
+
+        var groups: [[TrackerAvatarPose]] = []
+        for pose in fresh {
+            if groups.last?.count == Self.maximumPosesPerPrefetchWork {
+                groups.append([pose])
+            } else if groups.isEmpty {
+                groups.append([pose])
+            } else {
+                groups[groups.count - 1].append(pose)
+            }
+        }
+        for group in groups {
+            guard Self.outstandingPrefetchWork < Self.maximumOutstandingPrefetchWork else { break }
+            prefetchingPoses.formUnion(group)
+            Self.prefetchQueue.append(PrefetchWork(owner: self, poses: group))
+        }
+        Self.startPrefetchWork()
+    }
+
+    private static func startPrefetchWork() {
+        while activePrefetchWork < maximumConcurrentPrefetchWork, !prefetchQueue.isEmpty {
+            let work = prefetchQueue.removeFirst()
+            activePrefetchWork += 1
+            work.owner.decodePrefetch(work.poses)
+        }
+    }
+
+    private func decodePrefetch(_ poses: [TrackerAvatarPose]) {
         let folder = folder
         let bubbleURL = bubbleFolder.appendingPathComponent("bubble.png")
-        let wantsBubble = images["bubble"] == nil
-        // The sprites live as long as the app (`TrackerAvatarLibrary`), so the task holds them outright.
+        let wantsBubble = poses.contains(.callingOut) && TrackerAvatarFrameCache.shared.image(ownerID: cacheID, name: "bubble") == nil
+        let maximumPoseBytes = Self.maximumPrefetchPoseBytes
         let owner = self
         let outline = self.outline
         Task.detached(priority: .utility) {
-            let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-            let frames: [(name: String, image: CGImage)] = files
-                .filter { url in url.pathExtension == "png" && prefixes.contains { url.lastPathComponent.hasPrefix($0) } }
-                .compactMap { url in
-                    Self.decodedFrame(at: url, outline: Self.outlinesFrame(named: url.lastPathComponent) ? outline : nil).map { (url.deletingPathExtension().lastPathComponent, $0) }
+            let files = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == "png" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            for pose in poses {
+                let prefix = "\(pose.resourceName)-"
+                let matching = files.filter { $0.lastPathComponent.hasPrefix(prefix) }
+                let estimatedBytes = matching.reduce(into: 0) { total, url in
+                    total += Self.estimatedDecodedByteCount(at: url) ?? maximumPoseBytes + 1
                 }
-            let bubble: [(name: String, image: CGImage)] = wantsBubble ? Self.decodeFrame(at: bubbleURL).map { [("bubble", $0)] } ?? [] : []
-            let decoded = frames + bubble
+                guard estimatedBytes <= maximumPoseBytes else {
+                    await MainActor.run {
+                        owner.skipPrefetch(pose)
+                    }
+                    continue
+                }
+                let frames = matching.compactMap { url in
+                    Self.decodedFrame(at: url, outline: Self.outlinesFrame(named: url.lastPathComponent) ? outline : nil)
+                        .map { (url.deletingPathExtension().lastPathComponent, $0) }
+                }
+                await MainActor.run {
+                    owner.adopt(frames, for: pose)
+                }
+            }
+            let bubble = wantsBubble ? Self.decodeFrame(at: bubbleURL) : nil
             await MainActor.run {
-                owner.adopt(decoded)
+                if let bubble {
+                    owner.adoptBubble(bubble)
+                }
+                owner.finishPrefetch(poses)
             }
         }
     }
 
-    /// Caches the background-decoded frames whose names the cache doesn't hold yet.
-    private func adopt(_ frames: [(name: String, image: CGImage)]) {
-        for frame in frames where images[frame.name] == nil {
-            images[frame.name] = frame.image
-        }
+    private func adopt(_ frames: [(name: String, image: CGImage)], for pose: TrackerAvatarPose) {
+        TrackerAvatarFrameCache.shared.insertPrefetched(frames, ownerID: cacheID, pose: pose)
+    }
+
+    private func adoptBubble(_ image: CGImage) {
+        TrackerAvatarFrameCache.shared.insert(ownerID: cacheID, name: "bubble", image: image, pose: nil)
+    }
+
+    private func skipPrefetch(_ pose: TrackerAvatarPose) {
+        unprefetchablePoses.insert(pose)
+    }
+
+    private func finishPrefetch(_ poses: [TrackerAvatarPose]) {
+        prefetchingPoses.subtract(poses)
+        Self.activePrefetchWork = max(0, Self.activePrefetchWork - 1)
+        Self.startPrefetchWork()
     }
 
     /// The PNG at `url`, decoded when it is read rather than at its first draw (`kCGImageSourceShouldCacheImmediately`). The pixels and
@@ -461,6 +659,24 @@ final class TrackerAvatarSprites {
             return nil
         }
         return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+    }
+
+    /// A PNG's decoded RGBA size, estimated from its metadata before prefetch allocates the image.
+    nonisolated private static func estimatedDecodedByteCount(at url: URL) -> Int? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+              width > 0, height > 0 else {
+            return nil
+        }
+        let (pixels, pixelOverflow) = width.multipliedReportingOverflow(by: height)
+        let (bytes, byteOverflow) = pixels.multipliedReportingOverflow(by: 4)
+        return pixelOverflow || byteOverflow ? nil : bytes
+    }
+
+    private static func pose(forFrameNamed name: String) -> TrackerAvatarPose? {
+        TrackerAvatarPose.allCases.first { name.hasPrefix("\($0.resourceName)-") }
     }
 
     /// Whether a frame carries the outline: the figure's own frames do, and an effect layer (`-front-` or `-behind-`) does not, so its sparks
@@ -674,12 +890,13 @@ fileprivate final class TrackerAvatarIdleRig: TrackerAvatarPoseRig {
         guard let idle = sprites.animation.idle, let stillArt = sprites.idleStillArt else {
             return nil
         }
+        let breathingArt = sprites.idleBreathingArt
         self.pose = pose
         self.placement = placement
         self.idle = idle
         self.stillArt = stillArt
-        breathingArt = sprites.idleBreathingArt
-        let hasLids = stillArt.lids != nil || sprites.idleBreathingArt?.contains(where: { $0.lids != nil }) == true
+        self.breathingArt = breathingArt
+        let hasLids = stillArt.lids != nil || breathingArt?.contains(where: { $0.lids != nil }) == true
         lids = hasLids ? CALayer() : nil
         root.addSublayer(character)
         if let lids {
@@ -842,7 +1059,7 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         root.addSublayer(bubble)
         figure.addSublayer(character)
         figure.addSublayer(front)
-        bubble.contents = sprites.bubble
+        bubble.contents = pose == .callingOut ? sprites.bubble : nil
         for layer in [root, figure, bubble, behind, character, front] {
             layer.actions = TrackerAvatarLayerActions.immediate
             layer.magnificationFilter = .nearest
@@ -1174,8 +1391,13 @@ final class TrackerAvatarView: NSView {
 
     /// Snaps to `key`'s rig: the shown rig hides and the new one shows at once, with no fade. A pose without art shows nothing.
     private func show(_ key: RigKey?) {
-        shownKey = key
+        let previousKey = shownKey
         shown?.hide()
+        shown = nil
+        if let previousKey, previousKey != key, let previous = rigs.removeValue(forKey: previousKey) {
+            previous.root.removeFromSuperlayer()
+        }
+        shownKey = key
         shown = key.flatMap(rig(for:))
         shown?.show()
         showIdleEffects(key == .pose(.idle) || key == .fidget)
@@ -1183,24 +1405,29 @@ final class TrackerAvatarView: NSView {
 
     /// Shows the idle's effect layers while the idle (or one of its fidgets) is on screen, and hides them otherwise.
     private func showIdleEffects(_ shown: Bool) {
-        if shown, !effectRigsBuilt, let sprites, let placement = sprites.animation.animation(for: .idle) {
-            effectRigsBuilt = true
-            effectRigs = [TrackerAvatarLayer.behind, .front].compactMap {
-                TrackerAvatarIdleEffectRig(kind: $0, placement: placement, sprites: sprites)
+        if shown {
+            if !effectRigsBuilt, let sprites, let placement = sprites.animation.animation(for: .idle) {
+                effectRigsBuilt = true
+                effectRigs = [TrackerAvatarLayer.behind, .front].compactMap {
+                    TrackerAvatarIdleEffectRig(kind: $0, placement: placement, sprites: sprites)
+                }
+                for rig in effectRigs {
+                    rig.place(in: bounds, scale: scale)
+                    rig.root.isHidden = true
+                    layer?.addSublayer(rig.root)
+                }
             }
             for rig in effectRigs {
-                rig.place(in: bounds, scale: scale)
-                rig.root.isHidden = true
-                layer?.addSublayer(rig.root)
-            }
-        }
-        for rig in effectRigs {
-            if shown {
                 rig.root.isHidden = false
-            } else {
+            }
+        } else {
+            for rig in effectRigs {
                 rig.stopMotion()
                 rig.root.isHidden = true
+                rig.root.removeFromSuperlayer()
             }
+            effectRigs = []
+            effectRigsBuilt = false
         }
     }
 
