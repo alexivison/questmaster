@@ -3,6 +3,10 @@ import Darwin
 
 enum QuestmasterLogicTests {
     static func main() throws {
+        if ProcessInfo.processInfo.environment["QM_LOG_PERF_BENCH"] == "1" {
+            LogPerformanceBenchmark.run()
+            return
+        }
         timed("TrackerRendererTests") { TrackerRendererTests.run() }
         timed("TrackerCompanyOutlineTests") { TrackerCompanyOutlineTests.run() }
         timed("TrackerPlateVariantTests") { TrackerPlateVariantTests.run() }
