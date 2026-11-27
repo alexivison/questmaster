@@ -2228,10 +2228,10 @@ enum LogicSelfTests {
         guard let sprites = TrackerAvatarSprites.bundled()["wizard"] else {
             throw TestFailure("the wizard's sprites should load from the app bundle")
         }
-        try expect(sprites.animation.idle?.breathing?.frames.count == 6, "the wizard should load its six sparse breathing images")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 10, "the wizard should load its ten keyed breathing images")
         try expect(sprites.animation.fidgets.map(\.name) == ["hood", "staff-tap"], "the wizard should have the hood and staff-tap fidgets")
         try expect(sprites.availableFidgets.count == 2, "both of the wizard's fidgets should have their art")
-        try expect(sprites.idleBreathingArt?.count == 6, "the wizard's breathing track should load every image and lid stencil")
+        try expect(sprites.idleBreathingArt?.count == 10, "the wizard's breathing track should load every image and lid stencil")
         try expect(sprites.idleStillArt != nil, "the wizard should have a still idle image")
         try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the wizard's art")
         let missing = missingFrames(of: sprites)
@@ -2468,11 +2468,14 @@ enum LogicSelfTests {
             throw TestFailure("the necromancer's sprites should load from the app bundle")
         }
         try expect(sprites.animation.idle?.blink == false, "the necromancer should not schedule a blink")
-        try expect(sprites.animation.idle?.breathing?.frames.count == 7 && sprites.idleBreathingArt?.count == 7,
-                   "the necromancer should load all seven breathing steps and their lid stencils")
+        try expect(sprites.animation.idle?.breathing?.frames.count == 9 && sprites.idleBreathingArt?.count == 9,
+                   "the necromancer should load all nine breathing steps and their lid stencils")
         try expect(sprites.animation.fidgets.map(\.name) == ["cough"], "the necromancer should have the cough fidget")
         try expect(sprites.availableFidgets.count == 1, "the necromancer's fidget should have its art")
-        try expect(TrackerAvatarPose.masterPoses.allSatisfy { sprites.frame($0, .character, 1) != nil }, "every pose should have the necromancer's art")
+        // Pondering and bow start on frame 2 now (their keyed tracks never play frame 1), so each pose needs some art here;
+        // missingFrames below checks every frame the tracks play.
+        try expect(TrackerAvatarPose.masterPoses.allSatisfy { pose in (1...40).contains { sprites.frame(pose, .character, $0) != nil } },
+                   "every pose should have the necromancer's art")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the necromancer's file plays should have its art, missing: \(missing)")
     }
