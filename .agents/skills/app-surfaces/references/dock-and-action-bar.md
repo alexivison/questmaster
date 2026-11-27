@@ -1,5 +1,7 @@
 # Dock and action bar
 
+- View → Zen Mode (⌥⌘Z) gives the terminal the full window. It hides the tracker, action bar, right dock and
+  floating Return to Master button. Toggling it off restores the normal layout and its focus.
 - In the artifact list and viewer, `y` copies the artifact ID and `Y` copies the file path. Marked rows take precedence
   over the cursor, and multiple values copy one per line in list order.
 

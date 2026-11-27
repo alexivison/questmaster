@@ -17,7 +17,19 @@ public final class NavigationStore {
     }
 
     public var focusedRegion: FocusRegion {
-        state.focusedRegion
+        isZenMode ? .terminal : state.focusedRegion
+    }
+
+    /// Zen Mode takes the keys without disturbing the normal layout and its focus.
+    public private(set) var isZenMode = false
+
+    @discardableResult
+    public func toggleZenMode(topModal: ModalKind? = nil) -> Bool {
+        guard appCommandRoute(.app, topModal: topModal) == .allowed else {
+            return false
+        }
+        isZenMode.toggle()
+        return true
     }
 
     /// A modal is drawn over the panes: the keys go to it, so no region has them.
@@ -62,6 +74,9 @@ public final class NavigationStore {
         guard !isModalDrawn else {
             return .modal
         }
+        guard !isZenMode else {
+            return .passThrough
+        }
         switch direction {
         case .left, .right:
             return .shell
@@ -83,11 +98,11 @@ public final class NavigationStore {
             case .child: return .child
             case .ignored: return .blockedByModal
             }
-        case .app:
-            guard isModalDrawn || topModal != nil else {
-                return .allowed
+        case .app, .shellChrome:
+            guard !isModalDrawn, topModal == nil else {
+                return .blockedByModal
             }
-            return .blockedByModal
+            return kind == .shellChrome && isZenMode ? .blockedByZenMode : .allowed
         }
     }
 
@@ -112,7 +127,10 @@ public final class NavigationStore {
 
     @discardableResult
     public func focus(_ region: FocusRegion) -> NavigationOutcome {
-        mutate { $0.focus(region) }
+        guard !isZenMode else {
+            return region == .terminal ? .focused(.terminal) : .unchanged
+        }
+        return mutate { $0.focus(region) }
     }
 
     @discardableResult
@@ -122,7 +140,10 @@ public final class NavigationStore {
 
     @discardableResult
     public func focusDockPanel(_ panel: DockPanel) -> NavigationOutcome {
-        mutate { $0.focusDockPanel(panel) }
+        guard !isZenMode else {
+            return .unchanged
+        }
+        return mutate { $0.focusDockPanel(panel) }
     }
 
     @discardableResult
@@ -137,7 +158,10 @@ public final class NavigationStore {
 
     @discardableResult
     public func directionalRegionFocus(_ direction: NavigationDirection) -> NavigationOutcome {
-        mutate { $0.directionalRegionFocus(direction) }
+        guard !isZenMode else {
+            return .unchanged
+        }
+        return mutate { $0.directionalRegionFocus(direction) }
     }
 
     @discardableResult

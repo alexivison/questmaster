@@ -105,6 +105,7 @@ public enum Keymap {
         public static let editFocusedSession = CommandBinding(title: "Edit Focused Session", keyEquivalent: "e")
         public static let editFocusedRepo = CommandBinding(title: "Edit Focused Repo", keyEquivalent: "e", modifiers: [.command, .shift])
         public static let deleteFocusedSession = CommandBinding(title: "Delete Focused Session", keyEquivalent: "d", modifiers: [.command, .shift])
+        public static let toggleZenMode = CommandBinding(title: "Zen Mode", keyEquivalent: "z", modifiers: [.command, .option])
         public static let toggleTracker = CommandBinding(title: "Toggle Tracker", keyEquivalent: "\\")
         public static let focusTerminal = CommandBinding(title: "Focus Terminal", keyEquivalent: "2", modifiers: [.command, .option])
         // Lowercase keyEquivalent + explicit .shift (rather than an uppercase key equivalent)

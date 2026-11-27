@@ -105,6 +105,8 @@ final class ShellFocusCoordinator {
     }
 
     func applyNavigationState(animateDockVisibility: Bool = true) {
+        splitView()?.isZenMode = navigation.isZenMode
+        terminalShell()?.isZenMode = navigation.isZenMode
         splitView()?.trackerVisible = navigation.trackerVisible
         splitView()?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
         dockColumn()?.setPanels(dockPanels(), animated: animateDockVisibility)

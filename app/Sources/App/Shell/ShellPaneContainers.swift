@@ -65,9 +65,16 @@ final class TrackerShellView: NSView {
 final class TerminalShellView: NSView {
     private let messageOverlay: NSHostingView<TerminalEndedOverlay>
     private let returnButton: FirstMouseHostingView<ReturnToMasterButton>
-    private var returnToMasterVisible = false
+    private var returnToMasterAvailable = false
     private var returnButtonAnimationGeneration = 0
     var onReturnToMaster: (() -> Void)?
+    var isZenMode = false {
+        didSet {
+            if isZenMode != oldValue {
+                updateReturnToMasterVisibility()
+            }
+        }
+    }
 
     init(body: NSView) {
         messageOverlay = NSHostingView(rootView: TerminalEndedOverlay())
@@ -124,11 +131,19 @@ final class TerminalShellView: NSView {
         messageOverlay.isHidden = true
     }
 
-    func setReturnToMasterVisible(_ visible: Bool) {
-        guard returnToMasterVisible != visible else {
+    func setReturnToMasterVisible(_ available: Bool) {
+        guard returnToMasterAvailable != available else {
             return
         }
-        returnToMasterVisible = visible
+        returnToMasterAvailable = available
+        updateReturnToMasterVisibility()
+    }
+
+    private func updateReturnToMasterVisibility() {
+        let visible = returnToMasterAvailable && !isZenMode
+        guard visible || !returnButton.isHidden else {
+            return
+        }
         returnButtonAnimationGeneration += 1
         let generation = returnButtonAnimationGeneration
         guard let layer = returnButton.layer else {
@@ -142,7 +157,7 @@ final class TerminalShellView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.opacity = visible ? 1 : 0
-        guard window?.isVisible == true, !Motion.reducesMotion() else {
+        guard !isZenMode, window?.isVisible == true, !Motion.reducesMotion() else {
             returnButton.isHidden = !visible
             CATransaction.commit()
             return

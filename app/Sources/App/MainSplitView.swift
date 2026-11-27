@@ -72,6 +72,15 @@ final class MainSplitView: NSView {
         let dockWidth: CGFloat
     }
 
+    var isZenMode = false {
+        didSet {
+            guard isZenMode != oldValue else {
+                return
+            }
+            applyCanonicalLayout()
+        }
+    }
+
     var trackerVisible = true {
         didSet {
             guard trackerVisible != oldValue else {
@@ -136,7 +145,7 @@ final class MainSplitView: NSView {
             return
         }
         currentDockWidth = layout.dockWidth
-        if animated, window != nil {
+        if animated, !isZenMode, window != nil {
             animate(to: layout)
         } else {
             apply(layout)
@@ -172,7 +181,7 @@ final class MainSplitView: NSView {
 
     /// Widens (or, negative, narrows) the viewer by `step`, a share of the window.
     func nudgeDockWidth(by step: Double) {
-        guard dockVisible, dockWidthMode == .standard else {
+        guard !isZenMode, dockVisible, dockWidthMode == .standard else {
             return
         }
         preferredDockFraction = ShellSplitLayoutPlanner.resizedDockFraction(
@@ -196,15 +205,28 @@ final class MainSplitView: NSView {
     }
 
     private func canonicalLayout() -> CanonicalLayout? {
-        guard panes.count == 3,
-              let planned = ShellSplitLayoutPlanner.layout(
-                size: ShellSplitSize(width: Double(bounds.width), height: Double(bounds.height)),
-                metrics: ShellMetrics.splitLayoutMetrics,
-                trackerVisible: trackerVisible,
-                dockVisible: dockVisible,
-                preferredDockFraction: preferredDockFraction,
-                dockWidthMode: dockWidthMode
-              ) else {
+        guard panes.count == 3 else {
+            return nil
+        }
+        if isZenMode {
+            return CanonicalLayout(
+                trackerFrame: .zero,
+                headerFrame: .zero,
+                terminalFrame: bounds,
+                dockFrame: .zero,
+                firstDividerFrame: .zero,
+                secondDividerFrame: .zero,
+                dockWidth: 0
+            )
+        }
+        guard let planned = ShellSplitLayoutPlanner.layout(
+            size: ShellSplitSize(width: Double(bounds.width), height: Double(bounds.height)),
+            metrics: ShellMetrics.splitLayoutMetrics,
+            trackerVisible: trackerVisible,
+            dockVisible: dockVisible,
+            preferredDockFraction: preferredDockFraction,
+            dockWidthMode: dockWidthMode
+        ) else {
             return nil
         }
 
@@ -225,13 +247,16 @@ final class MainSplitView: NSView {
     private func apply(_ layout: CanonicalLayout) {
         layoutAnimationGeneration += 1
         isAnimatingCanonicalLayout = false
-        panes[0].isHidden = !trackerVisible
-        panes[2].isHidden = !dockVisible
+        let showTracker = trackerVisible && !isZenMode
+        let showDock = dockVisible && !isZenMode
+        header?.isHidden = isZenMode
+        panes[0].isHidden = !showTracker
+        panes[2].isHidden = !showDock
         firstDivider.isHidden = true
-        secondDividerGrab.isHidden = !dockVisible
-        panes[0].alphaValue = trackerVisible ? 1 : 0
-        panes[2].alphaValue = dockVisible ? 1 : 0
-        secondDividerGrab.alphaValue = dockVisible ? 1 : 0
+        secondDividerGrab.isHidden = !showDock
+        panes[0].alphaValue = showTracker ? 1 : 0
+        panes[2].alphaValue = showDock ? 1 : 0
+        secondDividerGrab.alphaValue = showDock ? 1 : 0
         firstDivider.frame = layout.firstDividerFrame
         secondDividerGrab.frame = layout.secondDividerFrame
         setPaneFrame(panes[0], layout.trackerFrame)
@@ -334,14 +359,14 @@ final class MainSplitView: NSView {
     }
 
     private func beginDockResize() {
-        guard dockVisible, dockWidthMode == .standard else {
+        guard !isZenMode, dockVisible, dockWidthMode == .standard else {
             return
         }
         dockDragStartWidth = currentDockWidth
     }
 
     private func resizeDock(deltaX: CGFloat) {
-        guard dockVisible, dockWidthMode == .standard else {
+        guard !isZenMode, dockVisible, dockWidthMode == .standard else {
             return
         }
         preferredDockFraction = ShellSplitLayoutPlanner.resizedDockFraction(
@@ -356,7 +381,7 @@ final class MainSplitView: NSView {
     }
 
     private func commitDockResize() {
-        guard dockVisible, dockWidthMode == .standard else {
+        guard !isZenMode, dockVisible, dockWidthMode == .standard else {
             return
         }
         commitDockFraction()
