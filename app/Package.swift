@@ -13,6 +13,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.1"),
+        .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.4.0"),
     ],
     targets: [
         .binaryTarget(
@@ -46,6 +47,8 @@ let package = Package(
                 "QuestmasterCore",
                 "GhosttyKit",
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
+                .product(name: "cmark-gfm", package: "swift-cmark"),
+                .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
             ],
             path: "Sources/App",
             resources: [

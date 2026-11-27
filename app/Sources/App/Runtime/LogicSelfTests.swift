@@ -4,6 +4,7 @@ import Combine
 import Darwin
 import Foundation
 import ImageIO
+import MarkdownUI
 import QuestmasterCore
 import SwiftUI
 import WebKit
@@ -79,6 +80,8 @@ enum LogicSelfTests {
         ("testArtifactViewerLoadsThePageOnceTheBlockerCompiles", testArtifactViewerLoadsThePageOnceTheBlockerCompiles),
         ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
         ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
+        ("testArtifactMarkdownPreservesListTransitionsAndCrossPageReferences", testArtifactMarkdownPreservesListTransitionsAndCrossPageReferences),
+        ("testArtifactMarkdownPreservesNestedAndMixedListStructures", testArtifactMarkdownPreservesNestedAndMixedListStructures),
         ("testBoundedProcessDrainsBothPipesPastCapacity", testBoundedProcessDrainsBothPipesPastCapacity),
         ("testBoundedProcessCapsOutput", testBoundedProcessCapsOutput),
         ("testBoundedProcessTimesOutAChildIgnoringTerm", testBoundedProcessTimesOutAChildIgnoringTerm),
@@ -4412,6 +4415,78 @@ enum LogicSelfTests {
             LocalMarkdownImages.fileURL(URL(string: "https://example.com/screenshot.png")) == nil,
             "remote markdown images should not load through the local provider"
         )
+    }
+
+    private static func testArtifactMarkdownPreservesListTransitionsAndCrossPageReferences() throws {
+        let filler = (0..<8).map { index in
+            "### Section \(index)\n\n" + String(repeating: "Useful report words ", count: 8)
+        }.joined(separator: "\n\n")
+        let markdown = """
+        [See the shared reference][shared]
+
+        3. First
+
+           Second paragraph
+
+           - Nested item
+           - Another item
+
+        4. Last
+
+        - Different list
+
+        \(filler)
+
+        <!-- end list -->
+
+        [shared]: https://example.test/shared "Shared"
+        """
+
+        let pages = ArtifactMarkdownLayout.pages(from: markdown)
+        try expect(pages.count > 1, "the fixture should span multiple lazy pages")
+        try expect(
+            MarkdownContentBuilder.buildArray(pages.map(\.content)) == MarkdownContent(markdown),
+            "paged parsed content should preserve adjacent lists, the distant reference, and the authored comment"
+        )
+    }
+
+    private static func testArtifactMarkdownPreservesNestedAndMixedListStructures() throws {
+        let filler = (0..<8).map { index in
+            "### Section \(index)\n\n" + String(repeating: "Fallback report words ", count: 8)
+        }.joined(separator: "\n\n")
+        let fixtures: [(name: String, markdown: String)] = [
+            (
+                "nested quote lists",
+                "> 1. Numbered\n>\n> - Bulleted\n"
+            ),
+            (
+                "nested list followed by fenced code",
+                "> - Parent\n>   - Nested\n>\n>   ```swift\n>   print(\"synthetic\")\n>   ```\n"
+            ),
+            (
+                "authored comment between nested lists",
+                "> 1. Numbered\n>\n> <!-- author comment -->\n>\n> - Bulleted\n"
+            ),
+            (
+                "mixed checklist siblings",
+                "- [x] Done\n- [ ] Open\n- Regular\n"
+            ),
+        ]
+
+        for fixture in fixtures {
+            let markdown = fixture.markdown + "\n\n" + filler
+            let original = MarkdownContent(markdown)
+            let pages = ArtifactMarkdownLayout.pages(from: markdown)
+            let assembled = MarkdownContentBuilder.buildArray(pages.map(\.content))
+            try expect(
+                assembled == original,
+                "\(fixture.name) should preserve the original MarkdownUI block tree"
+            )
+            try expect(
+                pages.count == 1,
+                "\(fixture.name) should use the faithful full-document fallback after equivalence fails"
+            )
+        }
     }
 
     private static func testDockPanePublishesModeChanges() throws {
