@@ -122,7 +122,7 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 		}
 		var body []byte
 		for i := 0; i <= InitialEntryLimit; i++ {
-			body = append(body, mustMarshalEvent(chatEvent("status", fmt.Sprintf("line %d", i), time.Unix(int64(i), 0)))...)
+			body = append(body, mustMarshalEvent(chatEvent("message", fmt.Sprintf("line %d", i), time.Unix(int64(i), 0)))...)
 		}
 		if err := os.WriteFile(path, body, 0o600); err != nil {
 			t.Fatal(err)
@@ -183,6 +183,196 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 			t.Fatalf("stale-cursor entries = %#v, want retained then current", got.Entries)
 		}
 	})
+}
+
+func TestReadSinceWithVisibleWorkersBoundsAggregateInitialEntriesAcrossWorkers(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	workerIDs := []string{"qm-w1", "qm-w2", "qm-w3", "qm-w4", "qm-w5", "qm-w6", "qm-w7", "qm-w8"}
+	createMasterAndWorkers(t, root, "qm-master", workerIDs...)
+	const total = 3_200
+	bodies := make([][]byte, len(workerIDs))
+	for index := 0; index < total; index++ {
+		workerIndex := index % len(workerIDs)
+		event := chatEvent("message", fmt.Sprintf("line %d", index), time.Unix(int64(index), 0))
+		bodies[workerIndex] = append(bodies[workerIndex], mustMarshalEvent(event)...)
+	}
+	for index, workerID := range workerIDs {
+		path := state.SessionStateLogPath(root, workerID)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, bodies[index], 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := ReadSinceWithVisibleWorkers(root, "qm-master", nil, workerIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Entries) != InitialEntryLimit {
+		t.Fatalf("initial entries = %d, want visible aggregate cap %d", len(first.Entries), InitialEntryLimit)
+	}
+	for index, entry := range first.Entries {
+		wantIndex := total - InitialEntryLimit + index
+		if entry.Text != fmt.Sprintf("line %d", wantIndex) || !entry.Timestamp.Equal(time.Unix(int64(wantIndex), 0)) {
+			t.Fatalf("entry %d = (%q, %s), want newest selection in chronological order: line %d", index, entry.Text, entry.Timestamp, wantIndex)
+		}
+	}
+	for _, workerID := range workerIDs {
+		info, err := os.Stat(state.SessionStateLogPath(root, workerID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cursor := first.Cursors[workerID]
+		if cursor.FileID == "" || cursor.Offset != info.Size() || first.HasMore[workerID] {
+			t.Fatalf("initial cursor for %s = %#v, has_more=%v; want EOF cursor and no extra initial page", workerID, cursor, first.HasMore[workerID])
+		}
+	}
+
+	workerID := workerIDs[0]
+	appendEvent(t, root, workerID, chatEvent("message", "later arrival", time.Unix(total, 0)))
+	next, err := ReadSinceWithVisibleWorkers(root, "qm-master", first.Cursors, workerIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Entries) != 1 || next.Entries[0].Text != "later arrival" || !next.Entries[0].Timestamp.Equal(time.Unix(total, 0)) {
+		t.Fatalf("incremental entries = %#v, want the later arrival only", next.Entries)
+	}
+	if next.Cursors[workerID].Offset <= first.Cursors[workerID].Offset {
+		t.Fatalf("cursor for %s did not advance: before=%#v after=%#v", workerID, first.Cursors[workerID], next.Cursors[workerID])
+	}
+	for _, otherID := range workerIDs[1:] {
+		if next.Cursors[otherID] != first.Cursors[otherID] {
+			t.Fatalf("unchanged cursor for %s changed: before=%#v after=%#v", otherID, first.Cursors[otherID], next.Cursors[otherID])
+		}
+	}
+}
+
+func TestReadSinceWithVisibleWorkersInitialCapKeepsEligibleHistory(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	workerIDs := []string{"qm-report", "qm-noise1", "qm-noise2"}
+	createMasterAndWorkers(t, root, "qm-master", workerIDs...)
+	bodies := map[string][]byte{
+		workerIDs[0]: mustMarshalEvent(chatEvent("report", "quiet worker report", time.Unix(1, 0))),
+	}
+	for index := 0; index < InitialEntryLimit; index++ {
+		workerID := workerIDs[1+index%2]
+		event := chatEvent("status", "queued", time.Unix(int64(index+2), 0))
+		bodies[workerID] = append(bodies[workerID], mustMarshalEvent(event)...)
+	}
+	writeWorkerLogBodies(t, root, workerIDs, bodies)
+
+	first, err := ReadSinceWithVisibleWorkers(root, "qm-master", nil, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Entries) != 1 || first.Entries[0].WorkerID != workerIDs[0] || first.Entries[0].Kind != "report" || first.Entries[0].Text != "quiet worker report" {
+		var got []string
+		for _, entry := range first.Entries {
+			got = append(got, entry.WorkerID+":"+entry.Kind+":"+entry.Text)
+		}
+		t.Fatalf("initial entries = %v, want only the report the store retains after dropping queued statuses", got)
+	}
+	for _, workerID := range workerIDs {
+		info, err := os.Stat(state.SessionStateLogPath(root, workerID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cursor := first.Cursors[workerID]; cursor.Offset != info.Size() || cursor.FileID == "" {
+			t.Fatalf("initial cursor for %s = %#v, want EOF", workerID, cursor)
+		}
+	}
+
+	appendEvent(t, root, workerIDs[0], chatEvent("status", "queued", time.Unix(499, 0)))
+	appendEvent(t, root, workerIDs[0], chatEvent("report", "later report", time.Unix(500, 0)))
+	next, err := ReadSinceWithVisibleWorkers(root, "qm-master", first.Cursors, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Entries) != 2 || next.Entries[0].Text != "queued" || next.Entries[1].Text != "later report" {
+		t.Fatalf("incremental entries = %#v, want raw queued status then later report", next.Entries)
+	}
+}
+
+func TestReadSinceRawInitialHistoryKeepsPerWorkerLimitOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	workerIDs := []string{"qm-report", "qm-noise1", "qm-noise2"}
+	createMasterAndWorkers(t, root, "qm-master", workerIDs...)
+	bodies := map[string][]byte{
+		workerIDs[0]: mustMarshalEvent(chatEvent("report", "quiet worker report", time.Unix(1, 0))),
+	}
+	for index := 0; index < InitialEntryLimit; index++ {
+		workerID := workerIDs[1+index%2]
+		event := chatEvent("status", "queued", time.Unix(int64(index+2), 0))
+		bodies[workerID] = append(bodies[workerID], mustMarshalEvent(event)...)
+	}
+	writeWorkerLogBodies(t, root, workerIDs, bodies)
+
+	first, err := ReadSince(root, "qm-master", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCount := InitialEntryLimit + 1
+	if len(first.Entries) != wantCount {
+		t.Fatalf("raw initial entries = %d, want the report plus all %d statuses", len(first.Entries), InitialEntryLimit)
+	}
+	if first.Entries[0].WorkerID != workerIDs[0] || first.Entries[0].Kind != "report" || first.Entries[0].Text != "quiet worker report" {
+		t.Fatalf("first raw entry = %#v, want the older report before the newer statuses", first.Entries[0])
+	}
+	for index, entry := range first.Entries[1:] {
+		if entry.Kind != "status" || entry.Text != "queued" || !entry.Timestamp.Equal(time.Unix(int64(index+2), 0)) {
+			t.Fatalf("raw status %d = %#v, want queued status at %d", index, entry, index+2)
+		}
+	}
+}
+
+func TestReadSinceWithVisibleWorkersUsesSeparateHistoryBudgets(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	workerIDs := []string{"qm-visible", "qm-hidden"}
+	createMasterAndWorkers(t, root, "qm-master", workerIDs...)
+	bodies := map[string][]byte{}
+	for index := 0; index < InitialEntryLimit+100; index++ {
+		body := mustMarshalEvent(chatEvent("message", fmt.Sprintf("visible %d", index), time.Unix(int64(index+1), 0)))
+		bodies[workerIDs[0]] = append(bodies[workerIDs[0]], body...)
+	}
+	for index := 0; index < InitialHiddenEntryLimit+50; index++ {
+		body := mustMarshalEvent(chatEvent("message", fmt.Sprintf("hidden %d", index), time.Unix(int64(InitialEntryLimit+100+index+1), 0)))
+		bodies[workerIDs[1]] = append(bodies[workerIDs[1]], body...)
+	}
+	writeWorkerLogBodies(t, root, workerIDs, bodies)
+
+	first, err := ReadSinceWithVisibleWorkers(root, "qm-master", nil, []string{workerIDs[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCount := InitialEntryLimit + InitialHiddenEntryLimit
+	if len(first.Entries) != wantCount {
+		t.Fatalf("initial entries = %d, want visible and hidden budgets totaling %d", len(first.Entries), wantCount)
+	}
+	if first.Entries[0].Text != "visible 100" || first.Entries[InitialEntryLimit-1].Text != "visible 499" {
+		t.Fatalf("visible history starts/ends at %q/%q, want newest %d visible entries", first.Entries[0].Text, first.Entries[InitialEntryLimit-1].Text, InitialEntryLimit)
+	}
+	if first.Entries[InitialEntryLimit].Text != "hidden 50" || first.Entries[len(first.Entries)-1].Text != "hidden 199" {
+		t.Fatalf("hidden history starts/ends at %q/%q, want newest %d hidden entries", first.Entries[InitialEntryLimit].Text, first.Entries[len(first.Entries)-1].Text, InitialHiddenEntryLimit)
+	}
+}
+
+func writeWorkerLogBodies(t *testing.T, root string, workerIDs []string, bodies map[string][]byte) {
+	t.Helper()
+	for _, workerID := range workerIDs {
+		path := state.SessionStateLogPath(root, workerID)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, bodies[workerID], 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func TestReadSinceSkipsUnterminatedRotatedSuffix(t *testing.T) {
