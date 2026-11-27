@@ -26,6 +26,7 @@ struct WorkerChatTests {
         lineTimesFollowTheClockMinute()
         cursorsRoundTripUnchanged()
         newlyVisibleWorkerGetsAnInitialReadWithTheVisibleBudget()
+        readdedWorkerKeepsHistoryDuringAnIncrementalPull()
         hasMoreRepullsImmediately()
         toolOnlyTrackerChangesDoNotPull()
         lastChatTimestampChangeTriggersPull()
@@ -39,7 +40,7 @@ struct WorkerChatTests {
         unreadableWorkerShowsANoticeAndRetries()
         manyUnreadableWorkersShareOneBoundedNotice()
         removedWorkerHidesItsChatLines()
-        removedWorkerDuringPullKeepsCurrentEntries()
+        removedWorkerDuringInitialPullRereadsRemainingVisibleHistory()
         membershipChangesWhilePullingDoNotQueueRequests()
         departedReadErrorsStayHiddenUntilReadded()
         removeAndReAddDuringPullKeepsHistory()
@@ -336,11 +337,12 @@ struct WorkerChatTests {
         expect(store.sync(selectedSessionID: "m", sessions: expanded, isVisible: true) == nil, "an added worker should wait for the current pull to finish")
 
         let w1Cursor = WorkerFeedCursor(offset: 10, fileID: "w1-file")
+        let w2Cursor = WorkerFeedCursor(offset: 15, fileID: "w2-file")
         let staleHiddenCursor = WorkerFeedCursor(offset: 20, fileID: "w3-file")
         let retry = store.receive(
             WorkerFeedPayload(
                 entries: [entry(1, "w1", "say", "kept"), entry(2, "w3", "say", "stale hidden entry")],
-                cursors: ["w1": w1Cursor, "w3": staleHiddenCursor],
+                cursors: ["w1": w1Cursor, "w2": w2Cursor, "w3": staleHiddenCursor],
                 hasMore: ["w3": true]
             ),
             for: first
@@ -348,16 +350,44 @@ struct WorkerChatTests {
 
         expect(retry != nil, "an added worker should trigger a follow-up read")
         expect(retry?.visibleWorkerIDs == ["w1", "w2", "w3"], "the follow-up should use the updated visible worker set")
-        expect(retry?.cursors["w1"] == w1Cursor && retry?.cursors["w3"] == nil, "the retry should keep unaffected cursors and reread the added worker from the start")
-        expect(store.lines.contains { $0.segments.last?.text == " kept" }, "entries from unchanged workers should still be applied")
-        expect(!store.lines.contains { $0.segments.last?.text == " stale hidden entry" }, "the under-budget hidden response for the new worker should be discarded")
+        expect(retry?.cursors.isEmpty == true, "the retry should reread every initial worker after the shared budget changes")
+        expect(store.lines.isEmpty, "the first response's initial selection should be discarded after the visible set changes")
 
         let complete = store.receive(
-            WorkerFeedPayload(entries: [entry(2, "w3", "say", "visible report")], cursors: ["w3": staleHiddenCursor]),
+            WorkerFeedPayload(
+                entries: [entry(1, "w1", "say", "kept after reread"), entry(2, "w3", "say", "visible report")],
+                cursors: ["w1": w1Cursor, "w2": w2Cursor, "w3": staleHiddenCursor]
+            ),
             for: retry!
         )
         expect(complete == nil, "a complete reread should not queue another request")
+        expect(store.lines.contains { $0.segments.last?.text == " kept after reread" }, "the reread should retain history from the existing visible workers")
         expect(store.lines.contains { $0.segments.last?.text == " visible report" }, "the new visible worker's initial history should be shown after rereading")
+    }
+
+    private static func readdedWorkerKeepsHistoryDuringAnIncrementalPull() {
+        let store = makeStore()
+        let initial = open(store)
+        let before = WorkerFeedCursor(offset: 10, fileID: "w2-before")
+        _ = store.receive(
+            WorkerFeedPayload(entries: [entry(0, "w2", "report", "retained report")], cursors: ["w1": WorkerFeedCursor(offset: 5, fileID: "w1-file"), "w2": before]),
+            for: initial
+        )
+        expect(store.lines.filter { $0.workerID == "w2" && $0.action == .item }.count == 1, "the initial report should be retained")
+
+        let absentGroup = group().filter { $0.id != "w2" }
+        let incremental = store.sync(selectedSessionID: "m", sessions: absentGroup, isVisible: true)
+        expect(incremental?.cursors["w2"] == before, "the absent worker's incremental request should keep its file cursor")
+        expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "reappearing during a pull should wait for its response")
+
+        let after = WorkerFeedCursor(offset: 20, fileID: "w2-before")
+        let followUp = store.receive(
+            WorkerFeedPayload(entries: [entry(2, "w2", "report", "incremental report")], cursors: ["w2": after]),
+            for: incremental!
+        )
+        let reports = store.lines.filter { $0.workerID == "w2" && $0.action == .item }
+        expect(reports.count == 2, "the readded worker should keep its retained report and apply the incremental report")
+        expect(followUp?.cursors["w2"] == after, "the follow-up should carry the advanced cursor without a tail reread")
     }
 
     private static func hasMoreRepullsImmediately() {
@@ -597,31 +627,38 @@ struct WorkerChatTests {
         expect(store.readNotice == nil, "removed worker read errors should disappear")
     }
 
-    private static func removedWorkerDuringPullKeepsCurrentEntries() {
+    private static func removedWorkerDuringInitialPullRereadsRemainingVisibleHistory() {
         let store = makeStore()
         let first = open(store)
         let remainingGroup = group().filter { $0.id != "w1" }
         let current = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
         expect(current == nil, "membership changes should not issue another request while a pull is in flight")
 
+        let w1Cursor = WorkerFeedCursor(offset: 50, fileID: "w1-file")
         let w2Cursor = WorkerFeedCursor(offset: 10, fileID: "w2-file")
+        let displacedEntries = (0..<WorkerChatStore.maxRecords).map { entry(TimeInterval($0 + 1), "w1", "say", "newer \($0)") }
         let followUp = store.receive(
             WorkerFeedPayload(
-                entries: [entry(2, "w1", "say", "resurrected"), entry(3, "w2", "say", "late")],
-                cursors: ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor],
+                entries: displacedEntries,
+                cursors: ["w1": w1Cursor, "w2": w2Cursor],
                 hasMore: ["w1": true],
                 errors: ["w1": "permission denied"]
             ),
             for: first
         )
 
-        let w2Lines = store.lines.filter { $0.agent == "claude" }.map { $0.segments }
-        expect(!store.lines.contains { $0.segments.first?.text == "Worker One:" }, "removed worker entries should be dropped")
-        expect(w2Lines.count == 1 && w2Lines[0].last?.text == " late", "the remaining worker's new entry should be shown")
+        expect(followUp != nil, "the changed visible budget should be reread")
+        expect(followUp?.visibleWorkerIDs == ["w2"], "the reread should use the remaining visible worker set")
+        expect(followUp?.cursors.isEmpty == true, "the old initial cursors should not be consumed")
+        expect(store.lines.isEmpty, "entries selected using the old shared budget should be discarded")
         expect(store.readNotice == nil, "removed worker read errors should be dropped")
-        expect(followUp?.cursors == ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor], "the response cursors should be retained while the worker is hidden")
 
-        _ = store.receive(WorkerFeedPayload(), for: followUp!)
+        let report = store.receive(
+            WorkerFeedPayload(entries: [entry(0, "w2", "report", "remaining visible report")], cursors: ["w1": w1Cursor, "w2": w2Cursor]),
+            for: followUp!
+        )
+        expect(report == nil, "the refreshed initial response should complete the pull")
+        expect(store.lines.contains { $0.workerID == "w2" && $0.action == .item }, "the remaining worker's displaced report should be recovered")
         expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "the completed feed should not request another pull")
     }
 
@@ -636,16 +673,20 @@ struct WorkerChatTests {
         let w2Cursor = WorkerFeedCursor(offset: 10, fileID: "w2-file")
         let followUp = store.receive(
             WorkerFeedPayload(
-                entries: [entry(0, "w1", "say", "removed"), entry(1, "w2", "say", "kept")],
+                entries: [entry(0, "w1", "say", "stale removed"), entry(1, "w2", "say", "stale kept")],
                 cursors: ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor],
                 errors: ["w1": "permission denied"]
             ),
             for: first
         )
-        expect(followUp?.cursors == ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor], "the completed pull should issue one follow-up with cached cursors")
+        expect(followUp?.cursors.isEmpty == true, "the completed initial pull should reread entries selected under the old visibility set")
         expect(!store.lines.contains { $0.segments.first?.text == "Worker One:" }, "the final group should not show the removed worker")
-        expect(store.lines.contains { $0.segments.last?.text == " kept" }, "the final group should keep the remaining worker")
-        _ = store.receive(WorkerFeedPayload(errors: ["w1": "permission denied"]), for: followUp!)
+        expect(!store.lines.contains { $0.segments.last?.text == " stale kept" }, "the stale selection should not appear before the reread")
+        _ = store.receive(
+            WorkerFeedPayload(entries: [entry(2, "w2", "say", "kept")], cursors: ["w1": WorkerFeedCursor(offset: 10, fileID: "w1-file"), "w2": w2Cursor], errors: ["w1": "permission denied"]),
+            for: followUp!
+        )
+        expect(store.lines.contains { $0.segments.last?.text == " kept" }, "the remaining worker should appear after the reread")
         expect(store.readNotice == nil, "the removed worker error should stay hidden")
         expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "a hidden worker error should not trigger retries")
     }

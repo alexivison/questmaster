@@ -229,33 +229,48 @@ public final class WorkerChatStore {
             return nil
         }
         inFlight = false
-        let newlyVisibleWorkers = Set(workerOrder).subtracting(request.visibleWorkerIDs)
-        if !newlyVisibleWorkers.isEmpty {
-            // The in-flight response used the smaller hidden-worker budget. Forget its partial history and
-            // cursor so a follow-up can read the new visible budget from the start.
-            cursors = cursors.filter { !newlyVisibleWorkers.contains($0.key) }
-            records.removeAll { newlyVisibleWorkers.contains($0.workerID) }
+        let currentVisibleWorkers = Set(workerOrder)
+        let requestVisibleWorkers = Set(request.visibleWorkerIDs)
+        var initialWorkersToReread = Set<String>()
+        if currentVisibleWorkers != requestVisibleWorkers {
+            // A membership change shifts the shared visible or hidden cap. Initial results for any worker may
+            // have displaced history from the new groups, so reread them together. Incremental entries are
+            // independent of those caps and remain safe to apply with their existing cursors.
+            var responseWorkerIDs = Set(payload.cursors.keys)
+            responseWorkerIDs.formUnion(payload.entries.map(\.workerID))
+            responseWorkerIDs.formUnion(payload.hasMore.keys)
+            responseWorkerIDs.formUnion((payload.errors ?? [:]).keys)
+            initialWorkersToReread = Set(responseWorkerIDs.filter { workerID in
+                guard let fileID = request.cursors[workerID]?.fileID else {
+                    return true
+                }
+                return fileID.isEmpty
+            })
+        }
+        if !initialWorkersToReread.isEmpty {
+            cursors = cursors.filter { !initialWorkersToReread.contains($0.key) }
+            records.removeAll { initialWorkersToReread.contains($0.workerID) }
             hasLoaded = false
             pullWanted = true
             rebuild()
         }
         for (workerID, cursor) in payload.cursors {
-            if !newlyVisibleWorkers.contains(workerID) {
+            if !initialWorkersToReread.contains(workerID) {
                 cursors[workerID] = cursor
             }
         }
         let hasMore = payload.hasMore.contains { workerID, hasMore in
-            hasMore && !newlyVisibleWorkers.contains(workerID)
+            hasMore && !initialWorkersToReread.contains(workerID)
         }
         if hasMore {
             pullWanted = true
         }
         let previousErrors = readErrorWorkerIDs
         readErrorWorkerIDs = (payload.errors ?? [:]).keys.sorted()
-        if readErrorWorkerIDs.isEmpty && !hasMore && newlyVisibleWorkers.isEmpty {
+        if readErrorWorkerIDs.isEmpty && !hasMore && initialWorkersToReread.isEmpty {
             hasLoaded = true
         }
-        let entries = payload.entries.filter { !newlyVisibleWorkers.contains($0.workerID) }
+        let entries = payload.entries.filter { !initialWorkersToReread.contains($0.workerID) }
         if !entries.isEmpty {
             merge(entries)
         } else if previousErrors != readErrorWorkerIDs {
