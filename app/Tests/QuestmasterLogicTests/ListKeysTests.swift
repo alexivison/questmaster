@@ -115,13 +115,14 @@ struct ListKeysTests {
     private static func copyKeysAreScopedToTheirSurfaces() {
         for list in lists {
             expect(command(press("y", keyCode: 16), list.capabilities) == .copyID, "y should copy the ID in \(list.name)")
-            let urlCommand: ListCommand? = list.capabilities == .watcher ? .copyURL : nil
-            expect(command(press("Y", [.shift], keyCode: 16), list.capabilities) == urlCommand, "Y should copy the URL only in Watcher")
-            let pathCommand: ListCommand? = list.capabilities == .artifacts ? .copyPath : nil
-            expect(command(press("T", [.shift], keyCode: 17), list.capabilities) == pathCommand, "T should copy the path only in Artifacts")
         }
+        let shiftedY = press("Y", [.shift], keyCode: 16)
+        expect(command(shiftedY, .watcher) == .copyURL, "Y should copy the URL in Watcher")
+        expect(command(shiftedY, .artifacts) == .copyPath, "Y should copy the path in Artifacts")
+        expect(command(shiftedY, .tracker) == nil, "Y is unbound in the tracker")
+        expect(command(shiftedY, .questLog) == nil, "Y is unbound in the Quest Log")
         expect(command(press("y", keyCode: 16), .workerLogFeed) == nil, "the Worker Log feed has no row to copy")
-        expect(command(press("t", keyCode: 17), .artifacts) == nil, "lowercase t should not copy the path")
+        expect(command(press("T", [.shift], keyCode: 17), .artifacts) == nil, "T is unbound in Artifacts")
     }
 
     private static func surfaceSpecificKeysAreGivenOnlyToTheirSurfaces() {

@@ -29,7 +29,7 @@ public enum ListCommand: Equatable {
     case copyID
     /// `Y` copies the selection's URL.
     case copyURL
-    /// `T` copies the selection's file path.
+    /// `Y` copies the selection's file path.
     case copyPath
     /// `r` refreshes.
     case refresh

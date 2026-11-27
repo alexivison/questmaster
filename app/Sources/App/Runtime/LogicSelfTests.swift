@@ -5297,7 +5297,7 @@ enum LogicSelfTests {
         var keys = ListKeyResolver()
         try expect(dockKey(try keyEvent("y", keyCode: 16), &keys, model, snapshot), "y should copy the selected artifact ID")
         try expect(pasteboard.string(forType: .string) == artifact.id, "pasteboard should contain the selected artifact ID")
-        try expect(dockKey(try keyEvent("T", keyCode: 17, modifierFlags: [.shift]), &keys, model, snapshot), "T should copy the selected artifact path")
+        try expect(dockKey(try keyEvent("Y", keyCode: 16, modifierFlags: [.shift]), &keys, model, snapshot), "Y should copy the selected artifact path")
         try expect(pasteboard.string(forType: .string) == artifact.path, "pasteboard should contain the selected artifact path")
         try expect(copyMessages == ["Copied artifact ID", "Copied artifact path"], "both copy operations should report what they copied")
     }
@@ -5350,7 +5350,7 @@ enum LogicSelfTests {
             pasteboard.string(forType: .string) == "\(artifact.id)\n\(secondArtifact.id)",
             "pasteboard should contain both marked artifact IDs joined by newline"
         )
-        try expect(dockKey(try keyEvent("T", keyCode: 17, modifierFlags: [.shift]), &keys, model, snapshot), "T should copy the marked artifact paths")
+        try expect(dockKey(try keyEvent("Y", keyCode: 16, modifierFlags: [.shift]), &keys, model, snapshot), "Y should copy the marked artifact paths")
         try expect(
             pasteboard.string(forType: .string) == "\(artifact.path)\n\(secondArtifact.path)",
             "pasteboard should contain both marked artifact paths joined by newline"
@@ -5476,8 +5476,9 @@ enum LogicSelfTests {
         var keys = ListKeyResolver()
         try expect(dockKey(try keyEvent("y", keyCode: 16), &keys, model, snapshot, in: []), "viewer y should copy the artifact ID")
         try expect(pasteboard.string(forType: .string) == artifact.id, "viewer y should copy the selected artifact ID")
-        try expect(dockKey(try keyEvent("T", keyCode: 17, modifierFlags: [.shift]), &keys, model, snapshot, in: []), "viewer T should copy the artifact path")
-        try expect(pasteboard.string(forType: .string) == artifact.path, "viewer T should copy the selected artifact path")
+        try expect(dockKey(try keyEvent("Y", keyCode: 16, modifierFlags: [.shift]), &keys, model, snapshot, in: []), "viewer Y should copy the artifact path")
+        try expect(pasteboard.string(forType: .string) == artifact.path, "viewer Y should copy the selected artifact path")
+        try expect(!dockKey(try keyEvent("T", keyCode: 17, modifierFlags: [.shift]), &keys, model, snapshot, in: []), "viewer T should pass through")
 
         let beforeReload = model.artifactModel.reloadNonce
         try expect(dockKey(try keyEvent("r", keyCode: 15), &keys, model, snapshot, in: []), "viewer r should refresh")
