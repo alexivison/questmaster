@@ -63,6 +63,9 @@ enum LogicSelfTests {
         ("testTmuxClientCallsUseRoute", testTmuxClientCallsUseRoute),
         ("testCrossServerSwitchCreatesSurface", testCrossServerSwitchCreatesSurface),
         ("testSameServerSwitchReusesClient", testSameServerSwitchReusesClient),
+        ("testTrackedTmuxClientSwitchSkipsDiscovery", testTrackedTmuxClientSwitchSkipsDiscovery),
+        ("testFailedTrackedTmuxSwitchRediscoversClient", testFailedTrackedTmuxSwitchRediscoversClient),
+        ("testFailedTrackedTmuxSwitchFallsBackToSurface", testFailedTrackedTmuxSwitchFallsBackToSurface),
         ("testUnknownMethodFailsAttach", testUnknownMethodFailsAttach),
         ("testCachedRouteAttachesBeforeRefresh", testCachedRouteAttachesBeforeRefresh),
         ("testFailedCachedAttachRetriesRefreshedRoute", testFailedCachedAttachRetriesRefreshedRoute),
@@ -3839,6 +3842,78 @@ enum LogicSelfTests {
 
     private static func testSameServerSwitchReusesClient() throws {
         try expect(TmuxRoute.surfaceDecision(attachedLabel: "default", targetLabel: "default", clientAttached: true, sessionReappeared: false) == .reuseClient, "same-server switch should reuse client")
+    }
+
+    private static func testTrackedTmuxClientSwitchSkipsDiscovery() throws {
+        var discoveries = 0
+        var attemptedClients: [String] = []
+        let outcome = EmbeddedTmuxClientSwitcher.switchClient(
+            trackedClientName: "/dev/ttys001",
+            baselineClientNames: [],
+            targetSessionID: "qm-before",
+            discoverClients: {
+                discoveries += 1
+                return []
+            },
+            attemptSwitch: { clientName in
+                attemptedClients.append(clientName)
+                return true
+            }
+        )
+
+        guard case .switched(let clientName) = outcome else {
+            throw TestFailure("a valid tracked client should switch without creating a surface")
+        }
+        try expect(clientName == "/dev/ttys001", "the warm switch should use the exact tracked client")
+        try expect(attemptedClients == ["/dev/ttys001"], "the warm path should make one direct switch attempt")
+        try expect(discoveries == 0, "the warm path should not list clients before switching")
+    }
+
+    private static func testFailedTrackedTmuxSwitchRediscoversClient() throws {
+        let rediscovered = TerminalTmuxClient(name: "/dev/ttys002", sessionID: "qm-before", created: 2, pid: 42)
+        var discoveries = 0
+        var attemptedClients: [String] = []
+        let outcome = EmbeddedTmuxClientSwitcher.switchClient(
+            trackedClientName: "/dev/ttys001",
+            baselineClientNames: [],
+            targetSessionID: "qm-before",
+            discoverClients: {
+                discoveries += 1
+                return [rediscovered]
+            },
+            attemptSwitch: { clientName in
+                attemptedClients.append(clientName)
+                return clientName == rediscovered.name
+            }
+        )
+
+        guard case .switched(let clientName) = outcome else {
+            throw TestFailure("a failed tracked switch should retry a rediscovered embedded client")
+        }
+        try expect(clientName == rediscovered.name, "the replacement client should be recorded")
+        try expect(attemptedClients == ["/dev/ttys001", rediscovered.name], "rediscovery should follow the failed tracked-client attempt")
+        try expect(discoveries == 1, "one failed warm attempt should cause one discovery")
+    }
+
+    private static func testFailedTrackedTmuxSwitchFallsBackToSurface() throws {
+        let clients = [TerminalTmuxClient(name: "/dev/ttys002", sessionID: "qm-other", created: 2, pid: 42)]
+        var discoveries = 0
+        let outcome = EmbeddedTmuxClientSwitcher.switchClient(
+            trackedClientName: "/dev/ttys001",
+            baselineClientNames: [],
+            targetSessionID: "qm-before",
+            discoverClients: {
+                discoveries += 1
+                return clients
+            },
+            attemptSwitch: { _ in false }
+        )
+
+        guard case .createSurface(let discoveredClients) = outcome else {
+            throw TestFailure("an unattachable tracked client should request a replacement surface")
+        }
+        try expect(discoveredClients == clients, "surface recovery should reuse the discovery snapshot as its client baseline")
+        try expect(discoveries == 1, "surface recovery should not need a second client listing")
     }
 
     private static func testUnknownMethodFailsAttach() throws {

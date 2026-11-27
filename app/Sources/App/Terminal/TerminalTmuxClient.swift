@@ -24,6 +24,45 @@ enum EmbeddedTmuxClientResolver {
     }
 }
 
+enum EmbeddedTmuxClientSwitchOutcome {
+    case switched(clientName: String)
+    case createSurface(discoveredClients: [TerminalTmuxClient])
+}
+
+enum EmbeddedTmuxClientSwitcher {
+    /// Tries the known embedded client before listing clients. Discovery is only
+    /// needed when the tracked client is missing or its switch fails.
+    static func switchClient(
+        trackedClientName: String?,
+        baselineClientNames: Set<String>,
+        targetSessionID: String?,
+        discoverClients: () -> [TerminalTmuxClient],
+        attemptSwitch: (String) -> Bool
+    ) -> EmbeddedTmuxClientSwitchOutcome {
+        if let trackedClientName, attemptSwitch(trackedClientName) {
+            return .switched(clientName: trackedClientName)
+        }
+
+        let clients = discoverClients()
+        var candidates: [String] = []
+        if let trackedClientName, clients.contains(where: { $0.name == trackedClientName }) {
+            candidates.append(trackedClientName)
+        }
+        if let discovered = EmbeddedTmuxClientResolver.embeddedClientName(
+            baselineClientNames: baselineClientNames,
+            targetSessionID: targetSessionID,
+            clients: clients
+        ), !candidates.contains(discovered) {
+            candidates.append(discovered)
+        }
+
+        for candidate in candidates where attemptSwitch(candidate) {
+            return .switched(clientName: candidate)
+        }
+        return .createSurface(discoveredClients: clients)
+    }
+}
+
 enum TerminalTmuxClientProcess {
     static let clientListFormat = "#{client_name}\t#{client_session}\t#{client_created}\t#{client_pid}"
     private static var didLogListClientsFailure = false

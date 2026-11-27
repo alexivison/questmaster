@@ -363,30 +363,54 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             do {
                 let tmuxPath = config.disableTmux ? nil : resolveExecutable("tmux")
                 let environment = ghosttyEnvironment()
-                if !forceSurface, let route = config.route, let tmuxPath,
+                var discoveredClientsForSurface: [TerminalTmuxClient]?
+                if !forceSurface, !config.sessionReappeared,
+                   let route = config.route, let tmuxPath,
                    cleanTerminalSessionID(config.tmuxSession) == route.sessionID,
-                   priorRoute?.label == route.label {
-                    let clients = TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, route: route, environment: environment)
-                    let clientName = priorClient.flatMap { tracked in
-                        tracked.key.label == route.label && clients.contains(where: { $0.name == tracked.name }) ? tracked.name : nil
+                   let priorRoute, priorRoute.label == route.label {
+                    let trackedClientName = priorClient.flatMap { tracked in
+                        tracked.key == TmuxSessionKey(label: priorRoute.label, sessionID: priorRoute.sessionID)
+                            ? tracked.name : nil
                     }
-                        ?? EmbeddedTmuxClientResolver.embeddedClientName(
-                            baselineClientNames: priorBaseline, targetSessionID: priorTarget, clients: clients
-                        )
-                    if TmuxRoute.surfaceDecision(attachedLabel: priorRoute?.label, targetLabel: route.label,
-                                                 clientAttached: clientName != nil, sessionReappeared: config.sessionReappeared) == .reuseClient,
-                       let clientName {
-                        let key = TmuxSessionKey(label: route.label, sessionID: route.sessionID)
-                        let didSync = !synced.contains(key)
-                        if didSync {
-                            try TerminalTmuxClientProcess.syncSessionEnvironment(
-                                tmuxPath: tmuxPath, route: route, environment: environment
-                            )
+                    let key = TmuxSessionKey(label: route.label, sessionID: route.sessionID)
+                    var didSync = false
+                    let outcome = EmbeddedTmuxClientSwitcher.switchClient(
+                        trackedClientName: trackedClientName,
+                        baselineClientNames: priorBaseline,
+                        targetSessionID: priorTarget,
+                        discoverClients: {
+                            TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, route: route, environment: environment)
+                        },
+                        attemptSwitch: { clientName in
+                            if !synced.contains(key), !didSync {
+                                try? TerminalTmuxClientProcess.syncSessionEnvironment(
+                                    tmuxPath: tmuxPath, route: route, environment: environment
+                                )
+                                didSync = true
+                            }
+                            do {
+                                try TerminalTmuxClientProcess.switchClient(
+                                    tmuxPath: tmuxPath, route: route, clientName: clientName, environment: environment
+                                )
+                                return true
+                            } catch {
+                                terminalDebugLog("same-server switch failed server=\(route.label) session=\(route.sessionID) client=\(clientName) error=\(error.localizedDescription)")
+                                return false
+                            }
                         }
-                        try TerminalTmuxClientProcess.switchClient(
-                            tmuxPath: tmuxPath, route: route, clientName: clientName, environment: environment
-                        )
-                        return .success(.switched(clientName: clientName, route: route, didSync: didSync))
+                    )
+                    switch outcome {
+                    case .switched(let clientName):
+                        if TmuxRoute.surfaceDecision(
+                            attachedLabel: priorRoute.label,
+                            targetLabel: route.label,
+                            clientAttached: true,
+                            sessionReappeared: config.sessionReappeared
+                        ) == .reuseClient {
+                            return .success(.switched(clientName: clientName, route: route, didSync: didSync))
+                        }
+                    case .createSurface(let clients):
+                        discoveredClientsForSurface = clients
                     }
                 }
                 if !config.disableTmux, let route = config.route, let tmuxPath,
@@ -398,7 +422,9 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
                    launch.tmuxSessionID == nil { throw TerminalHostConnectionError.tmuxUnavailable }
                 let launchTmuxPath = launch.tmuxSessionID.flatMap { _ in resolveExecutable("tmux") }
                 let baseline: Set<String>
-                if let launchTmuxPath, let route = config.route {
+                if let discoveredClientsForSurface {
+                    baseline = Set(discoveredClientsForSurface.map(\.name))
+                } else if let launchTmuxPath, let route = config.route {
                     baseline = Set(TerminalTmuxClientProcess.listClients(
                         tmuxPath: launchTmuxPath, route: route, environment: launch.configuration.environment
                     ).map(\.name))
