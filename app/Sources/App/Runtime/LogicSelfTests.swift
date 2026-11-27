@@ -101,6 +101,7 @@ enum LogicSelfTests {
         ("testPanelHeaderMetricsKeepTheTitleTenAboveItsElements", testPanelHeaderMetricsKeepTheTitleTenAboveItsElements),
         ("testPanelHeadersSpaceTheirElementsTenAndTwentyUnderTheTitle", testPanelHeadersSpaceTheirElementsTenAndTwentyUnderTheTitle),
         ("testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate", testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate),
+        ("testTrackerRuntimeProjection", TrackerRuntimeProjectionTests.run),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
         ("testPlateAndCircleStatusDrawsOnlyForActiveStatuses", testPlateAndCircleStatusDrawsOnlyForActiveStatuses),
@@ -349,6 +350,16 @@ enum LogicSelfTests {
     static func runIfRequested() -> Bool {
         guard CommandLine.arguments.contains("--run-logic-tests") else {
             return false
+        }
+
+        if ProcessInfo.processInfo.environment["QUESTMASTER_TRACKER_UPDATE_BENCHMARK"] == "1" {
+            do {
+                try TrackerRuntimeProjectionBenchmark.run()
+                exit(0)
+            } catch {
+                fputs("Tracker update benchmark failed: \(error)\n", stderr)
+                exit(1)
+            }
         }
 
         guard !cases.isEmpty else {
