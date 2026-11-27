@@ -21,6 +21,7 @@ struct QuestCoreTests {
         questLogFooterWrapsBetweenParts()
         questLogPageIsPlainWithoutABody()
         questLogStoreSyncsThroughTheFilter()
+        questLogStoreUpdatesWhenContentChanges()
         questLogWrapsGreedilyWithoutPushingWordsDown()
         questLogStoreSelectsMovesAndRecovers()
         questLogStoreTargetsMarkedQuestsInListOrder()
@@ -142,6 +143,19 @@ struct QuestCoreTests {
         expect(store.visibleQuests.map(\.id) == ["b1"], "the tab should narrow the text filter's list")
         store.sync(quests: logQuests, repos: [], filter: QuestListFilter(text: "nothing matches"))
         expect(store.visibleQuests.isEmpty && store.selectedID == nil, "no matches should leave nothing selected")
+    }
+
+    private static func questLogStoreUpdatesWhenContentChanges() {
+        let store = QuestLogStore()
+        let filter = QuestListFilter(text: "new description")
+        let original = QuestItem(id: "qst-content", content: "Old description", createdAt: "2026-07-03T01:00:00Z")
+        store.sync(quests: [original], repos: [], filter: filter)
+        expect(store.visibleQuests.isEmpty, "the original content should not match the search")
+
+        var updated = original
+        updated.content = "New description"
+        store.sync(quests: [updated], repos: [], filter: filter)
+        expect(store.visibleQuests.map(\.id) == [updated.id], "changed quest content should immediately refresh the search result")
     }
 
     private static func questLogWrapsGreedilyWithoutPushingWordsDown() {

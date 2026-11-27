@@ -152,6 +152,13 @@ public enum QuestLogCopyText {
 /// project tab, the selection and the quests marked with space.
 @Observable
 public final class QuestLogStore {
+    /// TrackerRepo also carries live sessions; the Quest Log only depends on these display fields.
+    private struct ProjectDisplayInput: Equatable {
+        var id: String
+        var name: String
+        var color: String
+    }
+
     public private(set) var isOpen = false
     /// Counts openings, so the view can play its opening once per open and not on later changes.
     public private(set) var openGeneration = 0
@@ -169,6 +176,8 @@ public final class QuestLogStore {
     public private(set) var scrollNonce = 0
     @ObservationIgnored private var keys = ListKeyResolver()
     @ObservationIgnored private var allQuests: [QuestItem] = []
+    @ObservationIgnored private var repoDisplayInputs: [ProjectDisplayInput] = []
+    @ObservationIgnored private var projectDisplayInputs: [ProjectDisplayInput] = []
     private var projectTitles: [String: String] = [:]
     private var projectColors: [String: String] = [:]
     @ObservationIgnored private var filter = QuestListFilter()
@@ -286,27 +295,49 @@ public final class QuestLogStore {
         projects: [TrackerProject] = [],
         filter: QuestListFilter = QuestListFilter()
     ) {
-        allQuests = quests
-        self.filter = filter
-        let titles = QuestDisplayState.projectTitles(quests: quests, repos: repos, projects: projects)
-        if titles != projectTitles {
-            projectTitles = titles
+        // Tracker updates include unrelated session changes, so avoid repeating the list search and sort when the
+        // Quest Log's content, filter and project display inputs are stable.
+        let questsChanged = allQuests != quests
+        let filterChanged = self.filter != filter
+        let nextRepoInputs = repos.map { ProjectDisplayInput(id: $0.id, name: $0.name, color: $0.color) }
+        let nextProjectInputs = projects.map { ProjectDisplayInput(id: $0.id, name: $0.name, color: $0.color) }
+        let projectInputsChanged = questsChanged || nextRepoInputs != repoDisplayInputs || nextProjectInputs != projectDisplayInputs
+        let previousSelectedProjectID = selectedProjectID
+
+        if questsChanged {
+            allQuests = quests
         }
-        var colors = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0.color) })
-        for project in projects {
-            colors[project.id] = project.color
+        if filterChanged {
+            self.filter = filter
         }
-        if colors != projectColors {
-            projectColors = colors
+        if projectInputsChanged {
+            repoDisplayInputs = nextRepoInputs
+            projectDisplayInputs = nextProjectInputs
+
+            let titles = QuestDisplayState.projectTitles(quests: quests, repos: repos, projects: projects)
+            if titles != projectTitles {
+                projectTitles = titles
+            }
+            var colors = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0.color) })
+            for project in projects {
+                colors[project.id] = project.color
+            }
+            if colors != projectColors {
+                projectColors = colors
+            }
+            let tabs = QuestDisplayState.projectTabs(quests: quests, repos: repos, projects: projects)
+            if tabs != projectTabs {
+                projectTabs = tabs
+            }
         }
-        let tabs = QuestDisplayState.projectTabs(quests: quests, repos: repos, projects: projects)
-        if tabs != projectTabs {
-            projectTabs = tabs
-        }
-        if let selectedProjectID, !tabs.contains(where: { $0.projectID == selectedProjectID }) {
+        if projectInputsChanged,
+           let selectedProjectID,
+           !projectTabs.contains(where: { $0.projectID == selectedProjectID }) {
             self.selectedProjectID = nil
         }
-        regroup()
+        if questsChanged || filterChanged || selectedProjectID != previousSelectedProjectID {
+            regroup()
+        }
     }
 
     private func regroup() {
