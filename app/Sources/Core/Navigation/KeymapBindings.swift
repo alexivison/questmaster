@@ -19,7 +19,9 @@ extension Keymap {
         case back
         case toggleMark
         case focusFilter
-        case copy
+        case copyID
+        case copyURL
+        case copyPath
         case refresh
         case delete
         case previousTab
@@ -99,7 +101,9 @@ extension Keymap {
         case .back: return [.character("h"), .code(53), .code(123), .character("[", [.control])]
         case .toggleMark: return [.character(" ")]
         case .focusFilter: return [.character("/")]
-        case .copy: return [.character("y")]
+        case .copyID: return [.character("y")]
+        case .copyURL: return [.character("Y")]
+        case .copyPath: return [.character("T")]
         case .refresh: return [.character("r")]
         case .delete: return [.character("d")]
         case .previousTab: return [.code(33), .character("[")]

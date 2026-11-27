@@ -25,8 +25,12 @@ public enum ListCommand: Equatable {
     case nextTab
     /// `/` focuses the list's filter.
     case focusFilter
-    /// `y` copies the selection's ID, path or URL.
-    case copy
+    /// `y` copies the selection's ID.
+    case copyID
+    /// `Y` copies the selection's URL.
+    case copyURL
+    /// `T` copies the selection's file path.
+    case copyPath
     /// `r` refreshes.
     case refresh
     /// `d` deletes the selection.
@@ -83,11 +87,14 @@ public struct ListCapabilities: OptionSet, Equatable, Sendable {
     public static let externalOpen = ListCapabilities(rawValue: 1 << 12)
     /// The modal keys move the rows (`ModalKeys`: j and k), so this list's own moves, j, k and ↑/↓ alike, take nothing.
     public static let modalMoves = ListCapabilities(rawValue: 1 << 13)
+    public static let copyID = ListCapabilities(rawValue: 1 << 14)
+    public static let copyURL = ListCapabilities(rawValue: 1 << 15)
+    public static let copyPath = ListCapabilities(rawValue: 1 << 16)
 
-    public static let tracker: ListCapabilities = [.opensOnReturn, .controlRows, .delete, .edit, .editRepo, .collapseWorkers]
-    public static let artifacts: ListCapabilities = [.opensOnReturn, .externalOpen, .controlRows, .tabs, .filter, .mark, .delete]
-    public static let watcher: ListCapabilities = [.opensOnReturn, .controlRows, .refresh]
-    public static let questLog: ListCapabilities = [.modalMoves, .filter, .mark, .delete, .edit, .start, .closes, .tabs]
+    public static let tracker: ListCapabilities = [.opensOnReturn, .controlRows, .delete, .edit, .editRepo, .collapseWorkers, .copyID]
+    public static let artifacts: ListCapabilities = [.opensOnReturn, .externalOpen, .controlRows, .tabs, .filter, .mark, .delete, .copyID, .copyPath]
+    public static let watcher: ListCapabilities = [.opensOnReturn, .controlRows, .refresh, .copyID, .copyURL]
+    public static let questLog: ListCapabilities = [.modalMoves, .filter, .mark, .delete, .edit, .start, .closes, .tabs, .copyID]
     /// The Worker Log's dropdown: Return and Space tick a row, Esc closes it, and the tab keys still step the tabs.
     public static let workerLogMenu: ListCapabilities = [.tabs, .opensOnReturn, .mark, .closes]
     public static let workerLogFeed: ListCapabilities = [.tabs, .opensOnReturn]
@@ -127,7 +134,9 @@ public struct ListKeyResolver {
         if Keymap.matches(press, .halfPageUp) { return .halfPage(-1) }
         if Keymap.matches(press, .halfPageDown) { return .halfPage(1) }
         if Keymap.matches(press, .jumpToBottom) { return .jumpToBottom }
-        if Keymap.matches(press, .copy) { return .copy }
+        if capabilities.contains(.copyID), Keymap.matches(press, .copyID) { return .copyID }
+        if capabilities.contains(.copyURL), Keymap.matches(press, .copyURL) { return .copyURL }
+        if capabilities.contains(.copyPath), Keymap.matches(press, .copyPath) { return .copyPath }
         if capabilities.contains(.controlRows) {
             // ⌃j and ⌃k are the vertical handoff chords, which a list takes as moves.
             if Keymap.matches(press, .handoffUp) { return .move(-1) }

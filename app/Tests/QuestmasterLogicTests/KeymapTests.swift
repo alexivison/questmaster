@@ -118,7 +118,7 @@ controlPageAndHalfPageChords()
         expect(!matches(press("d", [.control]), .delete), "⌃d must not delete")
         expect(matches(press("d"), .delete), "plain d should delete")
         expect(!matches(press("x"), .delete), "x should not delete list items")
-        expect(!matches(press("y", [.option]), .copy), "⌥y must not copy")
+        expect(!matches(press("y", [.option]), .copyID), "⌥y must not copy")
     }
 
     private static func openAndEditUseReturnAndLetters() {

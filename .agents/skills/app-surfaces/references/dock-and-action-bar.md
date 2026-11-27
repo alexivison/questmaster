@@ -1,5 +1,8 @@
 # Dock and action bar
 
+- In the artifact list and viewer, `y` copies the artifact ID and `T` copies the file path. Marked rows take precedence
+  over the cursor, and multiple values copy one per line in list order.
+
 - Watcher and Worker Log start open in the first window layout, while startup resolves its session; no opening
   transition runs before the window appears. After startup, both panels hide if no session is attached, keeping their state.
 - Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are `PanelTitle`, the one title every dock and modal uses:

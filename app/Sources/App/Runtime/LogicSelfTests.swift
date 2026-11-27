@@ -214,8 +214,8 @@ enum LogicSelfTests {
         ("testListGChordPendingGResetsOnGAndOnInterveningKey", testListGChordPendingGResetsOnGAndOnInterveningKey),
         ("testArtifactListTabsStepWithBrackets", testArtifactListTabsStepWithBrackets),
         ("testTrackerListKeysMoveTheCursor", testTrackerListKeysMoveTheCursor),
-        ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
-        ("testArtifactDockCopiesMultipleSelectedArtifactPathsWithY", testArtifactDockCopiesMultipleSelectedArtifactPathsWithY),
+        ("testArtifactDockCopiesSelectedArtifactIDAndPath", testArtifactDockCopiesSelectedArtifactIDAndPath),
+        ("testArtifactDockCopiesMarkedArtifactIDsAndPaths", testArtifactDockCopiesMarkedArtifactIDsAndPaths),
         ("testArtifactDockDeletesSelectedArtifactsWithD", testArtifactDockDeletesSelectedArtifactsWithD),
         ("testArtifactViewerCopiesAndRefreshesWithKeys", testArtifactViewerCopiesAndRefreshesWithKeys),
         ("testArtifactViewerBackKeysReturnToList", testArtifactViewerBackKeysReturnToList),
@@ -4328,7 +4328,7 @@ enum LogicSelfTests {
         try expect(publishCount > beforeArtifacts, "artifact mode change should publish for DockRootView")
     }
 
-    /// The Watcher panel's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its URL
+    /// The Watcher panel's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its ID, Y copies its URL
     /// and r asks the daemon to refresh; a click picks and opens; modified keys and others pass through.
     private static func testWatcherDockKeysMoveOpenCopyAndRefresh() throws {
         let store = PullRequestStore()
@@ -4363,7 +4363,9 @@ enum LogicSelfTests {
         try expect(pane.handleKeyDown(try keyEvent("\r", keyCode: 36)), "Return should be handled")
         try expect(effects.last == .open(url), "Return should open the row's page")
         try expect(pane.handleKeyDown(try keyEvent("y", keyCode: 16)), "y should be handled")
-        try expect(effects.last == .copy(url), "y should copy the row's URL")
+        try expect(effects.last == .copy("github.com/owner/repo#1"), "y should copy the row's ID")
+        try expect(pane.handleKeyDown(try keyEvent("Y", keyCode: 16, modifierFlags: [.shift])), "Y should be handled")
+        try expect(effects.last == .copy(url.absoluteString), "Y should copy the row's URL")
         try expect(pane.handleKeyDown(try keyEvent("r", keyCode: 15)), "r should be handled")
         guard case .refresh(let refresh)? = effects.last else {
             throw TestFailure("r should refresh, got \(String(describing: effects.last))")
@@ -5258,13 +5260,14 @@ enum LogicSelfTests {
         try expect(!bridge.handle(try keyEvent("[", keyCode: 33)), "the tracker has no tabs, so [ passes through")
     }
 
-    private static func testArtifactDockCopiesSelectedArtifactPathWithY() throws {
+    private static func testArtifactDockCopiesSelectedArtifactIDAndPath() throws {
         let artifact = ArtifactReference(
             kind: "html",
             path: "/tmp/plan.html",
             label: "Plan",
             sessionID: "qm-a",
-            addedAt: ""
+            addedAt: "",
+            id: "art-example-1"
         )
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [
@@ -5274,8 +5277,8 @@ enum LogicSelfTests {
         ])
 
         let model = DockPaneModel()
-        var copied = false
-        model.onCopyArtifactPath = { copied = true }
+        var copyMessages: [String] = []
+        model.onCopyArtifact = { copyMessages.append($0) }
         _ = model.apply(
             DockState(dockContent: .artifactList, selectedArtifactID: artifact.id),
             snapshot: snapshot,
@@ -5291,44 +5294,30 @@ enum LogicSelfTests {
             }
         }
 
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: "y",
-            charactersIgnoringModifiers: "y",
-            isARepeat: false,
-            keyCode: 16
-        ) else {
-            throw TestFailure("could not create y key event")
-        }
-
         var keys = ListKeyResolver()
-        try expect(dockKey(event, &keys, model, snapshot), "y should copy the selected artifact")
-        try expect(
-            pasteboard.string(forType: .string) == artifact.path,
-            "pasteboard should contain selected artifact path"
-        )
-        try expect(copied, "copy artifact should report success")
+        try expect(dockKey(try keyEvent("y", keyCode: 16), &keys, model, snapshot), "y should copy the selected artifact ID")
+        try expect(pasteboard.string(forType: .string) == artifact.id, "pasteboard should contain the selected artifact ID")
+        try expect(dockKey(try keyEvent("T", keyCode: 17, modifierFlags: [.shift]), &keys, model, snapshot), "T should copy the selected artifact path")
+        try expect(pasteboard.string(forType: .string) == artifact.path, "pasteboard should contain the selected artifact path")
+        try expect(copyMessages == ["Copied artifact ID", "Copied artifact path"], "both copy operations should report what they copied")
     }
 
-    private static func testArtifactDockCopiesMultipleSelectedArtifactPathsWithY() throws {
+    private static func testArtifactDockCopiesMarkedArtifactIDsAndPaths() throws {
         let artifact = ArtifactReference(
             kind: "html",
             path: "/tmp/plan.html",
             label: "Plan",
             sessionID: "qm-a",
-            addedAt: ""
+            addedAt: "",
+            id: "art-example-1"
         )
         let secondArtifact = ArtifactReference(
             kind: "markdown",
             path: "/tmp/notes.md",
             label: "Notes",
             sessionID: "qm-a",
-            addedAt: ""
+            addedAt: "",
+            id: "art-example-2"
         )
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [
@@ -5356,10 +5345,15 @@ enum LogicSelfTests {
         try expect(dockKey(try keyEvent(" ", keyCode: 49), &keys, model, snapshot), "Space should select the current artifact")
         try expect(dockKey(try keyEvent("j", keyCode: 38), &keys, model, snapshot), "j should select the next artifact")
         try expect(dockKey(try keyEvent(" ", keyCode: 49), &keys, model, snapshot), "Space should select another artifact")
-        try expect(dockKey(try keyEvent("y", keyCode: 16), &keys, model, snapshot), "y should copy the selected artifacts")
+        try expect(dockKey(try keyEvent("y", keyCode: 16), &keys, model, snapshot), "y should copy the marked artifact IDs")
+        try expect(
+            pasteboard.string(forType: .string) == "\(artifact.id)\n\(secondArtifact.id)",
+            "pasteboard should contain both marked artifact IDs joined by newline"
+        )
+        try expect(dockKey(try keyEvent("T", keyCode: 17, modifierFlags: [.shift]), &keys, model, snapshot), "T should copy the marked artifact paths")
         try expect(
             pasteboard.string(forType: .string) == "\(artifact.path)\n\(secondArtifact.path)",
-            "pasteboard should contain both selected artifact paths joined by newline"
+            "pasteboard should contain both marked artifact paths joined by newline"
         )
     }
 
@@ -5454,7 +5448,8 @@ enum LogicSelfTests {
             path: "/tmp/plan.html",
             label: "Plan",
             sessionID: "qm-a",
-            addedAt: ""
+            addedAt: "",
+            id: "art-example-1"
         )
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [
@@ -5464,8 +5459,6 @@ enum LogicSelfTests {
         ])
 
         let model = DockPaneModel()
-        var copied = false
-        model.onCopyArtifactPath = { copied = true }
         _ = model.apply(
             DockState(dockContent: .artifactViewer, selectedArtifactID: artifact.id),
             snapshot: snapshot,
@@ -5481,9 +5474,10 @@ enum LogicSelfTests {
         }
 
         var keys = ListKeyResolver()
-        try expect(dockKey(try keyEvent("y", keyCode: 16), &keys, model, snapshot, in: []), "viewer y should copy artifact path")
-        try expect(pasteboard.string(forType: .string) == artifact.path, "viewer y should copy selected artifact path")
-        try expect(copied, "viewer y should report copied artifact path")
+        try expect(dockKey(try keyEvent("y", keyCode: 16), &keys, model, snapshot, in: []), "viewer y should copy the artifact ID")
+        try expect(pasteboard.string(forType: .string) == artifact.id, "viewer y should copy the selected artifact ID")
+        try expect(dockKey(try keyEvent("T", keyCode: 17, modifierFlags: [.shift]), &keys, model, snapshot, in: []), "viewer T should copy the artifact path")
+        try expect(pasteboard.string(forType: .string) == artifact.path, "viewer T should copy the selected artifact path")
 
         let beforeReload = model.artifactModel.reloadNonce
         try expect(dockKey(try keyEvent("r", keyCode: 15), &keys, model, snapshot, in: []), "viewer r should refresh")

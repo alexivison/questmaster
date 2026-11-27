@@ -305,8 +305,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             self.dockCoordinator.state.artifactFilterQuery = query
             self.dockCoordinator.state.artifactFilterTokens = tokens
         }
-        handles.dockView.onCopyArtifactPath = { [weak self] in
-            self?.toastPresenter.show("Copied artifact path")
+        handles.dockView.onCopyArtifact = { [weak self] message in
+            self?.toastPresenter.show(message)
         }
 
         terminalSessionController.installPlaceholder(handles.terminalHost)
@@ -473,14 +473,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         switch effect {
         case .open(let url):
             NSWorkspace.shared.open(url)
-        case .copy(let url):
+        case .copy(let text):
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
-            guard pasteboard.setString(url.absoluteString, forType: .string) else {
+            guard pasteboard.setString(text, forType: .string) else {
                 NSSound.beep()
                 return
             }
-            toastPresenter.show("Copied \(url.absoluteString)")
+            toastPresenter.show("Copied \(text)")
         case .refresh(let request):
             pullRequestController.refresh(request)
         }

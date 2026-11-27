@@ -29,6 +29,7 @@ public enum PullRequestCommand: Equatable {
     case jumpToTop
     case jumpToBottom
     case open
+    case copyID
     case copyURL
     case refresh
 }
@@ -36,7 +37,7 @@ public enum PullRequestCommand: Equatable {
 /// What the App target runs for a command.
 public enum PullRequestEffect: Equatable {
     case open(URL)
-    case copy(URL)
+    case copy(String)
     case refresh(PullRequestRefreshRequest)
 }
 
@@ -118,8 +119,10 @@ public final class PullRequestStore {
             return nil
         case .open:
             return selectedRow?.url.map(PullRequestEffect.open)
+        case .copyID:
+            return selectedRow.map { .copy($0.pullRequest.key) }
         case .copyURL:
-            return selectedRow?.url.map(PullRequestEffect.copy)
+            return selectedRow?.url.map { .copy($0.absoluteString) }
         case .refresh:
             guard let selectedSessionID, !isRefreshing else { return nil }
             refreshSerial += 1

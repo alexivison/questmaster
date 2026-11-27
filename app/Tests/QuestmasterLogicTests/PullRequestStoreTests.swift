@@ -165,8 +165,10 @@ struct PullRequestStoreTests {
         let store = loadedStore([1, 2])
         let url = URL(string: "https://github.com/Owner/Repo/pull/2")!
         expect(store.handle(.open) == .open(url), "open takes the cursor row's page")
-        expect(store.handle(.copyURL) == .copy(url), "copy takes the cursor row's page")
+        expect(store.handle(.copyURL) == .copy(url.absoluteString), "copy URL takes the cursor row's page")
+        expect(store.handle(.copyID) == .copy("github.com/owner/repo#2"), "copy ID takes the cursor row's key")
         expect(store.handle(.move(1)) == nil, "moving builds no effect")
+        expect(store.handle(.copyID) == .copy("github.com/owner/repo#1"), "copy ID follows the cursor")
         guard case .refresh(let request)? = store.handle(.refresh) else {
             expect(false, "refresh scopes to the selected session")
             return
@@ -177,7 +179,8 @@ struct PullRequestStoreTests {
         expect(object["method"] as? String == "pr.refresh" && object["id"] as? String == "r-1", "refresh method and id")
         expect(data?["session_id"] as? String == "master" && data?["wait"] as? Bool == true, "refresh scope, and the daemon replies once it has refreshed")
         let empty = PullRequestStore()
-        expect(empty.handle(.open) == nil && empty.handle(.copyURL) == nil && empty.handle(.refresh) == nil, "nothing selected, nothing to do")
+        expect(empty.handle(.open) == nil && empty.handle(.refresh) == nil, "nothing selected, nothing to open or refresh")
+        expect(empty.handle(.copyID) == nil && empty.handle(.copyURL) == nil, "nothing selected, nothing to copy")
     }
 
     private static func unwatchedFollowsTheRevision() {

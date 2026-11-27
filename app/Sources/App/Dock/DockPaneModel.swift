@@ -34,7 +34,7 @@ final class DockPaneModel: ObservableObject {
     var onArtifactFilterChange: ((String, [ArtifactFilterToken]) -> Void)?
     /// The keys go back to the artifact list from the filter: Esc or Return with no suggestion open.
     var onArtifactFilterLeave: (() -> Void)?
-    var onCopyArtifactPath: (() -> Void)?
+    var onCopyArtifact: ((String) -> Void)?
     var onFocusRequested: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
     var onControlDirection: ((NavigationDirection) -> Bool)?
@@ -131,7 +131,10 @@ final class DockPaneModel: ObservableObject {
                 onShowArtifactListIntent?()
                 return true
             }
-            if Keymap.matches(press, .copy) {
+            if Keymap.matches(press, .copyID) {
+                return copySelectedArtifactIDs()
+            }
+            if Keymap.matches(press, .copyPath) {
                 return copySelectedArtifactPaths()
             }
             if Keymap.matches(press, .refresh) {
@@ -173,7 +176,9 @@ final class DockPaneModel: ObservableObject {
             return openSelectedArtifact()
         case .openExternal:
             return openSelectedArtifactExternal()
-        case .copy:
+        case .copyID:
+            return copySelectedArtifactIDs()
+        case .copyPath:
             return copySelectedArtifactPaths()
         case .toggleMark:
             return toggleSelectedArtifact()
@@ -181,7 +186,7 @@ final class DockPaneModel: ObservableObject {
             return focusArtifactFilter()
         case .delete:
             return deleteSelectedArtifacts()
-        case .page, .halfPage, .refresh, .edit, .editRepo, .toggleWorkersCollapsed,
+        case .copyURL, .page, .halfPage, .refresh, .edit, .editRepo, .toggleWorkersCollapsed,
              .toggleAllWorkersCollapsed, .start, .close:
             return false
         }
@@ -379,16 +384,24 @@ final class DockPaneModel: ObservableObject {
 
     @discardableResult
     func copySelectedArtifactPaths() -> Bool {
-        let paths = selectedArtifacts().map(\.path)
-        guard !paths.isEmpty else {
+        copySelectedArtifacts(\.path, message: "Copied artifact path")
+    }
+
+    private func copySelectedArtifactIDs() -> Bool {
+        copySelectedArtifacts(\.id, message: "Copied artifact ID")
+    }
+
+    private func copySelectedArtifacts(_ field: KeyPath<ArtifactReference, String>, message: String) -> Bool {
+        let values = selectedArtifacts().map { $0[keyPath: field] }
+        guard !values.isEmpty else {
             return false
         }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        guard pasteboard.setString(paths.joined(separator: "\n"), forType: .string) else {
+        guard pasteboard.setString(values.joined(separator: "\n"), forType: .string) else {
             return false
         }
-        onCopyArtifactPath?()
+        onCopyArtifact?(message)
         return true
     }
 

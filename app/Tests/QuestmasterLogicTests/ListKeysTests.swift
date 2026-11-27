@@ -11,6 +11,7 @@ struct ListKeysTests {
         externalOpenBelongsToArtifacts()
         leftAndRightNeverOpenOrMove()
         tabsAreBracketsWhereTheSurfaceHasThem()
+        copyKeysAreScopedToTheirSurfaces()
         surfaceSpecificKeysAreGivenOnlyToTheirSurfaces()
         scrollKeysAreTheSameOnEveryReadSurface()
         gPrefixExpiresAndIsCancelledByAnotherKey()
@@ -60,10 +61,6 @@ struct ListKeysTests {
         expect(command(press(nil, keyCode: 125), .questLog) == nil, "the Quest Log's arrows are no list moves: its rows move with the modal keys")
         expect(command(press("j", keyCode: 38), .questLog) == nil, "j is no list move in the Quest Log: its rows move with the modal keys")
         expect(command(press("j", [.control], keyCode: 38), .questLog) == nil, "⌃j is no list move in the Quest Log")
-        expect(command(press("y", keyCode: 16), .tracker) == .copy, "y should copy in the tracker")
-        expect(command(press("y", keyCode: 16), .watcher) == .copy, "y should copy in Watcher")
-        expect(command(press("y", keyCode: 16), .artifacts) == .copy, "y should copy in the artifact list")
-        expect(command(press("y", keyCode: 16), .questLog) == .copy, "y should copy in the Quest Log")
         expect(command(press("x", keyCode: 7), .tracker) == nil, "x is unbound in the tracker")
         expect(command(press("j", [.option], keyCode: 38), .tracker) == nil, "⌥j is not j")
     }
@@ -113,6 +110,18 @@ struct ListKeysTests {
         expect(command(press("]", keyCode: 30), .watcher) == nil, "Watcher has no tabs")
         expect(command(press("]", keyCode: 30), .questLog) == .nextTab, "] should step the Quest Log's project tabs")
         expect(command(press("[", [.control], keyCode: 33), .artifacts) == nil, "⌃[ is Esc, not a tab")
+    }
+
+    private static func copyKeysAreScopedToTheirSurfaces() {
+        for list in lists {
+            expect(command(press("y", keyCode: 16), list.capabilities) == .copyID, "y should copy the ID in \(list.name)")
+            let urlCommand: ListCommand? = list.capabilities == .watcher ? .copyURL : nil
+            expect(command(press("Y", [.shift], keyCode: 16), list.capabilities) == urlCommand, "Y should copy the URL only in Watcher")
+            let pathCommand: ListCommand? = list.capabilities == .artifacts ? .copyPath : nil
+            expect(command(press("T", [.shift], keyCode: 17), list.capabilities) == pathCommand, "T should copy the path only in Artifacts")
+        }
+        expect(command(press("y", keyCode: 16), .workerLogFeed) == nil, "the Worker Log feed has no row to copy")
+        expect(command(press("t", keyCode: 17), .artifacts) == nil, "lowercase t should not copy the path")
     }
 
     private static func surfaceSpecificKeysAreGivenOnlyToTheirSurfaces() {
