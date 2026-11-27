@@ -349,6 +349,8 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case invalidHead
     /// The playback speed is a finite number above 0.
     case invalidSpeed(Double)
+    /// A company size's `entrance` doesn't fit how the entrance plays: see `TrackerAvatarEntrance`.
+    case invalidEntrance(String)
 }
 
 /// A class's avatar art and timings, read from its `animation.json` (`Resources/Sprites/<class>/`). The file names every pose, and
@@ -402,6 +404,9 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// A class's head box, which covers its face: the rectangle of its idle art that the worker names over the master must not cover. Nil
     /// when the file gives none.
     public let headBox: TrackerAvatarHeadBox?
+    /// A company size's entrance: the animation a familiar plays when a worker joins its master's company. Nil for a file with none, which
+    /// is every class and a familiar's own folder.
+    public let entrance: TrackerAvatarEntrance?
     private let poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation]
 
     /// Reads and checks an `animation.json`: a class's (`.master`) or a familiar's (`.familiar`), which name their own poses. `speed`
@@ -430,6 +435,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         scalePercent = try Self.scalePercent(file.scale, kind: kind)
         companyRow = try Self.readCompanyRow(file.company, kind: kind)
         headBox = try Self.readHeadBox(file.head)
+        entrance = try Self.readEntrance(file.entrance)
         // Bard and Barbarian's authored idle loops keep their existing frame-loop behavior and do not read layered-idle metadata.
         if poses[.idle]?.loop != nil {
             idle = nil
@@ -671,6 +677,36 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     }
 
     /// A file's head box, when it gives one: a position at or after the top left, with a width and height above 0.
+    /// A company size's entrance, read in the file's own shape. Its parts are named, and drawn in name order.
+    private static func readEntrance(_ file: File.Entrance?) throws -> TrackerAvatarEntrance? {
+        guard let file else {
+            return nil
+        }
+        let origin: TrackerAvatarEntrance.Origin
+        switch file.origin {
+        case nil: origin = .init(x: 0, y: 0)
+        case let values? where values.count == 2: origin = .init(x: values[0], y: values[1])
+        default: throw TrackerAvatarAnimationError.invalidEntrance("origin is not an x and a y")
+        }
+        let parts = try file.parts.map { name, steps in
+            TrackerAvatarEntrance.Part(name: name, steps: try steps.map { step in
+                try step.map(entranceStep)
+            })
+        }
+        return try TrackerAvatarEntrance(tick: file.tick, origin: origin, parts: parts, behind: file.behind, front: file.front)
+    }
+
+    private static func entranceStep(_ step: File.Entrance.Step) throws -> TrackerAvatarEntrance.Step {
+        var window: TrackerAvatarEntrance.Window?
+        if let rect = step.rect {
+            guard rect.count == 4 else {
+                throw TrackerAvatarAnimationError.invalidEntrance("a window is not x0, y0, x1, y1")
+            }
+            window = .init(x0: rect[0], y0: rect[1], x1: rect[2], y1: rect[3])
+        }
+        return TrackerAvatarEntrance.Step(image: step.image, dx: step.dx ?? 0, dy: step.dy ?? 0, window: window)
+    }
+
     private static func readHeadBox(_ head: File.Head?) throws -> TrackerAvatarHeadBox? {
         guard let head else {
             return nil
@@ -686,6 +722,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         let scale: Double?
         let company: Company?
         let head: Head?
+        let entrance: Entrance?
         let idle: Idle?
         let fidgets: [String: [TrackerAvatarStep]]?
         let poses: [String: Pose]
@@ -693,6 +730,21 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         struct Company: Decodable {
             let pitch: Double
             let capacity: Int
+        }
+
+        struct Entrance: Decodable {
+            let tick: Double
+            let origin: [Int]?
+            let parts: [String: [Step?]]
+            let behind: [String?]
+            let front: [String?]
+
+            struct Step: Decodable {
+                let image: String?
+                let dx: Int?
+                let dy: Int?
+                let rect: [Int]?
+            }
         }
 
         struct Head: Decodable {

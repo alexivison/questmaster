@@ -35,8 +35,12 @@ public enum TrackerCompanyNameTags {
     /// A familiar's name shows while the pointer is over it, whatever its status, and while its worker is working (a busy turn, whose familiar
     /// poses thinking or working) among two or more familiars. A lone familiar's working name stays hidden: it needs no tag at rest, and the
     /// pointer over it still shows it. `familiarCount` counts the company's familiars, the "+n" workers included. A hovered name is `hovered`,
-    /// even for a working familiar, so it places first.
-    public static func visibility(status: TrackerStatusKind, hovered: Bool, familiarCount: Int) -> Visibility {
+    /// even for a working familiar, so it places first. A familiar whose entrance is still to play or playing (`entering`) has no name yet:
+    /// it appears once the entrance is over.
+    public static func visibility(status: TrackerStatusKind, hovered: Bool, familiarCount: Int, entering: Bool = false) -> Visibility {
+        if entering {
+            return .hidden
+        }
         if hovered {
             return .hovered
         }

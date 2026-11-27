@@ -6,11 +6,14 @@ import Foundation
 public enum MotionStep: Equatable, Sendable {
     case fast
     case standard
+    /// A familiar's row sliding to its new places in a master's company when a worker joins: a little slower than a layout move, and it eases out.
+    case slide
 
     public var seconds: TimeInterval {
         switch self {
         case .fast: 0.12
         case .standard: 0.18
+        case .slide: 0.3
         }
     }
 
@@ -19,6 +22,12 @@ public enum MotionStep: Equatable, Sendable {
     public func duration(reduceMotion: Bool) -> TimeInterval {
         reduceMotion ? 0 : seconds
     }
+}
+
+/// The clock a stepped motion ticks on: a familiar's entrance plays its frames one tick each, and the company's slide re-places its row on
+/// each tick. 0.05 s, the tick the entrance art is authored on.
+public enum MotionTick {
+    public static let seconds: TimeInterval = 0.05
 }
 
 /// The easings, as cubic Béziers (x1, y1, x2, y2). A one-shot transition has one: ease out, quick at first and

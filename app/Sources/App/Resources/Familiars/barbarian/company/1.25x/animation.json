@@ -375,5 +375,90 @@
         }
       ]
     }
+  },
+  "entrance": {
+    "tick": 0.05,
+    "origin": [
+      0,
+      0
+    ],
+    "parts": {
+      "figure": [
+        {
+          "image": "entrance-dither-f1.png",
+          "dx": -120
+        },
+        {
+          "image": "entrance-dither-f2.png",
+          "dx": -100,
+          "dy": -4
+        },
+        {
+          "dx": -76
+        },
+        {
+          "dx": -80
+        },
+        {
+          "dx": -58,
+          "dy": -4
+        },
+        {
+          "dx": -34
+        },
+        {
+          "dx": -38
+        },
+        {
+          "dx": -18,
+          "dy": -4
+        },
+        {
+          "dx": 2
+        },
+        {
+          "dx": -2
+        },
+        {},
+        {},
+        {},
+        {},
+        {}
+      ]
+    },
+    "behind": [
+      null,
+      null,
+      "entrance-behind-f1.png",
+      "entrance-behind-f2.png",
+      "entrance-behind-f3.png",
+      "entrance-behind-f4.png",
+      "entrance-behind-f5.png",
+      "entrance-behind-f6.png",
+      "entrance-behind-f7.png",
+      "entrance-behind-f8.png",
+      "entrance-behind-f9.png",
+      "entrance-behind-f10.png",
+      "entrance-behind-f11.png",
+      "entrance-behind-f12.png",
+      null
+    ],
+    "front": [
+      null,
+      null,
+      "entrance-front-f1.png",
+      "entrance-front-f2.png",
+      "entrance-front-f3.png",
+      "entrance-front-f4.png",
+      "entrance-front-f5.png",
+      "entrance-front-f6.png",
+      "entrance-front-f7.png",
+      "entrance-front-f8.png",
+      "entrance-front-f9.png",
+      "entrance-front-f10.png",
+      "entrance-front-f11.png",
+      "entrance-front-f12.png",
+      null
+    ]
   }
 }

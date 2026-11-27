@@ -621,5 +621,182 @@
         }
       ]
     }
+  },
+  "entrance": {
+    "tick": 0.05,
+    "origin": [
+      0,
+      0
+    ],
+    "parts": {
+      "figure": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {}
+      ],
+      "stump": [
+        null,
+        {
+          "image": "entrance-stump-f1.png",
+          "dy": 22,
+          "rect": [
+            0,
+            148,
+            369,
+            228
+          ]
+        },
+        {
+          "image": "entrance-stump-f1.png",
+          "dy": 12,
+          "rect": [
+            0,
+            148,
+            369,
+            238
+          ]
+        },
+        {
+          "image": "entrance-stump-f1.png",
+          "dy": 4,
+          "rect": [
+            0,
+            148,
+            369,
+            246
+          ]
+        },
+        {
+          "image": "entrance-stump-f1.png",
+          "rect": [
+            0,
+            148,
+            369,
+            250
+          ]
+        },
+        {
+          "image": "entrance-stump-f1.png",
+          "rect": [
+            0,
+            148,
+            369,
+            250
+          ]
+        },
+        {
+          "image": "entrance-stump-f1.png",
+          "rect": [
+            0,
+            148,
+            369,
+            250
+          ]
+        },
+        {
+          "image": "entrance-stump-f1.png",
+          "rect": [
+            0,
+            148,
+            369,
+            250
+          ]
+        },
+        {
+          "image": "entrance-stump-f1.png",
+          "rect": [
+            0,
+            148,
+            369,
+            250
+          ]
+        },
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "bird": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        {
+          "image": "entrance-bird-f1.png",
+          "dy": -10
+        },
+        {
+          "image": "entrance-bird-f2.png",
+          "dy": -4
+        },
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "behind": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      "entrance-behind-f1.png",
+      "entrance-behind-f2.png",
+      "entrance-behind-f3.png",
+      "entrance-behind-f4.png",
+      "entrance-behind-f5.png",
+      "entrance-behind-f6.png",
+      "entrance-behind-f7.png",
+      "entrance-behind-f8.png",
+      "entrance-behind-f9.png",
+      "entrance-behind-f10.png",
+      "entrance-behind-f11.png",
+      null
+    ],
+    "front": [
+      "entrance-front-f1.png",
+      "entrance-front-f2.png",
+      "entrance-front-f3.png",
+      "entrance-front-f4.png",
+      "entrance-front-f5.png",
+      "entrance-front-f6.png",
+      "entrance-front-f7.png",
+      "entrance-front-f8.png",
+      "entrance-front-f9.png",
+      "entrance-front-f10.png",
+      "entrance-front-f11.png",
+      "entrance-front-f12.png",
+      "entrance-front-f13.png",
+      "entrance-front-f14.png",
+      "entrance-front-f15.png",
+      "entrance-front-f16.png",
+      null
+    ]
   }
 }
