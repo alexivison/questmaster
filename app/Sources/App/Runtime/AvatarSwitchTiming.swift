@@ -42,7 +42,7 @@ enum AvatarSwitchTiming {
         try? (lines.joined(separator: "\n") + "\n").write(toFile: "\(dir)/avatar-switch-timing.txt", atomically: true, encoding: .utf8)
     }
 
-    /// A 33-session sweep followed by the oversubscribed four-pair idle demand that previously re-decoded on every snapshot.
+    /// A 33-session sweep followed by the oversubscribed all-class idle demand that previously re-decoded on every snapshot.
     private static func cacheSweepReport(_ log: (String) -> Void) {
         _ = TrackerAvatarLibrary.sprites
         _ = TrackerAvatarLibrary.companions
@@ -84,7 +84,7 @@ enum AvatarSwitchTiming {
         let decodedFrames = TrackerAvatarDecodeProbe.prefetchedFrameCount - decodedFramesBefore
         let decodedBytes = TrackerAvatarDecodeProbe.prefetchedByteCount - decodedBytesBefore
         log(String(
-            format: "oversubscribed idle demand: 8 sessions (4 master/worker pairs: cleric, necromancer, paladin, wizard), current 1.5x companies; decoded %.1f MiB in %d frames, retained %.1f MiB after %.0f ms",
+            format: "oversubscribed idle demand: 22 sessions (11 master/worker pairs; all classes), current 1.5x companies; decoded %.1f MiB in %d frames, retained %.1f MiB after %.0f ms",
             Double(decodedBytes) / 1_048_576,
             decodedFrames,
             Double(TrackerAvatarLibrary.cachedByteCount) / 1_048_576,
@@ -110,27 +110,39 @@ enum AvatarSwitchTiming {
             exit(1)
         }
 
-        let warmSession = oversubscribedSessions.first { $0.id == "qm-cache-wizard-worker" }
-        guard let warmSession,
-              let warmKey = TrackerAvatarLibrary.catalog.art(for: warmSession),
-              let warmSprites = TrackerAvatarLibrary.sprites[warmKey],
-              let warmPose = TrackerAvatarPose.pose(for: warmSession, catalog: TrackerAvatarLibrary.catalog) else {
-            log("warm switch unavailable: synthetic wizard worker art did not load")
+        let directRequests = oversubscribedSessions.compactMap { session -> (TrackerSession, TrackerAvatarSprites, TrackerAvatarPose)? in
+            guard let artKey = TrackerAvatarLibrary.catalog.art(for: session),
+                  let sprites = TrackerAvatarLibrary.sprites[artKey],
+                  let pose = TrackerAvatarPose.pose(for: session, catalog: TrackerAvatarLibrary.catalog) else {
+                return nil
+            }
+            return (session, sprites, pose)
+        }
+        let readyDirectRequests = directRequests.filter { $0.1.hasPreparedPose($0.2) }.count
+        log("direct idle avatar/familiar poses retained and prepared: \(readyDirectRequests)/22")
+        guard directRequests.count == 22, readyDirectRequests == 22 else {
+            log("direct idle art was displaced by speculative company prefetch")
             exit(1)
         }
         let view = TrackerAvatarView(frame: NSRect(
             x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight
         ))
-        view.sprites = warmSprites
         let decodeCount = TrackerAvatarDecodeProbe.count
         let switchStart = now()
-        view.configure(pose: warmPose, beat: 0, finish: nil, reduceMotion: false)
+        for (_, sprites, pose) in directRequests {
+            view.sprites = sprites
+            view.configure(pose: pose, beat: 0, finish: nil, reduceMotion: false)
+            guard view.probePose == pose else {
+                log("warm direct switch did not show its requested pose")
+                exit(1)
+            }
+        }
         let synchronousDecodes = TrackerAvatarDecodeProbe.count - decodeCount
         log(String(
-            format: "warm off-screen switch from repeated demand: %@ %@ in %.2f ms; synchronous frame decodes %d",
-            warmSession.id, String(describing: warmPose), ms(since: switchStart), synchronousDecodes
+            format: "22 warm off-screen direct switches from repeated demand: %.2f ms total; synchronous frame decodes %d",
+            ms(since: switchStart), synchronousDecodes
         ))
-        if view.probePose != warmPose || synchronousDecodes != 0 {
+        if synchronousDecodes != 0 {
             log("warm switch check failed")
             exit(1)
         }
@@ -164,7 +176,7 @@ enum AvatarSwitchTiming {
 
     private static func oversubscribedIdleSessions() -> [TrackerSession] {
         var rows: [TrackerSession] = []
-        for classID in ["cleric", "necromancer", "paladin", "wizard"] {
+        for classID in SessionClass.allCases.map(\.rawValue) {
             let masterID = "qm-cache-\(classID)"
             rows.append(cacheSession(masterID, sessionClass: classID, state: "idle"))
             rows.append(cacheSession(

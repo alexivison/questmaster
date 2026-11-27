@@ -2901,7 +2901,7 @@ enum LogicSelfTests {
 
     @MainActor
     private static func testOversubscribedAvatarDemandQuiescesAndKeepsWarmSwitches() throws {
-        let classIDs = ["cleric", "necromancer", "paladin", "wizard"]
+        let classIDs = SessionClass.allCases.map(\.rawValue)
         var sessions: [TrackerSession] = []
         for classID in classIDs {
             let masterID = "qm-cache-\(classID)"
@@ -2941,25 +2941,34 @@ enum LogicSelfTests {
         )
         #endif
 
-        guard let worker = sessions.first(where: { $0.id == "qm-cache-wizard-worker" }),
-              let artKey = TrackerAvatarLibrary.catalog.art(for: worker),
-              let sprites = TrackerAvatarLibrary.sprites[artKey],
-              let pose = TrackerAvatarPose.pose(for: worker, catalog: TrackerAvatarLibrary.catalog) else {
-            throw TestFailure("the synthetic wizard worker should have warm familiar art")
+        let directPoses = sessions.compactMap { session -> (TrackerAvatarSprites, TrackerAvatarPose)? in
+            guard let artKey = TrackerAvatarLibrary.catalog.art(for: session),
+                  let sprites = TrackerAvatarLibrary.sprites[artKey],
+                  let pose = TrackerAvatarPose.pose(for: session, catalog: TrackerAvatarLibrary.catalog) else {
+                return nil
+            }
+            return (sprites, pose)
         }
+        try expect(directPoses.count == 22, "all 11 classes should have a directly selectable master and familiar pose")
+        try expect(
+            directPoses.allSatisfy { $0.0.hasPreparedPose($0.1) },
+            "the 77.3 MiB directly selectable idle cohort should remain prepared ahead of speculative company art"
+        )
         let view = TrackerAvatarView(frame: NSRect(
             x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight
         ))
-        view.sprites = sprites
         #if DEBUG
         let synchronousDecodesBeforeSwitch = TrackerAvatarDecodeProbe.count
         #endif
-        view.configure(pose: pose, beat: 0, finish: nil, reduceMotion: false)
-        try expect(view.probePose == pose, "the warm familiar switch should show the requested pose")
+        for (sprites, pose) in directPoses {
+            view.sprites = sprites
+            view.configure(pose: pose, beat: 0, finish: nil, reduceMotion: false)
+            try expect(view.probePose == pose, "each warm direct switch should show its requested pose")
+        }
         #if DEBUG
         try expect(
             TrackerAvatarDecodeProbe.count == synchronousDecodesBeforeSwitch,
-            "a switch to retained art should not decode frames synchronously after unchanged snapshots"
+            "all 22 direct idle switches should avoid synchronous decodes after unchanged snapshots"
         )
         #endif
     }

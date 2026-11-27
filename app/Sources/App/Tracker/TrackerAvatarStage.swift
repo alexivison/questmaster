@@ -173,7 +173,7 @@ enum TrackerAvatarLibrary {
         // Individual avatar art comes first, so a large company cache cannot delay the poses shown when a plate is selected. Empty
         // requests clear demand for art that is no longer in the snapshot, allowing it to be prefetched if it returns later.
         for key in artOrder {
-            sprites[key]?.prefetch(orderedPoses(posesByArt[key] ?? []))
+            sprites[key]?.prefetch(orderedPoses(posesByArt[key] ?? []), priority: .directlySelectable)
         }
         for key in sprites.keys where !seenArt.contains(key) {
             sprites[key]?.prefetch([])
@@ -230,7 +230,7 @@ enum TrackerAvatarLibrary {
             guard let sizes = companions[classID], let currentBySize = current[classID] else { continue }
             for index in currentBySize.keys.sorted() where sizes.indices.contains(index) {
                 let poses = currentBySize[index, default: []].union(neighboring[classID]?[index] ?? [])
-                sizes[index].prefetch(orderedPoses(poses))
+                sizes[index].prefetch(orderedPoses(poses), priority: .activeCompany)
                 requestedSizes[classID, default: []].insert(index)
             }
         }
@@ -238,7 +238,7 @@ enum TrackerAvatarLibrary {
             guard let sizes = companions[classID], let neighboringBySize = neighboring[classID] else { continue }
             for index in neighboringBySize.keys.sorted() where sizes.indices.contains(index) {
                 guard !(requestedSizes[classID]?.contains(index) ?? false) else { continue }
-                sizes[index].prefetch(orderedPoses(neighboringBySize[index] ?? []))
+                sizes[index].prefetch(orderedPoses(neighboringBySize[index] ?? []), priority: .speculativeCompany)
                 requestedSizes[classID, default: []].insert(index)
             }
         }

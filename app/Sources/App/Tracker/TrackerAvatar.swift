@@ -79,7 +79,14 @@ private enum TrackerAvatarIdleFramesAnimation {
     }
 }
 
-/// The app-wide decoded sprite cache. One shared LRU bounds frames across masters, familiars and every company size.
+/// The app-wide decoded sprite cache. One byte-bounded, priority-aware LRU keeps current row art ahead of company prefetch.
+enum TrackerAvatarCachePriority: Int {
+    case incidental = 0
+    case speculativeCompany = 1
+    case activeCompany = 2
+    case directlySelectable = 3
+}
+
 @MainActor
 final class TrackerAvatarFrameCache {
     static let shared = TrackerAvatarFrameCache()
@@ -99,6 +106,7 @@ final class TrackerAvatarFrameCache {
         let image: CGImage
         let byteCount: Int
         let pose: TrackerAvatarPose?
+        var priority: TrackerAvatarCachePriority
         var access: UInt64
     }
 
@@ -139,10 +147,29 @@ final class TrackerAvatarFrameCache {
         preparedPoses.contains(PoseKey(ownerID: ownerID, pose: pose))
     }
 
-    func insert(ownerID: UUID, name: String, image: CGImage, pose: TrackerAvatarPose?) {
+    func setPriority(ownerID: UUID, priority: TrackerAvatarCachePriority) {
+        for key in entries.keys.filter({ $0.ownerID == ownerID }) {
+            guard var entry = entries[key] else { continue }
+            if priority.rawValue > entry.priority.rawValue {
+                entry.access = nextAccess()
+            }
+            entry.priority = priority
+            entries[key] = entry
+        }
+        trimToLimit()
+    }
+
+    func insert(
+        ownerID: UUID,
+        name: String,
+        image: CGImage,
+        priority: TrackerAvatarCachePriority,
+        pose: TrackerAvatarPose?
+    ) {
         let key = Key(ownerID: ownerID, name: name)
         if var existing = entries[key] {
             existing.access = nextAccess()
+            existing.priority = priority
             entries[key] = existing
             return
         }
@@ -150,14 +177,19 @@ final class TrackerAvatarFrameCache {
         guard byteCount > 0, byteCount <= Self.maximumRetainedBytes else {
             return
         }
-        entries[key] = Entry(image: image, byteCount: byteCount, pose: pose, access: nextAccess())
+        entries[key] = Entry(image: image, byteCount: byteCount, pose: pose, priority: priority, access: nextAccess())
         retainedBytes += byteCount
         trimToLimit()
     }
 
-    func insertPrefetched(_ frames: [(name: String, image: CGImage)], ownerID: UUID, pose: TrackerAvatarPose) {
+    func insertPrefetched(
+        _ frames: [(name: String, image: CGImage)],
+        ownerID: UUID,
+        priority: TrackerAvatarCachePriority,
+        pose: TrackerAvatarPose
+    ) {
         for frame in frames {
-            insert(ownerID: ownerID, name: frame.name, image: frame.image, pose: pose)
+            insert(ownerID: ownerID, name: frame.name, image: frame.image, priority: priority, pose: pose)
         }
         let poseKey = PoseKey(ownerID: ownerID, pose: pose)
         let allFramesRetained = frames.allSatisfy { entries[Key(ownerID: ownerID, name: $0.name)] != nil }
@@ -170,7 +202,12 @@ final class TrackerAvatarFrameCache {
 
     private func trimToLimit() {
         while retainedBytes > Self.maximumRetainedBytes,
-              let oldest = entries.min(by: { $0.value.access < $1.value.access }) {
+              let oldest = entries.min(by: { left, right in
+                  if left.value.priority != right.value.priority {
+                      return left.value.priority.rawValue < right.value.priority.rawValue
+                  }
+                  return left.value.access < right.value.access
+              }) {
             entries.removeValue(forKey: oldest.key)
             retainedBytes -= oldest.value.byteCount
             if let pose = oldest.value.pose {
@@ -202,6 +239,8 @@ final class TrackerAvatarSprites {
     /// The outline painted round each figure frame of this folder, or nil for none: a company's figure frames carry it, its effect layers and
     /// the worker slot's frames don't.
     private let outline: TrackerAvatarOutlineInk?
+    private let defaultCachePriority: TrackerAvatarCachePriority
+    private var cachePriority: TrackerAvatarCachePriority
     private let cacheID = UUID()
     private var prefetchingPoses: Set<TrackerAvatarPose> = []
     private var demandedPoses: Set<TrackerAvatarPose> = []
@@ -227,19 +266,22 @@ final class TrackerAvatarSprites {
 
     /// The art from its parsed file, with its idle figure measured from the art beside it.
     init(classID: String, animation: TrackerAvatarAnimation, folder: URL, bubbleFolder: URL? = nil, outline: TrackerAvatarOutlineInk? = nil,
-         kind: TrackerAvatarArtKind = .master) {
+         kind: TrackerAvatarArtKind = .master, cachePriority: TrackerAvatarCachePriority = .incidental) {
         self.classID = classID
         self.animation = animation
         self.kind = kind
         self.folder = folder
         self.bubbleFolder = bubbleFolder ?? folder.deletingLastPathComponent().appendingPathComponent("shared", isDirectory: true)
         self.outline = outline
+        defaultCachePriority = cachePriority
+        self.cachePriority = .incidental
         idleFigureHeight = measureIdleFigure()
     }
 
     /// The sprites in `folder`, or nil when it has no `animation.json`, or the file doesn't read. A familiar's file is read as one.
     convenience init?(classID: String, folder: URL, kind: TrackerAvatarArtKind = .master, bubbleFolder: URL? = nil,
-                      outline: TrackerAvatarOutlineInk? = nil) {
+                      outline: TrackerAvatarOutlineInk? = nil,
+                      cachePriority: TrackerAvatarCachePriority = .incidental) {
         let file = folder.appendingPathComponent("animation.json")
         guard FileManager.default.fileExists(atPath: file.path) else {
             return nil
@@ -255,7 +297,10 @@ final class TrackerAvatarSprites {
             NSLog("Questmaster: %@ has no usable animation.json (%@), so its art shows no avatar", file.path, String(describing: error))
             return nil
         }
-        self.init(classID: classID, animation: animation, folder: folder, bubbleFolder: bubbleFolder, outline: outline, kind: kind)
+        self.init(
+            classID: classID, animation: animation, folder: folder, bubbleFolder: bubbleFolder,
+            outline: outline, kind: kind, cachePriority: cachePriority
+        )
     }
 
     /// The points one sprite pixel draws at in the attached slot: a class's pixel, or a familiar's in its own slot.
@@ -333,7 +378,10 @@ final class TrackerAvatarSprites {
         var sprites: [String: TrackerAvatarSprites] = [:]
         for sessionClass in SessionClass.allCases {
             let classID = sessionClass.rawValue
-            sprites[classID] = TrackerAvatarSprites(classID: classID, folder: root.appendingPathComponent(classID, isDirectory: true))
+            sprites[classID] = TrackerAvatarSprites(
+                classID: classID, folder: root.appendingPathComponent(classID, isDirectory: true),
+                cachePriority: .directlySelectable
+            )
         }
         return sprites.compactMapValues { $0 }
     }
@@ -348,8 +396,10 @@ final class TrackerAvatarSprites {
         var sprites: [String: TrackerAvatarSprites] = [:]
         for sessionClass in SessionClass.allCases {
             let classID = sessionClass.rawValue
-            sprites[classID] = TrackerAvatarSprites(classID: classID, folder: root.appendingPathComponent(classID, isDirectory: true),
-                                                    kind: .familiar, bubbleFolder: shared)
+            sprites[classID] = TrackerAvatarSprites(
+                classID: classID, folder: root.appendingPathComponent(classID, isDirectory: true),
+                kind: .familiar, bubbleFolder: shared, cachePriority: .directlySelectable
+            )
         }
         return sprites.compactMapValues { $0 }
     }
@@ -370,7 +420,10 @@ final class TrackerAvatarSprites {
             // A company's frames carry the outline; the worker slot's full frames don't.
             let outline = TrackerAvatarOutlineInk(AppPalette.familiarOutline)
             companies[classID] = folders.compactMap { folder in
-                TrackerAvatarSprites(classID: classID, folder: folder, kind: .familiar, bubbleFolder: shared, outline: outline)
+                TrackerAvatarSprites(
+                    classID: classID, folder: folder, kind: .familiar, bubbleFolder: shared,
+                    outline: outline, cachePriority: .speculativeCompany
+                )
             }
             .sorted { $0.animation.scalePercent > $1.animation.scalePercent }
         }
@@ -475,7 +528,9 @@ final class TrackerAvatarSprites {
         guard let image = Self.lidImage(size: size, pixels: pixels, colour: colour) else {
             return nil
         }
-        TrackerAvatarFrameCache.shared.insert(ownerID: cacheID, name: name, image: image, pose: Self.pose(forFrameNamed: frameName))
+        TrackerAvatarFrameCache.shared.insert(
+            ownerID: cacheID, name: name, image: image, priority: cachePriority, pose: Self.pose(forFrameNamed: frameName)
+        )
         return image
     }
 
@@ -542,7 +597,9 @@ final class TrackerAvatarSprites {
         #if DEBUG
         TrackerAvatarDecodeProbe.record(seconds: ProcessInfo.processInfo.systemUptime - started)
         #endif
-        TrackerAvatarFrameCache.shared.insert(ownerID: cacheID, name: name, image: image, pose: Self.pose(forFrameNamed: name))
+        TrackerAvatarFrameCache.shared.insert(
+            ownerID: cacheID, name: name, image: image, priority: cachePriority, pose: Self.pose(forFrameNamed: name)
+        )
         return image
     }
 
@@ -556,10 +613,19 @@ final class TrackerAvatarSprites {
         TrackerAvatarFrameCache.shared.byteCount(ownerID: cacheID)
     }
 
+    func hasPreparedPose(_ pose: TrackerAvatarPose) -> Bool {
+        TrackerAvatarFrameCache.shared.isPrepared(ownerID: cacheID, pose: pose)
+    }
+
     /// Decodes demanded poses on a bounded background queue. A pose is attempted once while it remains demanded; eviction does not cause
     /// unchanged snapshots to decode it again. When demand leaves and later returns, a missing pose can be prefetched again.
-    func prefetch(_ poses: [TrackerAvatarPose]) {
+    func prefetch(_ poses: [TrackerAvatarPose], priority: TrackerAvatarCachePriority? = nil) {
         let demand = Set(poses.filter { animation.animation(for: $0) != nil })
+        let requestedPriority = priority ?? (demand.isEmpty ? .incidental : defaultCachePriority)
+        if cachePriority != requestedPriority {
+            cachePriority = requestedPriority
+            TrackerAvatarFrameCache.shared.setPriority(ownerID: cacheID, priority: requestedPriority)
+        }
         attemptedPrefetchPoses.formIntersection(demand)
         unprefetchablePoses.formIntersection(demand)
         demandedPoses = demand
@@ -650,11 +716,15 @@ final class TrackerAvatarSprites {
         #if DEBUG
         TrackerAvatarDecodeProbe.recordPrefetched(frames)
         #endif
-        TrackerAvatarFrameCache.shared.insertPrefetched(frames, ownerID: cacheID, pose: pose)
+        TrackerAvatarFrameCache.shared.insertPrefetched(
+            frames, ownerID: cacheID, priority: cachePriority, pose: pose
+        )
     }
 
     private func adoptBubble(_ image: CGImage) {
-        TrackerAvatarFrameCache.shared.insert(ownerID: cacheID, name: "bubble", image: image, pose: nil)
+        TrackerAvatarFrameCache.shared.insert(
+            ownerID: cacheID, name: "bubble", image: image, priority: cachePriority, pose: nil
+        )
     }
 
     private func skipPrefetch(_ pose: TrackerAvatarPose) {
