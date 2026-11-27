@@ -363,7 +363,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             do {
                 let tmuxPath = config.disableTmux ? nil : resolveExecutable("tmux")
                 let environment = ghosttyEnvironment()
-                var discoveredClientsForSurface: [TerminalTmuxClient]?
+                var discoveredClientsForSurface: Result<[TerminalTmuxClient], Error>?
                 if !forceSurface, !config.sessionReappeared,
                    let route = config.route, let tmuxPath,
                    cleanTerminalSessionID(config.tmuxSession) == route.sessionID,
@@ -379,7 +379,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
                         baselineClientNames: priorBaseline,
                         targetSessionID: priorTarget,
                         discoverClients: {
-                            TerminalTmuxClientProcess.listClients(tmuxPath: tmuxPath, route: route, environment: environment)
+                            TerminalTmuxClientProcess.listClientsSnapshot(tmuxPath: tmuxPath, route: route, environment: environment)
                         },
                         attemptSwitch: { clientName in
                             if !synced.contains(key), !didSync {
@@ -409,8 +409,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
                         ) == .reuseClient {
                             return .success(.switched(clientName: clientName, route: route, didSync: didSync))
                         }
-                    case .createSurface(let clients):
-                        discoveredClientsForSurface = clients
+                    case .createSurface(let clientDiscovery):
+                        discoveredClientsForSurface = clientDiscovery
                     }
                 }
                 if !config.disableTmux, let route = config.route, let tmuxPath,
@@ -421,15 +421,15 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
                 if !config.disableTmux, cleanTerminalSessionID(config.tmuxSession) != nil,
                    launch.tmuxSessionID == nil { throw TerminalHostConnectionError.tmuxUnavailable }
                 let launchTmuxPath = launch.tmuxSessionID.flatMap { _ in resolveExecutable("tmux") }
-                let baseline: Set<String>
-                if let discoveredClientsForSurface {
-                    baseline = Set(discoveredClientsForSurface.map(\.name))
-                } else if let launchTmuxPath, let route = config.route {
-                    baseline = Set(TerminalTmuxClientProcess.listClients(
+                let baseline = try TerminalTmuxClientBaseline.names(from: discoveredClientsForSurface) {
+                    guard let route = config.route else {
+                        if case .failure(let error)? = discoveredClientsForSurface { return .failure(error) }
+                        return .success([])
+                    }
+                    guard let launchTmuxPath else { return .failure(TerminalHostConnectionError.tmuxUnavailable) }
+                    return TerminalTmuxClientProcess.listClientsSnapshot(
                         tmuxPath: launchTmuxPath, route: route, environment: launch.configuration.environment
-                    ).map(\.name))
-                } else {
-                    baseline = []
+                    )
                 }
                 return .success(.surface(
                     config: config, launch: launch.configuration, title: launch.title,

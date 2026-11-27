@@ -63,9 +63,15 @@ enum LogicSelfTests {
         ("testTmuxClientCallsUseRoute", testTmuxClientCallsUseRoute),
         ("testCrossServerSwitchCreatesSurface", testCrossServerSwitchCreatesSurface),
         ("testSameServerSwitchReusesClient", testSameServerSwitchReusesClient),
+        ("testEmbeddedClientResolverRequiresUniqueTargetSessionClient", testEmbeddedClientResolverRequiresUniqueTargetSessionClient),
         ("testTrackedTmuxClientSwitchSkipsDiscovery", testTrackedTmuxClientSwitchSkipsDiscovery),
         ("testFailedTrackedTmuxSwitchRediscoversClient", testFailedTrackedTmuxSwitchRediscoversClient),
         ("testFailedTrackedTmuxSwitchFallsBackToSurface", testFailedTrackedTmuxSwitchFallsBackToSurface),
+        ("testAmbiguousTmuxClientDiscoveryCreatesSurface", testAmbiguousTmuxClientDiscoveryCreatesSurface),
+        ("testListClientsSnapshotDistinguishesEmptyFromFailure", testListClientsSnapshotDistinguishesEmptyFromFailure),
+        ("testSurfaceBaselineRefreshesFailedDiscovery", testSurfaceBaselineRefreshesFailedDiscovery),
+        ("testSurfaceBaselineAcceptsSuccessfulEmptySnapshot", testSurfaceBaselineAcceptsSuccessfulEmptySnapshot),
+        ("testSurfaceBaselineRetriesInitialFailureOnce", testSurfaceBaselineRetriesInitialFailureOnce),
         ("testUnknownMethodFailsAttach", testUnknownMethodFailsAttach),
         ("testCachedRouteAttachesBeforeRefresh", testCachedRouteAttachesBeforeRefresh),
         ("testFailedCachedAttachRetriesRefreshedRoute", testFailedCachedAttachRetriesRefreshedRoute),
@@ -3844,6 +3850,25 @@ enum LogicSelfTests {
         try expect(TmuxRoute.surfaceDecision(attachedLabel: "default", targetLabel: "default", clientAttached: true, sessionReappeared: false) == .reuseClient, "same-server switch should reuse client")
     }
 
+    private static func testEmbeddedClientResolverRequiresUniqueTargetSessionClient() throws {
+        let targetClient = TerminalTmuxClient(name: "/dev/ttys001", sessionID: "qm-before", created: 2, pid: 42)
+        let otherSessionClient = TerminalTmuxClient(name: "/dev/ttys002", sessionID: "qm-other", created: 3, pid: 43)
+        let ambiguousClient = TerminalTmuxClient(name: "/dev/ttys003", sessionID: "qm-before", created: 4, pid: 44)
+
+        try expect(
+            EmbeddedTmuxClientResolver.embeddedClientName(baselineClientNames: [], targetSessionID: "qm-before", clients: [otherSessionClient]) == nil,
+            "a client on another session must not be claimed as the embedded surface"
+        )
+        try expect(
+            EmbeddedTmuxClientResolver.embeddedClientName(baselineClientNames: [], targetSessionID: "qm-before", clients: [targetClient, ambiguousClient]) == nil,
+            "multiple new clients on the target session leave ownership ambiguous"
+        )
+        try expect(
+            EmbeddedTmuxClientResolver.embeddedClientName(baselineClientNames: [], targetSessionID: "qm-before", clients: [targetClient, otherSessionClient]) == targetClient.name,
+            "one new client on the target session is identifiable despite unrelated sessions"
+        )
+    }
+
     private static func testTrackedTmuxClientSwitchSkipsDiscovery() throws {
         var discoveries = 0
         var attemptedClients: [String] = []
@@ -3853,7 +3878,7 @@ enum LogicSelfTests {
             targetSessionID: "qm-before",
             discoverClients: {
                 discoveries += 1
-                return []
+                return .success([])
             },
             attemptSwitch: { clientName in
                 attemptedClients.append(clientName)
@@ -3879,7 +3904,7 @@ enum LogicSelfTests {
             targetSessionID: "qm-before",
             discoverClients: {
                 discoveries += 1
-                return [rediscovered]
+                return .success([rediscovered])
             },
             attemptSwitch: { clientName in
                 attemptedClients.append(clientName)
@@ -3898,22 +3923,127 @@ enum LogicSelfTests {
     private static func testFailedTrackedTmuxSwitchFallsBackToSurface() throws {
         let clients = [TerminalTmuxClient(name: "/dev/ttys002", sessionID: "qm-other", created: 2, pid: 42)]
         var discoveries = 0
+        var attemptedClients: [String] = []
         let outcome = EmbeddedTmuxClientSwitcher.switchClient(
             trackedClientName: "/dev/ttys001",
             baselineClientNames: [],
             targetSessionID: "qm-before",
             discoverClients: {
                 discoveries += 1
-                return clients
+                return .success(clients)
             },
-            attemptSwitch: { _ in false }
+            attemptSwitch: { clientName in
+                attemptedClients.append(clientName)
+                return clientName == clients[0].name
+            }
         )
 
-        guard case .createSurface(let discoveredClients) = outcome else {
+        guard case .createSurface(clientDiscovery: .success(let discoveredClients)) = outcome else {
             throw TestFailure("an unattachable tracked client should request a replacement surface")
         }
         try expect(discoveredClients == clients, "surface recovery should reuse the discovery snapshot as its client baseline")
+        try expect(attemptedClients == ["/dev/ttys001"], "a client on another session must not be retried even if it would accept the switch")
         try expect(discoveries == 1, "surface recovery should not need a second client listing")
+    }
+
+    private static func testAmbiguousTmuxClientDiscoveryCreatesSurface() throws {
+        let clients = [
+            TerminalTmuxClient(name: "/dev/ttys002", sessionID: "qm-before", created: 2, pid: 42),
+            TerminalTmuxClient(name: "/dev/ttys003", sessionID: "qm-before", created: 3, pid: 43),
+        ]
+        var attemptedClients: [String] = []
+        let outcome = EmbeddedTmuxClientSwitcher.switchClient(
+            trackedClientName: nil,
+            baselineClientNames: [],
+            targetSessionID: "qm-before",
+            discoverClients: { .success(clients) },
+            attemptSwitch: { clientName in
+                attemptedClients.append(clientName)
+                return true
+            }
+        )
+
+        guard case .createSurface(clientDiscovery: .success(let discoveredClients)) = outcome else {
+            throw TestFailure("ambiguous same-session clients should request a replacement surface")
+        }
+        try expect(discoveredClients == clients, "surface recovery should retain the complete discovery snapshot")
+        try expect(attemptedClients.isEmpty, "ambiguous ownership must not switch any discovered client")
+    }
+
+    private static func testListClientsSnapshotDistinguishesEmptyFromFailure() throws {
+        let route = try TmuxRoute(sessionID: "qm-test", label: "default", configFiles: [], live: true, createdUnix: 1)
+        let empty = TerminalTmuxClientProcess.listClientsSnapshot(tmuxPath: "/usr/bin/true", route: route, environment: [:])
+        guard case .success(let clients) = empty, clients.isEmpty else {
+            throw TestFailure("a successful empty listing should be an authoritative empty snapshot")
+        }
+        let failed = TerminalTmuxClientProcess.listClientsSnapshot(tmuxPath: "/usr/bin/false", route: route, environment: [:])
+        guard case .failure = failed else {
+            throw TestFailure("a failed listing should remain distinguishable from an empty snapshot")
+        }
+
+        let outcome = EmbeddedTmuxClientSwitcher.switchClient(
+            trackedClientName: "/dev/ttys001",
+            baselineClientNames: [],
+            targetSessionID: "qm-before",
+            discoverClients: { failed },
+            attemptSwitch: { _ in false }
+        )
+        guard case .createSurface(clientDiscovery: .failure) = outcome else {
+            throw TestFailure("failed discovery must reach surface recovery as a failure, not an empty baseline")
+        }
+    }
+
+    private static func testSurfaceBaselineRefreshesFailedDiscovery() throws {
+        let existing = TerminalTmuxClient(name: "/dev/ttys002", sessionID: "qm-before", created: 2, pid: 42)
+        var refreshes = 0
+        let baseline = try TerminalTmuxClientBaseline.names(
+            from: .failure(TestFailure("injected list-clients timeout")),
+            refresh: {
+                refreshes += 1
+                return .success([existing])
+            }
+        )
+
+        try expect(baseline == [existing.name], "a failed recovery listing should use the fresh successful snapshot as baseline")
+        try expect(refreshes == 1, "a failed recovery snapshot should get one fresh bounded retry")
+
+        let repeatedFailure: Result<Set<String>, Error> = Result {
+            try TerminalTmuxClientBaseline.names(
+                from: .failure(TestFailure("injected list-clients timeout")),
+                refresh: { .failure(TestFailure("injected retry timeout")) }
+            )
+        }
+        guard case .failure = repeatedFailure else {
+            throw TestFailure("repeated listing failures must not become an empty surface baseline")
+        }
+    }
+
+    private static func testSurfaceBaselineAcceptsSuccessfulEmptySnapshot() throws {
+        var refreshes = 0
+        let baseline = try TerminalTmuxClientBaseline.names(
+            from: .success([]),
+            refresh: {
+                refreshes += 1
+                return .failure(TestFailure("a successful empty snapshot should not refresh"))
+            }
+        )
+
+        try expect(baseline.isEmpty, "a successful empty listing should remain an empty baseline")
+        try expect(refreshes == 0, "a successful empty snapshot should not be treated as a failed discovery")
+    }
+
+    private static func testSurfaceBaselineRetriesInitialFailureOnce() throws {
+        let existing = TerminalTmuxClient(name: "/dev/ttys002", sessionID: "qm-before", created: 2, pid: 42)
+        var refreshes = 0
+        let baseline = try TerminalTmuxClientBaseline.names(from: nil) {
+            refreshes += 1
+            return refreshes == 1
+                ? .failure(TestFailure("injected initial list-clients timeout"))
+                : .success([existing])
+        }
+
+        try expect(baseline == [existing.name], "an initial failed listing should use a fresh successful retry")
+        try expect(refreshes == 2, "an initial surface baseline should retry only once")
     }
 
     private static func testUnknownMethodFailsAttach() throws {

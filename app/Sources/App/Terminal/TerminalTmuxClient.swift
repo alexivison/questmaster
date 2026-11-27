@@ -15,51 +15,84 @@ enum EmbeddedTmuxClientResolver {
         targetSessionID: String?,
         clients: [TerminalTmuxClient]
     ) -> String? {
-        let newClients = clients.filter { !baselineClientNames.contains($0.name) }
-        guard !newClients.isEmpty else {
+        guard let targetSessionID else {
             return nil
         }
-        let preferred = targetSessionID.map { target in newClients.filter { $0.sessionID == target } } ?? []
-        return (preferred.isEmpty ? newClients : preferred).max(by: { $0.created < $1.created })?.name
+        let candidates = clients.filter {
+            $0.sessionID == targetSessionID && !baselineClientNames.contains($0.name)
+        }
+        return candidates.count == 1 ? candidates[0].name : nil
     }
 }
 
 enum EmbeddedTmuxClientSwitchOutcome {
     case switched(clientName: String)
-    case createSurface(discoveredClients: [TerminalTmuxClient])
+    case createSurface(clientDiscovery: Result<[TerminalTmuxClient], Error>)
 }
 
 enum EmbeddedTmuxClientSwitcher {
     /// Tries the known embedded client before listing clients. Discovery is only
-    /// needed when the tracked client is missing or its switch fails.
+    /// needed when the tracked client is missing or its switch fails; recovery
+    /// only retries a client tied unambiguously to the previous target session.
     static func switchClient(
         trackedClientName: String?,
         baselineClientNames: Set<String>,
         targetSessionID: String?,
-        discoverClients: () -> [TerminalTmuxClient],
+        discoverClients: () -> Result<[TerminalTmuxClient], Error>,
         attemptSwitch: (String) -> Bool
     ) -> EmbeddedTmuxClientSwitchOutcome {
         if let trackedClientName, attemptSwitch(trackedClientName) {
             return .switched(clientName: trackedClientName)
         }
 
-        let clients = discoverClients()
-        var candidates: [String] = []
-        if let trackedClientName, clients.contains(where: { $0.name == trackedClientName }) {
-            candidates.append(trackedClientName)
-        }
-        if let discovered = EmbeddedTmuxClientResolver.embeddedClientName(
-            baselineClientNames: baselineClientNames,
-            targetSessionID: targetSessionID,
-            clients: clients
-        ), !candidates.contains(discovered) {
-            candidates.append(discovered)
+        let clientDiscovery = discoverClients()
+        guard case .success(let clients) = clientDiscovery else {
+            return .createSurface(clientDiscovery: clientDiscovery)
         }
 
-        for candidate in candidates where attemptSwitch(candidate) {
-            return .switched(clientName: candidate)
+        var candidate: TerminalTmuxClient?
+        if let targetSessionID {
+            if let trackedClientName, let tracked = clients.first(where: { $0.name == trackedClientName }) {
+                if tracked.sessionID == targetSessionID {
+                    candidate = tracked
+                }
+            } else if let discoveredName = EmbeddedTmuxClientResolver.embeddedClientName(
+                baselineClientNames: baselineClientNames,
+                targetSessionID: targetSessionID,
+                clients: clients
+            ) {
+                candidate = clients.first(where: { $0.name == discoveredName })
+            }
         }
-        return .createSurface(discoveredClients: clients)
+
+        if let candidate, attemptSwitch(candidate.name) {
+            return .switched(clientName: candidate.name)
+        }
+        return .createSurface(clientDiscovery: clientDiscovery)
+    }
+}
+
+enum TerminalTmuxClientBaseline {
+    /// Uses a known snapshot when available. A failed earlier discovery gets one
+    /// fresh retry; an initial failure also gets one retry before surfacing it.
+    static func names(
+        from clientDiscovery: Result<[TerminalTmuxClient], Error>?,
+        refresh: () -> Result<[TerminalTmuxClient], Error>
+    ) throws -> Set<String> {
+        switch clientDiscovery {
+        case .success(let clients)?:
+            return Set(clients.map(\.name))
+        case .failure?:
+            return Set(try refresh().get().map(\.name))
+        case nil:
+            let first = refresh()
+            switch first {
+            case .success(let clients):
+                return Set(clients.map(\.name))
+            case .failure:
+                return Set(try refresh().get().map(\.name))
+            }
+        }
     }
 }
 
@@ -69,11 +102,26 @@ enum TerminalTmuxClientProcess {
     private static let logLock = NSLock()
 
     static func listClients(tmuxPath: String, route: TmuxRoute, environment: [String: String]? = nil) -> [TerminalTmuxClient] {
+        switch listClientsSnapshot(tmuxPath: tmuxPath, route: route, environment: environment) {
+        case .success(let clients): return clients
+        case .failure: return []
+        }
+    }
+
+    static func listClientsSnapshot(
+        tmuxPath: String,
+        route: TmuxRoute,
+        environment: [String: String]? = nil
+    ) -> Result<[TerminalTmuxClient], Error> {
         do {
-            return parseClientList(try run(executable: tmuxPath, arguments: listClientsArguments(route: route), environment: environment))
+            return .success(parseClientList(try run(
+                executable: tmuxPath,
+                arguments: listClientsArguments(route: route),
+                environment: environment
+            )))
         } catch {
             logListClientsFailure(tmuxPath: tmuxPath, error: error)
-            return []
+            return .failure(error)
         }
     }
 
