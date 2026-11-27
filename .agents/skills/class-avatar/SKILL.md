@@ -12,7 +12,7 @@ and drawn by `TrackerCompanySlot` (App). The company draws at the largest of eac
 what it does (`TrackerAvatarDirector`, `TrackerAvatarPose`, `TrackerAvatarAnimation`, `TrackerAvatarCatalog`, all pure and tested); the App
 target draws it (`TrackerAvatar*`). Each class's art is one folder of PNGs plus its `animation.json` in `Resources/Sprites/<class>/`, and each
 familiar's in `Resources/Familiars/<class>/`; both are made by a sprite pipeline outside this repo, and the palettes are documented in
-`docs/sprites/palettes/`. The familiars come from `~/Documents/Questmaster/Sprites/tools/familiar-ship/` (its converter builds the folders
+`docs/sprites/palettes/`. The familiars come from `~/Code/questmaster-sprites/tools/familiar-ship/` (its converter builds the folders
 from the frozen art; rerun it, then copy the PNGs and `animation.json` byte for byte).
 
 | Changing | Read |

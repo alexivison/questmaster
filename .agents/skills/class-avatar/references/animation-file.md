@@ -16,7 +16,7 @@ the slot's size. The moves are horizontal only (`TrackerAvatarMotion`, Core), so
   breathing; the colour is never drawn. It has no fidgets. Idle effects are `idle.front` and `idle.behind`, as for a class; a pose's
   `enter`, `loop`, `finish` and `once` blocks carry their `character` and `front`/`behind` tracks. `11-calling-out` carries the `bubble`
   anchor, drawn from the shared `Resources/Sprites/shared/bubble.png` (`TrackerAvatarSprites.bubbleFolder`), not a copy in the familiar's
-  folder. The converter (`~/Documents/Questmaster/Sprites/tools/familiar-ship/`, outside the repo) writes the folders from the frozen tracks
+  folder. The converter (`~/Code/questmaster-sprites/tools/familiar-ship/`, outside the repo) writes the folders from the frozen tracks
   and the effects export, copying each PNG byte for byte under the app's frame names. Fire and Lightning Elementals ship without effect
   layers until their export arrives. Its top-level `scale` is its size in percent of one art pixel per point, decimals allowed (50 when absent; the designed familiars
   are 46.5 to 82, the War Hound 82). It may also carry a `company` object, `{"pitch": points, "capacity": workers}`: the pitch between
