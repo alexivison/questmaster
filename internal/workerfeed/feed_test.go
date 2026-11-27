@@ -185,6 +185,71 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 	})
 }
 
+func TestReadSinceBoundsAggregateInitialEntriesAcrossWorkers(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	workerIDs := []string{"qm-w1", "qm-w2", "qm-w3", "qm-w4", "qm-w5", "qm-w6", "qm-w7", "qm-w8"}
+	createMasterAndWorkers(t, root, "qm-master", workerIDs...)
+	const total = 3_200
+	bodies := make([][]byte, len(workerIDs))
+	for index := 0; index < total; index++ {
+		workerIndex := index % len(workerIDs)
+		event := chatEvent("message", fmt.Sprintf("line %d", index), time.Unix(int64(index), 0))
+		bodies[workerIndex] = append(bodies[workerIndex], mustMarshalEvent(event)...)
+	}
+	for index, workerID := range workerIDs {
+		path := state.SessionStateLogPath(root, workerID)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, bodies[index], 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := ReadSince(root, "qm-master", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Entries) != InitialTotalEntryLimit {
+		t.Fatalf("initial entries = %d, want aggregate cap %d", len(first.Entries), InitialTotalEntryLimit)
+	}
+	for index, entry := range first.Entries {
+		wantIndex := total - InitialTotalEntryLimit + index
+		if entry.Text != fmt.Sprintf("line %d", wantIndex) || !entry.Timestamp.Equal(time.Unix(int64(wantIndex), 0)) {
+			t.Fatalf("entry %d = (%q, %s), want newest selection in chronological order: line %d", index, entry.Text, entry.Timestamp, wantIndex)
+		}
+	}
+	for _, workerID := range workerIDs {
+		info, err := os.Stat(state.SessionStateLogPath(root, workerID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cursor := first.Cursors[workerID]
+		if cursor.FileID == "" || cursor.Offset != info.Size() || first.HasMore[workerID] {
+			t.Fatalf("initial cursor for %s = %#v, has_more=%v; want EOF cursor and no extra initial page", workerID, cursor, first.HasMore[workerID])
+		}
+	}
+
+	workerID := workerIDs[0]
+	appendEvent(t, root, workerID, chatEvent("message", "later arrival", time.Unix(total, 0)))
+	next, err := ReadSince(root, "qm-master", first.Cursors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Entries) != 1 || next.Entries[0].Text != "later arrival" || !next.Entries[0].Timestamp.Equal(time.Unix(total, 0)) {
+		t.Fatalf("incremental entries = %#v, want the later arrival only", next.Entries)
+	}
+	if next.Cursors[workerID].Offset <= first.Cursors[workerID].Offset {
+		t.Fatalf("cursor for %s did not advance: before=%#v after=%#v", workerID, first.Cursors[workerID], next.Cursors[workerID])
+	}
+	for _, otherID := range workerIDs[1:] {
+		if next.Cursors[otherID] != first.Cursors[otherID] {
+			t.Fatalf("unchanged cursor for %s changed: before=%#v after=%#v", otherID, first.Cursors[otherID], next.Cursors[otherID])
+		}
+	}
+}
+
 func TestReadSinceSkipsUnterminatedRotatedSuffix(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

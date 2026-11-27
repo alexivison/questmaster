@@ -26,11 +26,12 @@ const (
 	historyChunkBytes       = 64 * 1024
 	maxIncrementalLineBytes = 64 * 1024
 	maxHistoryLineSize      = 2 * 1024 * 1024
-	// InitialEntryLimit caps a worker's first read: the app keeps at most this many records
-	// (WorkerChatStore.maxRecords), so older ones would only be parsed and dropped.
-	InitialEntryLimit = 400
-	DefaultLimit      = 50
-	MaxLimit          = 200
+	// InitialEntryLimit caps a worker's first read. InitialTotalEntryLimit also bounds the
+	// records sent across all workers because WorkerChatStore keeps at most 400 raw records.
+	InitialEntryLimit      = 400
+	InitialTotalEntryLimit = InitialEntryLimit
+	DefaultLimit           = 50
+	MaxLimit               = 200
 )
 
 type Entry struct {
@@ -160,6 +161,7 @@ func ReadSince(root, masterID string, cursors map[string]Cursor) (Response, erro
 		return Response{}, err
 	}
 	result := Response{Entries: []Entry{}, Cursors: make(map[string]Cursor, len(workers)), HasMore: make(map[string]bool, len(workers))}
+	var initialEntries []Entry
 	for _, worker := range workers {
 		result.HasMore[worker.id] = false
 		entries, cursor, hasMore, err := readWorkerSince(root, worker, cursors[worker.id])
@@ -171,13 +173,23 @@ func ReadSince(root, masterID string, cursors map[string]Cursor) (Response, erro
 			result.Errors[worker.id] = err.Error()
 			continue
 		}
-		if cursors[worker.id].FileID == "" && len(entries) > InitialEntryLimit {
+		initialRead := cursors[worker.id].FileID == ""
+		if initialRead && len(entries) > InitialEntryLimit {
 			entries = entries[len(entries)-InitialEntryLimit:]
 		}
-		result.Entries = append(result.Entries, entries...)
+		if initialRead {
+			initialEntries = append(initialEntries, entries...)
+		} else {
+			result.Entries = append(result.Entries, entries...)
+		}
 		result.Cursors[worker.id] = cursor
 		result.HasMore[worker.id] = hasMore
 	}
+	sortEntries(initialEntries)
+	if len(initialEntries) > InitialTotalEntryLimit {
+		initialEntries = initialEntries[len(initialEntries)-InitialTotalEntryLimit:]
+	}
+	result.Entries = append(result.Entries, initialEntries...)
 	sortEntries(result.Entries)
 	return result, nil
 }
