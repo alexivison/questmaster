@@ -435,7 +435,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         scalePercent = try Self.scalePercent(file.scale, kind: kind)
         companyRow = try Self.readCompanyRow(file.company, kind: kind)
         headBox = try Self.readHeadBox(file.head)
-        entrance = try Self.readEntrance(file.entrance)
+        entrance = try Self.readEntrance(file.entrance, speed: speed)
         // Bard and Barbarian's authored idle loops keep their existing frame-loop behavior and do not read layered-idle metadata.
         if poses[.idle]?.loop != nil {
             idle = nil
@@ -678,7 +678,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
 
     /// A file's head box, when it gives one: a position at or after the top left, with a width and height above 0.
     /// A company size's entrance, read in the file's own shape. Its parts are named, and drawn in name order.
-    private static func readEntrance(_ file: File.Entrance?) throws -> TrackerAvatarEntrance? {
+    private static func readEntrance(_ file: File.Entrance?, speed: Double) throws -> TrackerAvatarEntrance? {
         guard let file else {
             return nil
         }
@@ -693,7 +693,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
                 try step.map(entranceStep)
             })
         }
-        return try TrackerAvatarEntrance(tick: file.tick, origin: origin, parts: parts, behind: file.behind, front: file.front)
+        return try TrackerAvatarEntrance(tick: file.tick, origin: origin, parts: parts, behind: file.behind, front: file.front, speed: speed)
     }
 
     private static func entranceStep(_ step: File.Entrance.Step) throws -> TrackerAvatarEntrance.Step {

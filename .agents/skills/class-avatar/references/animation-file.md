@@ -30,7 +30,8 @@ the slot's size. The moves are horizontal only (`TrackerAvatarMotion`, Core), so
   slot keeps the full frames. A class draws at 100, and its file has no `scale`. A class's file also gives its `head` box, `{"x", "y", "width", "height"}` in art pixels from the top left of its idle frame, covering its face (eyes, nose, mouth, hood or helm front): the worker names over the master keep off it. It is measured from the idle art and checked against an overlay; a box off the art, or with no width or height, does not read. The App draws a familiar at `scale / 100` with nearest-neighbour filtering, so
   at 50% and 2x one art pixel is one device pixel.
 - **Entrance:** a familiar's company size (`company/<size>/animation.json`) may carry `entrance`, the animation it plays when a worker
-  joins its master's company (`TrackerAvatarEntrance`, Core). `tick` is 0.05 s. `parts` names the figure's drawn parts, each a track of
+  joins its master's company (`TrackerAvatarEntrance`, Core). `tick` is the authored 0.05 s; the app divides it by `playbackSpeed` (1.15) as it reads the file, as it divides every step's seconds, so a
+  tick plays at about 0.043 s. `parts` names the figure's drawn parts, each a track of
   one step per tick: `null` hides the part that tick, or an object with `image` (a PNG in the size's folder, `01-idle-f1.png` when absent), `dx`
   and `dy` (the image's top left on the canvas in device pixels, even so the moves stay on the 1 pt grid) and `rect` (`[x0, y0, x1, y1]`, the
   part of the image drawn). The parts draw in name order (`figure`, `stump`, `bird`, `piece-0`, ...). `behind` and `front` have one entry per tick,

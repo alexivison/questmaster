@@ -1,7 +1,8 @@
 import Foundation
 
 /// A familiar's entrance: the animation it plays when a worker joins its master's company, read from the `entrance` object of a company
-/// size's `animation.json`. The art is authored on a `MotionTick` (0.05 s). Each part is one image drawn on the figure's canvas, moved by
+/// size's `animation.json`. The art is authored on the 0.05 s `MotionTick`, and plays at `TrackerAvatarAnimation.playbackSpeed` like every other
+/// avatar animation: each tick is the authored one divided by that speed (`tickSeconds`). Each part is one image drawn on the figure's canvas, moved by
 /// whole device pixels and cropped to a window, so the offsets, clips and copies are data the App places; the effect layers behind and in
 /// front are images placed at `origin`. The entrance ends on the figure's rest, so the familiar's idle takes over where it stops.
 public struct TrackerAvatarEntrance: Equatable, Sendable {
@@ -67,8 +68,13 @@ public struct TrackerAvatarEntrance: Equatable, Sendable {
         }
     }
 
+    /// The tick the entrance plays at, in seconds: the authored `MotionTick`, divided by the playback speed it was read at.
+    public static let playbackTickSeconds: TimeInterval = MotionTick.seconds / TrackerAvatarAnimation.playbackSpeed
+
     /// How many ticks the entrance plays.
     public let steps: Int
+    /// One tick in seconds, at the speed the entrance was read at.
+    public let tickSeconds: TimeInterval
     /// Where each effect image's top left sits on the canvas.
     public let origin: Origin
     public let parts: [Part]
@@ -79,7 +85,7 @@ public struct TrackerAvatarEntrance: Equatable, Sendable {
 
     /// How long the entrance plays, from its first tick to the end of its last.
     public var seconds: TimeInterval {
-        TimeInterval(steps) * MotionTick.seconds
+        TimeInterval(steps) * tickSeconds
     }
 
     /// The tick on screen `elapsed` seconds into the entrance, or nil before it starts and once it has ended.
@@ -88,7 +94,7 @@ public struct TrackerAvatarEntrance: Equatable, Sendable {
             return nil
         }
         // A small allowance keeps a tick boundary on its own tick when the division lands a hair below it.
-        let index = Int(elapsed / MotionTick.seconds + 1e-9)
+        let index = Int(elapsed / tickSeconds + 1e-9)
         return index < steps ? index : nil
     }
 
@@ -96,8 +102,12 @@ public struct TrackerAvatarEntrance: Equatable, Sendable {
     /// grid (even device pixels), and the entrance ends on the figure at rest, so the idle takes over where it stops. Throws
     /// `TrackerAvatarAnimationError.invalidEntrance` with the first problem.
     public init(
-        tick: Double, origin: Origin, parts: [Part], behind: [String?], front: [String?]
+        tick: Double, origin: Origin, parts: [Part], behind: [String?], front: [String?],
+        speed: Double = TrackerAvatarAnimation.playbackSpeed
     ) throws {
+        guard speed.isFinite, speed > 0 else {
+            throw TrackerAvatarAnimationError.invalidSpeed(speed)
+        }
         func invalid(_ reason: String) -> TrackerAvatarAnimationError {
             .invalidEntrance(reason)
         }
@@ -142,6 +152,7 @@ public struct TrackerAvatarEntrance: Equatable, Sendable {
             try Self.checkImage(image)
         }
         self.steps = steps
+        tickSeconds = MotionTick.seconds / speed
         self.origin = origin
         self.parts = parts.sorted { $0.name < $1.name }
         self.behind = behind

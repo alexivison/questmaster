@@ -29,12 +29,12 @@ public struct TrackerCompanyEntrance: Equatable, Sendable {
         case entering(elapsed: TimeInterval)
     }
 
-    /// The newcomer's entrance starts this many ticks after its row slides, so the gap is open when it appears.
+    /// The newcomer's entrance starts this many avatar ticks (at the playback speed) after its row slides, so the gap is open when it appears.
     public static let entranceDelayTicks = 2
 
-    /// How long after the slide the newcomer's entrance starts.
+    /// How long after the slide the newcomer's entrance starts: the delay in playback ticks.
     public static var entranceDelay: TimeInterval {
-        TimeInterval(entranceDelayTicks) * MotionTick.seconds
+        TimeInterval(entranceDelayTicks) * TrackerAvatarEntrance.playbackTickSeconds
     }
 
     /// A row slide in flight: the left edge goes from `from` to `to`, starting at `start`.

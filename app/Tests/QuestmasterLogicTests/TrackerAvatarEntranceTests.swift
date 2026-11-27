@@ -8,6 +8,7 @@ struct TrackerAvatarEntranceTests {
         everyBundledCompanySizeHasItsEntrance()
         anEntranceReadsItsPartsAndEffectsByTick()
         aTickIsIndexedByItsElapsedTime()
+        anEntrancePlaysAtThePlaybackSpeed()
         anEntranceRejectsAShapeItCannotPlay()
         print("TrackerAvatarEntranceTests: all tests passed")
     }
@@ -68,7 +69,7 @@ struct TrackerAvatarEntranceTests {
             fail("a valid entrance should build")
         }
         expect(entrance.steps == 4, "the entrance has its four ticks")
-        expect(abs(entrance.seconds - 4 * MotionTick.seconds) < 1e-9, "the entrance lasts its ticks, got \(entrance.seconds)")
+        expect(abs(entrance.seconds - 4 * TrackerAvatarEntrance.playbackTickSeconds) < 1e-9, "the entrance lasts its ticks at the playback speed, got \(entrance.seconds)")
         expect(entrance.origin == .init(x: 1, y: -2), "the effects' origin is kept")
         expect(entrance.parts.map(\.name) == ["figure"], "the parts are kept in name order")
         expect(entrance.parts[0].steps[1]?.dy == -4 && entrance.parts[0].steps[1]?.window?.y1 == 94, "a step keeps its offset and window")
@@ -84,11 +85,33 @@ struct TrackerAvatarEntranceTests {
         ) else {
             fail("a three-tick entrance should build")
         }
+        let tick = TrackerAvatarEntrance.playbackTickSeconds
         expect(entrance.index(at: -0.01) == nil, "nothing shows before the entrance starts")
         expect(entrance.index(at: 0) == 0, "the first tick is at 0")
-        expect(entrance.index(at: MotionTick.seconds) == 1, "the second tick starts one tick in, despite the division's rounding")
-        expect(entrance.index(at: 2 * MotionTick.seconds + 0.01) == 2, "the last tick holds to the end")
-        expect(entrance.index(at: 3 * MotionTick.seconds) == nil, "the entrance is over once its last tick has run")
+        expect(entrance.index(at: tick) == 1, "the second tick starts one playback tick in, despite the division's rounding")
+        expect(entrance.index(at: 2 * tick + 0.001) == 2, "the last tick holds to the end")
+        expect(entrance.index(at: 3 * tick) == nil, "the entrance is over once its last tick has run")
+    }
+
+    /// The same file reads at the playback speed the app plays avatars at: its tick is the authored one divided by the speed, so the entrance
+    /// is shorter and each tick comes sooner than at speed 1.
+    private static func anEntrancePlaysAtThePlaybackSpeed() {
+        let rest = TrackerAvatarEntrance.Step(image: nil, dx: 0, dy: 0, window: nil)
+        func entrance(speed: Double) throws -> TrackerAvatarEntrance {
+            try TrackerAvatarEntrance(tick: MotionTick.seconds, origin: .init(x: 0, y: 0),
+                                      parts: [.init(name: "figure", steps: [nil, rest])],
+                                      behind: [nil, nil], front: [nil, nil], speed: speed)
+        }
+        guard let authored = try? entrance(speed: 1), let played = try? entrance(speed: TrackerAvatarAnimation.playbackSpeed) else {
+            fail("a two-tick entrance should read at speed 1 and at the playback speed")
+        }
+        expect(abs(authored.tickSeconds - MotionTick.seconds) < 1e-9, "at speed 1 a tick is the authored 0.05 s, got \(authored.tickSeconds)")
+        expect(abs(played.tickSeconds - MotionTick.seconds / TrackerAvatarAnimation.playbackSpeed) < 1e-9,
+               "at the playback speed a tick is the authored tick divided by it, got \(played.tickSeconds)")
+        expect(played.seconds < authored.seconds, "the entrance is shorter at the playback speed")
+        expect(authored.index(at: 0.045) == 0 && played.index(at: 0.045) == 1,
+               "a tick sooner than the authored 0.05 s shows the next frame at the playback speed only")
+        expect((try? entrance(speed: 0)) == nil, "a speed of zero reads no entrance")
     }
 
     private static func anEntranceRejectsAShapeItCannotPlay() {

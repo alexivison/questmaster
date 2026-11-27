@@ -24,8 +24,8 @@ public enum MotionStep: Equatable, Sendable {
     }
 }
 
-/// The clock a stepped motion ticks on: a familiar's entrance plays its frames one tick each, and the company's slide re-places its row on
-/// each tick. 0.05 s, the tick the entrance art is authored on.
+/// The authored clock a stepped motion ticks on: a familiar's entrance art has one frame per tick, and it plays at the avatar's playback speed
+/// (`TrackerAvatarEntrance.playbackTickSeconds`), like every other avatar animation. 0.05 s, the tick the art is authored on.
 public enum MotionTick {
     public static let seconds: TimeInterval = 0.05
 }

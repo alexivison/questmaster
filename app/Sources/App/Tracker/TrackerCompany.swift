@@ -204,7 +204,7 @@ final class TrackerCompanyStage {
         overflowPortrait = overflow > 0 ? SessionClass(id: master.sessionClass).map(SessionPortrait.familiar) : nil
         // A slide or an entrance re-places the row each tick until it has played.
         if entrance.isActive(at: now) {
-            nextChange = min(nextChange ?? .infinity, now + MotionTick.seconds)
+            nextChange = min(nextChange ?? .infinity, now + TrackerAvatarEntrance.playbackTickSeconds)
         }
         scheduleWake(at: nextChange)
     }

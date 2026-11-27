@@ -689,7 +689,7 @@ enum RenderPreview {
             let folder = "\(outputDir)/entrance-frames/\(classID)"
             try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
             for frame in 0...40 {
-                guard let shot = familiarEntranceShot(classID: classID, before: 3, after: 4, at: TimeInterval(frame) * MotionTick.seconds) else {
+                guard let shot = familiarEntranceShot(classID: classID, before: 3, after: 4, at: TimeInterval(frame) * TrackerAvatarEntrance.playbackTickSeconds) else {
                     continue
                 }
                 masterSheetWritePNG(shot, to: "\(folder)/\(String(format: "%03d", frame)).png")

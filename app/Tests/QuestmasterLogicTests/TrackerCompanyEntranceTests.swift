@@ -5,6 +5,7 @@ import QuestmasterCore
 /// nothing (a size change, a departure, an overflow worker, Reduce Motion), and the name that waits for the entrance.
 struct TrackerCompanyEntranceTests {
     static func run() {
+        theEntranceDelayIsTwoPlaybackTicks()
         theFirstCompanyIsTheBaseline()
         aMasterSwitchIsTheBaselineToo()
         aJoinWaitsForTheGapThenEnters()
@@ -48,6 +49,14 @@ struct TrackerCompanyEntranceTests {
         var entrance = TrackerCompanyEntrance()
         observe(&entrance, live: ["a"], shown: [placed("a", 10)], at: now)
         return entrance
+    }
+
+    /// The newcomer's delay is two avatar ticks at the playback speed, so it stays in step with the entrance it precedes.
+    private static func theEntranceDelayIsTwoPlaybackTicks() {
+        expect(abs(TrackerCompanyEntrance.entranceDelay - 2 * TrackerAvatarEntrance.playbackTickSeconds) < 1e-9,
+               "the entrance delay is two playback ticks, got \(TrackerCompanyEntrance.entranceDelay)")
+        expect(abs(TrackerAvatarEntrance.playbackTickSeconds - MotionTick.seconds / TrackerAvatarAnimation.playbackSpeed) < 1e-9,
+               "the playback tick is the authored tick divided by the playback speed")
     }
 
     private static func theFirstCompanyIsTheBaseline() {
@@ -161,7 +170,7 @@ struct TrackerCompanyEntranceTests {
         observe(&entrance, live: ["a", "b"], shown: [placed("a", 30), placed("b", 60, entrance: 1)], at: 10)
         // The stage observes on every refresh, a tick at a time: the same company later changes nothing.
         observe(&entrance, live: ["a", "b"], shown: [placed("a", 30), placed("b", 60, entrance: 1)], at: 10.2)
-        expect(entering(entrance.phase(of: "b", at: 10.2), at: 0.1), "observing again keeps the entrance where it is")
+        expect(entering(entrance.phase(of: "b", at: 10.2), at: 0.2 - delay), "observing again keeps the entrance where it is")
         expect(entrance.slideLeft(of: "a", at: 10.2) != nil, "observing again keeps the slide in flight")
     }
 
