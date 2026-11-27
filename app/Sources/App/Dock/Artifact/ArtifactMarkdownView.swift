@@ -8,7 +8,7 @@ struct ArtifactMarkdownView: View {
     var artifact: ArtifactReference
     var reloadNonce: Int
 
-    @State private var markdown = ""
+    @State private var markdownPages: [ArtifactMarkdownPage] = []
     @State private var error: String?
     @State private var watcher = ArtifactFileWatcher()
 
@@ -24,7 +24,7 @@ struct ArtifactMarkdownView: View {
                     .background(ScrollerHider(onApply: Self.styleScroll))
                     .textSelection(.enabled)
             } else {
-                Markdown(markdown, baseURL: baseURL, imageBaseURL: baseURL)
+                ArtifactMarkdownContentView(pages: markdownPages, baseURL: baseURL)
                     .markdownTheme(
                         .gitHub.text {
                             FontFamily(GhosttyFontFamily.markdownFamily)
@@ -62,10 +62,11 @@ struct ArtifactMarkdownView: View {
 
     private func load() {
         do {
-            markdown = try String(contentsOf: URL(fileURLWithPath: artifact.path), encoding: .utf8)
+            let markdown = try String(contentsOf: URL(fileURLWithPath: artifact.path), encoding: .utf8)
+            markdownPages = ArtifactMarkdownLayout.pages(from: markdown)
             error = nil
         } catch {
-            markdown = ""
+            markdownPages = []
             self.error = error.localizedDescription
         }
     }
@@ -77,6 +78,22 @@ struct ArtifactMarkdownView: View {
         scrollView.contentView.drawsBackground = false
         scrollView.contentView.backgroundColor = .clear
         hideScroller(on: scrollView)
+    }
+}
+
+struct ArtifactMarkdownContentView: View {
+    var pages: [ArtifactMarkdownPage]
+    var baseURL: URL
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(pages) { page in
+                Markdown(page.markdown, baseURL: baseURL, imageBaseURL: baseURL)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(.top, page.topSpacing)
+                    .id(page.id)
+            }
+        }
     }
 }
 
