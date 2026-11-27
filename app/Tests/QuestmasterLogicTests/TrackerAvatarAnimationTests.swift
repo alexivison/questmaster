@@ -748,11 +748,11 @@ struct TrackerAvatarAnimationTests {
                "the legacy still eye shorthand should remain available")
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f8.png", "the wizard should resume from its authored rest frame")
         expect(animation.idle?.breathing?.frames.map(\.file) == [
-            "01-idle-breath-f1.png", "01-idle-breath-f2.png", "01-idle-breath-f3.png",
-            "01-idle-breath-f6.png", "01-idle-breath-f7.png", "01-idle-breath-f8.png",
-        ], "the wizard should keep the sparse authored frame names")
+            "01-idle-breath-f1.png", "01-idle-breath-f9.png", "01-idle-breath-f2.png", "01-idle-breath-f10.png", "01-idle-breath-f3.png",
+            "01-idle-breath-f6.png", "01-idle-breath-f11.png", "01-idle-breath-f7.png", "01-idle-breath-f12.png", "01-idle-breath-f8.png",
+        ], "the wizard should play its keyed breathing frames in order")
         expect(animation.fidgets.map(\.name) == ["hood", "staff-tap"], "fidgets should come in name order")
-        expect(animation.fidgets.first?.track.steps.map(\.frame) == Array(2...9), "the hood should play idle frames 2 to 9")
+        expect(animation.fidgets.first?.track.steps.map(\.frame) == [1] + Array(18...31), "the hood should play idle frame 1, then frames 18 to 31")
         let pondering = animation.animation(for: .pondering)
         expect(pondering?.footRow == 179 && pondering?.bodyColumn == 36, "pondering should stand at the wizard's foot row and body column (its canvas is padded 21 rows on top for the constellation)")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the wizard's summoning should have a ground effect")
@@ -814,7 +814,7 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.breathing?.frames.count == 9, "the cleric's breathing should play its nine authored steps")
         expect(abs((animation.idle?.breathing?.period ?? 0) - 1.2) < 1e-9, "the cleric's breath should last 1.2 s, a pose loop's length")
         expect(animation.fidgets.map(\.name) == ["capelet", "circlet"], "the cleric should have the capelet and circlet fidgets")
-        expect(animation.fidgets.first(where: { $0.name == "circlet" })?.frames == [2, 3, 4, 5, 6, 7, 8, 9], "the circlet should play idle frames 2 to 9")
+        expect(animation.fidgets.first(where: { $0.name == "circlet" })?.frames == Array(37...55), "the circlet should play idle frames 37 to 55")
         let pondering = animation.animation(for: .pondering)
         expect(pondering?.footRow == 202 && pondering?.bodyColumn == 76, "pondering should stand at the cleric's foot row and body column")
         expect(animation.animation(for: .callingOut)?.footRow == 202, "calling out should stand at the cleric's foot row")
@@ -848,7 +848,7 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.breathing?.frames.count == 8, "the sorcerer's breathing should play its 8 authored steps")
         expect(animation.idle?.breathing?.frames.allSatisfy { !$0.lidPixels.isEmpty } == true, "every breathing frame should carry a blink stencil")
         expect(animation.fidgets.map(\.name) == ["hair-flick"], "the sorcerer should have the hair-flick fidget")
-        expect(animation.fidgets.first?.frames == Array(2...13), "the hair flick should play idle frames 2 to 13")
+        expect(animation.fidgets.first?.frames == Array(2...19), "the hair flick should play idle frames 2 to 19")
         let idle = animation.animation(for: .idle)
         expect(idle?.footRow == 162 && idle?.bodyColumn == 50, "idle should stand at the sorcerer's foot row and body column")
         let channelling = animation.animation(for: .channelling)
@@ -928,9 +928,9 @@ struct TrackerAvatarAnimationTests {
         expect(animation.idle?.blink == false, "the necromancer should never blink")
         expect(animation.idle?.lidColour == TrackerAvatarColour(rgb: 0x4b5c67), "the necromancer should keep the eyelid colour")
         expect(animation.idle?.breathing?.resumeFrame == "01-idle-breath-f7.png", "the necromancer should resume at the authored rest frame")
-        expect(animation.idle?.breathing?.frames.count == 7, "the necromancer's breathing should play its 7 authored steps")
+        expect(animation.idle?.breathing?.frames.count == 9, "the necromancer's breathing should play its 9 authored steps")
         expect(animation.fidgets.map(\.name) == ["cough"], "the necromancer should have the cough fidget")
-        expect(animation.fidgets.first?.frames == [2, 3, 4, 5, 6, 7, 8, 9], "the cough should play idle frames 2 to 9")
+        expect(animation.fidgets.first?.frames == [1] + Array(26...41), "the cough should play idle frame 1, then frames 26 to 41")
         let pondering = animation.animation(for: .pondering)
         expect(pondering?.footRow == 162 && pondering?.bodyColumn == 33, "pondering should stand at the necromancer's foot row and body column")
         let calling = animation.animation(for: .callingOut)
