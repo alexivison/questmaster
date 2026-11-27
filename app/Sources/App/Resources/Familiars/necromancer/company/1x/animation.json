@@ -681,5 +681,157 @@
         0.1
       ]
     ]
+  },
+  "entrance": {
+    "tick": 0.05,
+    "origin": [
+      0,
+      0
+    ],
+    "parts": {
+      "figure": [
+        null,
+        null,
+        {
+          "dy": 116,
+          "rect": [
+            0,
+            65,
+            309,
+            90
+          ]
+        },
+        {
+          "dy": 116,
+          "rect": [
+            0,
+            65,
+            309,
+            90
+          ]
+        },
+        {
+          "dy": 88,
+          "rect": [
+            0,
+            65,
+            309,
+            118
+          ]
+        },
+        {
+          "dy": 88,
+          "rect": [
+            0,
+            65,
+            309,
+            118
+          ]
+        },
+        {
+          "dy": 60,
+          "rect": [
+            0,
+            65,
+            309,
+            146
+          ]
+        },
+        {
+          "dy": 60,
+          "rect": [
+            0,
+            65,
+            309,
+            146
+          ]
+        },
+        {
+          "dy": 32,
+          "rect": [
+            0,
+            65,
+            309,
+            174
+          ]
+        },
+        {
+          "dy": 32,
+          "rect": [
+            0,
+            65,
+            309,
+            174
+          ]
+        },
+        {
+          "rect": [
+            0,
+            65,
+            309,
+            210
+          ]
+        },
+        {
+          "rect": [
+            0,
+            65,
+            309,
+            210
+          ]
+        },
+        {
+          "rect": [
+            0,
+            65,
+            309,
+            210
+          ]
+        },
+        {
+          "rect": [
+            0,
+            65,
+            309,
+            210
+          ]
+        },
+        {}
+      ]
+    },
+    "behind": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "front": [
+      "entrance-front-f1.png",
+      "entrance-front-f2.png",
+      "entrance-front-f3.png",
+      "entrance-front-f4.png",
+      "entrance-front-f5.png",
+      "entrance-front-f6.png",
+      "entrance-front-f7.png",
+      "entrance-front-f8.png",
+      "entrance-front-f9.png",
+      "entrance-front-f10.png",
+      "entrance-front-f11.png",
+      "entrance-front-f12.png",
+      "entrance-front-f13.png",
+      "entrance-front-f14.png",
+      null
+    ]
   }
 }

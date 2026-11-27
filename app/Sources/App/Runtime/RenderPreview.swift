@@ -117,6 +117,7 @@ enum RenderPreview {
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
         masterScaleSheet(outputDir)
         familiarEffectsSheet(outputDir)
+        familiarEntranceSheet(outputDir)
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(trackerEmptyView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-empty.png")
@@ -660,6 +661,97 @@ enum RenderPreview {
         }
         masterSheetWriteSheet(cells, columns: 4, to: "\(outputDir)/familiar-effects-sheet.png", legend: "Each cell: a round-2 familiar alone in the worker slot at the frame where its art covers the most area. The last cell is a Fire Elemental company.")
     }
+
+    /// Each familiar's entrance in its company, as a strip of key ticks: a company of three, then the fourth worker joins, the row slides to
+    /// its new places as the gap opens and the newcomer's entrance plays. The Necromancer's row adds a fifth worker, which moves its company
+    /// from 1.5x to 1.25x. Named by RENDER_ONLY=familiar-entrance-sheet; writes `familiar-entrance-sheet.png`, and with it every tick of each
+    /// class's join (0.05 s apart, from the join to 2 s) as `entrance-frames/<class>/NNN.png` for the light review page.
+    @MainActor
+    private static func familiarEntranceSheet(_ outputDir: String) {
+        guard ProcessInfo.processInfo.environment["RENDER_ONLY"]?.split(separator: ",").contains("familiar-entrance-sheet") == true else {
+            return
+        }
+        warmUpFirstWindow()
+        let ticks: [TimeInterval] = [0, 0.1, 0.2, 0.3, 0.45, 0.7, 1.0, 2.0]
+        var rows: [(classID: String, before: Int, after: Int)] = familiarEntranceClasses.map { (classID: $0, before: 3, after: 4) }
+        rows.append((classID: "necromancer", before: 4, after: 5))
+        var cells: [(label: String, image: CGImage, guides: [CGFloat])] = []
+        for row in rows {
+            for tick in ticks {
+                guard let shot = familiarEntranceShot(classID: row.classID, before: row.before, after: row.after, at: tick) else {
+                    print("FAMILIAR-ENTRANCE \(row.classID) \(row.before)->\(row.after) +\(tick): no shot")
+                    continue
+                }
+                cells.append(("\(row.classID) \(row.before)→\(row.after) · +\(tick)s", shot, []))
+            }
+        }
+        for classID in familiarEntranceClasses {
+            let folder = "\(outputDir)/entrance-frames/\(classID)"
+            try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+            for frame in 0...40 {
+                guard let shot = familiarEntranceShot(classID: classID, before: 3, after: 4, at: TimeInterval(frame) * TrackerAvatarEntrance.playbackTickSeconds) else {
+                    continue
+                }
+                masterSheetWritePNG(shot, to: "\(folder)/\(String(format: "%03d", frame)).png")
+            }
+        }
+        masterSheetWriteSheet(cells, columns: ticks.count, to: "\(outputDir)/familiar-entrance-sheet.png",
+                              legend: "Each row: a company of three, then the fourth worker joins at +0 s (the row slides as the gap opens, and the newcomer's entrance starts at +0.1 s). The Necromancer's row adds a fifth worker, which moves its company from 1.5x to 1.25x.")
+    }
+
+    /// The classes whose familiars have entrances, in the order the strip lists them.
+    private static let familiarEntranceClasses = ["barbarian", "bard", "cleric", "druid", "fighter", "necromancer", "paladin", "ranger", "rogue", "sorcerer", "wizard"]
+
+    /// One master's company `tick` seconds after its newest worker joins: `before` workers, then `after` (the newest joining at time zero of the
+    /// strip). The companies' clock is set by hand, so each cell shows the state at its tick. Cropped to the familiars' band at 2x.
+    @MainActor
+    private static func familiarEntranceShot(classID: String, before: Int, after: Int, at tick: TimeInterval) -> CGImage? {
+        var now: TimeInterval = 0
+        let clock: () -> TimeInterval = { now }
+        let master = try! testFixtureRow(["id": "qm-m", "title": classID, "session_type": "master", "class": classID, "state": "idle"])
+        let workers = { (count: Int) in
+            (0..<count).map { index -> TrackerSession in
+                try! testFixtureRow(["id": "qm-w\(index)", "title": "Worker \(index)", "session_type": "worker", "parent_id": "qm-m",
+                                     "class": classID, "state": "idle"])
+            }
+        }
+        let avatar = TrackerAvatarStage(clock: clock)
+        let company = TrackerCompanyStage(clock: clock)
+        let previous = [master] + workers(before)
+        let current = [master] + workers(after)
+        avatar.observe(sessions: previous, attachedID: "qm-m")
+        company.observe(sessions: previous, attachedID: "qm-m")
+        now = 10
+        avatar.observe(sessions: current, attachedID: "qm-m")
+        company.observe(sessions: current, attachedID: "qm-m")
+        now = 10 + tick
+        company.observe(sessions: current, attachedID: "qm-m")
+
+        let slot = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let margin = familiarSheetMargin
+        let host = NSHostingView(rootView: TrackerCompanySlot(avatar: avatar, company: company))
+        host.frame = NSRect(x: margin, y: margin, width: slot.width, height: slot.height)
+        let container = NSView(frame: NSRect(origin: .zero, size: CGSize(width: slot.width + 2 * margin, height: slot.height + 2 * margin)))
+        container.wantsLayer = true
+        container.layer?.backgroundColor = AppPalette.window.cgColor
+        container.addSubview(host)
+        let window = HeadlessWindow(size: container.frame.size, scale: 2)
+        window.contentView = container
+        window.show()
+        defer { window.orderOut(nil) }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        guard let whole = masterSheetCapture(container) else {
+            return nil
+        }
+        // The familiars stand in the slot's bottom band: crop to it, from the slot's left edge, at the capture's scale.
+        let scale = CGFloat(whole.width) / container.frame.width
+        let band = CGRect(x: margin * scale, y: (container.frame.height - margin - familiarBandHeight) * scale,
+                          width: slot.width * scale, height: familiarBandHeight * scale)
+        return whole.cropping(to: band)
+    }
+
+    /// The part of the slot the familiars stand in, from its baseline up, in points: a familiar's figure is well under it.
+    private static let familiarBandHeight: CGFloat = 150
 
     /// One familiar alone in the worker slot at `pose`, sampled over the pose for the frame where its visible art covers the most area.
     @MainActor

@@ -693,5 +693,72 @@
         }
       ]
     }
+  },
+  "entrance": {
+    "tick": 0.05,
+    "origin": [
+      0,
+      0
+    ],
+    "parts": {
+      "figure": [
+        {
+          "image": "entrance-dither-f1.png",
+          "dx": -92
+        },
+        {
+          "image": "entrance-dither-f2.png",
+          "dx": -62
+        },
+        {
+          "dx": -40
+        },
+        {
+          "dx": -24
+        },
+        {
+          "dx": -12
+        },
+        {
+          "dx": -4
+        },
+        {
+          "dx": -2
+        },
+        {},
+        {},
+        {},
+        {},
+        {}
+      ]
+    },
+    "behind": [
+      "entrance-behind-f1.png",
+      "entrance-behind-f2.png",
+      "entrance-behind-f3.png",
+      "entrance-behind-f4.png",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "front": [
+      "entrance-front-f1.png",
+      "entrance-front-f2.png",
+      "entrance-front-f3.png",
+      "entrance-front-f4.png",
+      "entrance-front-f5.png",
+      "entrance-front-f6.png",
+      "entrance-front-f7.png",
+      "entrance-front-f8.png",
+      "entrance-front-f9.png",
+      "entrance-front-f10.png",
+      "entrance-front-f11.png",
+      null
+    ]
   }
 }

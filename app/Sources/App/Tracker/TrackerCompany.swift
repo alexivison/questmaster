@@ -28,6 +28,10 @@ final class TrackerCompanyStage {
         let beat: Int
         let finish: TimeInterval?
         let enter: TimeInterval?
+        /// How far into its entrance the familiar is, while it plays; the entrance draws in place of the pose.
+        let entrance: TimeInterval?
+        /// Whether the familiar is joining: its entrance is still to play or playing, so its name waits for it.
+        let entering: Bool
     }
 
     /// One familiar's name over its head: the chip's text, its left edge and width, its bottom edge above the slot's baseline, and the stem
@@ -70,6 +74,8 @@ final class TrackerCompanyStage {
     @ObservationIgnored private let art: [TrackerAvatarArtKey: TrackerAvatarSprites]
     @ObservationIgnored private let companionArt: [String: [TrackerAvatarSprites]]
     @ObservationIgnored private var directors: [String: TrackerAvatarDirector] = [:]
+    /// Which familiars join the company and where each row slide and entrance stands (Core). Its baseline is the company as first seen.
+    @ObservationIgnored private var entrance = TrackerCompanyEntrance()
     @ObservationIgnored private var latest: (sessions: [TrackerSession], attachedID: String?) = ([], nil)
     @ObservationIgnored private let clock: () -> TimeInterval
     @ObservationIgnored private var wakeTimer: Timer?
@@ -132,6 +138,15 @@ final class TrackerCompanyStage {
             count: familiars.count, row: row, restWidth: Double(size.restWidth(pixel: pixel)),
             slotWidth: Double(TrackerAvatarMetrics.slotWidth)
         )
+        // The familiars on the row, with the seconds their entrances play. A join slides the row and starts the newcomers' entrances.
+        let placed = layout.familiars.map { placed in
+            TrackerCompanyEntrance.Placed(
+                id: familiars[placed.index].id,
+                left: placed.left,
+                entranceSeconds: size.animation.entrance?.seconds
+            )
+        }
+        entrance.observe(master: master.id, live: familiars.map { $0.id }, shown: placed, at: now, animated: !Motion.reducesMotion())
         var stepped: [String: TrackerAvatarDirector] = [:]
         var frames: [String: TrackerAvatarFrame] = [:]
         var nextChange: TimeInterval?
@@ -151,9 +166,16 @@ final class TrackerCompanyStage {
         companions = layout.familiars.map { placed in
             let entry = familiars[placed.index]
             let frame = frames[entry.id]
-            // Its rest's left edge stands on the layout's `left`: the body column sits the rest's offset to the right of that edge.
-            let bodyX = Self.halfPoint(placed.left - Self.restOffset(of: size) * Double(pixel))
+            let phase = entrance.phase(of: entry.id, at: now)
+            // A row that is sliding stands at its slide's left edge; otherwise at its laid-out place. Its rest's left edge stands there: the
+            // body column sits the rest's offset to the right of that edge.
+            let left = entrance.slideLeft(of: entry.id, at: now) ?? placed.left
+            let bodyX = Self.halfPoint(left - Self.restOffset(of: size) * Double(pixel))
             let drop = Self.halfPoint(Self.drop(of: size, pixel: Double(pixel)))
+            var elapsed: TimeInterval?
+            if case .entering(let seconds)? = phase {
+                elapsed = seconds
+            }
             return Companion(
                 id: entry.id,
                 title: entry.title,
@@ -162,10 +184,13 @@ final class TrackerCompanyStage {
                 pixel: pixel,
                 bodyX: CGFloat(bodyX),
                 drop: CGFloat(drop),
-                pose: frame?.pose,
+                // A newcomer waiting for the gap to open shows nothing yet.
+                pose: phase == .waiting ? nil : frame?.pose,
                 beat: frame?.beat ?? 0,
                 finish: frame?.finishElapsed,
-                enter: frame?.enterElapsed
+                enter: frame?.enterElapsed,
+                entrance: elapsed,
+                entering: phase != nil
             )
         }
         // The hovered familiar leaves when it is no longer on the row, so a worker that comes back is not shown as hovered.
@@ -177,10 +202,15 @@ final class TrackerCompanyStage {
         hoverAreas = companions.map(Self.hoverArea(of:))
         overflow = layout.overflow
         overflowPortrait = overflow > 0 ? SessionClass(id: master.sessionClass).map(SessionPortrait.familiar) : nil
+        // A slide or an entrance re-places the row each tick until it has played.
+        if entrance.isActive(at: now) {
+            nextChange = min(nextChange ?? .infinity, now + TrackerAvatarEntrance.playbackTickSeconds)
+        }
         scheduleWake(at: nextChange)
     }
 
     private func clear() {
+        entrance.observe(master: nil, live: [], shown: [], at: clock(), animated: true)
         companions = []
         nameTags = []
         hoverAreas = []
@@ -233,7 +263,7 @@ final class TrackerCompanyStage {
                 centre: Double(companion.bodyX) + restCentreOffset(of: companion.sprites) * Double(companion.pixel),
                 headTop: -TrackerCompanyLayout.belowFeet + restHeight(of: companion.sprites) * Double(companion.pixel),
                 visibility: TrackerCompanyNameTags.visibility(status: companion.status, hovered: companion.id == hovered,
-                                                              familiarCount: familiarCount)
+                                                              familiarCount: familiarCount, entering: companion.entering)
             )
         }
         let placements = TrackerCompanyNameTags.place(tags, face: faceBox(master: master, slotWidth: slotWidth), slotWidth: slotWidth) {
@@ -379,6 +409,7 @@ struct TrackerCompanySlot: View {
                     beat: companion.beat,
                     finish: companion.finish,
                     enter: companion.enter,
+                    entrance: companion.entrance,
                     scale: companion.pixel
                 )
                 .offset(x: companion.bodyX - TrackerAvatarMetrics.slotWidth / 2, y: companion.drop)

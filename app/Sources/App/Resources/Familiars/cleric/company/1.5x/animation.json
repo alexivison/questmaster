@@ -865,5 +865,70 @@
         0.1
       ]
     ]
+  },
+  "entrance": {
+    "tick": 0.05,
+    "origin": [
+      0,
+      0
+    ],
+    "parts": {
+      "figure": [
+        null,
+        null,
+        {
+          "image": "entrance-dither-f1.png"
+        },
+        {
+          "image": "entrance-dither-f2.png"
+        },
+        {
+          "image": "entrance-gather-f1.png"
+        },
+        {
+          "image": "entrance-gather-f2.png"
+        },
+        {
+          "image": "entrance-gather-f3.png"
+        },
+        {
+          "image": "entrance-gather-f4.png"
+        },
+        {
+          "image": "entrance-dither-f3.png"
+        },
+        {},
+        {},
+        {}
+      ]
+    },
+    "behind": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "front": [
+      "entrance-front-f1.png",
+      "entrance-front-f2.png",
+      "entrance-front-f3.png",
+      "entrance-front-f4.png",
+      "entrance-front-f5.png",
+      "entrance-front-f6.png",
+      "entrance-front-f7.png",
+      "entrance-front-f8.png",
+      "entrance-front-f9.png",
+      "entrance-front-f10.png",
+      "entrance-front-f11.png",
+      null
+    ]
   }
 }

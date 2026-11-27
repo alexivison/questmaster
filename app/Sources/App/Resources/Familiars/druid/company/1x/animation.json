@@ -681,5 +681,156 @@
         0.1
       ]
     ]
+  },
+  "entrance": {
+    "tick": 0.05,
+    "origin": [
+      0,
+      0
+    ],
+    "parts": {
+      "figure": [
+        null,
+        {
+          "rect": [
+            0,
+            150,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            150,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            114,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            114,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            80,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            80,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            46,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            46,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            22,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            22,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            22,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            22,
+            242,
+            164
+          ]
+        },
+        {
+          "rect": [
+            0,
+            22,
+            242,
+            164
+          ]
+        },
+        {}
+      ]
+    },
+    "behind": [
+      null,
+      null,
+      null,
+      "entrance-behind-f1.png",
+      "entrance-behind-f2.png",
+      "entrance-behind-f3.png",
+      "entrance-behind-f4.png",
+      "entrance-behind-f5.png",
+      "entrance-behind-f6.png",
+      "entrance-behind-f7.png",
+      "entrance-behind-f8.png",
+      "entrance-behind-f9.png",
+      "entrance-behind-f10.png",
+      "entrance-behind-f11.png",
+      null
+    ],
+    "front": [
+      "entrance-front-f1.png",
+      "entrance-front-f2.png",
+      "entrance-front-f3.png",
+      "entrance-front-f4.png",
+      "entrance-front-f5.png",
+      "entrance-front-f6.png",
+      "entrance-front-f7.png",
+      "entrance-front-f8.png",
+      "entrance-front-f9.png",
+      "entrance-front-f10.png",
+      "entrance-front-f11.png",
+      "entrance-front-f12.png",
+      "entrance-front-f13.png",
+      "entrance-front-f14.png",
+      null
+    ]
   }
 }

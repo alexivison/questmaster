@@ -703,5 +703,56 @@
         }
       ]
     }
+  },
+  "entrance": {
+    "tick": 0.05,
+    "origin": [
+      0,
+      0
+    ],
+    "parts": {
+      "figure": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        {}
+      ]
+    },
+    "behind": [
+      "entrance-behind-f1.png",
+      "entrance-behind-f2.png",
+      "entrance-behind-f3.png",
+      "entrance-behind-f4.png",
+      "entrance-behind-f5.png",
+      "entrance-behind-f6.png",
+      "entrance-behind-f7.png",
+      "entrance-behind-f8.png",
+      "entrance-behind-f9.png",
+      "entrance-behind-f10.png",
+      "entrance-behind-f11.png",
+      null
+    ],
+    "front": [
+      "entrance-front-f1.png",
+      "entrance-front-f2.png",
+      "entrance-front-f3.png",
+      "entrance-front-f4.png",
+      "entrance-front-f5.png",
+      "entrance-front-f6.png",
+      "entrance-front-f3.png",
+      "entrance-front-f4.png",
+      "entrance-front-f5.png",
+      "entrance-front-f6.png",
+      null,
+      null
+    ]
   }
 }

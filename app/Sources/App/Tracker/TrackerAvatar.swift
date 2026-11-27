@@ -266,6 +266,12 @@ final class TrackerAvatarSprites {
         frame(.idle, .character, number)
     }
 
+    /// A company size's entrance PNG in its folder, named as the file names it; nil while it is missing. Its figure parts carry the outline,
+    /// and its effect layers stand bare, as the frames do.
+    func entranceImage(_ file: String) -> CGImage? {
+        image(named: URL(fileURLWithPath: file).deletingPathExtension().lastPathComponent)
+    }
+
     /// The authored breathing PNG, named independently of the fidget frame sequence.
     func idleBreathingFrame(_ file: String) -> CGImage? {
         image(named: URL(fileURLWithPath: file).deletingPathExtension().lastPathComponent)
@@ -554,11 +560,13 @@ struct TrackerAvatarSlot: View {
     var beat = 0
     var finish: TimeInterval?
     var enter: TimeInterval?
+    /// How far into a familiar's entrance in its company it is, while it plays. The entrance draws in place of the pose.
+    var entrance: TimeInterval?
     /// Points a sprite pixel draws at, or nil for the sprites' own (a class's pixel, or a familiar's in the attached slot).
     var scale: CGFloat?
 
     var body: some View {
-        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish, enter: enter, scale: scale)
+        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish, enter: enter, entrance: entrance, scale: scale)
             .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
     }
 }
@@ -571,6 +579,7 @@ struct TrackerAvatar: NSViewRepresentable {
     var beat = 0
     var finish: TimeInterval?
     var enter: TimeInterval?
+    var entrance: TimeInterval?
     /// Points a sprite pixel draws at, or nil for the sprites' own.
     var scale: CGFloat?
 
@@ -581,7 +590,7 @@ struct TrackerAvatar: NSViewRepresentable {
     func updateNSView(_ view: TrackerAvatarView, context: Context) {
         view.sprites = sprites
         view.scale = scale ?? sprites?.pixelPoints ?? TrackerAvatarDesign.pixelPoints
-        view.configure(pose: pose, fidget: fidget, beat: beat, finish: finish, enter: enter, reduceMotion: Motion.reducesMotion())
+        view.configure(pose: pose, fidget: fidget, beat: beat, finish: finish, enter: enter, entrance: entrance, reduceMotion: Motion.reducesMotion())
     }
 }
 
@@ -622,7 +631,7 @@ protocol TrackerAvatarPoseRig: AnyObject {
 }
 
 @MainActor
-fileprivate extension TrackerAvatarPoseRig {
+extension TrackerAvatarPoseRig {
     /// Frames the sprite (`pixels` on its canvas) with its body centre column (`bodyColumn`) on the centre column of `bounds`,
     /// and its feet (`footRow`) on the baseline at the bottom edge. Rows below the feet hang under the baseline. Both positions
     /// are multiples of half a point, so every art pixel edge falls on a whole device pixel at 2x (a class's 1.5 pt pixel is three of them).
@@ -1068,6 +1077,8 @@ final class TrackerAvatarView: NSView {
     private enum RigKey: Hashable {
         case pose(TrackerAvatarPose)
         case fidget
+        /// A familiar's entrance in its company, drawn in place of its pose while it plays.
+        case entrance
     }
 
     /// The class's sprites the rigs draw from. A different class drops the rigs, which are built again from the new sprites.
@@ -1130,9 +1141,13 @@ final class TrackerAvatarView: NSView {
     /// has risen on the same pose, starts that pose's one-shot again from its lead-in. A `finish` (how far into the pose's finish
     /// it is) holds the pose's loop still while it shows. An `enter` (how far into the pose's enter it is) plays in place of the loop
     /// until it has run, and then the loop starts from its first frame.
-    func configure(pose: TrackerAvatarPose?, fidget: Int? = nil, beat: Int, finish: TimeInterval?, enter: TimeInterval? = nil, reduceMotion: Bool) {
+    /// While `entrance` names how far into a familiar's entrance it is, the entrance shows in place of `pose` (its art has no entrance: the pose
+    /// shows as before). Nothing shows for a nil `pose` with no entrance.
+    func configure(pose: TrackerAvatarPose?, fidget: Int? = nil, beat: Int, finish: TimeInterval?, enter: TimeInterval? = nil,
+                   entrance: TimeInterval? = nil, reduceMotion: Bool) {
         self.reduceMotion = reduceMotion
-        let key = Self.key(pose: pose, fidget: fidget)
+        let playsEntrance = entrance != nil && sprites?.animation.entrance != nil
+        let key = playsEntrance ? RigKey.entrance : Self.key(pose: pose, fidget: fidget)
         if key != shownKey {
             show(key)
         } else if beat != self.beat {
@@ -1140,6 +1155,9 @@ final class TrackerAvatarView: NSView {
         }
         if let fidget, let rig = shown as? TrackerAvatarFidgetRig {
             rig.show(frame: fidget)
+        }
+        if let entrance, playsEntrance, let rig = shown as? TrackerAvatarEntranceRig {
+            rig.show(elapsed: entrance)
         }
         self.beat = beat
         self.finish = finish
@@ -1208,6 +1226,11 @@ final class TrackerAvatarView: NSView {
                 return nil
             }
             return TrackerAvatarFidgetRig(placement: placement, sprites: sprites)
+        case .entrance:
+            guard let entrance = sprites.animation.entrance else {
+                return nil
+            }
+            return TrackerAvatarEntranceRig(entrance: entrance, sprites: sprites)
         case .pose(let pose):
             guard let placement = sprites.animation.animation(for: pose) else {
                 return nil
@@ -1277,6 +1300,7 @@ final class TrackerAvatarView: NSView {
         switch shownKey {
         case .pose(let pose)?: pose
         case .fidget?: .idle
+        case .entrance?: .idle
         case nil: nil
         }
     }
