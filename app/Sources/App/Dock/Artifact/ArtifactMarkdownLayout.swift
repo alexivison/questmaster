@@ -5,6 +5,11 @@ import cmark_gfm_extensions
 
 struct ArtifactMarkdownPage: Identifiable {
     let id: Int
+    let blocks: [ArtifactMarkdownBlock]
+}
+
+struct ArtifactMarkdownBlock: Identifiable {
+    let id: Int
     let markdown: String
     let topSpacing: CGFloat
 }
@@ -14,16 +19,15 @@ enum ArtifactMarkdownLayout {
     private static let pageByteLimit = 1_000
 
     static func pages(from markdown: String) -> [ArtifactMarkdownPage] {
-        // Resolve reference-style links before splitting the document into independent pages.
-        let normalized = MarkdownContent(markdown).renderMarkdown()
-        guard !normalized.isEmpty else { return [] }
-        guard let blocks = topLevelBlocks(in: normalized), !blocks.isEmpty else {
-            return [ArtifactMarkdownPage(id: 0, markdown: normalized, topSpacing: 0)]
+        guard !markdown.isEmpty else { return [] }
+        guard let blocks = topLevelBlocks(in: markdown) else {
+            return [ArtifactMarkdownPage(id: 0, blocks: [ArtifactMarkdownBlock(id: 0, markdown: markdown, topSpacing: 0)])]
         }
+        guard !blocks.isEmpty else { return [] }
 
-        let sourceLines = MarkdownSourceLines(normalized)
+        let sourceLines = MarkdownSourceLines(markdown)
         guard blocks.allSatisfy({ $0.endLine <= sourceLines.count }) else {
-            return [ArtifactMarkdownPage(id: 0, markdown: normalized, topSpacing: 0)]
+            return [ArtifactMarkdownPage(id: 0, blocks: [ArtifactMarkdownBlock(id: 0, markdown: markdown, topSpacing: 0)])]
         }
         var groups: [[MarkdownBlockRange]] = []
         var group: [MarkdownBlockRange] = []
@@ -45,17 +49,20 @@ enum ArtifactMarkdownLayout {
 
         var previousMargins: MarkdownBlockMargins?
         return groups.enumerated().map { index, group in
-            let first = group[0]
-            let last = group[group.count - 1]
-            let source = sourceLines.text(startLine: first.startLine, endLine: last.endLine)
-            let topSpacing = index == 0
-                ? 0
-                : max(previousMargins?.bottom ?? 0, first.margins.top ?? 0)
-            previousMargins = last.margins
             return ArtifactMarkdownPage(
                 id: index,
-                markdown: source,
-                topSpacing: topSpacing
+                blocks: group.enumerated().map { blockIndex, block in
+                    // Match MarkdownUI BlockSequence's collapsed margin between sibling blocks.
+                    let topSpacing = index == 0 && blockIndex == 0
+                        ? 0
+                        : max(previousMargins?.bottom ?? 0, block.margins.top ?? 0)
+                    previousMargins = block.margins
+                    return ArtifactMarkdownBlock(
+                        id: block.startLine,
+                        markdown: block.markdown,
+                        topSpacing: topSpacing
+                    )
+                }
             )
         }
     }
@@ -81,16 +88,41 @@ enum ArtifactMarkdownLayout {
             let startLine = Int(cmark_node_get_start_line(current))
             let endLine = Int(cmark_node_get_end_line(current))
             guard startLine > 0, endLine >= startLine else { return nil }
+            guard let renderedMarkdown = renderStandaloneBlock(current, in: document) else { return nil }
             blocks.append(
                 MarkdownBlockRange(
                     startLine: startLine,
                     endLine: endLine,
-                    margins: margins(of: current)
+                    margins: margins(of: current),
+                    markdown: renderedMarkdown
                 )
             )
             node = cmark_node_next(current)
         }
         return blocks
+    }
+
+    private static func renderStandaloneBlock(
+        _ node: UnsafeMutablePointer<cmark_node>,
+        in document: UnsafeMutablePointer<cmark_node>
+    ) -> String? {
+        // CMark inserts a visible HTML comment between adjacent lists when rendering a whole document.
+        // Render each authored block without its siblings; resolved reference links stay on the AST.
+        let next = cmark_node_next(node)
+        cmark_node_unlink(node)
+        defer {
+            if let next {
+                precondition(cmark_node_insert_before(next, node) != 0)
+            } else {
+                precondition(cmark_node_append_child(document, node) != 0)
+            }
+        }
+
+        guard let rendered = cmark_render_commonmark(node, CMARK_OPT_DEFAULT, 0) else { return nil }
+        defer {
+            cmark_get_default_mem_allocator().pointee.free(UnsafeMutableRawPointer(rendered))
+        }
+        return String(cString: rendered).trimmingCharacters(in: .newlines)
     }
 
     private static func margins(of node: UnsafeMutablePointer<cmark_node>) -> MarkdownBlockMargins {
@@ -129,6 +161,7 @@ private struct MarkdownBlockRange {
     let startLine: Int
     let endLine: Int
     let margins: MarkdownBlockMargins
+    let markdown: String
 }
 
 private struct MarkdownSourceLines {
@@ -151,15 +184,6 @@ private struct MarkdownSourceLines {
         let lower = starts[startLine - 1]
         let upper = endLine < starts.count ? starts[endLine] : source.endIndex
         return source.utf8.distance(from: lower, to: upper)
-    }
-
-    func text(startLine: Int, endLine: Int) -> String {
-        guard startLine > 0, startLine <= starts.count, endLine <= starts.count else { return "" }
-        let lower = starts[startLine - 1]
-        let upper = endLine < starts.count
-            ? source.utf8.index(before: starts[endLine])
-            : source.endIndex
-        return String(source[lower..<upper])
     }
 }
 

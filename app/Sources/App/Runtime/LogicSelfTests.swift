@@ -79,6 +79,7 @@ enum LogicSelfTests {
         ("testArtifactViewerLoadsThePageOnceTheBlockerCompiles", testArtifactViewerLoadsThePageOnceTheBlockerCompiles),
         ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
         ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
+        ("testArtifactMarkdownPreservesListTransitionsAndCrossPageReferences", testArtifactMarkdownPreservesListTransitionsAndCrossPageReferences),
         ("testBoundedProcessDrainsBothPipesPastCapacity", testBoundedProcessDrainsBothPipesPastCapacity),
         ("testBoundedProcessCapsOutput", testBoundedProcessCapsOutput),
         ("testBoundedProcessTimesOutAChildIgnoringTerm", testBoundedProcessTimesOutAChildIgnoringTerm),
@@ -4298,6 +4299,50 @@ enum LogicSelfTests {
         try expect(
             LocalMarkdownImages.fileURL(URL(string: "https://example.com/screenshot.png")) == nil,
             "remote markdown images should not load through the local provider"
+        )
+    }
+
+    private static func testArtifactMarkdownPreservesListTransitionsAndCrossPageReferences() throws {
+        let filler = (0..<8).map { index in
+            "### Section \(index)\n\n" + String(repeating: "Useful report words ", count: 8)
+        }.joined(separator: "\n\n")
+        let markdown = """
+        [See the shared reference][shared]
+
+        3. First
+
+           Second paragraph
+
+           - Nested item
+           - Another item
+
+        4. Last
+
+        - Different list
+
+        \(filler)
+
+        <!-- end list -->
+
+        [shared]: https://example.test/shared "Shared"
+        """
+
+        let pages = ArtifactMarkdownLayout.pages(from: markdown)
+        try expect(pages.count > 1, "the fixture should span multiple lazy pages")
+        let firstListIndex = pages[0].blocks.firstIndex(where: { $0.markdown.contains("First") })
+        let secondListIndex = pages[0].blocks.firstIndex(where: { $0.markdown.contains("Different list") })
+        try expect(
+            firstListIndex.map { $0 + 1 } == secondListIndex,
+            "adjacent ordered and bulleted lists should remain consecutive blocks"
+        )
+        let renderedPages = pages.flatMap(\.blocks).map(\.markdown).joined(separator: "\n\n")
+        try expect(
+            renderedPages.components(separatedBy: "<!-- end list -->").count == 2,
+            "list rendering should not add or strip an authored HTML comment"
+        )
+        try expect(
+            pages[0].blocks.contains(where: { $0.markdown.contains("https://example.test/shared") }),
+            "a reference link defined after a page boundary should resolve in the earlier page"
         )
     }
 
