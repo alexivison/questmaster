@@ -20,9 +20,13 @@ Which pose shows when, how cues play, and where the avatar sits.
   ignores any that reach a worker, so a familiar plays no cue.
 - **Company:** an attached master shows its live workers' familiars in its slot: the workers that are children of the master and not stopped
   (`TrackerCompanyLayout.liveWorkers`, in the payload's order, which is spawn order). Each live worker has its own `TrackerAvatarDirector`,
-  fed its own session, so each plays its worker's pose by the familiar rules, bubble included. A familiar whose file has a `company` row
-  (its pitch and full row, from the user's spacing designs) keeps the designed row (`TrackerCompanyLayout.designLayout`); every familiar's
-  file gives one. The master never moves: its body stands at the slot's centre whatever the count. Its name tags' face box is its head box at the master's 1.5 pt pixel, so the tags keep off the face. The workers stand at the row's pitch, in
+  fed its own session, so each plays its worker's pose by the familiar rules, bubble included. A familiar's company comes in three sizes,
+  1.5x, 1.25x and 1x of its designed scale (`company/1.5x`, `company/1.25x`, `company/1x`), each with its own pitch and full row (the
+  designed row's span at the size's pitch and resting width, measured by the converter). The company draws at the largest size whose full
+  row holds every worker (`TrackerCompanyLayout.sizeIndex`): 1.5x while the count fits its row, else 1.25x, else 1x; past the 1x full row,
+  the 1x size with the `+n` marker. The size changes at once when a worker joins or leaves, with no animation. The Werebear's 1.25x row
+  is its 1.5x row, so its company goes straight from 1.5x to 1x. The layout (`TrackerCompanyLayout.designLayout`) runs on the chosen size's
+  row; a full row lands exactly on that size's designed places. The master never moves: its body stands at the slot's centre whatever the count. Its name tags' face box is its head box at the master's 1.5 pt pixel, so the tags keep off the face. The workers stand at the row's pitch, in
   spawn order from left to right, so the newest is always the right-most. The row's centre starts 20 pt right of the master's body
   column for one worker (`TrackerCompanyLayout.soloOffset`), and moves toward the full row's centre (the midpoint between its first place's
   visible left edge and its last place's visible right edge) in equal steps as workers are added: each worker added moves the centre by the

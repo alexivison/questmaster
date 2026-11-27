@@ -21,9 +21,12 @@ the slot's size. The moves are horizontal only (`TrackerAvatarMotion`, Core), so
   layers until their export arrives. Its top-level `scale` is its size in percent of one art pixel per point, decimals allowed (50 when absent; the designed familiars
   are 46.5 to 82, the War Hound 82). It may also carry a `company` object, `{"pitch": points, "capacity": workers}`: the pitch between
   neighbours in the master's company and the most workers its full row holds before the `+n` marker (`TrackerCompanyRow`). Every familiar
-  has one: a familiar's file without a `company` object does not read. Each familiar also has a `company/` folder: the same frame names on the 2x device grid at its
-  scale (each frame `round(260 x 2 x scale)` by `round(188 x 2 x scale)` pixels, palette-snapped), with its own `animation.json`
-  whose pixel coordinates are on that grid. The master's company draws those frames at 0.5 pt a pixel, nearest-neighbour, with a one-pixel outline painted on decode round each figure frame, not its effect layers, (`TrackerAvatarSprites.outlined`, `AppPalette.familiarOutline`), not in the files, so the converter's output needs no change; the worker
+  has one: a familiar's file without a `company` object does not read. Each familiar also has a `company/` folder with one subfolder per
+  company size, `1.5x`, `1.25x` and `1x` (the designed size). Each subfolder holds the same frame names on the 2x device grid at that size's
+  scale (each frame `round(260 x 2 x scale)` by `round(188 x 2 x scale)` pixels, palette-snapped) and its own `animation.json`, whose
+  `scale` and `company` row are that size's and whose pixel coordinates are on that grid. A size's `scale` may go up to 150 (the parser's
+  cap; the War Hound's 1.5x is 123). The converter writes all of it from its tables, and a size's full row is measured from its frames.
+  The master's company draws those frames at 0.5 pt a pixel, nearest-neighbour, with a one-pixel outline painted on decode round each figure frame, not its effect layers, (`TrackerAvatarSprites.outlined`, `AppPalette.familiarOutline`), not in the files, so the converter's output needs no change; the worker
   slot keeps the full frames. A class draws at 100, and its file has no `scale`. A class's file also gives its `head` box, `{"x", "y", "width", "height"}` in art pixels from the top left of its idle frame, covering its face (eyes, nose, mouth, hood or helm front): the worker names over the master keep off it. It is measured from the idle art and checked against an overlay; a box off the art, or with no width or height, does not read. The App draws a familiar at `scale / 100` with nearest-neighbour filtering, so
   at 50% and 2x one art pixel is one device pixel.
 - **Bubble:** calling out may show one shared `!` bubble for every class, `Resources/Sprites/shared/bubble.png`, drawn at its owner's

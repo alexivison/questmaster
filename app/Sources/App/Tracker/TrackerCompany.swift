@@ -68,7 +68,7 @@ final class TrackerCompanyStage {
 
     @ObservationIgnored private let catalog: TrackerAvatarCatalog
     @ObservationIgnored private let art: [TrackerAvatarArtKey: TrackerAvatarSprites]
-    @ObservationIgnored private let companionArt: [String: TrackerAvatarSprites]
+    @ObservationIgnored private let companionArt: [String: [TrackerAvatarSprites]]
     @ObservationIgnored private var directors: [String: TrackerAvatarDirector] = [:]
     @ObservationIgnored private var latest: (sessions: [TrackerSession], attachedID: String?) = ([], nil)
     @ObservationIgnored private let clock: () -> TimeInterval
@@ -109,23 +109,27 @@ final class TrackerCompanyStage {
             clear()
             return
         }
-        // Each worker's familiar, in spawn order, from its company frames at a half point a pixel. A worker whose familiar has no art shows
-        // nothing and takes no place.
-        let familiars: [(id: String, title: String, status: TrackerStatusKind, sprites: TrackerAvatarSprites, pixel: CGFloat)] =
+        // Each worker's familiar, in spawn order. A worker whose familiar has no art shows nothing and takes no place.
+        let familiars: [(id: String, title: String, status: TrackerStatusKind, classID: String)] =
             TrackerCompanyLayout.liveWorkers(of: master, in: sessions).compactMap { worker in
-                guard let key = catalog.art(for: worker), key.kind == .familiar, art[key] != nil, let company = companionArt[key.classID] else {
+                guard let key = catalog.art(for: worker), key.kind == .familiar, art[key] != nil, companionArt[key.classID] != nil else {
                     return nil
                 }
-                return (worker.id, worker.title, TrackerStatusClassifier.classify(worker).kind, company,
-                        CGFloat(TrackerCompanyLayout.companyPixelPoints))
+                return (worker.id, worker.title, TrackerStatusClassifier.classify(worker).kind, key.classID)
             }
-        guard let first = familiars.first, let row = first.sprites.animation.companyRow else {
+        // The workers of one master share its class, so the first worker's sizes decide for all. The company draws at the largest size whose
+        // full row holds every familiar, with that size's frames, row and resting width.
+        guard let classID = familiars.first?.classID, let sizes = companionArt[classID],
+              let index = TrackerCompanyLayout.sizeIndex(count: familiars.count, rows: sizes.compactMap { $0.animation.companyRow }),
+              let row = sizes[index].animation.companyRow else {
             clear()
             return
         }
-        // The workers of one master share its class, so the first worker's row decides for all.
+        let size = sizes[index]
+        // Each size's frames are on the 2x device grid, so they draw at a half point a pixel at every size.
+        let pixel = CGFloat(TrackerCompanyLayout.companyPixelPoints)
         let layout = TrackerCompanyLayout.designLayout(
-            count: familiars.count, row: row, restWidth: Double(first.sprites.restWidth(pixel: first.pixel)),
+            count: familiars.count, row: row, restWidth: Double(size.restWidth(pixel: pixel)),
             slotWidth: Double(TrackerAvatarMetrics.slotWidth)
         )
         var stepped: [String: TrackerAvatarDirector] = [:]
@@ -147,15 +151,14 @@ final class TrackerCompanyStage {
         companions = layout.familiars.map { placed in
             let entry = familiars[placed.index]
             let frame = frames[entry.id]
-            let pixel = entry.pixel
             // Its rest's left edge stands on the layout's `left`: the body column sits the rest's offset to the right of that edge.
-            let bodyX = Self.halfPoint(placed.left - Self.restOffset(of: entry.sprites) * Double(pixel))
-            let drop = Self.halfPoint(Self.drop(of: entry.sprites, pixel: Double(pixel)))
+            let bodyX = Self.halfPoint(placed.left - Self.restOffset(of: size) * Double(pixel))
+            let drop = Self.halfPoint(Self.drop(of: size, pixel: Double(pixel)))
             return Companion(
                 id: entry.id,
                 title: entry.title,
                 status: entry.status,
-                sprites: entry.sprites,
+                sprites: size,
                 pixel: pixel,
                 bodyX: CGFloat(bodyX),
                 drop: CGFloat(drop),

@@ -23,6 +23,17 @@ enum AvatarAnimationFixture {
         return json(at: url, named: "\(classID)'s familiar animation.json")
     }
 
+    /// A familiar's bundled company size as a JSON object, from `Resources/Familiars/<class>/company/<size>/`: the same art drawn at that size's
+    /// scale, with its own company row.
+    static func companySizeJSON(_ classID: String, _ size: String) -> [String: Any] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/App/Resources/Familiars/\(classID)/company/\(size)/animation.json")
+        return json(at: url, named: "\(classID)'s \(size) company animation.json")
+    }
+
     /// The director's fixture as a JSON object, so a test can edit it before it is decoded. It is the bard's file as it shipped before
     /// his redo (hand-timed blocks, fidgets, a still idle), kept in the tests so the director's cases don't move when a class's art
     /// changes. The catalog gives it the bard's class ID.
