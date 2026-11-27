@@ -144,7 +144,8 @@ enum TrackerAvatarLibrary {
 
     /// Decodes, ahead of any switch, the art the tracker's sessions show when switched to: each session's pose on its own art, and a
     /// designed familiar's pose at the company's current size and the nearest size boundary. The tracker calls it on every update, so a
-    /// session's frames decode before the attach that shows them. Evicted poses can be prefetched again.
+    /// session's frames decode before the attach that shows them. Each pose is prefetched once while it remains demanded; unchanged
+    /// snapshots do not restart work after eviction, and a pose may be prefetched again after its demand leaves and returns.
     static func prefetch(for sessions: [TrackerSession]) {
         var posesByArt: [TrackerAvatarArtKey: Set<TrackerAvatarPose>] = [:]
         var artOrder: [TrackerAvatarArtKey] = []
@@ -169,9 +170,13 @@ enum TrackerAvatarLibrary {
             liveWorkersByMaster[session.parentID, default: []].append(session)
         }
 
-        // Individual avatar art comes first, so a large company cache cannot delay the poses shown when a plate is selected.
+        // Individual avatar art comes first, so a large company cache cannot delay the poses shown when a plate is selected. Empty
+        // requests clear demand for art that is no longer in the snapshot, allowing it to be prefetched if it returns later.
         for key in artOrder {
             sprites[key]?.prefetch(orderedPoses(posesByArt[key] ?? []))
+        }
+        for key in sprites.keys where !seenArt.contains(key) {
+            sprites[key]?.prefetch([])
         }
 
         var currentCompanyPoses: [String: [Int: Set<TrackerAvatarPose>]] = [:]
@@ -209,19 +214,38 @@ enum TrackerAvatarLibrary {
         }
 
         // Adjacent sizes warm familiar adds and removes that cross a capacity boundary. Other sizes load on demand.
-        prefetchCompanyPoses(currentCompanyPoses)
-        prefetchCompanyPoses(neighboringCompanyPoses)
+        prefetchCompanyPoses(currentCompanyPoses, neighboring: neighboringCompanyPoses)
     }
 
     private static func orderedPoses(_ poses: Set<TrackerAvatarPose>) -> [TrackerAvatarPose] {
         TrackerAvatarPose.allCases.filter { poses.contains($0) }
     }
 
-    private static func prefetchCompanyPoses(_ posesByClass: [String: [Int: Set<TrackerAvatarPose>]]) {
-        for classID in posesByClass.keys.sorted() {
-            guard let sizes = companions[classID], let posesBySize = posesByClass[classID] else { continue }
-            for index in posesBySize.keys.sorted() where sizes.indices.contains(index) {
-                sizes[index].prefetch(orderedPoses(posesBySize[index] ?? []))
+    private static func prefetchCompanyPoses(
+        _ current: [String: [Int: Set<TrackerAvatarPose>]],
+        neighboring: [String: [Int: Set<TrackerAvatarPose>]]
+    ) {
+        var requestedSizes: [String: Set<Int>] = [:]
+        for classID in current.keys.sorted() {
+            guard let sizes = companions[classID], let currentBySize = current[classID] else { continue }
+            for index in currentBySize.keys.sorted() where sizes.indices.contains(index) {
+                let poses = currentBySize[index, default: []].union(neighboring[classID]?[index] ?? [])
+                sizes[index].prefetch(orderedPoses(poses))
+                requestedSizes[classID, default: []].insert(index)
+            }
+        }
+        for classID in neighboring.keys.sorted() {
+            guard let sizes = companions[classID], let neighboringBySize = neighboring[classID] else { continue }
+            for index in neighboringBySize.keys.sorted() where sizes.indices.contains(index) {
+                guard !(requestedSizes[classID]?.contains(index) ?? false) else { continue }
+                sizes[index].prefetch(orderedPoses(neighboringBySize[index] ?? []))
+                requestedSizes[classID, default: []].insert(index)
+            }
+        }
+        for classID in companions.keys.sorted() {
+            guard let sizes = companions[classID] else { continue }
+            for (index, sprites) in sizes.enumerated() where !(requestedSizes[classID]?.contains(index) ?? false) {
+                sprites.prefetch([])
             }
         }
     }

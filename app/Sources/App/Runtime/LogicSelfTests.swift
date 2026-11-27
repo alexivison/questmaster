@@ -145,6 +145,7 @@ enum LogicSelfTests {
         ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
         ("testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt", testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt),
         ("testAvatarCacheBoundsCompanySizesAndKeepsWarmSwitches", testAvatarCacheBoundsCompanySizesAndKeepsWarmSwitches),
+        ("testOversubscribedAvatarDemandQuiescesAndKeepsWarmSwitches", testOversubscribedAvatarDemandQuiescesAndKeepsWarmSwitches),
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
         ("testOneWorkerStandsSoloOffsetRightOfTheMastersBody", testOneWorkerStandsSoloOffsetRightOfTheMastersBody),
         ("testWorkerNamesTagTheCompany", testWorkerNamesTagTheCompany),
@@ -2896,6 +2897,71 @@ enum LogicSelfTests {
             TrackerAvatarDecodeProbe.count == decodesBeforeSwitch,
             "a warm switch should not decode frames synchronously on the main thread"
         )
+    }
+
+    @MainActor
+    private static func testOversubscribedAvatarDemandQuiescesAndKeepsWarmSwitches() throws {
+        let classIDs = ["cleric", "necromancer", "paladin", "wizard"]
+        var sessions: [TrackerSession] = []
+        for classID in classIDs {
+            let masterID = "qm-cache-\(classID)"
+            let master = try testRow(["id": masterID, "title": "Sample Master", "class": classID, "state": "idle"])
+            let worker = try testRow([
+                "id": "\(masterID)-worker", "title": "Sample Worker", "class": classID,
+                "state": "idle", "parent_id": masterID,
+            ])
+            sessions.append(contentsOf: [master, worker])
+
+            guard let sizes = TrackerAvatarLibrary.companions[classID],
+                  TrackerCompanyLayout.sizeIndex(count: 1, rows: sizes.compactMap { $0.animation.companyRow }) == 0 else {
+                throw TestFailure("one worker in the \(classID) company should use its 1.5x size")
+            }
+        }
+
+        TrackerAvatarLibrary.prefetch(for: sessions)
+        try waitForMainQueue("the four oversubscribed idle pairs", timeout: 60, until: {
+            TrackerAvatarSprites.outstandingPrefetchWork == 0
+        })
+        try expect(
+            TrackerAvatarLibrary.cachedByteCount <= TrackerAvatarFrameCache.maximumRetainedBytes,
+            "the oversubscribed idle demand should stay within the shared cache limit"
+        )
+
+        #if DEBUG
+        let decodedFrames = TrackerAvatarDecodeProbe.prefetchedFrameCount
+        for _ in 0..<10 {
+            TrackerAvatarLibrary.prefetch(for: sessions)
+            try waitForMainQueue("unchanged oversubscribed avatar demand", timeout: 10, until: {
+                TrackerAvatarSprites.outstandingPrefetchWork == 0
+            })
+        }
+        try expect(
+            TrackerAvatarDecodeProbe.prefetchedFrameCount == decodedFrames,
+            "unchanged oversubscribed demand should not repeat speculative frame decodes after eviction"
+        )
+        #endif
+
+        guard let worker = sessions.first(where: { $0.id == "qm-cache-wizard-worker" }),
+              let artKey = TrackerAvatarLibrary.catalog.art(for: worker),
+              let sprites = TrackerAvatarLibrary.sprites[artKey],
+              let pose = TrackerAvatarPose.pose(for: worker, catalog: TrackerAvatarLibrary.catalog) else {
+            throw TestFailure("the synthetic wizard worker should have warm familiar art")
+        }
+        let view = TrackerAvatarView(frame: NSRect(
+            x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight
+        ))
+        view.sprites = sprites
+        #if DEBUG
+        let synchronousDecodesBeforeSwitch = TrackerAvatarDecodeProbe.count
+        #endif
+        view.configure(pose: pose, beat: 0, finish: nil, reduceMotion: false)
+        try expect(view.probePose == pose, "the warm familiar switch should show the requested pose")
+        #if DEBUG
+        try expect(
+            TrackerAvatarDecodeProbe.count == synchronousDecodesBeforeSwitch,
+            "a switch to retained art should not decode frames synchronously after unchanged snapshots"
+        )
+        #endif
     }
 
     @MainActor
@@ -11784,12 +11850,13 @@ enum LogicSelfTests {
 
     private static func waitForMainQueue(
         _ description: String,
+        timeout: TimeInterval = 10,
         until condition: () -> Bool
     ) throws {
-        let deadline = Date().addingTimeInterval(selfTestWaitTimeout)
+        let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
             guard Date() < deadline else {
-                throw TestFailure("timed out after \(selfTestWaitTimeout)s waiting for \(description)")
+                throw TestFailure("timed out after \(timeout)s waiting for \(description)")
             }
             _ = RunLoop.main.run(mode: .default, before: deadline)
         }

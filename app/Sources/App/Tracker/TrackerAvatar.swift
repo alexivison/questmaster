@@ -204,6 +204,8 @@ final class TrackerAvatarSprites {
     private let outline: TrackerAvatarOutlineInk?
     private let cacheID = UUID()
     private var prefetchingPoses: Set<TrackerAvatarPose> = []
+    private var demandedPoses: Set<TrackerAvatarPose> = []
+    private var attemptedPrefetchPoses: Set<TrackerAvatarPose> = []
     private var unprefetchablePoses: Set<TrackerAvatarPose> = []
 
     private struct PrefetchWork {
@@ -554,13 +556,22 @@ final class TrackerAvatarSprites {
         TrackerAvatarFrameCache.shared.byteCount(ownerID: cacheID)
     }
 
-    /// Decodes the frames of `poses` on a bounded background queue. A pose is requested again after eviction, so warm switches remain
-    /// available without retaining every pose for the lifetime of the app.
+    /// Decodes demanded poses on a bounded background queue. A pose is attempted once while it remains demanded; eviction does not cause
+    /// unchanged snapshots to decode it again. When demand leaves and later returns, a missing pose can be prefetched again.
     func prefetch(_ poses: [TrackerAvatarPose]) {
+        let demand = Set(poses.filter { animation.animation(for: $0) != nil })
+        attemptedPrefetchPoses.formIntersection(demand)
+        unprefetchablePoses.formIntersection(demand)
+        demandedPoses = demand
+        for pose in demand where TrackerAvatarFrameCache.shared.isPrepared(ownerID: cacheID, pose: pose) {
+            attemptedPrefetchPoses.insert(pose)
+        }
+
         var seen: Set<TrackerAvatarPose> = []
         let fresh = poses.filter { pose in
             animation.animation(for: pose) != nil
                 && seen.insert(pose).inserted
+                && !attemptedPrefetchPoses.contains(pose)
                 && !prefetchingPoses.contains(pose)
                 && !unprefetchablePoses.contains(pose)
                 && !TrackerAvatarFrameCache.shared.isPrepared(ownerID: cacheID, pose: pose)
@@ -580,6 +591,7 @@ final class TrackerAvatarSprites {
         for group in groups {
             guard Self.outstandingPrefetchWork < Self.maximumOutstandingPrefetchWork else { break }
             prefetchingPoses.formUnion(group)
+            attemptedPrefetchPoses.formUnion(group)
             Self.prefetchQueue.append(PrefetchWork(owner: self, poses: group))
         }
         Self.startPrefetchWork()
@@ -635,6 +647,9 @@ final class TrackerAvatarSprites {
     }
 
     private func adopt(_ frames: [(name: String, image: CGImage)], for pose: TrackerAvatarPose) {
+        #if DEBUG
+        TrackerAvatarDecodeProbe.recordPrefetched(frames)
+        #endif
         TrackerAvatarFrameCache.shared.insertPrefetched(frames, ownerID: cacheID, pose: pose)
     }
 
@@ -643,11 +658,21 @@ final class TrackerAvatarSprites {
     }
 
     private func skipPrefetch(_ pose: TrackerAvatarPose) {
-        unprefetchablePoses.insert(pose)
+        if demandedPoses.contains(pose) {
+            unprefetchablePoses.insert(pose)
+        }
     }
 
     private func finishPrefetch(_ poses: [TrackerAvatarPose]) {
         prefetchingPoses.subtract(poses)
+        for pose in poses {
+            if demandedPoses.contains(pose) {
+                attemptedPrefetchPoses.insert(pose)
+            } else {
+                attemptedPrefetchPoses.remove(pose)
+                unprefetchablePoses.remove(pose)
+            }
+        }
         Self.activePrefetchWork = max(0, Self.activePrefetchWork - 1)
         Self.startPrefetchWork()
     }
@@ -758,10 +783,17 @@ struct TrackerAvatarOutlineInk: Sendable {
 enum TrackerAvatarDecodeProbe {
     private(set) static var count = 0
     private(set) static var seconds: TimeInterval = 0
+    private(set) static var prefetchedFrameCount = 0
+    private(set) static var prefetchedByteCount = 0
 
     static func record(seconds decode: TimeInterval) {
         count += 1
         seconds += decode
+    }
+
+    static func recordPrefetched(_ frames: [(name: String, image: CGImage)]) {
+        prefetchedFrameCount += frames.count
+        prefetchedByteCount += frames.reduce(0) { $0 + $1.image.width * $1.image.height * 4 }
     }
 }
 #endif
