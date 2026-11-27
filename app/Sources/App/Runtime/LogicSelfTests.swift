@@ -144,6 +144,8 @@ enum LogicSelfTests {
         ("testEveryBundledFamiliarFitsTheSlot", testEveryBundledFamiliarFitsTheSlot),
         ("testAWorkerAvatarDrawsItsFamiliar", testAWorkerAvatarDrawsItsFamiliar),
         ("testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt", testAPrefetchedPoseIsDecodedBeforeASwitchShowsIt),
+        ("testAvatarCacheBoundsCompanySizesAndKeepsWarmSwitches", testAvatarCacheBoundsCompanySizesAndKeepsWarmSwitches),
+        ("testOversubscribedAvatarDemandQuiescesAndKeepsWarmSwitches", testOversubscribedAvatarDemandQuiescesAndKeepsWarmSwitches),
         ("testTheMastersCompanyFitsItsSlot", testTheMastersCompanyFitsItsSlot),
         ("testOneWorkerStandsSoloOffsetRightOfTheMastersBody", testOneWorkerStandsSoloOffsetRightOfTheMastersBody),
         ("testWorkerNamesTagTheCompany", testWorkerNamesTagTheCompany),
@@ -1961,11 +1963,14 @@ enum LogicSelfTests {
         avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: false)
         try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) == nil, "the loop should stop when idle goes off screen")
         avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
-        let restarted = character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        guard let resumedCharacter = shownCharacter(of: avatar) else {
+            throw TestFailure("the idle rig should be rebuilt when it returns")
+        }
+        let restarted = resumedCharacter.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
         try expect(sameImage(restarted?.values?.first, first), "idle should start its loop from f1 when it comes back")
 
         avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
-        try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) == nil && sameImage(character.contents, first),
+        try expect(resumedCharacter.animation(forKey: TrackerAvatarMotionKey.frames) == nil && sameImage(resumedCharacter.contents, first),
                    "under Reduce Motion idle should hold f1")
     }
 
@@ -2842,10 +2847,7 @@ enum LogicSelfTests {
         }
         let before = sprites.cachedFrameCount
         sprites.prefetch([.idle])
-        let deadline = Date().addingTimeInterval(10)
-        while sprites.cachedFrameCount == before, Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        }
+        try waitForMainQueue("the prefetched idle pose", until: { TrackerAvatarSprites.outstandingPrefetchWork == 0 })
         try expect(sprites.cachedFrameCount > before, "a prefetch should decode the pose's frames in the background")
         #if DEBUG
         let decodesBefore = TrackerAvatarDecodeProbe.count
@@ -2856,8 +2858,119 @@ enum LogicSelfTests {
         #endif
         let decoded = sprites.cachedFrameCount
         sprites.prefetch([.idle])
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        try waitForMainQueue("the repeated idle prefetch", until: { TrackerAvatarSprites.outstandingPrefetchWork == 0 })
         try expect(sprites.cachedFrameCount == decoded, "asking again for a pose that was requested should decode nothing")
+    }
+
+    @MainActor
+    private static func testAvatarCacheBoundsCompanySizesAndKeepsWarmSwitches() throws {
+        guard let sizes = TrackerAvatarLibrary.companions["paladin"], sizes.count == 3,
+              let masterSprites = TrackerAvatarLibrary.sprites[TrackerAvatarArtKey(kind: .master, classID: "paladin")] else {
+            throw TestFailure("the paladin's master and three company sizes should load")
+        }
+        let before = sizes.map(\.cachedFrameCount)
+        let master = try testRow(["id": "qm-cache-master", "title": "Sample Master", "class": "paladin", "state": "idle"])
+        let workers = try (0..<4).map { index in
+            try testRow([
+                "id": "qm-cache-worker-\(index)", "title": "Sample Worker", "class": "paladin", "state": "idle",
+                "parent_id": master.id,
+            ])
+        }
+        TrackerAvatarLibrary.prefetch(for: [master] + workers)
+        try waitForMainQueue("the current and adjacent company sizes", until: { TrackerAvatarSprites.outstandingPrefetchWork == 0 })
+
+        let after = sizes.map(\.cachedFrameCount)
+        try expect(after[0] > before[0], "the active 1.5x company size should be warm")
+        try expect(after[2] > before[2], "the size reached by adding one worker should be warm")
+        try expect(after[1] <= before[1], "the unused 1.25x size should not be prefetched")
+        try expect(
+            TrackerAvatarLibrary.cachedByteCount <= TrackerAvatarFrameCache.maximumRetainedBytes,
+            "retained decoded avatar frames should stay within the shared cache limit"
+        )
+
+        let view = TrackerAvatarView(frame: NSRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
+        view.sprites = masterSprites
+        let decodesBeforeSwitch = TrackerAvatarDecodeProbe.count
+        view.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        try expect(view.probePose == .idle, "a warm idle switch should show its requested pose")
+        try expect(
+            TrackerAvatarDecodeProbe.count == decodesBeforeSwitch,
+            "a warm switch should not decode frames synchronously on the main thread"
+        )
+    }
+
+    @MainActor
+    private static func testOversubscribedAvatarDemandQuiescesAndKeepsWarmSwitches() throws {
+        let classIDs = SessionClass.allCases.map(\.rawValue)
+        var sessions: [TrackerSession] = []
+        for classID in classIDs {
+            let masterID = "qm-cache-\(classID)"
+            let master = try testRow(["id": masterID, "title": "Sample Master", "class": classID, "state": "idle"])
+            let worker = try testRow([
+                "id": "\(masterID)-worker", "title": "Sample Worker", "class": classID,
+                "state": "idle", "parent_id": masterID,
+            ])
+            sessions.append(contentsOf: [master, worker])
+
+            guard let sizes = TrackerAvatarLibrary.companions[classID],
+                  TrackerCompanyLayout.sizeIndex(count: 1, rows: sizes.compactMap { $0.animation.companyRow }) == 0 else {
+                throw TestFailure("one worker in the \(classID) company should use its 1.5x size")
+            }
+        }
+
+        TrackerAvatarLibrary.prefetch(for: sessions)
+        try waitForMainQueue("the four oversubscribed idle pairs", timeout: 60, until: {
+            TrackerAvatarSprites.outstandingPrefetchWork == 0
+        })
+        try expect(
+            TrackerAvatarLibrary.cachedByteCount <= TrackerAvatarFrameCache.maximumRetainedBytes,
+            "the oversubscribed idle demand should stay within the shared cache limit"
+        )
+
+        #if DEBUG
+        let decodedFrames = TrackerAvatarDecodeProbe.prefetchedFrameCount
+        for _ in 0..<10 {
+            TrackerAvatarLibrary.prefetch(for: sessions)
+            try waitForMainQueue("unchanged oversubscribed avatar demand", timeout: 10, until: {
+                TrackerAvatarSprites.outstandingPrefetchWork == 0
+            })
+        }
+        try expect(
+            TrackerAvatarDecodeProbe.prefetchedFrameCount == decodedFrames,
+            "unchanged oversubscribed demand should not repeat speculative frame decodes after eviction"
+        )
+        #endif
+
+        let directPoses = sessions.compactMap { session -> (TrackerAvatarSprites, TrackerAvatarPose)? in
+            guard let artKey = TrackerAvatarLibrary.catalog.art(for: session),
+                  let sprites = TrackerAvatarLibrary.sprites[artKey],
+                  let pose = TrackerAvatarPose.pose(for: session, catalog: TrackerAvatarLibrary.catalog) else {
+                return nil
+            }
+            return (sprites, pose)
+        }
+        try expect(directPoses.count == 22, "all 11 classes should have a directly selectable master and familiar pose")
+        try expect(
+            directPoses.allSatisfy { $0.0.hasPreparedPose($0.1) },
+            "the 77.3 MiB directly selectable idle cohort should remain prepared ahead of speculative company art"
+        )
+        let view = TrackerAvatarView(frame: NSRect(
+            x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight
+        ))
+        #if DEBUG
+        let synchronousDecodesBeforeSwitch = TrackerAvatarDecodeProbe.count
+        #endif
+        for (sprites, pose) in directPoses {
+            view.sprites = sprites
+            view.configure(pose: pose, beat: 0, finish: nil, reduceMotion: false)
+            try expect(view.probePose == pose, "each warm direct switch should show its requested pose")
+        }
+        #if DEBUG
+        try expect(
+            TrackerAvatarDecodeProbe.count == synchronousDecodesBeforeSwitch,
+            "all 22 direct idle switches should avoid synchronous decodes after unchanged snapshots"
+        )
+        #endif
     }
 
     @MainActor
@@ -11746,12 +11859,13 @@ enum LogicSelfTests {
 
     private static func waitForMainQueue(
         _ description: String,
+        timeout: TimeInterval = 10,
         until condition: () -> Bool
     ) throws {
-        let deadline = Date().addingTimeInterval(selfTestWaitTimeout)
+        let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
             guard Date() < deadline else {
-                throw TestFailure("timed out after \(selfTestWaitTimeout)s waiting for \(description)")
+                throw TestFailure("timed out after \(timeout)s waiting for \(description)")
             }
             _ = RunLoop.main.run(mode: .default, before: deadline)
         }

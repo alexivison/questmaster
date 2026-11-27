@@ -3,8 +3,10 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Dev-only timing of the class avatar's switch path: `RENDER_ONLY=avatar-switch-timing`, run in a fresh process so the art starts cold.
+/// Dev-only avatar measurements. Run in a fresh process so the art starts cold.
 ///
+/// - Cache sweep: `RENDER_ONLY=avatar-cache-sweep`, a synthetic pose sweep and a warm off-screen switch.
+/// - Switch timing: `RENDER_ONLY=avatar-switch-timing`.
 /// - Cold build: each class's, familiar's and company's art built from fresh sprites, with what the first show of each pose costs.
 /// - Prefetch: the tracker's prefetch settles first (`AVATAR_SWITCH_NOWAIT=1` skips the wait, to time a switch right after a payload).
 /// - Switch: the tracker, hosted headless as the app hosts it, is switched with `setCurrentTerminalSessionID`, the call an attach makes.
@@ -13,7 +15,8 @@ import SwiftUI
 @MainActor
 enum AvatarSwitchTiming {
     static func runIfRequested(to dir: String) {
-        guard ProcessInfo.processInfo.environment["RENDER_ONLY"]?.split(separator: ",").contains("avatar-switch-timing") == true else {
+        let modes = ProcessInfo.processInfo.environment["RENDER_ONLY"]?.split(separator: ",") ?? []
+        guard modes.contains("avatar-switch-timing") || modes.contains("avatar-cache-sweep") else {
             return
         }
         var lines: [String] = []
@@ -21,6 +24,12 @@ enum AvatarSwitchTiming {
             print(line)
             lines.append(line)
         }
+        if modes.contains("avatar-cache-sweep") {
+            cacheSweepReport(log)
+            try? (lines.joined(separator: "\n") + "\n").write(toFile: "\(dir)/avatar-cache-sweep.txt", atomically: true, encoding: .utf8)
+            return
+        }
+
         let libraryStart = now()
         _ = TrackerAvatarLibrary.sprites
         _ = TrackerAvatarLibrary.companions
@@ -31,6 +40,168 @@ enum AvatarSwitchTiming {
         trackerSwitchReport(noWait: noWait, log)
         stageRepeatReport(log)
         try? (lines.joined(separator: "\n") + "\n").write(toFile: "\(dir)/avatar-switch-timing.txt", atomically: true, encoding: .utf8)
+    }
+
+    /// A 33-session sweep followed by the oversubscribed all-class idle demand that previously re-decoded on every snapshot.
+    private static func cacheSweepReport(_ log: (String) -> Void) {
+        _ = TrackerAvatarLibrary.sprites
+        _ = TrackerAvatarLibrary.companions
+        _ = TrackerAvatarLibrary.catalog
+        let beforeBytes = TrackerAvatarLibrary.cachedByteCount
+        var sessions = cacheSweepSessions()
+        let sessionCount = sessions.count
+        log("synthetic avatar cache sweep: 33 sessions (11 masters, 22 workers), all 11 classes; master=studying, workers=pondering+working")
+        let prefetchStart = now()
+        TrackerAvatarLibrary.prefetch(for: sessions)
+        sessions.removeAll(keepingCapacity: false)
+        let prefetchWait = waitForCacheStability(timeout: 240)
+        guard prefetchWait.settled else {
+            log("sweep did not settle before timeout")
+            exit(1)
+        }
+        let afterBytes = TrackerAvatarLibrary.cachedByteCount
+        let afterFrames = TrackerAvatarLibrary.cachedFrameCount
+        log(String(
+            format: "sweep settled=%@ wait %.0f ms; decoded cache %.1f MiB before, %.1f MiB after (%+.1f MiB), %d frames",
+            prefetchWait.settled ? "yes" : "no",
+            ms(since: prefetchStart),
+            Double(beforeBytes) / 1_048_576,
+            Double(afterBytes) / 1_048_576,
+            Double(afterBytes - beforeBytes) / 1_048_576,
+            afterFrames
+        ))
+        log("released synthetic session rows: \(sessionCount)")
+
+        let oversubscribedSessions = oversubscribedIdleSessions()
+        let oversubscribedStart = now()
+        let decodedFramesBefore = TrackerAvatarDecodeProbe.prefetchedFrameCount
+        let decodedBytesBefore = TrackerAvatarDecodeProbe.prefetchedByteCount
+        TrackerAvatarLibrary.prefetch(for: oversubscribedSessions)
+        guard waitForCacheStability(timeout: 240).settled else {
+            log("oversubscribed idle demand did not settle before timeout")
+            exit(1)
+        }
+        let decodedFrames = TrackerAvatarDecodeProbe.prefetchedFrameCount - decodedFramesBefore
+        let decodedBytes = TrackerAvatarDecodeProbe.prefetchedByteCount - decodedBytesBefore
+        log(String(
+            format: "oversubscribed idle demand: 22 sessions (11 master/worker pairs; all classes), current 1.5x companies; decoded %.1f MiB in %d frames, retained %.1f MiB after %.0f ms",
+            Double(decodedBytes) / 1_048_576,
+            decodedFrames,
+            Double(TrackerAvatarLibrary.cachedByteCount) / 1_048_576,
+            ms(since: oversubscribedStart)
+        ))
+        guard TrackerAvatarLibrary.cachedByteCount <= TrackerAvatarFrameCache.maximumRetainedBytes else {
+            log("oversubscribed cache exceeded its byte limit")
+            exit(1)
+        }
+
+        let repeatedDecodeStart = TrackerAvatarDecodeProbe.prefetchedFrameCount
+        for _ in 0..<10 {
+            TrackerAvatarLibrary.prefetch(for: oversubscribedSessions)
+            guard waitForCacheStability(timeout: 30).settled else {
+                log("repeated unchanged demand did not settle before timeout")
+                exit(1)
+            }
+        }
+        let repeatedFrames = TrackerAvatarDecodeProbe.prefetchedFrameCount - repeatedDecodeStart
+        log("10 unchanged snapshots: additional speculative frame decodes \(repeatedFrames)")
+        guard repeatedFrames == 0 else {
+            log("unchanged demand repeated speculative decodes")
+            exit(1)
+        }
+
+        let directRequests = oversubscribedSessions.compactMap { session -> (TrackerSession, TrackerAvatarSprites, TrackerAvatarPose)? in
+            guard let artKey = TrackerAvatarLibrary.catalog.art(for: session),
+                  let sprites = TrackerAvatarLibrary.sprites[artKey],
+                  let pose = TrackerAvatarPose.pose(for: session, catalog: TrackerAvatarLibrary.catalog) else {
+                return nil
+            }
+            return (session, sprites, pose)
+        }
+        let readyDirectRequests = directRequests.filter { $0.1.hasPreparedPose($0.2) }.count
+        log("direct idle avatar/familiar poses retained and prepared: \(readyDirectRequests)/22")
+        guard directRequests.count == 22, readyDirectRequests == 22 else {
+            log("direct idle art was displaced by speculative company prefetch")
+            exit(1)
+        }
+        let view = TrackerAvatarView(frame: NSRect(
+            x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight
+        ))
+        let decodeCount = TrackerAvatarDecodeProbe.count
+        let switchStart = now()
+        for (_, sprites, pose) in directRequests {
+            view.sprites = sprites
+            view.configure(pose: pose, beat: 0, finish: nil, reduceMotion: false)
+            guard view.probePose == pose else {
+                log("warm direct switch did not show its requested pose")
+                exit(1)
+            }
+        }
+        let synchronousDecodes = TrackerAvatarDecodeProbe.count - decodeCount
+        log(String(
+            format: "22 warm off-screen direct switches from repeated demand: %.2f ms total; synchronous frame decodes %d",
+            ms(since: switchStart), synchronousDecodes
+        ))
+        if synchronousDecodes != 0 {
+            log("warm switch check failed")
+            exit(1)
+        }
+    }
+
+    private static func waitForCacheStability(timeout: TimeInterval) -> (settled: Bool, elapsed: TimeInterval) {
+        let started = now()
+        while now() - started < timeout {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            if TrackerAvatarSprites.outstandingPrefetchWork == 0 {
+                return (true, now() - started)
+            }
+        }
+        return (false, now() - started)
+    }
+
+    private static func cacheSweepSessions() -> [TrackerSession] {
+        var rows: [TrackerSession] = []
+        for sessionClass in SessionClass.allCases {
+            let masterID = "qm-cache-\(sessionClass.rawValue)"
+            rows.append(cacheSession(masterID, sessionClass: sessionClass.rawValue, state: "working", tool: "Read"))
+            rows.append(cacheSession(
+                "\(masterID)-pondering", sessionClass: sessionClass.rawValue, parent: masterID, state: "working"
+            ))
+            rows.append(cacheSession(
+                "\(masterID)-working", sessionClass: sessionClass.rawValue, parent: masterID, state: "working", tool: "Edit"
+            ))
+        }
+        return rows
+    }
+
+    private static func oversubscribedIdleSessions() -> [TrackerSession] {
+        var rows: [TrackerSession] = []
+        for classID in SessionClass.allCases.map(\.rawValue) {
+            let masterID = "qm-cache-\(classID)"
+            rows.append(cacheSession(masterID, sessionClass: classID, state: "idle"))
+            rows.append(cacheSession(
+                "\(masterID)-worker", sessionClass: classID, parent: masterID, state: "idle"
+            ))
+        }
+        return rows
+    }
+
+    private static func cacheSession(
+        _ id: String,
+        sessionClass: String,
+        parent: String = "",
+        state: String,
+        tool: String? = nil
+    ) -> TrackerSession {
+        var fields: [String: Any] = [
+            "id": id, "title": id, "status": "active", "state": state, "agent": "claude",
+            "parent_id": parent, "worker_count": 0, "elapsed_ms": 0, "class": sessionClass, "active_subagents": 0,
+        ]
+        if let tool {
+            fields["cast"] = ["tool": tool, "started_at": "2026-11-27T00:00:00Z", "typical_ms": 0]
+        }
+        let data = try! JSONSerialization.data(withJSONObject: fields)
+        return try! JSONDecoder().decode(TrackerSession.self, from: data)
     }
 
     /// Each class's art, the familiars' and the companies', built from fresh sprites: what the first show of each pose costs in decodes.

@@ -132,21 +132,25 @@ enum TrackerAvatarLibrary {
         return TrackerAvatarCatalog(animations: animations, familiars: familiars)
     }()
 
-    /// The frames the whole library has cached so far, across every class, familiar and company size.
+    /// The frames the shared LRU currently retains across every class, familiar and company size.
     static var cachedFrameCount: Int {
-        (Array(sprites.values) + companions.values.flatMap { $0 }).reduce(0) { $0 + $1.cachedFrameCount }
+        TrackerAvatarFrameCache.shared.cachedFrameCount
     }
 
-    /// The decoded size of the cached frames across the library, in bytes.
+    /// The decoded size of the retained frames across the library, in bytes.
     static var cachedByteCount: Int {
-        (Array(sprites.values) + companions.values.flatMap { $0 }).reduce(0) { $0 + $1.cachedByteCount }
+        TrackerAvatarFrameCache.shared.cachedByteCount
     }
 
     /// Decodes, ahead of any switch, the art the tracker's sessions show when switched to: each session's pose on its own art, and a
-    /// designed familiar's pose on every company size as well, since a company may draw at any of them as its count changes. The tracker calls
-    /// it on every update, so a session's frames decode before the attach that shows them. A pose decodes once (`TrackerAvatarSprites.prefetch`).
+    /// designed familiar's pose at the company's current size and the nearest size boundary. The tracker calls it on every update, so a
+    /// session's frames decode before the attach that shows them. Each pose is prefetched once while it remains demanded; unchanged
+    /// snapshots do not restart work after eviction, and a pose may be prefetched again after its demand leaves and returns.
     static func prefetch(for sessions: [TrackerSession]) {
-        var poses: [TrackerAvatarArtKey: [TrackerAvatarPose]] = [:]
+        var posesByArt: [TrackerAvatarArtKey: Set<TrackerAvatarPose>] = [:]
+        var artOrder: [TrackerAvatarArtKey] = []
+        var seenArt: Set<TrackerAvatarArtKey> = []
+        var posesBySession: [String: TrackerAvatarPose] = [:]
         for session in sessions {
             guard let key = catalog.art(for: session),
                   let pose = TrackerAvatarPose.pose(
@@ -154,14 +158,94 @@ enum TrackerAvatarLibrary {
                   ) else {
                 continue
             }
-            poses[key, default: []].append(pose)
+            if seenArt.insert(key).inserted {
+                artOrder.append(key)
+            }
+            posesByArt[key, default: []].insert(pose)
+            posesBySession[session.id] = pose
         }
-        for (key, shown) in poses {
-            sprites[key]?.prefetch(shown)
-            if key.kind == .familiar, sprites[key]?.animation.companyRow != nil {
-                for size in companions[key.classID] ?? [] {
-                    size.prefetch(shown)
+
+        var liveWorkersByMaster: [String: [TrackerSession]] = [:]
+        for session in sessions where !session.parentID.isEmpty && session.lifecycle != "stopped" {
+            liveWorkersByMaster[session.parentID, default: []].append(session)
+        }
+
+        // Individual avatar art comes first, so a large company cache cannot delay the poses shown when a plate is selected. Empty
+        // requests clear demand for art that is no longer in the snapshot, allowing it to be prefetched if it returns later.
+        for key in artOrder {
+            sprites[key]?.prefetch(orderedPoses(posesByArt[key] ?? []), priority: .directlySelectable)
+        }
+        for key in sprites.keys where !seenArt.contains(key) {
+            sprites[key]?.prefetch([])
+        }
+
+        var currentCompanyPoses: [String: [Int: Set<TrackerAvatarPose>]] = [:]
+        var neighboringCompanyPoses: [String: [Int: Set<TrackerAvatarPose>]] = [:]
+        for master in sessions where master.parentID.isEmpty {
+            let workers = (liveWorkersByMaster[master.id] ?? []).filter { worker in
+                guard let key = catalog.art(for: worker), key.kind == .familiar else { return false }
+                return sprites[key] != nil && companions[key.classID] != nil
+            }
+            guard let classID = workers.first.flatMap({ catalog.art(for: $0)?.classID }), !workers.isEmpty else {
+                continue
+            }
+            let sizes = companions[classID] ?? []
+            let rows = sizes.compactMap { $0.animation.companyRow }
+            let count = workers.count
+            guard let currentIndex = TrackerCompanyLayout.sizeIndex(count: count, rows: rows), sizes.indices.contains(currentIndex) else {
+                continue
+            }
+            let workerPoses = workers.compactMap { posesBySession[$0.id] }
+            guard !workerPoses.isEmpty else { continue }
+
+            for pose in workerPoses {
+                currentCompanyPoses[classID, default: [:]][currentIndex, default: []].insert(pose)
+            }
+
+            let adjacentCounts = [max(1, count - 1), count + 1]
+            let adjacentIndices = Set(adjacentCounts.compactMap { TrackerCompanyLayout.sizeIndex(count: $0, rows: rows) })
+                .filter { $0 != currentIndex && sizes.indices.contains($0) }
+                .sorted()
+            for index in adjacentIndices {
+                for pose in workerPoses {
+                    neighboringCompanyPoses[classID, default: [:]][index, default: []].insert(pose)
                 }
+            }
+        }
+
+        // Adjacent sizes warm familiar adds and removes that cross a capacity boundary. Other sizes load on demand.
+        prefetchCompanyPoses(currentCompanyPoses, neighboring: neighboringCompanyPoses)
+    }
+
+    private static func orderedPoses(_ poses: Set<TrackerAvatarPose>) -> [TrackerAvatarPose] {
+        TrackerAvatarPose.allCases.filter { poses.contains($0) }
+    }
+
+    private static func prefetchCompanyPoses(
+        _ current: [String: [Int: Set<TrackerAvatarPose>]],
+        neighboring: [String: [Int: Set<TrackerAvatarPose>]]
+    ) {
+        var requestedSizes: [String: Set<Int>] = [:]
+        for classID in current.keys.sorted() {
+            guard let sizes = companions[classID], let currentBySize = current[classID] else { continue }
+            for index in currentBySize.keys.sorted() where sizes.indices.contains(index) {
+                let poses = currentBySize[index, default: []].union(neighboring[classID]?[index] ?? [])
+                sizes[index].prefetch(orderedPoses(poses), priority: .activeCompany)
+                requestedSizes[classID, default: []].insert(index)
+            }
+        }
+        for classID in neighboring.keys.sorted() {
+            guard let sizes = companions[classID], let neighboringBySize = neighboring[classID] else { continue }
+            for index in neighboringBySize.keys.sorted() where sizes.indices.contains(index) {
+                guard !(requestedSizes[classID]?.contains(index) ?? false) else { continue }
+                sizes[index].prefetch(orderedPoses(neighboringBySize[index] ?? []), priority: .speculativeCompany)
+                requestedSizes[classID, default: []].insert(index)
+            }
+        }
+        for classID in companions.keys.sorted() {
+            guard let sizes = companions[classID] else { continue }
+            for (index, sprites) in sizes.enumerated() where !(requestedSizes[classID]?.contains(index) ?? false) {
+                sprites.prefetch([])
             }
         }
     }
