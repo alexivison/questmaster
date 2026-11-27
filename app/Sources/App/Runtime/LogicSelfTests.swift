@@ -4,6 +4,7 @@ import Combine
 import Darwin
 import Foundation
 import ImageIO
+import MarkdownUI
 import QuestmasterCore
 import SwiftUI
 import WebKit
@@ -80,6 +81,7 @@ enum LogicSelfTests {
         ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
         ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
         ("testArtifactMarkdownPreservesListTransitionsAndCrossPageReferences", testArtifactMarkdownPreservesListTransitionsAndCrossPageReferences),
+        ("testArtifactMarkdownPreservesNestedAndMixedListStructures", testArtifactMarkdownPreservesNestedAndMixedListStructures),
         ("testBoundedProcessDrainsBothPipesPastCapacity", testBoundedProcessDrainsBothPipesPastCapacity),
         ("testBoundedProcessCapsOutput", testBoundedProcessCapsOutput),
         ("testBoundedProcessTimesOutAChildIgnoringTerm", testBoundedProcessTimesOutAChildIgnoringTerm),
@@ -4329,21 +4331,49 @@ enum LogicSelfTests {
 
         let pages = ArtifactMarkdownLayout.pages(from: markdown)
         try expect(pages.count > 1, "the fixture should span multiple lazy pages")
-        let firstListIndex = pages[0].blocks.firstIndex(where: { $0.markdown.contains("First") })
-        let secondListIndex = pages[0].blocks.firstIndex(where: { $0.markdown.contains("Different list") })
         try expect(
-            firstListIndex.map { $0 + 1 } == secondListIndex,
-            "adjacent ordered and bulleted lists should remain consecutive blocks"
+            MarkdownContentBuilder.buildArray(pages.map(\.content)) == MarkdownContent(markdown),
+            "paged parsed content should preserve adjacent lists, the distant reference, and the authored comment"
         )
-        let renderedPages = pages.flatMap(\.blocks).map(\.markdown).joined(separator: "\n\n")
-        try expect(
-            renderedPages.components(separatedBy: "<!-- end list -->").count == 2,
-            "list rendering should not add or strip an authored HTML comment"
-        )
-        try expect(
-            pages[0].blocks.contains(where: { $0.markdown.contains("https://example.test/shared") }),
-            "a reference link defined after a page boundary should resolve in the earlier page"
-        )
+    }
+
+    private static func testArtifactMarkdownPreservesNestedAndMixedListStructures() throws {
+        let filler = (0..<8).map { index in
+            "### Section \(index)\n\n" + String(repeating: "Fallback report words ", count: 8)
+        }.joined(separator: "\n\n")
+        let fixtures: [(name: String, markdown: String)] = [
+            (
+                "nested quote lists",
+                "> 1. Numbered\n>\n> - Bulleted\n"
+            ),
+            (
+                "nested list followed by fenced code",
+                "> - Parent\n>   - Nested\n>\n>   ```swift\n>   print(\"synthetic\")\n>   ```\n"
+            ),
+            (
+                "authored comment between nested lists",
+                "> 1. Numbered\n>\n> <!-- author comment -->\n>\n> - Bulleted\n"
+            ),
+            (
+                "mixed checklist siblings",
+                "- [x] Done\n- [ ] Open\n- Regular\n"
+            ),
+        ]
+
+        for fixture in fixtures {
+            let markdown = fixture.markdown + "\n\n" + filler
+            let original = MarkdownContent(markdown)
+            let pages = ArtifactMarkdownLayout.pages(from: markdown)
+            let assembled = MarkdownContentBuilder.buildArray(pages.map(\.content))
+            try expect(
+                assembled == original,
+                "\(fixture.name) should preserve the original MarkdownUI block tree"
+            )
+            try expect(
+                pages.count == 1,
+                "\(fixture.name) should use the faithful full-document fallback after equivalence fails"
+            )
+        }
     }
 
     private static func testDockPanePublishesModeChanges() throws {

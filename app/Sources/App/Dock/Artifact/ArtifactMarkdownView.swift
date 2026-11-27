@@ -88,13 +88,9 @@ struct ArtifactMarkdownContentView: View {
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(pages) { page in
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(page.blocks) { block in
-                        Markdown(block.markdown, baseURL: baseURL, imageBaseURL: baseURL)
-                            .frame(maxWidth: .infinity, alignment: .topLeading)
-                            .padding(.top, block.topSpacing)
-                    }
-                }
+                Markdown(page.content, baseURL: baseURL, imageBaseURL: baseURL)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(.top, page.topSpacing)
                     .id(page.id)
             }
         }

@@ -5,12 +5,7 @@ import cmark_gfm_extensions
 
 struct ArtifactMarkdownPage: Identifiable {
     let id: Int
-    let blocks: [ArtifactMarkdownBlock]
-}
-
-struct ArtifactMarkdownBlock: Identifiable {
-    let id: Int
-    let markdown: String
+    let content: MarkdownContent
     let topSpacing: CGFloat
 }
 
@@ -20,14 +15,15 @@ enum ArtifactMarkdownLayout {
 
     static func pages(from markdown: String) -> [ArtifactMarkdownPage] {
         guard !markdown.isEmpty else { return [] }
+        let originalContent = MarkdownContent(markdown)
         guard let blocks = topLevelBlocks(in: markdown) else {
-            return [ArtifactMarkdownPage(id: 0, blocks: [ArtifactMarkdownBlock(id: 0, markdown: markdown, topSpacing: 0)])]
+            return [ArtifactMarkdownPage(id: 0, content: originalContent, topSpacing: 0)]
         }
         guard !blocks.isEmpty else { return [] }
 
         let sourceLines = MarkdownSourceLines(markdown)
         guard blocks.allSatisfy({ $0.endLine <= sourceLines.count }) else {
-            return [ArtifactMarkdownPage(id: 0, blocks: [ArtifactMarkdownBlock(id: 0, markdown: markdown, topSpacing: 0)])]
+            return [ArtifactMarkdownPage(id: 0, content: originalContent, topSpacing: 0)]
         }
         var groups: [[MarkdownBlockRange]] = []
         var group: [MarkdownBlockRange] = []
@@ -47,22 +43,28 @@ enum ArtifactMarkdownLayout {
             groups.append(group)
         }
 
+        let pageContents = groups.map { group in
+            MarkdownContentBuilder.buildArray(group.map(\.content))
+        }
+        guard MarkdownContentBuilder.buildArray(pageContents) == originalContent else {
+            // CMark's CommonMark writer can alter nested container or mixed task-list structure.
+            // Keep the original parsed tree intact whenever the rebuilt tree is not equivalent.
+            return [ArtifactMarkdownPage(id: 0, content: originalContent, topSpacing: 0)]
+        }
+
         var previousMargins: MarkdownBlockMargins?
-        return groups.enumerated().map { index, group in
+        return zip(groups, pageContents).enumerated().map { index, pair in
+            let (group, content) = pair
+            let first = group[0]
+            let last = group[group.count - 1]
+            let topSpacing = index == 0
+                ? 0
+                : max(previousMargins?.bottom ?? 0, first.margins.top ?? 0)
+            previousMargins = last.margins
             return ArtifactMarkdownPage(
                 id: index,
-                blocks: group.enumerated().map { blockIndex, block in
-                    // Match MarkdownUI BlockSequence's collapsed margin between sibling blocks.
-                    let topSpacing = index == 0 && blockIndex == 0
-                        ? 0
-                        : max(previousMargins?.bottom ?? 0, block.margins.top ?? 0)
-                    previousMargins = block.margins
-                    return ArtifactMarkdownBlock(
-                        id: block.startLine,
-                        markdown: block.markdown,
-                        topSpacing: topSpacing
-                    )
-                }
+                content: content,
+                topSpacing: topSpacing
             )
         }
     }
@@ -94,7 +96,7 @@ enum ArtifactMarkdownLayout {
                     startLine: startLine,
                     endLine: endLine,
                     margins: margins(of: current),
-                    markdown: renderedMarkdown
+                    content: MarkdownContent(renderedMarkdown)
                 )
             )
             node = cmark_node_next(current)
@@ -161,7 +163,7 @@ private struct MarkdownBlockRange {
     let startLine: Int
     let endLine: Int
     let margins: MarkdownBlockMargins
-    let markdown: String
+    let content: MarkdownContent
 }
 
 private struct MarkdownSourceLines {
