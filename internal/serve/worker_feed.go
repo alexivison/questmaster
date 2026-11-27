@@ -12,8 +12,9 @@ import (
 )
 
 type workerFeedPayload struct {
-	MasterID string                       `json:"master_id"`
-	Cursors  map[string]workerfeed.Cursor `json:"cursors"`
+	MasterID         string                       `json:"master_id"`
+	Cursors          map[string]workerfeed.Cursor `json:"cursors"`
+	VisibleWorkerIDs []string                     `json:"visible_worker_ids"`
 }
 
 func (s *Server) workerFeed(req Request) (any, error) {
@@ -28,7 +29,10 @@ func (s *Server) workerFeed(req Request) (any, error) {
 	if s.Snapshotter != nil {
 		root = s.Snapshotter.StateRoot()
 	}
-	return workerfeed.ReadSince(root, payload.MasterID, payload.Cursors)
+	if payload.VisibleWorkerIDs == nil {
+		return workerfeed.ReadSince(root, payload.MasterID, payload.Cursors)
+	}
+	return workerfeed.ReadSinceWithVisibleWorkers(root, payload.MasterID, payload.Cursors, payload.VisibleWorkerIDs)
 }
 
 func decodeWorkerFeedPayload(raw json.RawMessage) (workerFeedPayload, error) {

@@ -26,12 +26,12 @@ const (
 	historyChunkBytes       = 64 * 1024
 	maxIncrementalLineBytes = 64 * 1024
 	maxHistoryLineSize      = 2 * 1024 * 1024
-	// InitialEntryLimit caps a worker's first read. InitialTotalEntryLimit also bounds the
-	// records sent across all workers because WorkerChatStore keeps at most 400 raw records.
-	InitialEntryLimit      = 400
-	InitialTotalEntryLimit = InitialEntryLimit
-	DefaultLimit           = 50
-	MaxLimit               = 200
+	// InitialEntryLimit bounds visible Worker Log records across workers. Hidden workers use
+	// the store's smaller hidden-history budget so they cannot displace visible history.
+	InitialEntryLimit       = 400
+	InitialHiddenEntryLimit = 150
+	DefaultLimit            = 50
+	MaxLimit                = 200
 )
 
 type Entry struct {
@@ -156,12 +156,29 @@ func recordChatEntryAt(root, sessionID, kind, text string, at time.Time, isExcha
 
 // ReadSince returns bounded new entries for the workers listed by a master's manifest.
 func ReadSince(root, masterID string, cursors map[string]Cursor) (Response, error) {
+	return readSince(root, masterID, cursors, nil)
+}
+
+// ReadSinceWithVisibleWorkers applies the Worker's Log's distinct visible and hidden history
+// budgets. A nil worker list preserves the all-visible behavior for older callers.
+func ReadSinceWithVisibleWorkers(root, masterID string, cursors map[string]Cursor, visibleWorkerIDs []string) (Response, error) {
+	var visibleWorkers map[string]struct{}
+	if visibleWorkerIDs != nil {
+		visibleWorkers = make(map[string]struct{}, len(visibleWorkerIDs))
+		for _, workerID := range visibleWorkerIDs {
+			visibleWorkers[workerID] = struct{}{}
+		}
+	}
+	return readSince(root, masterID, cursors, visibleWorkers)
+}
+
+func readSince(root, masterID string, cursors map[string]Cursor, visibleWorkers map[string]struct{}) (Response, error) {
 	workers, err := workersForMaster(root, masterID, "")
 	if err != nil {
 		return Response{}, err
 	}
 	result := Response{Entries: []Entry{}, Cursors: make(map[string]Cursor, len(workers)), HasMore: make(map[string]bool, len(workers))}
-	var initialEntries []Entry
+	var visibleInitialEntries, hiddenInitialEntries []Entry
 	for _, worker := range workers {
 		result.HasMore[worker.id] = false
 		entries, cursor, hasMore, err := readWorkerSince(root, worker, cursors[worker.id])
@@ -174,24 +191,54 @@ func ReadSince(root, masterID string, cursors map[string]Cursor) (Response, erro
 			continue
 		}
 		initialRead := cursors[worker.id].FileID == ""
-		if initialRead && len(entries) > InitialEntryLimit {
-			entries = entries[len(entries)-InitialEntryLimit:]
-		}
 		if initialRead {
-			initialEntries = append(initialEntries, entries...)
+			entries = storeRecordableEntries(entries)
+			limit := InitialEntryLimit
+			candidates := &visibleInitialEntries
+			if visibleWorkers != nil {
+				if _, visible := visibleWorkers[worker.id]; !visible {
+					limit = InitialHiddenEntryLimit
+					candidates = &hiddenInitialEntries
+				}
+			}
+			*candidates = newestEntries(append(*candidates, newestEntries(entries, limit)...), limit)
 		} else {
-			result.Entries = append(result.Entries, entries...)
+			result.Entries = append(result.Entries, storeRecordableEntries(entries)...)
 		}
 		result.Cursors[worker.id] = cursor
 		result.HasMore[worker.id] = hasMore
 	}
-	sortEntries(initialEntries)
-	if len(initialEntries) > InitialTotalEntryLimit {
-		initialEntries = initialEntries[len(initialEntries)-InitialTotalEntryLimit:]
-	}
-	result.Entries = append(result.Entries, initialEntries...)
+	result.Entries = append(result.Entries, visibleInitialEntries...)
+	result.Entries = append(result.Entries, hiddenInitialEntries...)
 	sortEntries(result.Entries)
 	return result, nil
+}
+
+func storeRecordableEntries(entries []Entry) []Entry {
+	kept := entries[:0]
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.Text) == "" {
+			continue
+		}
+		switch entry.Kind {
+		case "action", "say", "message", "report", "instructions", "summon", "dismiss":
+			kept = append(kept, entry)
+		case "status":
+			switch strings.ToLower(strings.TrimSpace(entry.Text)) {
+			case "working", "done", "blocked":
+				kept = append(kept, entry)
+			}
+		}
+	}
+	return kept
+}
+
+func newestEntries(entries []Entry, limit int) []Entry {
+	sortEntries(entries)
+	if len(entries) > limit {
+		entries = entries[len(entries)-limit:]
+	}
+	return entries
 }
 
 // ReadHistory returns the newest bounded page, optionally for one worker and before a timestamp or entry token.

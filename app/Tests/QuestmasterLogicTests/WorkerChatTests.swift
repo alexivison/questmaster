@@ -25,6 +25,7 @@ struct WorkerChatTests {
         actionRunClosesOnTheSameWorkersNextNonAction()
         lineTimesFollowTheClockMinute()
         cursorsRoundTripUnchanged()
+        newlyVisibleWorkerGetsAnInitialReadWithTheVisibleBudget()
         hasMoreRepullsImmediately()
         toolOnlyTrackerChangesDoNotPull()
         lastChatTimestampChangeTriggersPull()
@@ -322,8 +323,41 @@ struct WorkerChatTests {
         let cursors = data?["cursors"] as? [String: [String: Any]]
         expect(object["method"] as? String == "worker_feed", "method should be worker_feed")
         expect(data?["master_id"] as? String == "m", "master_id should be the attached master")
+        expect(data?["visible_worker_ids"] as? [String] == ["w1", "w2"], "the feed request should identify workers using the visible history budget")
         expect(cursors?["w1"]?["offset"] as? Int64 == 128, "cursor offset should be sent as is")
         expect(cursors?["w1"]?["file_id"] as? String == "1:42", "cursor file_id should be sent as is")
+    }
+
+    private static func newlyVisibleWorkerGetsAnInitialReadWithTheVisibleBudget() {
+        let store = makeStore()
+        let first = open(store)
+        var expanded = group()
+        expanded.append(TrackerSession(id: "w3", title: "Worker Three", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"))
+        expect(store.sync(selectedSessionID: "m", sessions: expanded, isVisible: true) == nil, "an added worker should wait for the current pull to finish")
+
+        let w1Cursor = WorkerFeedCursor(offset: 10, fileID: "w1-file")
+        let staleHiddenCursor = WorkerFeedCursor(offset: 20, fileID: "w3-file")
+        let retry = store.receive(
+            WorkerFeedPayload(
+                entries: [entry(1, "w1", "say", "kept"), entry(2, "w3", "say", "stale hidden entry")],
+                cursors: ["w1": w1Cursor, "w3": staleHiddenCursor],
+                hasMore: ["w3": true]
+            ),
+            for: first
+        )
+
+        expect(retry != nil, "an added worker should trigger a follow-up read")
+        expect(retry?.visibleWorkerIDs == ["w1", "w2", "w3"], "the follow-up should use the updated visible worker set")
+        expect(retry?.cursors["w1"] == w1Cursor && retry?.cursors["w3"] == nil, "the retry should keep unaffected cursors and reread the added worker from the start")
+        expect(store.lines.contains { $0.segments.last?.text == " kept" }, "entries from unchanged workers should still be applied")
+        expect(!store.lines.contains { $0.segments.last?.text == " stale hidden entry" }, "the under-budget hidden response for the new worker should be discarded")
+
+        let complete = store.receive(
+            WorkerFeedPayload(entries: [entry(2, "w3", "say", "visible report")], cursors: ["w3": staleHiddenCursor]),
+            for: retry!
+        )
+        expect(complete == nil, "a complete reread should not queue another request")
+        expect(store.lines.contains { $0.segments.last?.text == " visible report" }, "the new visible worker's initial history should be shown after rereading")
     }
 
     private static func hasMoreRepullsImmediately() {

@@ -5,6 +5,7 @@ import Observation
 public struct WorkerFeedRequest: Equatable {
     public let masterID: String
     public let cursors: [String: WorkerFeedCursor]
+    public let visibleWorkerIDs: [String]
     let generation: Int
 
     public func jsonObject(id: String) -> [String: Any] {
@@ -14,7 +15,11 @@ public struct WorkerFeedRequest: Equatable {
         return [
             "id": id,
             "method": "worker_feed",
-            "data": ["master_id": masterID, "cursors": cursorObjects] as [String: Any],
+            "data": [
+                "master_id": masterID,
+                "cursors": cursorObjects,
+                "visible_worker_ids": visibleWorkerIDs,
+            ] as [String: Any],
         ]
     }
 }
@@ -224,19 +229,35 @@ public final class WorkerChatStore {
             return nil
         }
         inFlight = false
-        for (workerID, cursor) in payload.cursors {
-            cursors[workerID] = cursor
+        let newlyVisibleWorkers = Set(workerOrder).subtracting(request.visibleWorkerIDs)
+        if !newlyVisibleWorkers.isEmpty {
+            // The in-flight response used the smaller hidden-worker budget. Forget its partial history and
+            // cursor so a follow-up can read the new visible budget from the start.
+            cursors = cursors.filter { !newlyVisibleWorkers.contains($0.key) }
+            records.removeAll { newlyVisibleWorkers.contains($0.workerID) }
+            hasLoaded = false
+            pullWanted = true
+            rebuild()
         }
-        if payload.hasMore.values.contains(true) {
+        for (workerID, cursor) in payload.cursors {
+            if !newlyVisibleWorkers.contains(workerID) {
+                cursors[workerID] = cursor
+            }
+        }
+        let hasMore = payload.hasMore.contains { workerID, hasMore in
+            hasMore && !newlyVisibleWorkers.contains(workerID)
+        }
+        if hasMore {
             pullWanted = true
         }
         let previousErrors = readErrorWorkerIDs
         readErrorWorkerIDs = (payload.errors ?? [:]).keys.sorted()
-        if readErrorWorkerIDs.isEmpty && !payload.hasMore.values.contains(true) {
+        if readErrorWorkerIDs.isEmpty && !hasMore && newlyVisibleWorkers.isEmpty {
             hasLoaded = true
         }
-        if !payload.entries.isEmpty {
-            merge(payload.entries)
+        let entries = payload.entries.filter { !newlyVisibleWorkers.contains($0.workerID) }
+        if !entries.isEmpty {
+            merge(entries)
         } else if previousErrors != readErrorWorkerIDs {
             updateReadNotice()
         }
@@ -258,7 +279,7 @@ public final class WorkerChatStore {
         }
         pullWanted = false
         inFlight = true
-        return WorkerFeedRequest(masterID: masterID, cursors: cursors, generation: generation)
+        return WorkerFeedRequest(masterID: masterID, cursors: cursors, visibleWorkerIDs: workerOrder, generation: generation)
     }
 
     private func reset(to nextMasterID: String?) {
