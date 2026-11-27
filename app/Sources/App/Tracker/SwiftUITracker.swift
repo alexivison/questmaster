@@ -211,10 +211,9 @@ private struct TrackerCommandKeyMonitor: NSViewRepresentable {
 
 /// SwiftUI tracker pane.
 ///
-/// This is the first real SwiftUI pane and the template the other panes follow: it reads the
-/// `@Observable` `RuntimeStore` directly (no manual snapshot push / signature diffing), reuses the
-/// pure `TrackerRenderer` from Core for layout data, and styles itself entirely from the shared
-/// `AppPalette` / `AppFonts` / `Token` design tokens via the `.swiftUI` bridges.
+/// This is the first real SwiftUI pane and the template the other panes follow: it observes the
+/// `RuntimeStore`, reuses a cached session-derived `TrackerRenderer` projection, and styles itself
+/// entirely from the shared `AppPalette` / `AppFonts` / `Token` design tokens via `.swiftUI` bridges.
 ///
 /// Scope: rendering, selection, activation, editing, delete, and list keyboard movement/open.
 /// Broader tracker relay/broadcast/spawn prompts were removed instead of ported.
@@ -232,7 +231,8 @@ struct TrackerRootView: View {
     @State private var commandLongPressIsActive = false
     @State private var editSession: TrackerEditSession?
     @State private var editRepo: TrackerEditRepo?
-    @State private var snapshot: RuntimeSnapshot
+    @State private var connection: ConnectionState
+    @State private var trackerProjection: TrackerRenderProjection
     @State private var currentTerminalSessionID: String?
     @State private var runtimeObservation: RuntimeStoreObservation?
     @State private var avatarStage = TrackerAvatarStage()
@@ -252,7 +252,9 @@ struct TrackerRootView: View {
         self.onEffect = onEffect
         _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
         _destructiveConfirmationPresenter = ObservedObject(wrappedValue: destructiveConfirmationPresenter)
-        _snapshot = State(initialValue: store.snapshot)
+        let snapshot = store.snapshot
+        _connection = State(initialValue: snapshot.connection)
+        _trackerProjection = State(initialValue: TrackerRenderProjection(snapshot: snapshot, expandedMasterIDs: store.expandedMasterIDs))
         _currentTerminalSessionID = State(initialValue: store.currentTerminalSessionID)
     }
 
@@ -298,16 +300,15 @@ struct TrackerRootView: View {
     }
 
     private func trackerContent() -> some View {
-        let tracker = TrackerRenderer.tracker(snapshot)
+        let tracker = trackerProjection.tracker
         let repos = tracker.repos
-        let rows = selectableRows(in: tracker)
+        let rows = trackerProjection.selectableRows
         let selectedID = commandState.renderedSelectedID(in: rows, currentTerminalSessionID: store.currentTerminalSessionID)
         // The cursor shows while the tracker has the keys (focused, no modal drawn); otherwise the pointer only shows
         // the hover band (`PlateBand`).
         let areaFocused = navigation.hasKeys(.tracker)
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
         let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
-        let connection = snapshot.connection
         let tagContent = connection.awaitsFirstTracker ? nil : SelectedSessionTagContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
         let showsShells = !tracker.shells.isEmpty && !connection.awaitsFirstTracker
         // The plates' list scrolls only to a plate: a cursor on a shell is not its row.
@@ -426,29 +427,22 @@ struct TrackerRootView: View {
     }
 
     private func toggleAllWorkersCollapsed() {
-        let masterIDs = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let masterIDs = trackerProjection.sessions
             .compactMap { $0.parentID.isEmpty ? nil : $0.parentID }
         withAnimation(Motion.animation(.standard)) {
             store.toggleAllWorkersCollapsed(masterIDs: masterIDs)
         }
     }
 
-    private func selectableRows(in tracker: TrackerRenderedTracker) -> [TrackerSession] {
-        TrackerSessionShortcuts.selectableSessions(
-            TrackerRenderer.flatSessions(in: tracker),
-            expandedMasterIDs: store.expandedMasterIDs
-        )
-    }
-
     private func hasWorkers(_ sessionID: String) -> Bool {
-        TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        trackerProjection.sessions
             .contains(where: { $0.parentID == sessionID })
     }
 
     /// Feeds the class avatar and the master's company the tracker's sessions and the avatar's session: the switch in flight, which the
     /// slot follows at once, else the attached session.
     private func feedAvatar() {
-        let sessions = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let sessions = trackerProjection.sessions
         let attachedID = TerminalSessionChipResolver.cleanSessionID(store.avatarAttachedSessionID)
         TrackerAvatarLibrary.prefetch(for: sessions)
         avatarStage.observe(sessions: sessions, attachedID: attachedID)
@@ -456,19 +450,27 @@ struct TrackerRootView: View {
     }
 
     private func installRuntimeObservation() {
-        snapshot = store.snapshot
+        let snapshot = store.snapshot
+        if connection != snapshot.connection {
+            connection = snapshot.connection
+        }
         currentTerminalSessionID = store.currentTerminalSessionID
+        updateTrackerProjection(snapshot: snapshot)
         feedAvatar()
         guard runtimeObservation == nil else {
             return
         }
         var lastCurrentSessionID = store.currentTerminalSessionID
         runtimeObservation = store.observe {
-            let previousRows = selectableRows(in: TrackerRenderer.tracker(snapshot))
-            snapshot = store.snapshot
+            let previousRows = trackerProjection.selectableRows
+            let snapshot = store.snapshot
+            if connection != snapshot.connection {
+                connection = snapshot.connection
+            }
             currentTerminalSessionID = store.currentTerminalSessionID
+            updateTrackerProjection(snapshot: snapshot)
             feedAvatar()
-            let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
+            let rows = trackerProjection.selectableRows
             commandState.recoverStaleSelection(previousRows: previousRows, rows: rows, currentTerminalSessionID: store.currentTerminalSessionID)
 
             // The highlight should follow the active session by any path -- a click already
@@ -494,6 +496,14 @@ struct TrackerRootView: View {
         }
     }
 
+    private func updateTrackerProjection(snapshot: RuntimeSnapshot) {
+        var projection = trackerProjection
+        let changes = projection.update(snapshot: snapshot, expandedMasterIDs: store.expandedMasterIDs)
+        if changes.tracker || changes.selectableRows {
+            trackerProjection = projection
+        }
+    }
+
     private func removeRuntimeObservation() {
         runtimeObservation?.cancel()
         runtimeObservation = nil
@@ -508,7 +518,7 @@ struct TrackerRootView: View {
             return handoffFocus(event)
         }
 
-        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
+        let rows = trackerProjection.selectableRows
         switch command {
         case .move(let delta):
             return moveSelection(delta: delta, rows: rows)
@@ -571,7 +581,7 @@ struct TrackerRootView: View {
     }
 
     private func activate(_ session: TrackerSession) {
-        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
+        let rows = trackerProjection.selectableRows
         _ = dispatch(.activate(openedID: session.id), rows: rows)
     }
 
@@ -587,7 +597,7 @@ struct TrackerRootView: View {
     }
 
     private func presentEditSession(sessionID: String) -> Bool {
-        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
+        let rows = trackerProjection.selectableRows
         guard let session = rows.first(where: { $0.id == sessionID }) else {
             return false
         }
@@ -606,7 +616,7 @@ struct TrackerRootView: View {
     }
 
     private func presentEditRepo(sessionID: String) -> Bool {
-        let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
+        let rows = trackerProjection.selectableRows
         guard let session = rows.first(where: { $0.id == sessionID }) else {
             return false
         }

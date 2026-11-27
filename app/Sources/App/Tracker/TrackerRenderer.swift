@@ -46,6 +46,58 @@ struct TrackerRenderedTracker {
     let shells: [TrackerRenderedShell]
 }
 
+struct TrackerProjectionChanges {
+    let tracker: Bool
+    let selectableRows: Bool
+}
+
+/// The tracker's session-derived rows, shared by SwiftUI body updates, selection recovery, keyboard navigation and the avatar.
+/// Quest-only and connection-only updates leave `repos` alone and reuse this projection.
+struct TrackerRenderProjection {
+    private(set) var tracker = TrackerRenderedTracker(repos: [], shells: [])
+    private(set) var sessions: [TrackerSession] = []
+    private(set) var selectableRows: [TrackerSession] = []
+
+    private var sourceRepos: [TrackerRepo]?
+    private var expandedMasterIDs: Set<String> = []
+
+    #if DEBUG
+    private(set) var trackerProjectionCount = 0
+    private(set) var selectableRowsProjectionCount = 0
+    #endif
+
+    init(snapshot: RuntimeSnapshot, expandedMasterIDs: Set<String>) {
+        _ = update(snapshot: snapshot, expandedMasterIDs: expandedMasterIDs)
+    }
+
+    @discardableResult
+    mutating func update(snapshot: RuntimeSnapshot, expandedMasterIDs: Set<String>) -> TrackerProjectionChanges {
+        let trackerChanged = sourceRepos != snapshot.tracker.repos
+        if trackerChanged {
+            sourceRepos = snapshot.tracker.repos
+            tracker = TrackerRenderer.tracker(snapshot)
+            sessions = TrackerRenderer.flatSessions(in: tracker)
+            #if DEBUG
+            trackerProjectionCount += 1
+            #endif
+        }
+
+        let rowsChanged = trackerChanged || self.expandedMasterIDs != expandedMasterIDs
+        if rowsChanged {
+            self.expandedMasterIDs = expandedMasterIDs
+            selectableRows = TrackerSessionShortcuts.selectableSessions(
+                sessions,
+                expandedMasterIDs: expandedMasterIDs
+            )
+            #if DEBUG
+            selectableRowsProjectionCount += 1
+            #endif
+        }
+
+        return TrackerProjectionChanges(tracker: trackerChanged, selectableRows: rowsChanged)
+    }
+}
+
 enum TrackerRenderer {
     private static let leadingDateRegex = try! NSRegularExpression(pattern: #"^\d{4}-\d{2}-\d{2}"#)
 
