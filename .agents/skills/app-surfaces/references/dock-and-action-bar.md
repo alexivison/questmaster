@@ -1,5 +1,8 @@
 # Dock and action bar
 
+- View → Zen Mode (⌥⌘Z) gives the terminal the full window. It hides the tracker, action bar, right dock and
+  floating Return to Master button. Toggling it off restores the normal layout and its focus.
+
 - Watcher and Worker Log start open in the first window layout, while startup resolves its session; no opening
   transition runs before the window appears. After startup, both panels hide if no session is attached, keeping their state.
 - Dock titles (Artifacts, Worker Log, Watcher, an open artifact) are `PanelTitle`, the one title every dock and modal uses:

@@ -170,6 +170,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 deleteFocusedSession: #selector(deleteFocusedSession),
                 selectSession: #selector(selectTrackerSession(_:)),
                 returnToMaster: #selector(returnToMaster),
+                toggleZenMode: #selector(toggleZenMode),
                 toggleTracker: #selector(toggleTracker),
                 focusTerminal: #selector(focusTerminal),
                 toggleDock: #selector(toggleDock),
@@ -198,6 +199,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             ),
             focusDockTop: dockPanelKeyAction(.top),
             focusDockBottom: dockPanelKeyAction(.bottom),
+            toggleZenMode: .anywhere { [weak self] in self?.toggleZenMode() },
             toggleWatcherDock: .anywhere { [weak self] in self?.toggleWatcherDock() },
             returnToMaster: .anywhere { [weak self] in self?.returnToMaster() }
         ))
@@ -761,7 +763,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shows or hides the top panel without touching the bottom one. Showing it takes the keys.
     @objc private func toggleWatcherDock() {
         // Also reached from MenuController's key monitor, which runs before menu validation.
-        guard navigation.appCommandRoute(.app) == .allowed else {
+        guard navigation.appCommandRoute(.shellChrome) == .allowed else {
             return
         }
         if dockCoordinator.state.topVisible {
@@ -814,6 +816,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         focusCoordinator.focusDockPanel(panel)
+    }
+
+    @objc private func toggleZenMode() {
+        guard navigation.toggleZenMode(topModal: InWindowModalStack.shared.top?.kind) else {
+            return
+        }
+        focusCoordinator.focusCurrentRegion()
     }
 
     @objc private func toggleTracker() {
@@ -1250,7 +1259,10 @@ extension AppDelegate: NSMenuItemValidation {
             appCommandKind(for: action),
             topModal: InWindowModalStack.shared.top?.kind
         )
-        guard route != .blockedByModal else {
+        if action == #selector(toggleZenMode) {
+            menuItem.state = navigation.isZenMode ? .on : .off
+        }
+        guard route == .allowed || route == .child else {
             return false
         }
         if action == #selector(returnToMaster) {
@@ -1288,7 +1300,14 @@ extension AppDelegate: NSMenuItemValidation {
         if let command = globalModalCommand(for: action) {
             return .globalModal(command)
         }
-        return .app
+        switch action {
+        case #selector(toggleTracker), #selector(toggleDock), #selector(toggleWorkerChatDock),
+             #selector(toggleWatcherDock), #selector(widenDock), #selector(narrowDock),
+             #selector(toggleAllWorkersCollapsed):
+            return .shellChrome
+        default:
+            return .app
+        }
     }
 
     private static let textEditingActions: Set<Selector> = [

@@ -202,6 +202,7 @@ enum LogicSelfTests {
         ("testListBottomFadesWhileRowsAreHiddenBelow", testListBottomFadesWhileRowsAreHiddenBelow),
         ("testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testWatcherTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
         ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
+        ("testZenModeFillsTheSplitWithTheSameTerminal", testZenModeFillsTheSplitWithTheSameTerminal),
         ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
         ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
         ("testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents", testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents),
@@ -4751,8 +4752,35 @@ enum LogicSelfTests {
         try expect(top.frame.height == 300 && bottom.frame.height == 540, "the split comes back as it was")
     }
 
+    private static func testZenModeFillsTheSplitWithTheSameTerminal() throws {
+        let split = MainSplitView(frame: NSRect(x: 0, y: 0, width: 1520, height: 900))
+        let tracker = NSView()
+        let terminal = NSView()
+        let dock = NSView()
+        let header = NSView()
+        for pane in [tracker, terminal, dock] {
+            split.addArrangedSubview(pane)
+        }
+        split.setHeader(header)
+        split.cellMetricsProvider = { TerminalCellMetrics(cellWidth: 9, cellHeight: 18, paddingX: 20, paddingY: 20) }
+        split.setDockVisible(true, animated: false)
+        let normalFrames = split.subviews.map(\.frame)
+
+        split.isZenMode = true
+        try expect(split.subviews.filter { !$0.isHidden } == [terminal], "Zen Mode should hide the tracker, header, dock and resize divider")
+        try expect(terminal.frame == split.bounds, "the same terminal should fill the whole split")
+        split.setFrameSize(NSSize(width: 1350, height: 750))
+        split.layoutCanonicalFramesIfIdle()
+        try expect(terminal.frame == split.bounds, "the terminal should keep filling the split when resized")
+
+        split.setFrameSize(NSSize(width: 1520, height: 900))
+        split.isZenMode = false
+        try expect(!tracker.isHidden && !header.isHidden && !dock.isHidden, "the normal shell should be visible again")
+        try expect(split.subviews.map(\.frame) == normalFrames, "leaving Zen Mode should restore the normal layout")
+    }
+
     /// The terminal consumes command-key chords as key equivalents before the menu sees them, so the chords that must work
-    /// from it (⇧⌘H/L, ⇧⌘R, ⇧⌘U) run from `MenuController`'s key monitor, which comes first; ⇧⌘K/J do too, but only in the
+    /// from it (⇧⌘H/L, ⇧⌘R, ⇧⌘U, ⌥⌘Z) run from `MenuController`'s key monitor, which comes first; ⇧⌘K/J do too, but only in the
     /// dock's scope (⇧⌘J is also Ghostty's own write_screen_file:paste, shadowed only there), and the monitor returns them
     /// untouched elsewhere. A stand-in for the terminal consumes every key equivalent; an in-process key event for each
     /// chord must reach its action once, never the stand-in (so the menu can't run it a second time), and a held key must
@@ -4785,7 +4813,7 @@ enum LogicSelfTests {
             }
             NSApp.sendEvent(event)
         }
-        // keyCodes: K 40, J 38, H 4, L 37, R 15, U 32. Shift gives the capital character.
+        // keyCodes: K 40, J 38, H 4, L 37, R 15, U 32, Z 6.
         let chords: [(name: String, characters: String, plain: String, keyCode: UInt16, flags: NSEvent.ModifierFlags)] = [
             ("⇧⌘K", "K", "K", 40, [.command, .shift]),
             ("⇧⌘J", "J", "J", 38, [.command, .shift]),
@@ -4793,6 +4821,7 @@ enum LogicSelfTests {
             ("⇧⌘H", "H", "H", 4, [.command, .shift]),
             ("⇧⌘L", "L", "L", 37, [.command, .shift]),
             ("⇧⌘U", "U", "U", 32, [.command, .shift]),
+            ("⌥⌘Z", "Ω", "z", 6, [.command, .option]),
         ]
 
         // The premise: the view hierarchy sees a key equivalent before the menu, and the terminal consumes it, so a menu item
@@ -4816,6 +4845,7 @@ enum LogicSelfTests {
             focusRegionRight: .anywhere { ran.append("⇧⌘L") },
             focusDockTop: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘K") }),
             focusDockBottom: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘J") }),
+            toggleZenMode: .anywhere { ran.append("⌥⌘Z") },
             toggleWatcherDock: .anywhere { ran.append("⇧⌘R") },
             returnToMaster: .anywhere { ran.append("⇧⌘U") }
         )
@@ -4848,6 +4878,7 @@ enum LogicSelfTests {
 
         ran.removeAll()
         try send("K", "K", keyCode: 40, [.command, .shift], isARepeat: true)
+        try send("Ω", "z", keyCode: 6, [.command, .option], isARepeat: true)
         try expect(ran.isEmpty, "a held chord is swallowed without running again")
         try send("K", "K", keyCode: 40, [.command, .shift, .capsLock])
         try expect(ran == ["⇧⌘K"], "Caps Lock doesn't change a chord, got \(ran)")
@@ -4871,7 +4902,7 @@ enum LogicSelfTests {
                 try expect(result == nil, "\(chord.name) works from every region")
             }
         }
-        try expect(ran == ["⇧⌘R", "⇧⌘H", "⇧⌘L", "⇧⌘U"], "only the global chords ran outside the dock, got \(ran)")
+        try expect(ran == ["⇧⌘R", "⇧⌘H", "⇧⌘L", "⇧⌘U", "⌥⌘Z"], "only the global chords ran outside the dock, got \(ran)")
         ran.removeAll()
         try send("K", "K", keyCode: 40, [.command, .shift], isARepeat: true)
         try expect(ran.isEmpty, "a held dock chord outside the dock runs nothing either")
