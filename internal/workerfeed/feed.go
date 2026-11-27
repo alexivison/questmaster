@@ -28,8 +28,6 @@ const (
 	maxHistoryLineSize      = 2 * 1024 * 1024
 	// InitialEntryLimit caps a worker's raw first read and the visible Worker Log budget.
 	InitialEntryLimit = 400
-	// InitialTotalEntryLimit preserves the raw ReadSince aggregate cap.
-	InitialTotalEntryLimit = InitialEntryLimit
 	// Hidden workers use the store's smaller history budget in the native Worker Log feed.
 	InitialHiddenEntryLimit = 150
 	DefaultLimit            = 50
@@ -223,9 +221,6 @@ func readSince(root, masterID string, cursors map[string]Cursor, visibleWorkers 
 		result.Entries = append(result.Entries, hiddenInitialEntries...)
 	} else {
 		sortEntries(rawInitialEntries)
-		if len(rawInitialEntries) > InitialTotalEntryLimit {
-			rawInitialEntries = rawInitialEntries[len(rawInitialEntries)-InitialTotalEntryLimit:]
-		}
 		result.Entries = append(result.Entries, rawInitialEntries...)
 	}
 	sortEntries(result.Entries)

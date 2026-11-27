@@ -297,6 +297,39 @@ func TestReadSinceWithVisibleWorkersInitialCapKeepsEligibleHistory(t *testing.T)
 	}
 }
 
+func TestReadSinceRawInitialHistoryKeepsPerWorkerLimitOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	workerIDs := []string{"qm-report", "qm-noise1", "qm-noise2"}
+	createMasterAndWorkers(t, root, "qm-master", workerIDs...)
+	bodies := map[string][]byte{
+		workerIDs[0]: mustMarshalEvent(chatEvent("report", "quiet worker report", time.Unix(1, 0))),
+	}
+	for index := 0; index < InitialEntryLimit; index++ {
+		workerID := workerIDs[1+index%2]
+		event := chatEvent("status", "queued", time.Unix(int64(index+2), 0))
+		bodies[workerID] = append(bodies[workerID], mustMarshalEvent(event)...)
+	}
+	writeWorkerLogBodies(t, root, workerIDs, bodies)
+
+	first, err := ReadSince(root, "qm-master", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCount := InitialEntryLimit + 1
+	if len(first.Entries) != wantCount {
+		t.Fatalf("raw initial entries = %d, want the report plus all %d statuses", len(first.Entries), InitialEntryLimit)
+	}
+	if first.Entries[0].WorkerID != workerIDs[0] || first.Entries[0].Kind != "report" || first.Entries[0].Text != "quiet worker report" {
+		t.Fatalf("first raw entry = %#v, want the older report before the newer statuses", first.Entries[0])
+	}
+	for index, entry := range first.Entries[1:] {
+		if entry.Kind != "status" || entry.Text != "queued" || !entry.Timestamp.Equal(time.Unix(int64(index+2), 0)) {
+			t.Fatalf("raw status %d = %#v, want queued status at %d", index, entry, index+2)
+		}
+	}
+}
+
 func TestReadSinceWithVisibleWorkersUsesSeparateHistoryBudgets(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
