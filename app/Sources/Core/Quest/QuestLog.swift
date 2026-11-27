@@ -430,9 +430,9 @@ public final class QuestLogStore {
             return targets.isEmpty ? nil : .delete(targets)
         case .open, .openExternal:
             return focusedAttachment.map(QuestLogEffect.openAttachment)
-        case .copy:
+        case .copyID:
             return targets.isEmpty ? nil : .copy(targets)
-        case .jumpToTopPrefix, .refresh, .editRepo,
+        case .copyURL, .copyPath, .jumpToTopPrefix, .refresh, .editRepo,
              .toggleWorkersCollapsed, .toggleAllWorkersCollapsed:
             return nil
         }

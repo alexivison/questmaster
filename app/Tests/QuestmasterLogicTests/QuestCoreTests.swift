@@ -340,7 +340,7 @@ struct QuestCoreTests {
         expect(store.handle(.start) == .start([newest]), "s should start the selected quest")
         expect(store.handle(.edit) == .edit(newest), "e should edit the selected quest")
         expect(store.handle(.delete) == .delete([newest]), "d should delete the selected quest")
-        expect(store.handle(.copy) == .copy([newest]), "y should copy the selected quest")
+        expect(store.handle(.copyID) == .copy([newest]), "y should copy the selected quest ID")
         expect(store.handle(.close) == .close, "esc should close")
         _ = store.handle(.toggleMark)
         store.close()

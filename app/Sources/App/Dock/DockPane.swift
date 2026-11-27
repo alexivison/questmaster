@@ -272,9 +272,9 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onArtifactFilterChange = newValue }
     }
 
-    var onCopyArtifactPath: (() -> Void)? {
-        get { model.onCopyArtifactPath }
-        set { model.onCopyArtifactPath = newValue }
+    var onCopyArtifact: ((String) -> Void)? {
+        get { model.onCopyArtifact }
+        set { model.onCopyArtifact = newValue }
     }
 
     var onFocusRequested: (() -> Void)? {

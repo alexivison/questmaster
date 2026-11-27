@@ -122,7 +122,12 @@ struct DockTopBar: View {
 
             HStack(spacing: Space.item) {
                 if topBar.showArtifactActions {
-                    ChromeIconButton(glyph: .icon(.dockCopyPapers), accessibilityLabel: "Copy artifact path", action: onCopyArtifactPath)
+                    ChromeIconButton(
+                        glyph: .icon(.dockCopyPapers),
+                        accessibilityLabel: "Copy artifact path",
+                        tooltip: "Copy artifact path (⇧\(Keymap.badgeCharacter(for: .copyPath) ?? ""))",
+                        action: onCopyArtifactPath
+                    )
                     ChromeIconButton(glyph: .icon(.dockRefreshCycle), accessibilityLabel: "Refresh artifact", action: onRefreshArtifact)
                 }
                 ChromeIconButton(glyph: .icon(.dockCloseCross), accessibilityLabel: "Close Dock", action: onHideDock)

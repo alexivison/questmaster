@@ -1,5 +1,7 @@
 # Watcher
 
+- `y` copies the cursor row's PR ID (`host/owner/repo#number`), and `Y` copies its URL.
+
 - Watcher's rows list the pull requests the attached session watches. Core decides what a row shows
   (`PullRequestDisplayRow`); `WatcherRow` only draws it. The first line is the git state, `#number` and the title. The
   second line is the review glyph, `CI`, the diff counter, then the author and the watchers at the right edge. The review

@@ -520,7 +520,7 @@ struct TrackerRootView: View {
             return moveSelectionToEdge(last: true, rows: rows)
         case .open:
             return dispatch(.activate(openedID: nil), rows: rows)
-        case .copy:
+        case .copyID:
             guard let sessionID = commandState.selectedSession(in: rows, currentTerminalSessionID: store.currentTerminalSessionID)?.id else {
                 return false
             }

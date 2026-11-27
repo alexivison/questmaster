@@ -22,14 +22,14 @@ struct WatcherPaneRoot: View {
 }
 
 /// The dock's top panel body: the watched pull requests, with the keys while the panel is the dock's focused one. The list
-/// keys move and open as in the artifact list; y copies the page's URL, r refreshes; a click picks a row and opens it.
+/// keys move and open as in the artifact list. `y` copies the PR ID, `Y` copies its URL and `r` refreshes.
 /// What a key asks for goes to `PullRequestStore.handle`, and the App runs the effect it returns.
 final class WatcherDockPane: NSHostingView<WatcherPaneRoot> {
     private let store: PullRequestStore
     private let model: WatcherPaneModel
     private var keys = ListKeyResolver()
 
-    /// Runs what a key or a click asked for: opening or copying a pull request's page, a refresh.
+    /// Runs what a key or a click asked for: opening, copying or refreshing a pull request.
     var onPullRequestEffect: ((PullRequestEffect) -> Void)?
     var onControlDirection: ((NavigationDirection) -> Bool)?
     var onFocusRequested: (() -> Void)?
@@ -118,7 +118,9 @@ final class WatcherDockPane: NSHostingView<WatcherPaneRoot> {
             return perform(.jumpToBottom)
         case .open:
             return perform(.open)
-        case .copy:
+        case .copyID:
+            return perform(.copyID)
+        case .copyURL:
             return perform(.copyURL)
         case .refresh:
             return perform(.refresh)

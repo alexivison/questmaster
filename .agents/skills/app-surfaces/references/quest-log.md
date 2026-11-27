@@ -1,5 +1,7 @@
 # Quest Log
 
+- `y` copies the selected quest ID or the marked quest IDs in list order.
+
 - **The Quest Log's list** is one flat list, newest created first (ties by id), not grouped by project
   (`QuestDisplayState.visibleQuests`). Project tabs (`TextTabRow`, the Worker Log's text tabs) sit above the filter,
   centred over the column while they fit and scrolling sideways past it: All, then one tab per project that has quests,
