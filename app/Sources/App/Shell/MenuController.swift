@@ -39,6 +39,8 @@ final class MenuController {
 
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(commandMenuItem(Keymap.Command.toggleZenMode, action: actions.toggleZenMode, target: target))
+        viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleTracker, action: actions.toggleTracker, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusTerminal, action: actions.focusTerminal, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleDock, action: actions.toggleDock, target: target))
@@ -155,6 +157,7 @@ struct CommandKeyActions {
     let focusRegionRight: CommandKeyAction
     let focusDockTop: CommandKeyAction
     let focusDockBottom: CommandKeyAction
+    let toggleZenMode: CommandKeyAction
     let toggleWatcherDock: CommandKeyAction
     let returnToMaster: CommandKeyAction
 
@@ -164,6 +167,7 @@ struct CommandKeyActions {
             (Keymap.Command.focusRegionRight, focusRegionRight),
             (Keymap.Command.focusDockTop, focusDockTop),
             (Keymap.Command.focusDockBottom, focusDockBottom),
+            (Keymap.Command.toggleZenMode, toggleZenMode),
             (Keymap.Command.toggleWatcherDock, toggleWatcherDock),
             (Keymap.Command.returnToMaster, returnToMaster),
         ]
@@ -182,6 +186,7 @@ struct MenuActions {
     let deleteFocusedSession: Selector
     let selectSession: Selector
     let returnToMaster: Selector
+    let toggleZenMode: Selector
     let toggleTracker: Selector
     let focusTerminal: Selector
     let toggleDock: Selector

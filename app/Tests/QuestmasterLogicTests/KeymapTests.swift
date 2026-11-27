@@ -337,6 +337,7 @@ controlPageAndHalfPageChords()
             Keymap.Command.editFocusedSession,
             Keymap.Command.editFocusedRepo,
             Keymap.Command.deleteFocusedSession,
+            Keymap.Command.toggleZenMode,
             Keymap.Command.toggleTracker,
             Keymap.Command.focusTerminal,
             Keymap.Command.toggleDock,

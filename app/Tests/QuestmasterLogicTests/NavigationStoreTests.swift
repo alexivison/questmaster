@@ -10,6 +10,7 @@ struct NavigationStoreTests {
         dockPanelKeysAreTheDocksAloneWithBothPanelsShown()
         commandChordsRouteToTheModalBeforeTheShell()
         appCommandsRespectModalOwnershipAndExceptions()
+        zenModeKeepsTerminalFocusAndRestoresTheLayout()
         print("NavigationStoreTests: all tests passed")
     }
 
@@ -138,6 +139,25 @@ struct NavigationStoreTests {
             questLog.appCommandRoute(.app, topModal: .questLog) == .blockedByModal,
             "menu-only command \(caffeinate.displayGlyph) should stay disabled under the Quest Log"
         )
+    }
+
+    private static func zenModeKeepsTerminalFocusAndRestoresTheLayout() {
+        let original = AppNavigationState(focusedRegion: .dock, dockVisible: true, focusedDockPanel: .top)
+        let store = NavigationStore(state: original)
+        store.setModalDrawn(true)
+        expect(!store.toggleZenMode(), "a drawn modal should keep the Zen Mode toggle disabled")
+        store.setModalDrawn(false)
+
+        expect(store.toggleZenMode() && store.hasKeys(.terminal), "entering Zen Mode should focus the terminal")
+        expect(store.appCommandRoute(.shellChrome) == .blockedByZenMode, "hidden pane commands should be disabled")
+        expect(store.appCommandRoute(.app) == .allowed, "other app commands should still work")
+        expect(store.commandChordRoute(.left, panels: DockPanels(top: true)) == .passThrough, "hidden-pane keys should reach the terminal")
+        store.focus(.terminal)
+        store.focusDockPanel(.bottom)
+        expect(store.hasKeys(.terminal), "focus requests should leave the keys with the terminal")
+
+        expect(store.toggleZenMode(), "Zen Mode should be reversible")
+        expect(store.state == original && store.hasKeys(.top), "exiting Zen Mode should restore the previous layout and dock focus")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

@@ -54,6 +54,7 @@ public enum CommandChordRoute: Equatable {
 
 public enum AppCommandKind: Equatable {
     case app
+    case shellChrome
     case globalModal(GlobalModalCommand)
     case textEditing
     case quit
@@ -63,6 +64,7 @@ public enum AppCommandRoute: Equatable {
     case allowed
     case child
     case blockedByModal
+    case blockedByZenMode
 }
 
 public struct AppNavigationState: Equatable {
